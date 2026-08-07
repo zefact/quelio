@@ -1,0 +1,58 @@
+{
+  "name": "quelio",
+  "private": true,
+  "version": "0.1.0",
+  "description": "MySQL / PostgreSQL 対応の無料デスクトップDBクライアント (Tauri 2 + React + Rust)",
+  "license": "MIT",
+  "author": "ZEFACT Co., Ltd.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zefact/quelio.git"
+  },
+  "homepage": "https://github.com/zefact/quelio",
+  "bugs": {
+    "url": "https://github.com/zefact/quelio/issues"
+  },
+  "keywords": [
+    "database",
+    "mysql",
+    "postgresql",
+    "db-client",
+    "tauri",
+    "desktop"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.4",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.1",
+    "@codemirror/view": "^6.43.8",
+    "@lezer/highlight": "^1.2.3",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "sql-formatter": "^15.8.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4"
+  }
+}

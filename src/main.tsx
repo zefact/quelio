@@ -1,0 +1,41 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import App from "./App";
+import "./App.css";
+import { ConsoleWindow } from "./components/ConsoleWindow";
+import { DiffWindow } from "./components/DiffWindow";
+import { SchemaWindow } from "./components/SchemaWindow";
+import { initTheme } from "./theme";
+
+initTheme();
+
+// macOSではタイトルバーをアプリに統合(Overlay)するため、
+// 信号機ボタンぶんの余白をCSSで確保できるようクラスを付ける
+if (navigator.userAgent.includes("Mac")) {
+  document.documentElement.classList.add("macos");
+}
+
+// 右クリックでWebView標準メニュー(Reload等)を出さない。
+// 入力欄はコピー/ペースト等の編集メニューが必要なので除外する
+// (SQLエディタは独自メニュー側でpreventDefault済み)
+window.addEventListener("contextmenu", (e) => {
+  const t = e.target as HTMLElement | null;
+  if (t?.closest("input, textarea, [contenteditable='true']")) return;
+  e.preventDefault();
+});
+
+// URLパラメータでウィンドウの役割を切り替える
+const params = new URLSearchParams(window.location.search);
+const content = params.has("console") ? (
+  <ConsoleWindow />
+) : params.has("diff") ? (
+  <DiffWindow />
+) : params.has("schema") ? (
+  <SchemaWindow />
+) : (
+  <App />
+);
+
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+  <React.StrictMode>{content}</React.StrictMode>,
+);

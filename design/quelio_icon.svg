@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <clipPath id="squircle">
+      <rect x="0" y="0" width="1024" height="1024" rx="230" ry="230"/>
+    </clipPath>
+    <!-- big diagonal wave: violet (top-left) to cyan (top-right) -->
+    <linearGradient id="waveGrad" gradientUnits="userSpaceOnUse" x1="80" y1="360" x2="980" y2="140">
+      <stop offset="0" stop-color="#6A0ABE"/>
+      <stop offset="0.55" stop-color="#2E7DE8"/>
+      <stop offset="1" stop-color="#4FFFFF"/>
+    </linearGradient>
+    <!-- lavender blob bottom-left -->
+    <linearGradient id="blobGrad" gradientUnits="userSpaceOnUse" x1="230" y1="820" x2="40" y2="1010">
+      <stop offset="0" stop-color="#4621AA"/>
+      <stop offset="1" stop-color="#958FFF"/>
+    </linearGradient>
+    <linearGradient id="baseGrad" gradientUnits="userSpaceOnUse" x1="200" y1="200" x2="900" y2="1000">
+      <stop offset="0" stop-color="#221E5E"/>
+      <stop offset="1" stop-color="#1B1842"/>
+    </linearGradient>
+  </defs>
+
+  <g clip-path="url(#squircle)">
+    <!-- dark navy base -->
+    <rect x="0" y="0" width="1024" height="1024" fill="url(#baseGrad)"/>
+
+    <!-- violet-to-cyan diagonal wave across the top -->
+    <path fill="url(#waveGrad)" d="M 0 0
+      L 1024 0
+      L 1024 600
+      C 920 650 830 640 750 590
+      C 660 532 590 470 500 420
+      C 400 365 300 340 210 368
+      C 130 392 60 440 0 490
+      Z"/>
+
+    <!-- lavender blob bottom-left -->
+    <path fill="url(#blobGrad)" d="M 0 770
+      C 110 752 210 800 245 890
+      C 268 950 258 1010 225 1024
+      L 0 1024
+      Z"/>
+
+    <!-- Q ring (composition centered at 512,512) -->
+    <circle cx="489" cy="488" r="205" fill="none" stroke="#FFFFFF" stroke-width="110"/>
+
+    <!-- database cylinder overlapping the lower-right of the O (as in the original) -->
+    <!-- dark separation outline -->
+    <g stroke="#1E1B4B" stroke-width="28" fill="#1E1B4B" stroke-linejoin="round">
+      <path d="M 557 548 A 112 40 0 0 1 781 548 L 781 743 A 112 40 0 0 1 557 743 Z"/>
+    </g>
+    <!-- white cylinder body -->
+    <path fill="#FFFFFF" d="M 557 548 A 112 40 0 0 1 781 548 L 781 743 A 112 40 0 0 1 557 743 Z"/>
+    <!-- top disk + band lines -->
+    <ellipse cx="669" cy="548" rx="112" ry="40" fill="#FFFFFF" stroke="#1E1B4B" stroke-width="15"/>
+    <g fill="none" stroke="#1E1B4B" stroke-width="15" stroke-linecap="round">
+      <path d="M 557 613 A 112 40 0 0 0 781 613"/>
+      <path d="M 557 678 A 112 40 0 0 0 781 678"/>
+    </g>
+  </g>
+</svg>

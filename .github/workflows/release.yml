@@ -1,0 +1,88 @@
+# タグ (v*) を push すると Mac / Windows 向けにビルドし、
+# GitHub Releases へドラフトとして添付するワークフロー。
+# リリースノートは CHANGELOG.md の該当バージョンのセクションから自動生成される。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Releasesへの書き込みに必要
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon Mac (.app / .dmg)
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          # Windows x64 (.msi / セットアップ.exe)
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # CHANGELOG.md からタグに対応するバージョンのセクションを抜き出す
+      # (例: v0.2.0 → 「## [0.2.0]」から次の「## [」まで)
+      - name: 変更履歴を抽出
+        id: changelog
+        shell: bash
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          body=$(awk -v ver="$ver" '
+            $0 ~ "^## \\[" ver "\\]" { flag = 1; next }
+            /^## \[/ { flag = 0 }
+            flag' CHANGELOG.md)
+          if [ -z "$(echo "$body" | tr -d '[:space:]')" ]; then
+            body="変更点は [CHANGELOG.md](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md) を参照してください。"
+          fi
+          {
+            echo "body<<CHANGELOG_EOF"
+            echo "$body"
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Node.jsセットアップ
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Rustセットアップ
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
+
+      - name: Rustビルドキャッシュ
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: フロントエンド依存関係
+        run: npm ci
+
+      - name: ビルドしてReleasesへ添付
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 自動アップデートの署名鍵 (リポジトリのSecretsに登録)
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Quelio ${{ github.ref_name }}"
+          releaseBody: ${{ steps.changelog.outputs.body }}
+          releaseDraft: true # 内容を確認してから手動で公開する
+          # 自動アップデートは「最新の正式リリース」(releases/latest) を参照するため、
+          # prereleaseを付けるとlatest.jsonが見つからず更新が配信されない。
+          # ベータ表記はアプリ内とREADMEで行い、Releaseはprereleaseにしない
+          prerelease: false
+          includeUpdaterJson: true # latest.json (自動アップデート用) を生成する
+          args: ${{ matrix.args }}

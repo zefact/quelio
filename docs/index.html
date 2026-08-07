@@ -1,0 +1,1010 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quelio - 軽量なMySQL / PostgreSQLクライアント</title>
+  <meta name="description" content="Quelio(クエリオ)は、Tauri製の軽量デスクトップDBクライアント。MySQL / PostgreSQL対応、SSHトンネル、テーブル構造ビュー、EXPLAIN対応のクエリエディタ、エクスポート/インポートを搭載。" />
+  <meta property="og:title" content="Quelio - 軽量なMySQL / PostgreSQLクライアント" />
+  <meta property="og:description" content="スキーマ差分チェック・結果の自動キャプチャ・日本語の論理名表示。現場で欲しかった機能を載せた無料のデスクトップDBクライアント (macOS / Windows)。" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://zefact.github.io/quelio/" />
+  <style>
+    :root {
+      --ink: #0f1222;
+      --ink-2: #3d4257;
+      --ink-3: #7a7f96;
+      --line: #e8e9ef;
+      --bg: #ffffff;
+      --bg-soft: #f7f7fa;
+      --indigo: #4f46e5;
+      --cyan: #0891b2;
+      --accent-grad: linear-gradient(100deg, #4f46e5, #0891b2);
+      /* app mock palette (実アプリと同じ) */
+      --m-bg: #0c0e14;
+      --m-panel: #12151d;
+      --m-card: rgba(255, 255, 255, 0.03);
+      --m-border: rgba(255, 255, 255, 0.08);
+      --m-border-s: rgba(255, 255, 255, 0.14);
+      --m-text: #e7eaf2;
+      --m-dim: #8b93a8;
+      --m-faint: #5b6275;
+      --m-accent: #6366f1;
+      --m-accent2: #22d3ee;
+      --m-mysql: #f0a63a;
+      --m-postgres: #5a9bd8;
+      --m-success: #34d399;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    .container { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+    .mono { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; }
+
+    /* ===== Nav ===== */
+    nav {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-inner { display: flex; align-items: center; height: 64px; gap: 28px; }
+    .nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; }
+    .nav-logo svg { width: 26px; height: 26px; }
+    .nav-links { display: flex; gap: 24px; margin-left: auto; font-size: 14px; color: var(--ink-2); }
+    .nav-links a:hover { color: var(--ink); }
+    .nav-gh {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 13.5px; font-weight: 600;
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 7px 14px; color: var(--ink-2);
+      transition: border-color .15s, color .15s;
+    }
+    .nav-gh:hover { border-color: #c9cbd6; color: var(--ink); }
+
+    /* ===== Hero ===== */
+    .hero { position: relative; padding: 100px 0 72px; text-align: center; overflow: hidden; }
+    .hero::before {
+      content: "";
+      position: absolute; inset: 0; z-index: -1;
+      background:
+        radial-gradient(700px 380px at 50% -80px, rgba(79, 70, 229, 0.07), transparent 70%),
+        radial-gradient(500px 300px at 82% 12%, rgba(8, 145, 178, 0.06), transparent 70%);
+    }
+    .hero::after {
+      content: "";
+      position: absolute; inset: 0; z-index: -2;
+      background-image:
+        linear-gradient(to right, rgba(15, 18, 34, 0.035) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(15, 18, 34, 0.035) 1px, transparent 1px);
+      background-size: 44px 44px;
+      -webkit-mask-image: radial-gradient(ellipse 75% 65% at 50% 30%, #000 35%, transparent 75%);
+      mask-image: radial-gradient(ellipse 75% 65% at 50% 30%, #000 35%, transparent 75%);
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+      border: 1px solid var(--line); background: #fff;
+      border-radius: 999px; padding: 5px 14px;
+      box-shadow: 0 1px 2px rgba(15, 18, 34, 0.04);
+      margin-bottom: 28px;
+    }
+    .badge i { width: 6px; height: 6px; border-radius: 50%; background: #10b981; display: inline-block; }
+    .hero h1 {
+      font-size: clamp(40px, 6.5vw, 64px);
+      line-height: 1.18;
+      font-weight: 850;
+      letter-spacing: -0.015em;
+      font-feature-settings: "palt";
+    }
+    .hero h1 .grad {
+      background: var(--accent-grad);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .hero .sub { max-width: 580px; margin: 22px auto 0; color: var(--ink-2); font-size: 16.5px; }
+    .hero-cta { margin-top: 38px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      padding: 13px 30px; border-radius: 12px;
+      font-weight: 700; font-size: 15px;
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .btn-dark { color: #fff; background: var(--ink); box-shadow: 0 10px 26px rgba(15, 18, 34, 0.22); }
+    .btn-dark:hover { transform: translateY(-2px); box-shadow: 0 14px 32px rgba(15, 18, 34, 0.28); }
+    .btn-line { color: var(--ink); border: 1px solid var(--line); background: #fff; }
+    .btn-line:hover { border-color: #c9cbd6; }
+    .hero-meta { margin-top: 18px; font-size: 13px; color: var(--ink-3); }
+
+    /* ===== App mock (実UI再現) ===== */
+    .mock-wrap { padding: 34px 0 10px; }
+    .mock-frame {
+      max-width: 960px; margin: 0 auto;
+      border-radius: 18px; padding: 10px;
+      background: linear-gradient(160deg, #eef0f6, #fafbfd);
+      border: 1px solid var(--line);
+    }
+    .app-mock {
+      border-radius: 11px;
+      background:
+        radial-gradient(600px 260px at 85% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
+        radial-gradient(450px 200px at -10% 110%, rgba(34, 211, 238, 0.07), transparent 60%),
+        var(--m-bg);
+      box-shadow: 0 24px 70px rgba(15, 18, 34, 0.18);
+      overflow: hidden;
+      font-size: 12px;
+      text-align: left;
+      color: var(--m-text);
+      border: 1px solid #23263a;
+    }
+    .am-titlebar { display: flex; gap: 7px; padding: 11px 13px 7px; }
+    .am-titlebar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+    .am-tabbar { display: flex; align-items: flex-end; gap: 6px; padding: 0 12px; border-bottom: 1px solid var(--m-border); }
+    .am-brand { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; padding: 0 10px 7px 2px;
+      background: linear-gradient(90deg, #fff, #b8c0d8); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .am-tab {
+      display: flex; align-items: center; gap: 7px;
+      padding: 6px 14px; border-radius: 8px 8px 0 0;
+      border: 1px solid transparent; border-bottom: none;
+      color: var(--m-dim); position: relative;
+    }
+    .am-tab.active { color: var(--m-text); background: var(--m-card); border-color: var(--m-border); }
+    .am-tab.active::after {
+      content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
+      background: linear-gradient(90deg, var(--m-accent), var(--m-accent2)); border-radius: 2px;
+    }
+    .am-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .am-console-btn { margin-left: auto; font-size: 11px; color: var(--m-dim); border: 1px solid var(--m-border-s); border-radius: 7px; padding: 3px 10px; margin-bottom: 6px; }
+    .am-toolbar { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--m-border); background: rgba(255,255,255,0.015); }
+    .am-conn-name { font-size: 12px; font-weight: 700; }
+    .am-conn-host { font-size: 10px; color: var(--m-dim); }
+    .am-select {
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(0,0,0,0.35); border: 1px solid var(--m-border-s);
+      border-radius: 8px; padding: 5px 11px; font-size: 12px; color: var(--m-text);
+    }
+    .am-select .car { color: var(--m-dim); font-size: 9px; }
+    .am-body { display: grid; grid-template-columns: 218px 1fr; min-height: 348px; }
+    .am-side { border-right: 1px solid var(--m-border); background: rgba(255,255,255,0.015); padding: 10px; }
+    .am-side-head { display: flex; justify-content: space-between; align-items: center; padding: 2px 5px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--m-faint); }
+    .am-count { font-size: 10px; color: var(--m-dim); background: rgba(255,255,255,0.06); border-radius: 999px; padding: 0 8px; }
+    .am-filter { font-size: 11px; color: var(--m-faint); background: rgba(0,0,0,0.3); border: 1px solid var(--m-border-s); border-radius: 7px; padding: 5px 9px; margin-bottom: 7px; }
+    .am-titem { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 7px; color: var(--m-dim); font-size: 11.5px; }
+    .am-titem.sel { background: linear-gradient(90deg, rgba(99,102,241,0.2), rgba(34,211,238,0.08)); color: var(--m-text); }
+    .chip { flex-shrink: 0; font-size: 8px; font-weight: 800; letter-spacing: 0.05em; border-radius: 4px; padding: 1px 5px; }
+    .chip.t { color: var(--m-accent2); background: rgba(34,211,238,0.1); border: 1px solid rgba(34,211,238,0.3); }
+    .chip.v { color: #c4b5fd; background: rgba(167,139,250,0.12); border: 1px solid rgba(167,139,250,0.35); }
+    .am-main { padding: 16px 18px; overflow: hidden; }
+    .am-table-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+    .am-table-head h4 { font-size: 14px; font-weight: 700; }
+    .am-logical { font-size: 11px; color: var(--m-dim); }
+    .am-chips { display: flex; gap: 7px; margin-bottom: 14px; flex-wrap: wrap; }
+    .am-ichip { display: inline-flex; gap: 6px; font-size: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--m-border); border-radius: 6px; padding: 3px 8px; color: var(--m-dim); }
+    .am-ichip b { color: var(--m-text); font-weight: 600; }
+    .am-h { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--m-faint); margin: 0 0 7px; }
+    .am-grid { width: 100%; border-collapse: collapse; font-size: 10.5px; }
+    .am-grid th { text-align: left; color: var(--m-faint); font-weight: 600; padding: 5px 9px; border-bottom: 1px solid var(--m-border-s); white-space: nowrap; }
+    .am-grid td { padding: 5px 9px; border-bottom: 1px solid var(--m-border); color: var(--m-dim); white-space: nowrap; }
+    .am-grid td.c1 { color: var(--m-text); }
+    .am-key { color: var(--m-mysql); font-weight: 700; font-size: 9.5px; }
+
+    /* ===== Why ===== */
+    .why { background: var(--bg-soft); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .why-lead { max-width: 680px; margin: 20px auto 0; text-align: center; color: var(--ink-2); font-size: 15px; }
+    .why-grid { margin-top: 48px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .why-card {
+      position: relative; background: #fff; border: 1px solid var(--line);
+      border-radius: 16px; padding: 30px 26px; overflow: hidden;
+    }
+    .why-card::before {
+      content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+      background: var(--accent-grad);
+    }
+    .why-card .no {
+      font-family: "SF Mono", Menlo, monospace; font-size: 12px; font-weight: 700;
+      letter-spacing: 0.1em;
+      background: var(--accent-grad);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .why-card h3 { font-size: 17px; margin: 8px 0 8px; font-weight: 800; }
+    .why-card p { font-size: 13.8px; color: var(--ink-2); }
+    .why-card a { font-size: 13px; font-weight: 700; color: var(--indigo); display: inline-block; margin-top: 10px; }
+
+    /* ===== diff / capture mock parts ===== */
+    .mdiff-bar { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--m-border); background: rgba(255,255,255,0.02); font-size: 10.5px; }
+    .mdiff-sel { display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.35); border: 1px solid var(--m-border-s); border-radius: 7px; padding: 4px 9px; color: var(--m-text); }
+    .mdiff-sel .car { color: var(--m-dim); font-size: 8px; }
+    .mdiff-vs { color: var(--m-dim); }
+    .mdiff-table { padding: 10px 12px 12px; }
+    .mdiff-thead { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 8px; font-size: 9.5px; color: var(--m-faint); padding: 0 8px 6px; }
+    .mdiff-row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 8px; align-items: center; font-size: 10.5px; padding: 5px 8px; border-radius: 7px; }
+    .mdiff-row:nth-child(odd) { background: rgba(255,255,255,0.02); }
+    .mdiff-row .lb { color: var(--m-dim); }
+    .mdiff-row .cell { font-family: "SF Mono", Menlo, monospace; color: var(--m-text); }
+    .mdiff-row .cell.empty { color: var(--m-faint); }
+    .mdiff-hl { background: rgba(240, 166, 58, 0.22); color: var(--m-mysql); border-radius: 3px; padding: 0 2px; }
+    .mdiff-status { font-size: 8.5px; font-weight: 800; border-radius: 4px; padding: 1px 6px; }
+    .mdiff-status.chg { color: var(--m-mysql); background: rgba(240,166,58,0.12); border: 1px solid rgba(240,166,58,0.35); }
+    .mdiff-status.only { color: var(--m-accent2); background: rgba(34,211,238,0.1); border: 1px solid rgba(34,211,238,0.3); }
+    .mcap-shot { margin: 12px; border: 1px solid var(--m-border-s); border-radius: 8px; overflow: hidden; background: var(--m-bg); }
+    .mcap-head { display: flex; justify-content: space-between; padding: 8px 11px; font-size: 10px; color: #a5b4fc; font-weight: 800; border-bottom: 1px solid var(--m-border); }
+    .mcap-head span { color: var(--m-faint); font-weight: 400; }
+    .mcap-sql { font-family: "SF Mono", Menlo, monospace; font-size: 10px; color: #cdd6f4; background: rgba(255,255,255,0.045); margin: 9px 11px; padding: 7px 9px; border-radius: 6px; }
+    .mcap-note { font-size: 10.5px; color: var(--m-success); padding: 0 12px 12px; }
+
+    /* ===== Steps ===== */
+    .steps { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .step { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 28px 26px; }
+    .step .num {
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 12px; font-weight: 700;
+      background: var(--accent-grad);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      letter-spacing: 0.1em;
+    }
+    .step h3 { font-size: 16.5px; margin: 8px 0 6px; }
+    .step p { font-size: 13.8px; color: var(--ink-2); }
+
+    /* ===== Sections ===== */
+    section { padding: 92px 0; }
+    .sec-label {
+      display: block; text-align: center;
+      font-size: 13px; font-weight: 700; letter-spacing: 0.14em;
+      background: var(--accent-grad);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      margin-bottom: 12px;
+    }
+    .sec-title { text-align: center; font-size: clamp(26px, 4vw, 36px); font-weight: 800; letter-spacing: -0.01em; font-feature-settings: "palt"; }
+    .sec-sub { text-align: center; color: var(--ink-2); margin-top: 12px; font-size: 15px; }
+
+    /* ===== Deep dives ===== */
+    .deep { display: grid; grid-template-columns: 1fr 1fr; gap: 54px; align-items: center; margin-top: 72px; }
+    .deep:first-of-type { margin-top: 56px; }
+    .deep-label {
+      font-size: 12px; font-weight: 700; letter-spacing: 0.12em;
+      background: var(--accent-grad);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
+    .deep h3 { font-size: 24px; font-weight: 800; margin: 10px 0 14px; letter-spacing: -0.01em; }
+    .deep p { color: var(--ink-2); font-size: 14.5px; }
+    .deep ul { margin-top: 16px; list-style: none; }
+    .deep li { position: relative; padding-left: 24px; margin-bottom: 9px; font-size: 13.8px; color: var(--ink-2); }
+    .deep li::before {
+      content: ""; position: absolute; left: 2px; top: 7px;
+      width: 12px; height: 6px;
+      border-left: 2px solid var(--indigo); border-bottom: 2px solid var(--indigo);
+      transform: rotate(-45deg);
+    }
+    .deep li b { color: var(--ink); font-weight: 700; }
+    .mini-frame { border-radius: 14px; padding: 8px; background: linear-gradient(160deg, #eef0f6, #fafbfd); border: 1px solid var(--line); }
+    .mini {
+      border-radius: 9px; background: var(--m-bg); border: 1px solid #23263a;
+      box-shadow: 0 18px 44px rgba(15, 18, 34, 0.16);
+      overflow: hidden; font-size: 11.5px; color: var(--m-text); text-align: left;
+    }
+    .mini-bar { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--m-border); background: rgba(255,255,255,0.02); }
+    .mini-bar .ttl { font-size: 11px; font-weight: 700; color: var(--m-dim); }
+    .mbtn { font-size: 10.5px; font-weight: 700; border-radius: 7px; padding: 4px 12px; }
+    .mbtn.p { color: #fff; background: var(--m-accent); }
+    .mbtn.s { color: var(--m-dim); border: 1px solid var(--m-border-s); }
+    .mswitch { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--m-dim); margin-left: auto; }
+    .mswitch .tr { width: 26px; height: 15px; border-radius: 999px; background: var(--m-accent); position: relative; }
+    .mswitch .tr::after { content: ""; position: absolute; right: 2px; top: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; }
+    .msql { display: grid; grid-template-columns: 30px 1fr; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11px; line-height: 1.85; padding: 11px 0; border-bottom: 1px solid var(--m-border); }
+    .msql .ln { text-align: right; padding-right: 10px; color: var(--m-faint); user-select: none; }
+    .msql .cd { color: #cdd6f4; padding-right: 14px; }
+    .msql .k { color: #a5a0ff; }
+    .msql .s { color: #9fd6a2; }
+    .mrtabs { display: flex; gap: 6px; padding: 9px 12px 0; }
+    .mrtab { font-size: 10px; font-family: "SF Mono", Menlo, monospace; color: var(--m-dim); border: 1px solid var(--m-border); border-bottom: none; border-radius: 6px 6px 0 0; padding: 3px 10px; }
+    .mrtab.on { color: var(--m-text); background: var(--m-card); }
+    .mbanner { display: flex; align-items: center; gap: 7px; margin: 10px 12px; font-size: 10.5px; color: var(--m-success); }
+    .mbanner i { width: 7px; height: 7px; border-radius: 50%; background: var(--m-success); }
+    .mbanner span { color: var(--m-dim); }
+    .mtree { padding: 10px; }
+    .mtree-h { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--m-faint); padding: 2px 6px 8px; }
+    .mfolder { display: flex; align-items: center; gap: 7px; padding: 5px 8px; color: var(--m-dim); font-size: 11.5px; }
+    .mfolder .cv { font-size: 8px; color: var(--m-faint); }
+    .mconn { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 24px; border-radius: 7px; color: var(--m-dim); font-size: 11.5px; }
+    .mconn.sel { background: linear-gradient(90deg, rgba(99,102,241,0.2), rgba(34,211,238,0.08)); color: var(--m-text); }
+    .mconn .host { font-size: 9.5px; color: var(--m-faint); margin-left: auto; }
+    .sshchip { font-size: 8px; font-weight: 800; color: var(--m-accent2); border: 1px solid rgba(34,211,238,0.35); border-radius: 4px; padding: 0 4px; }
+    .mnew { margin: 8px; text-align: center; font-size: 11px; color: var(--m-dim); border: 1px dashed var(--m-border-s); border-radius: 8px; padding: 6px; }
+
+    /* ===== Features grid ===== */
+    .features {
+      margin-top: 52px;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px;
+      background: var(--line);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      overflow: hidden;
+    }
+    .feature { background: #fff; padding: 30px 28px; transition: background .2s; }
+    .feature:hover { background: var(--bg-soft); }
+    .feature .ic {
+      width: 38px; height: 38px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid var(--line); background: #fff;
+      box-shadow: 0 1px 2px rgba(15, 18, 34, 0.05);
+      margin-bottom: 16px; color: var(--indigo);
+    }
+    .feature .ic svg { width: 19px; height: 19px; }
+    .feature h3 { font-size: 15.5px; margin-bottom: 7px; font-weight: 750; }
+    .feature p { color: var(--ink-2); font-size: 13.4px; line-height: 1.8; }
+
+    /* ===== Roadmap ===== */
+    .roadmap-list {
+      max-width: 720px; margin: 44px auto 0;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
+    }
+    .rm-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      padding: 18px 20px;
+    }
+    .rm-item .rm-ic {
+      flex-shrink: 0; margin-top: 2px;
+      width: 26px; height: 26px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      border: 1px solid var(--line); color: var(--indigo);
+    }
+    .rm-item .rm-ic svg { width: 14px; height: 14px; }
+    .rm-item h3 { font-size: 14.5px; font-weight: 750; }
+    .rm-item p { font-size: 12.8px; color: var(--ink-2); margin-top: 3px; line-height: 1.7; }
+    .rm-note { text-align: center; color: var(--ink-3); font-size: 12.5px; margin-top: 26px; }
+    .rm-note a { color: var(--indigo); font-weight: 600; }
+    @media (max-width: 700px) { .roadmap-list { grid-template-columns: 1fr; } }
+
+    /* ===== FAQ (2カラムのアコーディオン) ===== */
+    .faq-list {
+      max-width: 1000px; margin: 48px auto 0;
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px; align-items: start;
+    }
+    .faq-item { border: 1px solid var(--line); border-radius: 14px; background: #fff; overflow: hidden; }
+    .faq-item summary {
+      list-style: none; cursor: pointer;
+      display: flex; align-items: center; gap: 12px;
+      padding: 16px 20px; font-weight: 700; font-size: 14px;
+      line-height: 1.6;
+    }
+    .faq-item summary::-webkit-details-marker { display: none; }
+    .faq-item summary::after {
+      content: ""; margin-left: auto; flex-shrink: 0;
+      width: 9px; height: 9px;
+      border-right: 2px solid var(--ink-3); border-bottom: 2px solid var(--ink-3);
+      transform: rotate(45deg); transition: transform .2s;
+    }
+    .faq-item[open] summary::after { transform: rotate(-135deg); }
+    .faq-item[open] { border-color: #c9cbd6; }
+    .faq-item .a { padding: 0 20px 18px; color: var(--ink-2); font-size: 13.5px; }
+
+    /* ===== Download ===== */
+    .dl { background: var(--bg-soft); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .dl-cards { margin: 48px auto 0; max-width: 660px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .dl-card {
+      background: #fff; border: 1px solid var(--line); border-radius: 16px;
+      padding: 32px 26px; text-align: center;
+      transition: transform .15s ease, box-shadow .15s ease;
+    }
+    .dl-card:hover { transform: translateY(-3px); box-shadow: 0 14px 34px rgba(15, 18, 34, 0.08); }
+    .dl-card .os-ic { color: var(--ink); margin-bottom: 12px; }
+    .dl-card .os-ic svg { width: 30px; height: 30px; }
+    .dl-card h3 { font-size: 17px; }
+    .dl-card .fmt { color: var(--ink-3); font-size: 13px; margin: 4px 0 20px; }
+    .dl-card .btn { width: 100%; padding: 11px 0; font-size: 14px; }
+    .dl-note { text-align: center; color: var(--ink-3); font-size: 13px; margin-top: 30px; }
+
+    footer { padding: 40px 0; }
+    .foot-inner { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--ink-3); }
+    .foot-inner svg { width: 20px; height: 20px; }
+    .foot-right { margin-left: auto; }
+    .foot-right a:hover { color: var(--ink); }
+
+    @media (max-width: 900px) {
+      .features { grid-template-columns: 1fr; }
+      .dl-cards { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: 1fr; }
+      .deep { grid-template-columns: 1fr; gap: 26px; }
+      .deep.rev .deep-visual { order: -1; }
+      .nav-links { display: none; }
+      .faq-list { grid-template-columns: 1fr; }
+      .am-body { grid-template-columns: 1fr; }
+      .am-side { display: none; }
+      .hero { padding: 72px 0 52px; }
+    }
+  </style>
+</head>
+<body>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <clipPath id="sq"><rect x="0" y="0" width="1024" height="1024" rx="230" ry="230"/></clipPath>
+      <linearGradient id="wv" gradientUnits="userSpaceOnUse" x1="80" y1="360" x2="980" y2="140">
+        <stop offset="0" stop-color="#6A0ABE"/><stop offset="0.55" stop-color="#2E7DE8"/><stop offset="1" stop-color="#4FFFFF"/>
+      </linearGradient>
+      <linearGradient id="bl" gradientUnits="userSpaceOnUse" x1="230" y1="820" x2="40" y2="1010">
+        <stop offset="0" stop-color="#4621AA"/><stop offset="1" stop-color="#958FFF"/>
+      </linearGradient>
+      <linearGradient id="bs" gradientUnits="userSpaceOnUse" x1="200" y1="200" x2="900" y2="1000">
+        <stop offset="0" stop-color="#221E5E"/><stop offset="1" stop-color="#1B1842"/>
+      </linearGradient>
+      <g id="quelio-mark">
+        <g clip-path="url(#sq)">
+          <rect width="1024" height="1024" fill="url(#bs)"/>
+          <path fill="url(#wv)" d="M 0 0 L 1024 0 L 1024 600 C 920 650 830 640 750 590 C 660 532 590 470 500 420 C 400 365 300 340 210 368 C 130 392 60 440 0 490 Z"/>
+          <path fill="url(#bl)" d="M 0 770 C 110 752 210 800 245 890 C 268 950 258 1010 225 1024 L 0 1024 Z"/>
+          <circle cx="489" cy="488" r="205" fill="none" stroke="#FFFFFF" stroke-width="110"/>
+          <g stroke="#1E1B4B" stroke-width="28" fill="#1E1B4B" stroke-linejoin="round">
+            <path d="M 557 548 A 112 40 0 0 1 781 548 L 781 743 A 112 40 0 0 1 557 743 Z"/>
+          </g>
+          <path fill="#FFFFFF" d="M 557 548 A 112 40 0 0 1 781 548 L 781 743 A 112 40 0 0 1 557 743 Z"/>
+          <ellipse cx="669" cy="548" rx="112" ry="40" fill="#FFFFFF" stroke="#1E1B4B" stroke-width="15"/>
+          <g fill="none" stroke="#1E1B4B" stroke-width="15" stroke-linecap="round">
+            <path d="M 557 613 A 112 40 0 0 0 781 613"/>
+            <path d="M 557 678 A 112 40 0 0 0 781 678"/>
+          </g>
+        </g>
+      </g>
+    </defs>
+  </svg>
+
+  <nav>
+    <div class="container nav-inner">
+      <a class="nav-logo" href="#">
+        <svg viewBox="0 0 1024 1024"><use href="#quelio-mark"/></svg>
+        Quelio
+      </a>
+      <div class="nav-links">
+        <a href="#workflow">使い方</a>
+        <a href="#deep">主要機能</a>
+        <a href="#features">機能一覧</a>
+        <a href="#roadmap">今後の予定</a>
+        <a href="#faq">FAQ</a>
+        <a href="#download">ダウンロード</a>
+      </div>
+      <a class="nav-gh" href="https://github.com/zefact/quelio" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="container">
+      <span class="badge"><i></i>MySQL / PostgreSQL 対応 · 無料 · ベータ版公開中</span>
+      <h1>データベース作業を、<br /><span class="grad">軽く、速く。</span></h1>
+      <p class="sub">
+        環境間のスキーマ差異チェック、クエリと結果の自動キャプチャ、日本語の論理名表示。
+        現場で本当に欲しかった機能を載せた、Tauri + Rust 製の軽量DBクライアントです。
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-dark" href="#download">無料でダウンロード</a>
+        <a class="btn btn-line" href="#deep">機能を見る</a>
+      </div>
+      <div class="hero-meta">macOS (Apple Silicon) / Windows · 日本語専用UI · オープンソース (MIT License)</div>
+    </div>
+  </header>
+
+  <!-- 実アプリのUIを再現したモック -->
+  <div class="mock-wrap container">
+    <div class="mock-frame">
+      <div class="app-mock" aria-hidden="true">
+        <div class="am-titlebar">
+          <i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
+        </div>
+        <div class="am-tabbar">
+          <span class="am-brand">Quelio</span>
+          <div class="am-tab active"><span class="am-dot" style="background:#f0a63a"></span>EC本番 (readonly)</div>
+          <div class="am-tab"><span class="am-dot" style="background:#5a9bd8"></span>分析DB</div>
+          <div class="am-tab" style="padding:6px 10px">+</div>
+          <span class="am-console-btn">コンソール</span>
+        </div>
+        <div class="am-toolbar">
+          <div>
+            <div class="am-conn-name">EC本番 (readonly)</div>
+            <div class="am-conn-host">db.example.com:3306 · MySQL</div>
+          </div>
+          <div class="am-select">ec_site<span class="car">▼</span></div>
+        </div>
+        <div class="am-body">
+          <div class="am-side">
+            <div class="am-side-head">TABLES<span class="am-count">42</span></div>
+            <div class="am-filter">テーブルを検索...</div>
+            <div class="am-titem"><span class="chip t">T</span>customers</div>
+            <div class="am-titem sel"><span class="chip t">T</span>orders</div>
+            <div class="am-titem"><span class="chip t">T</span>order_items</div>
+            <div class="am-titem"><span class="chip t">T</span>products</div>
+            <div class="am-titem"><span class="chip v">V</span>active_users</div>
+            <div class="am-titem"><span class="chip t">T</span>shipments</div>
+            <div class="am-titem"><span class="chip t">T</span>stock_moves</div>
+          </div>
+          <div class="am-main">
+            <div class="am-table-head">
+              <span class="chip t">TABLE</span>
+              <h4 class="mono">orders</h4>
+              <span class="am-logical">注文</span>
+            </div>
+            <div class="am-chips">
+              <span class="am-ichip">エンジン <b>InnoDB</b></span>
+              <span class="am-ichip">行数目安 <b>12,480</b></span>
+              <span class="am-ichip">照合順序 <b>utf8mb4_general_ci</b></span>
+            </div>
+            <div class="am-h">カラム</div>
+            <table class="am-grid mono">
+              <tr><th>フィールド</th><th>論理名</th><th>型</th><th>サイズ</th><th>NULL</th><th>キー</th><th>デフォルト</th><th>属性</th></tr>
+              <tr><td class="c1">id</td><td>注文ID</td><td>bigint</td><td></td><td>NO</td><td class="am-key">PRI</td><td></td><td>auto_increment</td></tr>
+              <tr><td class="c1">customer_id</td><td>顧客ID</td><td>bigint</td><td></td><td>NO</td><td class="am-key">MUL</td><td></td><td></td></tr>
+              <tr><td class="c1">status</td><td>状態</td><td>varchar</td><td>20</td><td>NO</td><td></td><td>'pending'</td><td></td></tr>
+              <tr><td class="c1">total</td><td>合計金額</td><td>decimal</td><td>10,2</td><td>NO</td><td></td><td>0.00</td><td></td></tr>
+              <tr><td class="c1">created_at</td><td>作成日時</td><td>datetime</td><td></td><td>NO</td><td class="am-key">MUL</td><td>CURRENT_TIMESTAMP</td><td></td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <section id="why" class="why">
+    <div class="container">
+      <span class="sec-label">WHY QUELIO</span>
+      <h2 class="sec-title">「欲しかったのに、なかった」から作った</h2>
+      <p class="why-lead">
+        Quelioは、既存のDBクライアントでは満たせなかった開発現場の3つの困りごとを解決するために生まれました。
+        この3つが、Quelioのいちばんの機能です。
+      </p>
+      <div class="why-grid">
+        <div class="why-card">
+          <span class="no">01</span>
+          <h3>環境のスキーマ差異が見えない</h3>
+          <p>「ステージングでは動くのに本番で落ちる」。原因はたいてい、環境間のわずかなスキーマのずれ。Quelioは2つの環境を並べて、テーブル・カラム・インデックスの差異を一発で洗い出します。</p>
+          <a href="#deep">スキーマ比較を見る ↓</a>
+        </div>
+        <div class="why-card">
+          <span class="no">02</span>
+          <h3>作業のエビデンスが手間</h3>
+          <p>調査や本番作業のたびに、クエリと結果をスクショして報告資料に貼る。その手作業をなくすため、実行と同時にクエリ+結果をきれいなPNGとして自動保存します。</p>
+          <a href="#deep">自動キャプチャを見る ↓</a>
+        </div>
+        <div class="why-card">
+          <span class="no">03</span>
+          <h3>カラムの意味が分からない</h3>
+          <p>「この英語カラム、何だっけ」。DBコメントに書いた日本語の論理名や説明を、構造ビューの専用カラムとして表示。テーブル定義書を開かなくても意味が分かります。</p>
+          <a href="#deep">論理名表示を見る ↓</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="workflow">
+    <div class="container">
+      <span class="sec-label">WORKFLOW</span>
+      <h2 class="sec-title">3ステップで、いつものDBへ</h2>
+      <p class="sec-sub">セットアップに時間を取られない。それが道具のあるべき姿。</p>
+      <div class="steps">
+        <div class="step">
+          <span class="num">STEP 01</span>
+          <h3>接続を保存する</h3>
+          <p>ホスト・ユーザー・SSHトンネルを一度登録すれば、次からはダブルクリックで接続。テスト接続で事前確認もできます。</p>
+        </div>
+        <div class="step">
+          <span class="num">STEP 02</span>
+          <h3>テーブルを眺める</h3>
+          <p>接続した瞬間にテーブル一覧を表示。選ぶだけでカラム・インデックス・テーブル情報がその場で確認できます。</p>
+        </div>
+        <div class="step">
+          <span class="num">STEP 03</span>
+          <h3>クエリを実行する</h3>
+          <p>行番号付きエディタでSQLを書いて実行。結果は文ごとのタブで整理され、ページングやソートもそのまま操作できます。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="deep" style="padding-top: 0;">
+    <div class="container">
+      <span class="sec-label">HIGHLIGHTS</span>
+      <h2 class="sec-title">主要機能</h2>
+
+      <!-- 1. スキーマ比較 -->
+      <div class="deep">
+        <div>
+          <span class="deep-label">SCHEMA DIFF</span>
+          <h3>本番とステージングの差異を、一発で</h3>
+          <p>接続中の2つの環境(セッション×DB)を選んで「比較」を押すだけ。リリース前の確認や障害調査の初動が変わります。</p>
+          <ul>
+            <li><b>テーブル・カラム・インデックスを比較</b> — 型・NULL許可・キー・デフォルト・照合順序・コメントまで細かく突き合わせます。</li>
+            <li><b>差異部分をハイライト</b> — varchar(20)と(30)のような一部分の違いは、その文字だけを強調表示。全角/半角の混入も見つかります。</li>
+            <li><b>「左のみ / 右のみ / 差異あり」で整理</b> — 差異のみ表示に絞れば、確認すべき箇所だけが残ります。</li>
+            <li><b>MySQL⇄PostgreSQL間でも比較可能</b> — 移行時のスキーマ確認にも使えます。</li>
+          </ul>
+        </div>
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" aria-hidden="true">
+              <div class="mdiff-bar">
+                <span class="mdiff-sel">EC本番 / ec_site<span class="car">▼</span></span>
+                <span class="mdiff-vs">⇄</span>
+                <span class="mdiff-sel">ステージング / ec_site<span class="car">▼</span></span>
+                <span class="mbtn p">比較</span>
+                <span class="mswitch">差異のみ表示<span class="tr"></span></span>
+              </div>
+              <div class="mdiff-table">
+                <div class="mdiff-thead"><span></span><span>EC本番</span><span>ステージング</span></div>
+                <div class="mdiff-row">
+                  <span class="lb mono">orders <span class="mdiff-status chg">差異あり</span></span>
+                  <span class="cell"></span><span class="cell"></span>
+                </div>
+                <div class="mdiff-row">
+                  <span class="lb">status 型</span>
+                  <span class="cell">varchar(<span class="mdiff-hl">20</span>)</span>
+                  <span class="cell">varchar(<span class="mdiff-hl">30</span>)</span>
+                </div>
+                <div class="mdiff-row">
+                  <span class="lb">memo</span>
+                  <span class="cell">あり</span>
+                  <span class="cell empty">—</span>
+                </div>
+                <div class="mdiff-row">
+                  <span class="lb">idx_created <span class="mdiff-status only">右のみ</span></span>
+                  <span class="cell empty">—</span>
+                  <span class="cell">あり</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. 自動キャプチャ -->
+      <div class="deep rev">
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" aria-hidden="true">
+              <div class="mini-bar">
+                <span class="mbtn p">実行 ▾</span>
+                <span class="mbtn s">EXPLAIN ▾</span>
+                <span class="mswitch">キャプチャ<span class="tr"></span></span>
+              </div>
+              <div class="mcap-shot">
+                <div class="mcap-head">Quelio<span>2026-08-07 18:22 · EC本番 / ec_site</span></div>
+                <div class="mcap-sql">SELECT id, status, total FROM orders WHERE id = 10248;</div>
+                <table class="am-grid mono" style="margin: 0 11px 11px; width: calc(100% - 22px);">
+                  <tr><th>id</th><th>status</th><th>total</th></tr>
+                  <tr><td>10248</td><td>shipped</td><td>12,800</td></tr>
+                </table>
+              </div>
+              <div class="mcap-note">✓ キャプチャ保存: 1件 → Downloads</div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <span class="deep-label">AUTO CAPTURE</span>
+          <h3>クエリと結果を、実行と同時に自動キャプチャ</h3>
+          <p>スイッチをONにして実行するだけで、SQLと結果セットをまとめた画像がDownloadsに保存されます。スクショを撮って、切り抜いて、貼り付けて——はもう不要です。</p>
+          <ul>
+            <li><b>エビデンスがそのまま完成</b> — 実行したSQL・結果・接続先・日時が1枚のPNGに。報告資料や作業記録にそのまま使えます。</li>
+            <li><b>複数SQLもまとめて保存</b> — 文ごとの結果がそれぞれキャプチャされます。</li>
+            <li><b>画面の写しではなくデータから描画</b> — 結果データから直接画像を生成するため、スクロールで隠れた行も欠けません。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 3. 論理名表示 -->
+      <div class="deep">
+        <div>
+          <span class="deep-label">LOGICAL NAMES</span>
+          <h3>カラムの「日本語の意味」がいつも見える</h3>
+          <p>DBコメントに「論理名（説明）」の形式で書いておけば、構造ビューが論理名と補足を別々のカラムに分けて表示。英語のフィールド名と日本語の意味を、行ごとに突き合わせられます。</p>
+          <ul>
+            <li><b>テーブル定義書いらず</b> — customer_id の隣に「顧客ID」。新しくジョインしたメンバーでもすぐDBを読めます。</li>
+            <li><b>区切り文字は設定可能</b> — 「（」以外の区切りにも対応。既存のコメント運用に合わせられます。</li>
+            <li><b>テーブル名にも論理名</b> — orders の横に「注文」。一覧から目的のテーブルを探すのが速くなります。</li>
+            <li><b>比較・キャプチャとも連動</b> — スキーマ比較ではコメントの差異も検出されます。</li>
+          </ul>
+        </div>
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" aria-hidden="true">
+              <div class="mini-bar"><span class="ttl">構造ビュー — コメントを論理名と補足に分割表示</span></div>
+              <table class="am-grid mono" style="margin: 10px 12px 12px; width: calc(100% - 24px);">
+                <tr><th>フィールド</th><th>論理名</th><th>型</th><th>補足</th></tr>
+                <tr><td class="c1">customer_id</td><td>顧客ID</td><td>bigint</td><td>customersへの外部キー</td></tr>
+                <tr><td class="c1">status</td><td>注文状態</td><td>varchar</td><td>pending / paid / shipped</td></tr>
+                <tr><td class="c1">total</td><td>合計金額</td><td>decimal</td><td>税込</td></tr>
+                <tr><td class="c1">shipped_at</td><td>出荷日時</td><td>datetime</td><td>未出荷はNULL</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. クエリエディタ -->
+      <div class="deep rev">
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" aria-hidden="true">
+              <div class="mini-bar">
+                <span class="mbtn p">実行 ▾</span>
+                <span class="mbtn s">SQLを整形</span>
+                <span class="mbtn s">EXPLAIN ▾</span>
+                <span class="mswitch">トランザクション<span class="tr"></span></span>
+              </div>
+              <div class="msql">
+                <div class="ln">1<br/>2<br/>3<br/>4</div>
+                <div class="cd"><span class="k">SELECT</span> o.id, c.name, o.total<br/><span class="k">FROM</span> orders o<br/><span class="k">JOIN</span> customers c <span class="k">ON</span> c.id = o.customer_id<br/><span class="k">WHERE</span> o.status = <span class="s">'paid'</span> <span class="k">ORDER BY</span> o.created_at <span class="k">DESC</span>;</div>
+              </div>
+              <div class="mrtabs"><span class="mrtab on">1: SELECT</span><span class="mrtab">2: UPDATE</span></div>
+              <div class="mbanner"><i></i>50行取得<span>(12.3 ms)</span></div>
+              <table class="am-grid mono" style="margin: 0 12px 12px; width: calc(100% - 24px);">
+                <tr><th>id</th><th>name</th><th>total</th></tr>
+                <tr><td>10248</td><td>佐藤 花子</td><td>12,800</td></tr>
+                <tr><td>10247</td><td>鈴木 一郎</td><td>4,500</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div>
+          <span class="deep-label">QUERY EDITOR</span>
+          <h3>安全側に倒した、本気のクエリエディタ</h3>
+          <p>書いて、確かめて、実行する。その全部を1画面で完結させました。</p>
+          <ul>
+            <li><b>トランザクションモード</b> — 実行をBEGIN〜COMMITで包み、エラー時は自動ROLLBACK。本番での更新ミスを防ぎます。</li>
+            <li><b>EXPLAIN / EXPLAIN ANALYZE</b> — ワンクリックで実行計画を確認。結果ヘッダには各カラムの意味がツールチップで出ます。</li>
+            <li><b>選択実行</b> — 選択した部分だけを実行。複数SQLは「;」区切りで文ごとに結果タブに分かれます。</li>
+            <li><b>SQL整形・実行キャンセル・ページング・サーバーサイドソート</b>も標準装備。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 5. 接続管理 -->
+      <div class="deep">
+        <div>
+          <span class="deep-label">CONNECTIONS</span>
+          <h3>接続が増えても、迷わない</h3>
+          <p>本番・ステージング・ローカル。環境が増えるほど効いてくる整理機能を用意しました。</p>
+          <ul>
+            <li><b>フォルダで整理</b> — 接続をフォルダにまとめてツリー表示。ドラッグ&ドロップで並べ替えられます。</li>
+            <li><b>色分け</b> — 接続ごとに色を設定。タブの色で「いま本番にいる」ことが一目で分かります。</li>
+            <li><b>SSHトンネル内蔵</b> — 踏み台経由の接続も鍵認証・パスフレーズ対応でビルトイン。外部ツールは不要です。</li>
+            <li><b>テスト接続</b> — 保存前に疎通確認。ダブルクリックですぐ接続できます。</li>
+          </ul>
+        </div>
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" aria-hidden="true">
+              <div class="mtree">
+                <div class="mtree-h">接続先</div>
+                <div class="mfolder"><span class="cv">▼</span>📁 本番環境 <span style="font-size:9px;color:var(--m-faint)">(2)</span></div>
+                <div class="mconn sel"><span class="am-dot" style="background:#f0a63a"></span>EC本番 (readonly)<span class="sshchip">SSH</span><span class="host">db.example.com</span></div>
+                <div class="mconn"><span class="am-dot" style="background:#5a9bd8"></span>分析DB<span class="host">warehouse.internal</span></div>
+                <div class="mfolder"><span class="cv">▶</span>📁 ステージング <span style="font-size:9px;color:var(--m-faint)">(3)</span></div>
+                <div class="mfolder"><span class="cv">▶</span>📁 ローカル開発 <span style="font-size:9px;color:var(--m-faint)">(4)</span></div>
+                <div class="mnew">+ 新しい接続</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section id="features" style="padding-top: 0;">
+    <div class="container">
+      <span class="sec-label">ALL FEATURES</span>
+      <h2 class="sec-title">機能一覧</h2>
+      <div class="features">
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="7.5" height="14" rx="1.5"/><rect x="13.5" y="5" width="7.5" height="14" rx="1.5"/><path d="M6.75 9h0M17.25 9h0M6.75 12.5h0M17.25 12.5h0" stroke-width="2.2"/></svg></div>
+          <h3>スキーマ比較</h3>
+          <p>2つの環境を並べてテーブル・カラム・インデックスの差異を検出。差異部分は文字単位でハイライトします。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.5l1.5-2h6l1.5 2H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.2"/></svg></div>
+          <h3>結果の自動キャプチャ</h3>
+          <p>実行と同時にクエリ+結果セットをPNGとしてDownloadsに保存。エビデンス作成の手間をゼロにします。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M4 9h6M4 15h9M4 19h6"/><path d="M16 5l3 3-3 3M19 15l-3 3 3 3" stroke-width="1.6"/></svg></div>
+          <h3>日本語の論理名表示</h3>
+          <p>DBコメントの「論理名（説明）」を分割表示。英語カラム名の隣に日本語の意味が常に見えます。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
+          <h3>MySQL / PostgreSQL</h3>
+          <p>主要な2つのRDBMSにネイティブ対応。DBの切り替えもツールバーからすぐ行えます。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+          <h3>SSHトンネル</h3>
+          <p>踏み台サーバー経由の接続をビルトインで対応。鍵認証・パスフレーズも設定できます。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg></div>
+          <h3>テーブル構造ビュー</h3>
+          <p>カラム・インデックス・照合順序・コメントまで、定義を1画面で確認。列幅やペインも自由に調整できます。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 7 5 5-5 5M12 19h7"/></svg></div>
+          <h3>クエリエディタ</h3>
+          <p>行番号付きエディタで複数SQLを実行。結果は文ごとのタブに分かれ、整形・キャンセルにも対応。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.2 2.2M16.2 16.2l2.2 2.2M5.6 18.4l2.2-2.2M16.2 7.8l2.2-2.2"/><circle cx="12" cy="12" r="3.2"/></svg></div>
+          <h3>EXPLAIN / ANALYZE</h3>
+          <p>実行計画をワンクリックで表示。結果ヘッダに各カラムの意味が出るので読み解きも簡単です。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"/></svg></div>
+          <h3>トランザクション実行</h3>
+          <p>実行をBEGIN〜COMMITで包み、エラー時は自動ROLLBACK。更新系の作業も安心です。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg></div>
+          <h3>接続の整理</h3>
+          <p>フォルダ分け・ドラッグ&ドロップ・色分けに対応。タブの色で接続先を見分けられます。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
+          <h3>エクスポート / インポート</h3>
+          <p>複数テーブルをまとめてSQLダンプ出力(スキーマ/データ選択可)。SQLファイルのドロップ実行も。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v12H4zM8 21h8M12 17v4"/><path d="m7 9 2.5 2.5L7 14" stroke-width="1.6"/></svg></div>
+          <h3>クエリログ</h3>
+          <p>アプリが発行した全SQLを専用コンソールで時系列表示。挙動の確認やデバッグに役立ちます。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="roadmap" style="padding-top: 0;">
+    <div class="container">
+      <span class="sec-label">ROADMAP</span>
+      <h2 class="sec-title">今後の追加予定</h2>
+      <p class="sec-sub">ベータ期間中も開発を続けています。以下は現在検討している主な機能です。</p>
+      <div class="roadmap-list">
+        <div class="rm-item">
+          <span class="rm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16M4 6h16M4 18h10"/></svg></span>
+          <div>
+            <h3>結果グリッドからのデータ編集</h3>
+            <p>SELECT結果のセルを直接編集して、UPDATE / INSERT / DELETE を発行できるようにします。</p>
+          </div>
+        </div>
+        <div class="rm-item">
+          <span class="rm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
+          <div>
+            <h3>クエリ結果のCSVエクスポート</h3>
+            <p>実行結果をCSV / TSVとしてダウンロードできるようにします。</p>
+          </div>
+        </div>
+        <div class="rm-item">
+          <span class="rm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.8 5.8 21 7 14.1 2 9.3l6.9-1L12 2l3.1 6.3 6.9 1-5 4.8 1.2 6.9z"/></svg></span>
+          <div>
+            <h3>クエリのお気に入り保存</h3>
+            <p>よく使うSQLをスニペットとして保存し、すぐに呼び出せるようにします。</p>
+          </div>
+        </div>
+        <div class="rm-item">
+          <span class="rm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="5.5" rx="1.2"/><rect x="14" y="9.5" width="7" height="5.5" rx="1.2"/><rect x="3" y="16" width="7" height="5.5" rx="1.2"/><path d="M10 5.8h5.5v3.7M10 18.8h5.5v-3.8"/></svg></span>
+          <div>
+            <h3>ER図の自動生成</h3>
+            <p>外部キーやテーブル定義からER図を自動描画。論理名表示にも対応し、DB全体の関係を一望できるようにします。</p>
+          </div>
+        </div>
+      </div>
+      <p class="rm-note">
+        時期・内容は変更される場合があります。ご要望は
+        <a href="https://github.com/zefact/quelio/issues" target="_blank" rel="noopener">GitHub Issues</a>
+        までお寄せください。
+      </p>
+    </div>
+  </section>
+
+  <section id="faq" style="padding-top: 0;">
+    <div class="container">
+      <span class="sec-label">FAQ</span>
+      <h2 class="sec-title">よくある質問</h2>
+      <div class="faq-list">
+        <details class="faq-item">
+          <summary>本番とステージングのスキーマのずれを確認できますか?</summary>
+          <div class="a">できます。それがQuelioの看板機能です。接続中の2つの環境を選んで比較すると、テーブル・カラム・インデックスの差異が「左のみ / 右のみ / 差異あり」で一覧表示され、型の長さ違いのような細かな差異は該当文字だけがハイライトされます。</div>
+        </details>
+        <details class="faq-item">
+          <summary>クエリ結果のキャプチャはどこに保存されますか?</summary>
+          <div class="a">Downloadsフォルダに、実行したSQL・結果・接続先・日時を含むPNG画像として保存されます。キャプチャスイッチをONにして実行するだけで、文ごとに1枚ずつ自動保存されます。</div>
+        </details>
+        <details class="faq-item">
+          <summary>カラムの論理名(日本語名)を表示するには?</summary>
+          <div class="a">DBのカラムコメントに「論理名（説明）」の形式で書いておくと、構造ビューで論理名と補足が別カラムに分かれて表示されます。区切り文字は設定で変更できるため、既存のコメント運用のままで使えます。</div>
+        </details>
+        <details class="faq-item">
+          <summary>対応しているデータベースは?</summary>
+          <div class="a">MySQLとPostgreSQLに対応しています。1つのアプリ内で両方の接続をタブで同時に開けます。</div>
+        </details>
+        <details class="faq-item">
+          <summary>対応OSは?</summary>
+          <div class="a">macOS (Apple Silicon) と Windows に対応しています。Tauri製のネイティブアプリなので、ブラウザは不要です。</div>
+        </details>
+        <details class="faq-item">
+          <summary>英語UIはありますか?</summary>
+          <div class="a">Quelioは日本語専用のアプリです。メニューや設定を含むすべてのUIが日本語で、論理名表示など日本の開発現場のコメント運用に合わせた機能を優先して作っています。英語UIは現在提供していません。</div>
+        </details>
+        <details class="faq-item">
+          <summary>接続情報はどこに保存されますか?</summary>
+          <div class="a">接続プロファイルはお使いのPCのローカルにのみ保存され、外部サーバーへ送信されることはありません。パスワードとSSHパスフレーズはAES-256-GCMで暗号化され、暗号鍵はOSのキーチェーンに保管されます。</div>
+        </details>
+        <details class="faq-item">
+          <summary>無料で使えますか?</summary>
+          <div class="a">無料です。MIT Licenseのオープンソースソフトウェアとして公開しており、商用環境でもお使いいただけます。現在はベータ版のため、重要なデータベースで使う際は事前のバックアップをおすすめします。</div>
+        </details>
+        <details class="faq-item">
+          <summary>本番DBで誤って更新してしまわないか不安です</summary>
+          <div class="a">トランザクションモードを有効にすると、実行がBEGIN〜COMMITで包まれ、途中でエラーになった場合は自動でROLLBACKされます。また接続ごとの色分けで、本番タブを視覚的に区別できます。</div>
+        </details>
+        <details class="faq-item">
+          <summary>SSH踏み台経由でしか接続できないDBにも使えますか?</summary>
+          <div class="a">使えます。SSHトンネル機能を内蔵しており、鍵認証・パスフレーズ付き鍵にも対応しています。別途トンネルを張るツールは不要です。</div>
+        </details>
+        <details class="faq-item">
+          <summary>macOSで「開発元を検証できません」と表示されます</summary>
+          <div class="a">現在のビルドは署名されていないため、初回起動時に警告が表示されることがあります。アプリを右クリック→「開く」を選択すると起動できます。</div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <section id="download" class="dl">
+    <div class="container">
+      <span class="sec-label">DOWNLOAD</span>
+      <h2 class="sec-title">さっそく使ってみる</h2>
+      <p class="sec-sub">最新版はGitHub Releasesから入手できます。</p>
+      <div class="dl-cards">
+        <div class="dl-card">
+          <div class="os-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg></div>
+          <h3>macOS</h3>
+          <div class="fmt">.dmg (Apple Silicon)</div>
+          <a class="btn btn-dark" href="https://github.com/zefact/quelio/releases/latest">ダウンロード</a>
+        </div>
+        <div class="dl-card">
+          <div class="os-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10.5 4.4v7.1H3zm0 13 7.5 1.1v-7H3zm8.5 1.2L21 21V12.6h-9.5zm0-15.4v7.2H21V3z"/></svg></div>
+          <h3>Windows</h3>
+          <div class="fmt">インストーラ (.exe)</div>
+          <a class="btn btn-dark" href="https://github.com/zefact/quelio/releases/latest">ダウンロード</a>
+        </div>
+      </div>
+      <p class="dl-note">
+        現在はベータ版です。macOSで「開発元を検証できません」と表示された場合は、アプリを右クリック→「開く」で起動できます。<br />
+        一度インストールすれば、新バージョン公開時にアプリ内の通知から自動アップデートできます (macOS / Windows)。<br />
+        Windowsは <span class="mono">Quelio_x.x.x_x64-setup.exe</span> をダウンロードして実行してください。
+        社内へ一括配布する場合向けに .msi 版もあります。
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container foot-inner">
+      <svg viewBox="0 0 1024 1024"><use href="#quelio-mark"/></svg>
+      <span>Quelio — MySQL / PostgreSQLクライアント</span>
+      <span class="foot-right">
+        <a href="https://github.com/zefact/quelio/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+        &nbsp;·&nbsp; © <span id="copy-year">2026</span> <a href="https://www.zefact.co.jp" target="_blank" rel="noopener">ZEFACT Co., Ltd.</a>
+      </span>
+    </div>
+  </footer>
+
+  <script>
+    // フッターの年を常に現在の年で表示する
+    document.getElementById("copy-year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

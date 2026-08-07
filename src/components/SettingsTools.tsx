@@ -1,0 +1,143 @@
+import { useEffect, useRef, useState } from "react";
+import { detectTools, getToolSettings, saveToolSettings } from "../api";
+import type { ToolSettings, ToolStatus } from "../types";
+import { SettingRow } from "./SettingRow";
+
+interface Props {
+  notify: (msg: string) => void;
+}
+
+const TOOL_KEYS: { tool: string; key: keyof ToolSettings; desc: string }[] = [
+  { tool: "mysqldump", key: "mysqldump", desc: "MySQLエクスポート" },
+  { tool: "mysql", key: "mysql", desc: "MySQLインポート" },
+  { tool: "pg_dump", key: "pgDump", desc: "PostgreSQLエクスポート" },
+  { tool: "psql", key: "psql", desc: "PostgreSQLインポート" },
+];
+
+/** バージョン文字列を短く整える (先頭のパスと " for " 以降を落とす) */
+function shortVersion(v: string | null | undefined): string {
+  if (!v) return "";
+  return v.replace(/^\/\S*\//, "").split(" for ")[0].trim();
+}
+
+/** 設定 > 外部ツールページ (mysqldump等のパス設定。変更は自動保存) */
+export function SettingsTools({ notify }: Props) {
+  const [settings, setSettings] = useState<ToolSettings>({
+    mysqldump: "",
+    mysql: "",
+    pgDump: "",
+    psql: "",
+  });
+  const [status, setStatus] = useState<ToolStatus[]>([]);
+  const [loading, setLoading] = useState(true);
+  /** 最後に保存した内容 (変更がないblurでの保存を省く) */
+  const savedRef = useRef<string>("");
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const [s, st] = await Promise.all([getToolSettings(), detectTools()]);
+      setSettings(s);
+      setStatus(st);
+      savedRef.current = JSON.stringify(s);
+    } catch (e) {
+      notify(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** パス変更の自動保存 (blur / Enter)。保存後に再検出する */
+  const save = async () => {
+    if (JSON.stringify(settings) === savedRef.current) return;
+    try {
+      await saveToolSettings(settings);
+      savedRef.current = JSON.stringify(settings);
+      setStatus(await detectTools());
+    } catch (e) {
+      notify(String(e));
+    }
+  };
+
+  return (
+    <section className="set-section set-tools">
+      <div className="set-section-head">
+        <h3 className="set-section-title">コマンドのパス</h3>
+        <button
+          className={"refresh-btn" + (loading ? " spinning" : "")}
+          onClick={refresh}
+          disabled={loading}
+          title="パスを再検出する"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path
+              d="M20 12a8 8 0 1 1-2.34-5.66"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+            />
+            <path
+              d="M20 3v4.5h-4.5"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          再検出
+        </button>
+      </div>
+      <p className="set-section-note">
+        エクスポート/インポートに使うコマンドの場所です。空欄のままなら
+        Homebrew等の標準的な場所から自動検出します。パスの変更は自動で保存されます。
+      </p>
+
+      {loading ? (
+        <div className="content-placeholder dim-center">
+          <span className="spinner accent" /> 検出中...
+        </div>
+      ) : (
+        TOOL_KEYS.map(({ tool, key, desc }) => {
+          const st = status.find((s) => s.tool === tool);
+          const ver = shortVersion(st?.version);
+          return (
+            <SettingRow
+              key={tool}
+              title={<span className="mono">{tool}</span>}
+              desc={desc + (ver ? ` — ${ver}` : "")}
+            >
+              <input
+                className="tool-path mono"
+                placeholder={
+                  st?.path
+                    ? `自動検出: ${st.path}`
+                    : "未検出 — パスを入力してください"
+                }
+                value={settings[key]}
+                onChange={(e) =>
+                  setSettings({ ...settings, [key]: e.target.value })
+                }
+                onBlur={save}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+              />
+              <span
+                className={"tool-chip " + (st?.path ? "ok" : "ng")}
+                title={st?.version ?? ""}
+              >
+                <span className="dot" aria-hidden />
+                {st?.path ? "検出済み" : "未検出"}
+              </span>
+            </SettingRow>
+          );
+        })
+      )}
+    </section>
+  );
+}

@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Quelio",
+  "version": "0.1.0",
+  "identifier": "jp.co.zefact.quelio",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Quelio",
+        "width": 1160,
+        "height": 780,
+        "minWidth": 860,
+        "minHeight": 600,
+        "dragDropEnabled": false,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": { "x": 20, "y": 22 }
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVCMkZDQUE5OUUzRTZFM0UKUldRK2JqNmVxY292NncwZElBdVA3WEdEWjlSZUdBOHkrYm90MDVuSUdjSzVWaHc3cmxNVER3VmoK",
+      "endpoints": [
+        "https://github.com/zefact/quelio/releases/latest/download/latest.json"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "copyright": "© 2026 ZEFACT Co., Ltd.",
+    "windows": {
+      "nsis": {
+        "languages": ["Japanese", "English"],
+        "displayLanguageSelector": false
+      },
+      "wix": {
+        "language": "ja-JP"
+      }
+    }
+  }
+}
