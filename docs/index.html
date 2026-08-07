@@ -402,6 +402,22 @@
     .dl-card .fmt { color: var(--ink-3); font-size: 13px; margin: 4px 0 20px; }
     .dl-card .btn { width: 100%; padding: 11px 0; font-size: 14px; }
     .dl-note { text-align: center; color: var(--ink-3); font-size: 13px; margin-top: 30px; }
+    .dl-mac {
+      max-width: 660px; margin: 24px auto 0;
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      padding: 18px 22px; font-size: 13px; color: var(--ink-2);
+    }
+    .dl-mac b { color: var(--ink); font-size: 13.5px; }
+    .dl-mac p { margin: 6px 0 12px; font-size: 12.8px; line-height: 1.8; }
+    .dl-cmd {
+      display: block;
+      font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      font-size: 12.5px;
+      background: var(--ink); color: #e7eaf2;
+      border-radius: 9px; padding: 10px 14px;
+      overflow-x: auto; white-space: nowrap;
+      user-select: all; -webkit-user-select: all;
+    }
 
     footer { padding: 40px 0; }
     .foot-inner { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--ink-3); }
@@ -410,16 +426,31 @@
     .foot-right a:hover { color: var(--ink); }
 
     @media (max-width: 900px) {
+      .container { padding: 0 20px; }
       .features { grid-template-columns: 1fr; }
-      .dl-cards { grid-template-columns: 1fr; }
+      .dl-cards { grid-template-columns: 1fr; max-width: 420px; }
       .steps { grid-template-columns: 1fr; }
+      .why-grid { grid-template-columns: 1fr; }
       .deep { grid-template-columns: 1fr; gap: 26px; }
-      .deep.rev .deep-visual { order: -1; }
+      /* モバイルでは常に「テキスト→ビジュアル」の順にする */
+      .deep .deep-visual { order: 1; }
       .nav-links { display: none; }
       .faq-list { grid-template-columns: 1fr; }
       .am-body { grid-template-columns: 1fr; }
       .am-side { display: none; }
       .hero { padding: 72px 0 52px; }
+      section { padding: 64px 0; }
+      /* モック内の表・SQLは横スクロールさせてはみ出しを防ぐ */
+      .am-main { overflow-x: auto; }
+      /* タブバーは折り返さず、入り切らないタブは隠す */
+      .am-tabbar { flex-wrap: nowrap; overflow: hidden; }
+      .am-tab, .am-console-btn, .am-brand { white-space: nowrap; flex-shrink: 0; }
+      .am-toolbar { flex-wrap: wrap; row-gap: 6px; }
+      .msql { overflow-x: auto; }
+      .mdiff-thead, .mdiff-row { grid-template-columns: 88px 1fr 1fr; }
+      .mini-bar { flex-wrap: wrap; row-gap: 6px; }
+      .foot-inner { flex-wrap: wrap; row-gap: 8px; }
+      .foot-right { margin-left: 0; width: 100%; }
     }
   </style>
 </head>
@@ -956,8 +987,8 @@
           <div class="a">使えます。SSHトンネル機能を内蔵しており、鍵認証・パスフレーズ付き鍵にも対応しています。別途トンネルを張るツールは不要です。</div>
         </details>
         <details class="faq-item">
-          <summary>macOSで「開発元を検証できません」と表示されます</summary>
-          <div class="a">現在のビルドは署名されていないため、初回起動時に警告が表示されることがあります。アプリを右クリック→「開く」を選択すると起動できます。</div>
+          <summary>macOSで「壊れているため開けません」と表示されます</summary>
+          <div class="a">現在のビルドはApple公証を受けていないため、ダウンロードしたアプリに付く検疫マークが原因でこの警告が出ます(アプリ自体は壊れていません)。ターミナルで <span class="mono">xattr -cr /Applications/Quelio.app</span> を実行してから起動してください。</div>
         </details>
       </div>
     </div>
@@ -983,11 +1014,18 @@
         </div>
       </div>
       <p class="dl-note">
-        現在はベータ版です。macOSで「開発元を検証できません」と表示された場合は、アプリを右クリック→「開く」で起動できます。<br />
-        一度インストールすれば、新バージョン公開時にアプリ内の通知から自動アップデートできます (macOS / Windows)。<br />
-        Windowsは <span class="mono">Quelio_x.x.x_x64-setup.exe</span> をダウンロードして実行してください。
-        社内へ一括配布する場合向けに .msi 版もあります。
+        現在はベータ版です。一度インストールすれば、新バージョン公開時にアプリ内の通知から自動アップデートできます (macOS / Windows)。<br />
+        Windowsは <span class="mono">Quelio_x.x.x_x64-setup.exe</span> をダウンロードして実行してください
+        (SmartScreenの画面では「詳細情報」→「実行」)。社内へ一括配布する場合向けに .msi 版もあります。
       </p>
+      <div class="dl-mac">
+        <b>macOSで「"Quelio"は壊れているため開けません」と表示されたら</b>
+        <p>
+          現在Apple公証を受けていないため、ダウンロードしたアプリに付く検疫マークが原因でこの警告が出ます
+          (アプリ自体は壊れていません)。ターミナルで次のコマンドを実行してから起動してください。
+        </p>
+        <code class="dl-cmd">xattr -cr /Applications/Quelio.app</code>
+      </div>
     </div>
   </section>
 
@@ -997,7 +1035,7 @@
       <span>Quelio — MySQL / PostgreSQLクライアント</span>
       <span class="foot-right">
         <a href="https://github.com/zefact/quelio/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
-        &nbsp;·&nbsp; © <span id="copy-year">2026</span> <a href="https://www.zefact.co.jp" target="_blank" rel="noopener">ZEFACT Co., Ltd.</a>
+        &nbsp;·&nbsp; © <span id="copy-year">2026</span> <a href="https://zefact.co.jp" target="_blank" rel="noopener">Zefact</a>
       </span>
     </div>
   </footer>
