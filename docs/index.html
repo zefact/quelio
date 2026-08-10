@@ -986,10 +986,6 @@
           <summary>SSH踏み台経由でしか接続できないDBにも使えますか?</summary>
           <div class="a">使えます。SSHトンネル機能を内蔵しており、鍵認証・パスフレーズ付き鍵にも対応しています。別途トンネルを張るツールは不要です。</div>
         </details>
-        <details class="faq-item">
-          <summary>macOSで「壊れているため開けません」と表示されます</summary>
-          <div class="a">現在のビルドはApple公証を受けていないため、ダウンロードしたアプリに付く検疫マークが原因でこの警告が出ます(アプリ自体は壊れていません)。ターミナルで <span class="mono">xattr -cr /Applications/Quelio.app</span> を実行してから起動してください。</div>
-        </details>
       </div>
     </div>
   </section>
@@ -1015,17 +1011,10 @@
       </div>
       <p class="dl-note">
         現在はベータ版です。一度インストールすれば、新バージョン公開時にアプリ内の通知から自動アップデートできます (macOS / Windows)。<br />
+        macOS版はコード署名・Apple公証済みのため、そのままインストールして起動できます。<br />
         Windowsは <span class="mono">Quelio_x.x.x_x64-setup.exe</span> をダウンロードして実行してください
         (SmartScreenの画面では「詳細情報」→「実行」)。社内へ一括配布する場合向けに .msi 版もあります。
       </p>
-      <div class="dl-mac">
-        <b>macOSで「"Quelio"は壊れているため開けません」と表示されたら</b>
-        <p>
-          現在Apple公証を受けていないため、ダウンロードしたアプリに付く検疫マークが原因でこの警告が出ます
-          (アプリ自体は壊れていません)。ターミナルで次のコマンドを実行してから起動してください。
-        </p>
-        <code class="dl-cmd">xattr -cr /Applications/Quelio.app</code>
-      </div>
     </div>
   </section>
 

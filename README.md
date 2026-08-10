@@ -30,12 +30,11 @@ macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です�
 | macOS | `Quelio_<ver>_aarch64.dmg` | dmgを開いて `Quelio.app` をApplicationsへドラッグ |
 | Windows | `Quelio_<ver>_x64-setup.exe` | 実行してウィザードに従う |
 
-現在はApple公証・コード署名を行っていないため、初回起動時にOSの警告が表示されます。
+macOS版 (v0.2.0以降) はApple Developer IDによるコード署名とAppleの公証 (Notarization) 済みのため、
+警告なしでそのまま起動できます。
 
-- **macOS**: 「壊れているため開けません」と表示された場合は、ターミナルで
-  `xattr -cr /Applications/Quelio.app` を実行してから起動してください
-  (ダウンロードした未公証アプリに付く検疫マークを外すコマンドで、アプリ自体は壊れていません)
-- **Windows**: SmartScreenの画面で「詳細情報」→「実行」
+- **Windows**: 現在コード署名を行っていないため、SmartScreenの画面が表示された場合は
+  「詳細情報」→「実行」で起動してください
 
 エクスポート/インポート機能を使う場合は外部ツールが必要です (設定画面で自動検出されます)。
 
