@@ -132,8 +132,16 @@ function fmtMs(ms: number): string {
   return `${ms.toFixed(3)}ms`;
 }
 
+/** 行数の表示 (常にカンマ区切り) */
 function fmtRows(n: number): string {
-  return n >= 10000 ? n.toExponential(1).replace("e+", "e") : n.toLocaleString();
+  return Math.round(n).toLocaleString("en-US");
+}
+
+/** ループ回数の表示 (1億未満はカンマ区切り、1億以上のみ指数表示) */
+function fmtLoops(n: number): string {
+  return n >= 1e8
+    ? n.toExponential(1).replace("e+", "e")
+    : Math.round(n).toLocaleString("en-US");
 }
 
 /** 予測行数と実測行数の乖離倍率 (10倍以上で警告) */
@@ -151,7 +159,7 @@ const PLAN_COL_DESC = {
   rows: "このノードが返した行数。EXPLAIN ANALYZEでは実測値、EXPLAINのみの場合は予測値",
   loops: "このノードが繰り返し実行された回数。時間は1回あたりの時間×回数で合算しています",
   time: "このノード以下 (子ノードを含む) にかかった合計時間",
-  bar: "ノード自身の処理時間が全体に占める割合。バーが長く赤いほど遅い箇所です",
+  bar: "その処理が単体で使った時間の比較バー (子ノードの時間は含みません)。一番遅い処理を最大として表示し、長く赤いバーほど改善効果が大きい箇所です",
 } as const;
 
 /** きれいなツリー表示 */
@@ -162,6 +170,44 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
   );
   const maxSelf = Math.max(...nodes.map((n) => n.selfMs ?? 0));
   const hasActual = nodes.some((n) => n.inclusiveMs !== undefined);
+
+  // 折りたたまれたノード (indexの集合)。折りたたみ中は配下のノードを非表示にする
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const toggleCollapse = (i: number) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) {
+        next.delete(i);
+      } else {
+        next.add(i);
+      }
+      return next;
+    });
+
+  // 折りたたみ中の祖先を持つノードを除いた表示対象のindex一覧
+  const visible: number[] = [];
+  {
+    /** 折りたたみ中ノードの深さ (これより深いノードは非表示) */
+    let hideDeeperThan: number | null = null;
+    nodes.forEach((n, i) => {
+      if (hideDeeperThan !== null) {
+        if (n.depth > hideDeeperThan) return;
+        hideDeeperThan = null;
+      }
+      visible.push(i);
+      if (collapsed.has(i)) hideDeeperThan = n.depth;
+    });
+  }
+
+  /** 配下 (子孫) のノード数 */
+  const descendantCount = (i: number): number => {
+    let count = 0;
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (nodes[j].depth <= nodes[i].depth) break;
+      count++;
+    }
+    return count;
+  };
 
   // 操作カラムの幅 (null = 自動。ヘッダのリサイザをドラッグで固定幅にできる)
   const [opWidth, setOpWidth] = useState<number | null>(null);
@@ -183,14 +229,18 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
     document.addEventListener("mouseup", up, { once: true });
   };
 
-  /** 操作カラムの幅指定 (固定時のみ) */
+  /** 操作カラムの幅指定 (固定時のみ)。
+   * flex-basisで最小幅を決めつつgrowを許すことで、全行の右端 (メトリクス列) が
+   * 共通の幅に揃い、バッジ有無などによる行ごとのズレを防ぐ */
   const opStyle = (indent = 0): React.CSSProperties | undefined =>
     opWidth !== null
-      ? { width: opWidth, flex: "none", paddingLeft: indent }
+      ? { flex: `1 0 ${opWidth}px`, paddingLeft: indent }
       : { paddingLeft: indent };
 
   return (
     <div className={"plan-pretty" + (opWidth !== null ? " op-fixed" : "")}>
+      {/* ヘッダと行を同じ幅にするための内側ラッパ (横スクロールの基準) */}
+      <div className="plan-inner">
       <div className="plan-sticky">
         {hasActual && (
           <div className="plan-summary">
@@ -198,7 +248,7 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
               総実行時間 <strong className="mono">{fmtMs(totalMs)}</strong>
             </span>
             <span className="plan-summary-hint">
-              ■ の長さ = そのノード自身にかかった時間の割合。赤いほど遅い箇所です
+              「負荷」は各処理が単体で使った時間の比較です。長く赤いバーの処理がボトルネックです
             </span>
           </div>
         )}
@@ -206,7 +256,7 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
           <span
             className="plan-head-op-wrap"
             ref={headOpRef}
-            style={opWidth !== null ? { width: opWidth, flex: "none" } : undefined}
+            style={opWidth !== null ? { flex: `1 0 ${opWidth}px` } : undefined}
           >
             <HoverTip className="plan-head-op" text={PLAN_COL_DESC.op}>
               操作
@@ -239,23 +289,46 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
         </div>
       </div>
       <div className="plan-tree">
-        {nodes.map((n, i) => {
+        {visible.map((i) => {
+          const n = nodes[i];
           const selfRatio = maxSelf > 0 ? (n.selfMs ?? 0) / maxSelf : 0;
           const hot = selfRatio > 0.66;
           const warm = selfRatio > 0.33 && !hot;
           const gap = estimateGap(n);
+          const hasChildren =
+            i + 1 < nodes.length && nodes[i + 1].depth > n.depth;
+          const isCollapsed = collapsed.has(i);
           return (
             <div className={"plan-row" + (hot ? " hot" : "")} key={i}>
               <div className="plan-row-main" style={opStyle(n.depth * 18)}>
                 <span className="plan-tree-mark" aria-hidden>
                   {n.depth > 0 ? "└" : ""}
                 </span>
+                {hasChildren ? (
+                  <button
+                    className="plan-toggle"
+                    title={isCollapsed ? "配下を展開" : "配下を折りたたむ"}
+                    onClick={() => toggleCollapse(i)}
+                  >
+                    {isCollapsed ? "▸" : "▾"}
+                  </button>
+                ) : (
+                  <span className="plan-toggle spacer" aria-hidden />
+                )}
                 <span
                   className="plan-op"
                   title={n.detail ? `${n.op} (${n.detail})` : n.op}
                 >
                   {n.op}
                 </span>
+                {isCollapsed && (
+                  <span
+                    className="plan-chip dim"
+                    title="折りたたみ中の配下ノード数"
+                  >
+                    +{descendantCount(i)}
+                  </span>
+                )}
                 {n.detail && (
                   <span className="plan-detail mono" title={n.detail}>
                     {n.detail}
@@ -298,7 +371,7 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
                   <span className="plan-col loops">
                     {(n.loops ?? 1) > 1 && (
                       <span className="plan-chip" title="繰り返し回数">
-                        ×{fmtRows(n.loops!)}
+                        ×{fmtLoops(n.loops!)}
                       </span>
                     )}
                   </span>
@@ -332,6 +405,7 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );

@@ -135,6 +135,8 @@ export function QueryPanel({
   const editorRef = useRef<SqlEditorHandle>(null);
   /** 実行中の経過時間 (ms) */
   const [elapsedMs, setElapsedMs] = useState(0);
+  /** 直近の実行を開始したボタン (スピナーの表示先を決める) */
+  const [runSource, setRunSource] = useState<"run" | "explain">("run");
   /** 行番号列を表示するか (設定。実行のたびに読み直す) */
   const [showRowNums, setShowRowNums] = useState(true);
 
@@ -180,6 +182,7 @@ export function QueryPanel({
   /** 現在のモードで実行 (キャプチャ要求も記録) */
   const run = () => {
     if (running) return;
+    setRunSource("run");
     if (runMode === "selection") {
       const text = selectedText();
       if (!text?.trim()) return;
@@ -242,6 +245,7 @@ export function QueryPanel({
   /** EXPLAIN / EXPLAIN ANALYZE を実行 (選択があれば選択部分) */
   const runExplain = (mode: "explain" | "analyze") => {
     if (running || !sql.trim()) return;
+    setRunSource("explain");
     captureReq.current = captureOn;
     setCaptureMsg(null);
     const text = selectedText();
@@ -251,6 +255,7 @@ export function QueryPanel({
   /** ⌘/Ctrl+Enter: 選択があれば選択実行、なければ全体実行 */
   const runViaShortcut = () => {
     if (running || !sql.trim()) return;
+    setRunSource("run");
     captureReq.current = captureOn;
     setCaptureMsg(null);
     const text = selectedText();
@@ -390,7 +395,7 @@ export function QueryPanel({
                 : "エディタ全体を実行"
             }
           >
-            {running ? (
+            {running && runSource === "run" ? (
               <>
                 <span className="spinner light" /> 実行中...
               </>
@@ -448,7 +453,15 @@ export function QueryPanel({
             disabled={running || !sql.trim()}
             onClick={() => runExplain(explainMode)}
           >
-            {explainMode === "explain" ? "EXPLAIN" : "ANALYZE"}
+            {running && runSource === "explain" ? (
+              <>
+                <span className="spinner accent" /> 実行中...
+              </>
+            ) : explainMode === "explain" ? (
+              "EXPLAIN"
+            ) : (
+              "ANALYZE"
+            )}
           </button>
           <button
             className="btn-secondary explain-btn run-caret"
@@ -503,6 +516,7 @@ export function QueryPanel({
           <input
             type="checkbox"
             checked={txnOn}
+            disabled={running}
             onChange={(e) => setTxnOn(e.target.checked)}
           />
           <span className="track" aria-hidden />
@@ -515,6 +529,7 @@ export function QueryPanel({
           <input
             type="checkbox"
             checked={captureOn}
+            disabled={running}
             onChange={(e) => setCaptureOn(e.target.checked)}
           />
           <span className="track" aria-hidden />
@@ -528,9 +543,7 @@ export function QueryPanel({
           <span className="capture-msg mono" title={captureMsg}>
             {captureMsg}
           </span>
-        ) : (
-          <span className="query-hint">⌘+Enter で実行 (選択中は選択のみ)</span>
-        )}
+        ) : null}
 
         {running && (
           <span className="query-meta mono running-elapsed">

@@ -1062,6 +1062,16 @@ html.macos .diff-toolbar {
   transition: transform 0.15s ease;
 }
 
+/* 実行中などで無効化されたスイッチは薄くして操作不可を示す */
+.switch:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.switch input:disabled {
+  cursor: not-allowed;
+}
+
 .switch input:checked + .track {
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   border-color: transparent;
@@ -1318,6 +1328,18 @@ html.macos .diff-toolbar {
 /* 一致なしのときは入力欄の枠を赤くして知らせる */
 .find-bar.not-found input {
   border-color: var(--danger);
+}
+
+/* 一致件数 (現在位置/総数) */
+.find-count {
+  min-width: 44px;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.find-bar.not-found .find-count {
+  color: var(--danger);
 }
 
 .find-bar button {
@@ -1885,12 +1907,15 @@ html[data-theme="light"] .result-banner.ng {
   background: var(--accent);
 }
 
-/* 操作カラムを固定幅にした場合は行全体を内容幅にして横スクロール可能にする */
-.plan-pretty.op-fixed .plan-sticky,
-.plan-pretty.op-fixed .plan-head,
-.plan-pretty.op-fixed .plan-row {
-  width: max-content;
+/* ヘッダと全行を共通の幅にする内側ラッパ。
+   操作カラム固定時は最も広い行に合わせた幅になり、全行の列位置が揃ったまま
+   横スクロールできる (行ごとにwidth:max-contentを当てると列がズレるため) */
+.plan-inner {
   min-width: 100%;
+}
+
+.plan-pretty.op-fixed .plan-inner {
+  width: max-content;
 }
 
 .plan-head .tip-target {
@@ -1997,6 +2022,36 @@ html[data-theme="light"] .result-banner.ng {
 .plan-tree-mark {
   color: var(--text-faint);
   flex-shrink: 0;
+}
+
+/* ツリーの折りたたみトグル (▾/▸)。子を持たない行はspacerで位置だけ揃える */
+.plan-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  width: 16px;
+  padding: 2px 0;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.plan-toggle:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.08);
+}
+
+.plan-toggle.spacer {
+  visibility: hidden;
+  cursor: default;
+}
+
+/* 折りたたみ中の配下ノード数チップ */
+.plan-chip.dim {
+  color: var(--text-faint);
+  font-size: 10px;
 }
 
 .plan-op {
@@ -2199,6 +2254,15 @@ html[data-theme="light"] .result-banner.ng {
 .capture-switch .switch-label {
   font-size: 12px;
   color: var(--text-dim);
+}
+
+/* ウィンドウが狭くてもトグルのラベルを改行・圧縮させない */
+.query-actions .capture-switch {
+  flex-shrink: 0;
+}
+
+.query-actions .capture-switch .switch-label {
+  white-space: nowrap;
 }
 
 .capture-msg {
