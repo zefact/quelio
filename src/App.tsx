@@ -279,6 +279,7 @@ function App() {
     // 前回の実行結果はクリアしてから実行する
     updateTab(key, {
       runningQuery: true,
+      runStartedAt: Date.now(),
       queryError: null,
       queryResults: null,
       queryExplain: explain ?? null,
@@ -324,7 +325,11 @@ function App() {
     const tab = tabs.find((t) => t.key === key);
     const stmt = tab?.queryResults?.[index];
     if (!tab || !stmt) return;
-    updateTab(key, { runningQuery: true, queryError: null });
+    updateTab(key, {
+      runningQuery: true,
+      runStartedAt: Date.now(),
+      queryError: null,
+    });
     try {
       const out = await runQuery(
         key,

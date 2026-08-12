@@ -342,6 +342,7 @@ export function SessionView({
               results={tab.queryResults}
               error={tab.queryError}
               running={tab.runningQuery}
+              runStartedAt={tab.runStartedAt}
               explainKind={tab.queryExplain}
               onChangeSql={onChangeSql}
               onRun={onRunQuery}

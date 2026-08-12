@@ -3,6 +3,8 @@
 MySQL / PostgreSQL 対応の無料デスクトップDBクライアント。
 macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です。
 
+**紹介ページ**: https://zefact.github.io/quelio/
+
 > **ベータ版について**
 > Quelioは現在ベータ版 (v0.x) です。不具合が含まれる可能性があり、
 > 今後のバージョンで機能や設定ファイルの形式が変わることがあります。
@@ -30,11 +32,7 @@ macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です�
 | macOS | `Quelio_<ver>_aarch64.dmg` | dmgを開いて `Quelio.app` をApplicationsへドラッグ |
 | Windows | `Quelio_<ver>_x64-setup.exe` | 実行してウィザードに従う |
 
-macOS版 (v0.2.0以降) はApple Developer IDによるコード署名とAppleの公証 (Notarization) 済みのため、
-警告なしでそのまま起動できます。
-
-- **Windows**: 現在コード署名を行っていないため、SmartScreenの画面が表示された場合は
-  「詳細情報」→「実行」で起動してください
+Windowsで初回実行時にSmartScreenの警告が出た場合は「詳細情報」→「実行」を選択してください。
 
 エクスポート/インポート機能を使う場合は外部ツールが必要です (設定画面で自動検出されます)。
 

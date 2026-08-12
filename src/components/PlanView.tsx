@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { HoverTip } from "./HoverTip";
 
 /**
@@ -163,8 +163,34 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
   const maxSelf = Math.max(...nodes.map((n) => n.selfMs ?? 0));
   const hasActual = nodes.some((n) => n.inclusiveMs !== undefined);
 
+  // 操作カラムの幅 (null = 自動。ヘッダのリサイザをドラッグで固定幅にできる)
+  const [opWidth, setOpWidth] = useState<number | null>(null);
+  const headOpRef = useRef<HTMLSpanElement>(null);
+
+  const startOpResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = opWidth ?? headOpRef.current?.offsetWidth ?? 300;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.cursor = "col-resize";
+    const move = (ev: MouseEvent) =>
+      setOpWidth(Math.max(140, startW + ev.clientX - startX));
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.body.style.cursor = prevCursor;
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up, { once: true });
+  };
+
+  /** 操作カラムの幅指定 (固定時のみ) */
+  const opStyle = (indent = 0): React.CSSProperties | undefined =>
+    opWidth !== null
+      ? { width: opWidth, flex: "none", paddingLeft: indent }
+      : { paddingLeft: indent };
+
   return (
-    <div className="plan-pretty">
+    <div className={"plan-pretty" + (opWidth !== null ? " op-fixed" : "")}>
       <div className="plan-sticky">
         {hasActual && (
           <div className="plan-summary">
@@ -177,9 +203,21 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
           </div>
         )}
         <div className="plan-head">
-          <HoverTip className="plan-head-op" text={PLAN_COL_DESC.op}>
-            操作
-          </HoverTip>
+          <span
+            className="plan-head-op-wrap"
+            ref={headOpRef}
+            style={opWidth !== null ? { width: opWidth, flex: "none" } : undefined}
+          >
+            <HoverTip className="plan-head-op" text={PLAN_COL_DESC.op}>
+              操作
+            </HoverTip>
+          </span>
+          <span
+            className="plan-col-resizer"
+            title="ドラッグで操作カラムの幅を変更 / ダブルクリックで自動に戻す"
+            onMouseDown={startOpResize}
+            onDoubleClick={() => setOpWidth(null)}
+          />
           <HoverTip className="plan-col rows" text={PLAN_COL_DESC.rows}>
             行数
           </HoverTip>
@@ -207,12 +245,8 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
           const warm = selfRatio > 0.33 && !hot;
           const gap = estimateGap(n);
           return (
-            <div
-              className={"plan-row" + (hot ? " hot" : "")}
-              key={i}
-              style={{ paddingLeft: 10 + n.depth * 18 }}
-            >
-              <div className="plan-row-main">
+            <div className={"plan-row" + (hot ? " hot" : "")} key={i}>
+              <div className="plan-row-main" style={opStyle(n.depth * 18)}>
                 <span className="plan-tree-mark" aria-hidden>
                   {n.depth > 0 ? "└" : ""}
                 </span>

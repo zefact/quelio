@@ -76,6 +76,8 @@ interface Props {
   results: StatementResult[] | null;
   error: string | null;
   running: boolean;
+  /** 実行開始時刻 (epoch ms)。タブ切替をまたいで経過時間を継続するため */
+  runStartedAt: number | null;
   /** 直前の実行がEXPLAIN系だったか (ヘッダの意味ツールチップ用) */
   explainKind: "explain" | "analyze" | null;
   onChangeSql: (sql: string) => void;
@@ -105,6 +107,7 @@ export function QueryPanel({
   results,
   error,
   running,
+  runStartedAt,
   explainKind,
   onChangeSql,
   onRun,
@@ -142,16 +145,17 @@ export function QueryPanel({
   }, [running]);
 
   // 実行中は経過時間を100msごとに更新する
+  // (開始時刻は親のタブ状態が保持しているため、タブ切替で再マウントされてもリセットされない)
   useEffect(() => {
     if (!running) return;
-    const start = Date.now();
-    setElapsedMs(0);
+    const start = runStartedAt ?? Date.now();
+    setElapsedMs(Date.now() - start);
     const timer = window.setInterval(
       () => setElapsedMs(Date.now() - start),
       100
     );
     return () => window.clearInterval(timer);
-  }, [running]);
+  }, [running, runStartedAt]);
 
   // 新しい結果が来たら: ソート解除。文の構成が変わった場合のみ最後のタブへ
   // (ページ送りによる差し替えでは選択中のタブを維持する)

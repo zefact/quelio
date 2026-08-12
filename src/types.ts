@@ -171,6 +171,8 @@ export interface WorkTab {
   /** 直前の実行がEXPLAIN系だったか (結果ヘッダの説明表示に使う) */
   queryExplain: "explain" | "analyze" | null;
   runningQuery: boolean;
+  /** 実行開始時刻 (epoch ms)。タブ切替で再マウントされても経過表示を継続するために保持 */
+  runStartedAt: number | null;
   error: string | null;
   testResult: TestResult | null;
   busy: "test" | "save" | "connect" | null;
@@ -195,6 +197,7 @@ export function emptyTab(key: string): WorkTab {
     queryError: null,
     queryExplain: null,
     runningQuery: false,
+    runStartedAt: null,
     error: null,
     testResult: null,
     busy: null,

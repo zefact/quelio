@@ -1107,6 +1107,29 @@ html.macos .diff-toolbar {
   transform: translateY(1px);
 }
 
+/* ボタンの基本形 (どこに置いてもネイティブの四角いボタンにならないように) */
+.btn-primary,
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: none;
+  border-radius: 9px;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, filter 0.12s ease;
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .btn-primary {
   background: linear-gradient(135deg, var(--accent), #4f46e5);
   color: #fff;
@@ -1243,6 +1266,15 @@ html.macos .diff-toolbar {
 .result-banner.ng .dot {
   background: var(--danger);
   box-shadow: 0 0 10px rgba(248, 113, 113, 0.8);
+}
+
+/* ライトテーマでは淡色文字 (#a7f3d0 / #fecaca) が背景に溶けて読めないため濃色にする */
+html[data-theme="light"] .result-banner.ok {
+  color: #04684a;
+}
+
+html[data-theme="light"] .result-banner.ng {
+  color: #a11d1d;
 }
 
 .result-banner strong {
@@ -1748,9 +1780,43 @@ html.macos .diff-toolbar {
   color: var(--text-faint);
 }
 
-.plan-head-op {
+.plan-head-op-wrap {
   flex: 1;
+  min-width: 0;
+  display: flex;
   padding-left: 10px;
+}
+
+/* 操作カラムのリサイザ (ヘッダ) */
+.plan-col-resizer {
+  flex-shrink: 0;
+  width: 9px;
+  align-self: stretch;
+  cursor: col-resize;
+  position: relative;
+}
+
+.plan-col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(var(--ink), 0.14);
+}
+
+.plan-col-resizer:hover::after {
+  background: var(--accent);
+}
+
+/* 操作カラムを固定幅にした場合は行全体を内容幅にして横スクロール可能にする */
+.plan-pretty.op-fixed .plan-sticky,
+.plan-pretty.op-fixed .plan-head,
+.plan-pretty.op-fixed .plan-row {
+  width: max-content;
+  min-width: 100%;
 }
 
 .plan-head .tip-target {
@@ -1839,6 +1905,7 @@ html.macos .diff-toolbar {
   gap: 12px;
   padding: 3px 14px 3px 10px;
   border-bottom: 1px solid rgba(var(--ink), 0.03);
+  /* インデントはplan-row-main側のpadding-leftで付ける */
 }
 
 .plan-row.hot {

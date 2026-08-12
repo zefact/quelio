@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Quelio - 軽量なMySQL / PostgreSQLクライアント</title>
+  <title>Quelio（クエリオ）- 軽量なMySQL / PostgreSQLクライアント</title>
   <meta name="description" content="Quelio(クエリオ)は、Tauri製の軽量デスクトップDBクライアント。MySQL / PostgreSQL対応、SSHトンネル、テーブル構造ビュー、EXPLAIN対応のクエリエディタ、エクスポート/インポートを搭載。" />
-  <meta property="og:title" content="Quelio - 軽量なMySQL / PostgreSQLクライアント" />
+  <meta property="og:title" content="Quelio（クエリオ）- 軽量なMySQL / PostgreSQLクライアント" />
   <meta property="og:description" content="スキーマ差分チェック・結果の自動キャプチャ・日本語の論理名表示。現場で欲しかった機能を載せた無料のデスクトップDBクライアント (macOS / Windows)。" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://zefact.github.io/quelio/" />
@@ -59,6 +59,7 @@
     .nav-inner { display: flex; align-items: center; height: 64px; gap: 28px; }
     .nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; }
     .nav-logo svg { width: 26px; height: 26px; }
+    .nav-logo-ja { font-size: 12px; font-weight: 600; color: var(--ink-3); margin-left: -4px; }
     .nav-links { display: flex; gap: 24px; margin-left: auto; font-size: 14px; color: var(--ink-2); }
     .nav-links a:hover { color: var(--ink); }
     .nav-gh {
@@ -109,7 +110,9 @@
       background: var(--accent-grad);
       -webkit-background-clip: text; background-clip: text; color: transparent;
     }
-    .hero .sub { max-width: 580px; margin: 22px auto 0; color: var(--ink-2); font-size: 16.5px; }
+    .hero-name { margin-top: 20px; font-size: 15px; color: var(--ink-2); letter-spacing: 0.02em; }
+    .hero-name b { font-weight: 800; color: var(--ink); letter-spacing: 0.01em; }
+    .hero .sub { max-width: 580px; margin: 14px auto 0; color: var(--ink-2); font-size: 16.5px; }
     .hero-cta { margin-top: 38px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
     .btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -492,7 +495,7 @@
     <div class="container nav-inner">
       <a class="nav-logo" href="#">
         <svg viewBox="0 0 1024 1024"><use href="#quelio-mark"/></svg>
-        Quelio
+        Quelio<span class="nav-logo-ja">クエリオ</span>
       </a>
       <div class="nav-links">
         <a href="#workflow">使い方</a>
@@ -513,6 +516,7 @@
     <div class="container">
       <span class="badge"><i></i>MySQL / PostgreSQL 対応 · 無料 · ベータ版公開中</span>
       <h1>データベース作業を、<br /><span class="grad">軽く、速く。</span></h1>
+      <p class="hero-name"><b>Quelio</b>（クエリオ）</p>
       <p class="sub">
         環境間のスキーマ差異チェック、クエリと結果の自動キャプチャ、日本語の論理名表示。
         現場で本当に欲しかった機能を載せた、Tauri + Rust 製の軽量DBクライアントです。
@@ -999,21 +1003,22 @@
         <div class="dl-card">
           <div class="os-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg></div>
           <h3>macOS</h3>
-          <div class="fmt">.dmg (Apple Silicon)</div>
+          <div class="fmt">.dmg (Apple Siliconのみ)</div>
           <a class="btn btn-dark" href="https://github.com/zefact/quelio/releases/latest">ダウンロード</a>
+          <div class="fmt">Quelio_0.2.0_aarch64.dmgをダウンロードしてください。</div>
         </div>
         <div class="dl-card">
           <div class="os-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10.5 4.4v7.1H3zm0 13 7.5 1.1v-7H3zm8.5 1.2L21 21V12.6h-9.5zm0-15.4v7.2H21V3z"/></svg></div>
           <h3>Windows</h3>
           <div class="fmt">インストーラ (.exe)</div>
           <a class="btn btn-dark" href="https://github.com/zefact/quelio/releases/latest">ダウンロード</a>
+          <div class="fmt">Quelio_x.x.x_x64-setup.exeをダウンロードしてください。</div>
         </div>
       </div>
       <p class="dl-note">
         現在はベータ版です。一度インストールすれば、新バージョン公開時にアプリ内の通知から自動アップデートできます (macOS / Windows)。<br />
-        macOS版はコード署名・Apple公証済みのため、そのままインストールして起動できます。<br />
-        Windowsは <span class="mono">Quelio_x.x.x_x64-setup.exe</span> をダウンロードして実行してください
-        (SmartScreenの画面では「詳細情報」→「実行」)。社内へ一括配布する場合向けに .msi 版もあります。
+        Windowsは <span class="mono">Quelio_x.x.x_x64-setup.exe</span> をダウンロードして実行してください<br />
+        (SmartScreenの画面(WindowsによってPCは保護されました)では「詳細情報」→「実行」)。
       </p>
     </div>
   </section>
@@ -1021,7 +1026,7 @@
   <footer>
     <div class="container foot-inner">
       <svg viewBox="0 0 1024 1024"><use href="#quelio-mark"/></svg>
-      <span>Quelio — MySQL / PostgreSQLクライアント</span>
+      <span>Quelio（クエリオ）— MySQL / PostgreSQLクライアント</span>
       <span class="foot-right">
         <a href="https://github.com/zefact/quelio/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
         &nbsp;·&nbsp; © <span id="copy-year">2026</span> <a href="https://zefact.co.jp" target="_blank" rel="noopener">Zefact</a>
