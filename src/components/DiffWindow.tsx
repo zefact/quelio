@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listSessions, schemaSnapshot } from "../api";
 import { useResizableWidth } from "../hooks/useResizableWidth";
+import { SelectMenu } from "./SelectMenu";
 import type {
   ColumnInfo,
   IndexInfo,
@@ -249,38 +250,33 @@ export function DiffWindow() {
     const session = sessions.find((s) => s.sessionId === side.sessionId);
     return (
       <div className="diff-side-sel">
-        <select
-          className="db-select mono"
+        <SelectMenu
+          className="mono"
           value={side.sessionId}
-          onChange={(e) => {
-            const s = sessions.find((x) => x.sessionId === e.target.value);
+          placeholder={placeholder}
+          options={sessions.map((s) => ({
+            value: s.sessionId,
+            label: s.name,
+          }))}
+          onChange={(v) => {
+            const s = sessions.find((x) => x.sessionId === v);
             setSide({
-              sessionId: e.target.value,
+              sessionId: v,
               database: s?.currentDb ?? s?.databases[0] ?? "",
             });
           }}
-        >
-          <option value="" disabled>
-            {placeholder}
-          </option>
-          {sessions.map((s) => (
-            <option key={s.sessionId} value={s.sessionId}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <select
-          className="db-select mono"
+        />
+        <SelectMenu
+          className="mono"
           value={side.database}
+          placeholder="データベース"
           disabled={!session}
-          onChange={(e) => setSide({ ...side, database: e.target.value })}
-        >
-          {(session?.databases ?? []).map((d) => (
-            <option key={d} value={d}>
-              {d}
-            </option>
-          ))}
-        </select>
+          options={(session?.databases ?? []).map((d) => ({
+            value: d,
+            label: d,
+          }))}
+          onChange={(v) => setSide({ ...side, database: v })}
+        />
       </div>
     );
   };

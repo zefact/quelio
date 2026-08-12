@@ -1486,6 +1486,89 @@ html[data-theme="light"] .result-banner.ng {
   color: var(--text);
 }
 
+/* ============ 独自セレクトボックス (SelectMenu) ============
+   ネイティブselectのドロップダウンはWindows (WebView2) でOS描画になり
+   テーマと合わないため、コンテキストメニューと同じ見た目で自前描画する */
+
+.select-menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.select-menu-trigger {
+  display: block;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-menu-trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.select-menu-label.placeholder {
+  color: var(--text-faint);
+}
+
+.select-menu-pop {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 0;
+  z-index: 120;
+  min-width: 100%;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--menu-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+  animation: slide-in 0.1s ease;
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+}
+
+.select-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  padding: 6px 10px 6px 6px;
+  text-align: left;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.select-menu-item.hover {
+  background: rgba(99, 102, 241, 0.25);
+}
+
+.select-menu-item.checked {
+  color: var(--accent-2, #a5b4fc);
+}
+
+.select-menu-check {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 11px;
+}
+
+.select-menu-empty {
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
 .toolbar-spacer {
   flex: 1;
 }
@@ -1916,6 +1999,16 @@ html[data-theme="light"] .result-banner.ng {
 
 .plan-pretty.op-fixed .plan-inner {
   width: max-content;
+}
+
+/* 操作カラム固定時: メトリクス列を右端に寄せて全行の列位置を揃える。
+   (操作カラムはflex:noneの固定幅なので、余白はmargin-left:autoで吸収する) */
+.plan-pretty.op-fixed .plan-row-metrics {
+  margin-left: auto;
+}
+
+.plan-pretty.op-fixed .plan-head .plan-col.rows {
+  margin-left: auto;
 }
 
 .plan-head .tip-target {

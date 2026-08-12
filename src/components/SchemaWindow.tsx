@@ -3,6 +3,7 @@ import { exportSchemaCsv, getAppSettings, listSessions, schemaSnapshot } from ".
 import { parseComment } from "../comment";
 import type { SchemaEntry, SessionSummary, TableInfo } from "../types";
 import { GridColumn, ResizableGrid } from "./ResizableGrid";
+import { SelectMenu } from "./SelectMenu";
 
 function fullName(t: TableInfo): string {
   return t.schema ? `${t.schema}.${t.name}` : t.name;
@@ -267,40 +268,34 @@ export function SchemaWindow() {
     <div className="schema-window">
       <div className="diff-toolbar" data-tauri-drag-region>
         <div className="diff-side-sel">
-          <select
-            className="db-select mono"
+          <SelectMenu
+            className="mono"
             value={sel.sessionId}
-            onChange={(e) => {
-              const s = sessions.find((x) => x.sessionId === e.target.value);
+            placeholder="接続を選択"
+            options={sessions.map((s) => ({
+              value: s.sessionId,
+              label: s.name,
+            }))}
+            onChange={(v) => {
+              const s = sessions.find((x) => x.sessionId === v);
               const db = s?.currentDb ?? s?.databases[0] ?? "";
-              setSel({ sessionId: e.target.value, database: db });
-              load(e.target.value, db);
+              setSel({ sessionId: v, database: db });
+              load(v, db);
             }}
-          >
-            <option value="" disabled>
-              接続を選択
-            </option>
-            {sessions.map((s) => (
-              <option key={s.sessionId} value={s.sessionId}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="db-select mono"
+          />
+          <SelectMenu
+            className="mono"
             value={sel.database}
             disabled={!session}
-            onChange={(e) => {
-              setSel({ ...sel, database: e.target.value });
-              load(sel.sessionId, e.target.value);
+            options={(session?.databases ?? [sel.database]).map((d) => ({
+              value: d,
+              label: d,
+            }))}
+            onChange={(v) => {
+              setSel({ ...sel, database: v });
+              load(sel.sessionId, v);
             }}
-          >
-            {(session?.databases ?? [sel.database]).map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
+          />
         </div>
 
         <input

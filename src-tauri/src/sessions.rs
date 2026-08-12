@@ -1,6 +1,7 @@
 //! アクティブなDB接続(セッション)の管理
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use sqlx::mysql::MySqlConnection;
 use sqlx::postgres::PgConnection;
@@ -67,9 +68,26 @@ pub struct Session {
 }
 
 /// セッションID(タブ単位) → Session のマップ (Tauriのmanaged state)
-/// 同じプロファイルでも別タブなら別セッションになる
+/// 同じプロファイルでも別タブなら別セッションになる。
+/// セッションごとに独立したロック (Arc<Mutex<Session>>) を持つため、
+/// あるタブでSQLを実行中でも他のタブは並行して接続・実行できる
 #[derive(Default)]
-pub struct Sessions(pub Mutex<HashMap<String, Session>>);
+pub struct Sessions(pub Mutex<HashMap<String, Arc<Mutex<Session>>>>);
+
+/// セッションを取り出す。マップ全体のロックは取り出し後すぐ解放されるため、
+/// 個別セッションのロック待ちが他セッションの操作を妨げない
+async fn get_session(
+    sessions: &Sessions,
+    session_id: &str,
+) -> Result<Arc<Mutex<Session>>, String> {
+    sessions
+        .0
+        .lock()
+        .await
+        .get(session_id)
+        .cloned()
+        .ok_or_else(|| "接続されていません。再接続してください".to_string())
+}
 
 /// プロファイルのログ表示名
 fn conn_label(profile: &ConnectionProfile) -> String {
@@ -157,8 +175,13 @@ pub async fn connect(
         last_used: std::time::Instant::now(),
     };
     // 同じキーで既存セッションがあれば正しく閉じてから置き換える
-    if let Some(old) = sessions.0.lock().await.insert(session_id, session) {
-        close_session_gracefully(old, qlog).await;
+    let old = sessions
+        .0
+        .lock()
+        .await
+        .insert(session_id, Arc::new(Mutex::new(session)));
+    if let Some(old) = old {
+        close_session_arc(old, qlog).await;
     }
 
     Ok(ConnectInfo {
@@ -268,10 +291,15 @@ async fn ensure_alive(session: &mut Session, qlog: &QueryLog) -> Result<(), Stri
 /// 全セッションに定期pingを送り、アイドル切断を防ぐ (バックグラウンドで定期実行)。
 /// pingに失敗しても何もしない (次の操作時にensure_aliveが再接続する)
 pub async fn keepalive_all(sessions: &Sessions) {
-    let mut map = sessions.0.lock().await;
-    for session in map.values_mut() {
-        if ping_conn(&mut session.conn).await {
-            session.last_used = std::time::Instant::now();
+    // マップのロックはArcの複製だけで即解放し、pingはセッション個別に行う
+    let list: Vec<Arc<Mutex<Session>>> =
+        sessions.0.lock().await.values().cloned().collect();
+    for arc in list {
+        // 使用中 (クエリ実行中など) のセッションはスキップ (使われている = 生きている)
+        if let Ok(mut session) = arc.try_lock() {
+            if ping_conn(&mut session.conn).await {
+                session.last_used = std::time::Instant::now();
+            }
         }
     }
 }
@@ -333,10 +361,9 @@ pub async fn list_tables(
     session_id: &str,
     database: &str,
 ) -> Result<Vec<TableInfo>, String> {
-    let mut map = sessions.0.lock().await;
-    let session = map
-        .get_mut(session_id)
-        .ok_or("接続されていません。再接続してください")?;
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
     ensure_alive(session, qlog).await?;
     let label = conn_label(&session.profile);
     let ctx = LogCtx {
@@ -366,10 +393,9 @@ pub async fn table_detail(
     schema: Option<String>,
     table: &str,
 ) -> Result<TableDetail, String> {
-    let mut map = sessions.0.lock().await;
-    let session = map
-        .get_mut(session_id)
-        .ok_or("接続されていません。再接続してください")?;
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
     ensure_alive(session, qlog).await?;
     let label = conn_label(&session.profile);
     let ctx = LogCtx {
@@ -442,10 +468,9 @@ pub async fn run_query(
     };
     let order = order_by.as_deref().map(|c| (c, dir));
 
-    let mut map = sessions.0.lock().await;
-    let session = map
-        .get_mut(session_id)
-        .ok_or("接続されていません。再接続してください")?;
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
     ensure_alive(session, qlog).await?;
     let label = conn_label(&session.profile);
     let db_label = database.clone().unwrap_or_default();
@@ -608,27 +633,36 @@ pub async fn schema_snapshot(
     session_id: &str,
     database: &str,
 ) -> Result<Vec<SchemaEntry>, String> {
-    let mut map = sessions.0.lock().await;
-    let session = map
-        .get_mut(session_id)
-        .ok_or("接続されていません。再接続してください")?;
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
     ensure_alive(session, qlog).await?;
     collect_schema_inner(session, qlog, database).await
 }
 
 /// 開いているセッションの一覧 (差分ビューアの選択肢用)
 pub async fn list_sessions(sessions: &Sessions) -> Vec<SessionSummary> {
-    let map = sessions.0.lock().await;
-    let mut list: Vec<SessionSummary> = map
+    let entries: Vec<(String, Arc<Mutex<Session>>)> = sessions
+        .0
+        .lock()
+        .await
         .iter()
-        .map(|(id, s)| SessionSummary {
-            session_id: id.clone(),
-            name: conn_label(&s.profile),
-            db_type: s.profile.db_type,
-            databases: s.databases.clone(),
-            current_db: s.current_db.clone(),
-        })
+        .map(|(id, arc)| (id.clone(), arc.clone()))
         .collect();
+    let mut list = Vec::with_capacity(entries.len());
+    for (id, arc) in entries {
+        // クエリ実行中のセッションはロック待ちせずスキップする
+        // (一覧のために実行完了を待たない。完了後の再取得で表示される)
+        if let Ok(s) = arc.try_lock() {
+            list.push(SessionSummary {
+                session_id: id,
+                name: conn_label(&s.profile),
+                db_type: s.profile.db_type,
+                databases: s.databases.clone(),
+                current_db: s.current_db.clone(),
+            });
+        }
+    }
     list.sort_by(|a, b| a.name.cmp(&b.name));
     list
 }
@@ -640,10 +674,9 @@ pub async fn endpoint_info(
     qlog: &QueryLog,
     session_id: &str,
 ) -> Result<crate::tools::Endpoint, String> {
-    let mut map = sessions.0.lock().await;
-    let s = map
-        .get_mut(session_id)
-        .ok_or("セッションが見つかりません。再接続してください")?;
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let s = &mut *guard;
     // SSHトンネルが切れているとローカルポートが無効なため、先に生存確認する
     ensure_alive(s, qlog).await?;
     Ok(crate::tools::Endpoint {
@@ -664,10 +697,9 @@ pub async fn export_schema(
     database: &str,
     comment_delimiter: &str,
 ) -> Result<(String, String, String), String> {
-    let mut map = sessions.0.lock().await;
-    let session = map
-        .get_mut(session_id)
-        .ok_or("接続されていません。再接続してください")?;
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
     ensure_alive(session, qlog).await?;
     let items = collect_schema_inner(session, qlog, database).await?;
 
@@ -734,11 +766,27 @@ async fn close_session_gracefully(mut session: Session, qlog: &QueryLog) {
     qlog.add(&label, "", "-- 切断しました (終了通知を送信)");
 }
 
+/// Arcに包まれたセッションを、他で使用中でなければ正しく閉じる。
+/// クエリ実行中など使用中の場合は、その処理の完了時 (Arc解放時) に
+/// 接続ごと破棄される (終了通知は送られない)
+async fn close_session_arc(arc: Arc<Mutex<Session>>, qlog: &QueryLog) {
+    if let Ok(m) = Arc::try_unwrap(arc) {
+        close_session_gracefully(m.into_inner(), qlog).await;
+    }
+}
+
 /// セッションを破棄する。DB・SSHとも終了通知を送ってから閉じる
 pub async fn disconnect(sessions: &Sessions, qlog: &QueryLog, session_id: &str) {
     let removed = sessions.0.lock().await.remove(session_id);
-    if let Some(session) = removed {
-        session.cancel.0.lock().unwrap().remove(session_id);
-        close_session_gracefully(session, qlog).await;
+    if let Some(arc) = removed {
+        match Arc::try_unwrap(arc) {
+            Ok(m) => {
+                let session = m.into_inner();
+                session.cancel.0.lock().unwrap().remove(session_id);
+                close_session_gracefully(session, qlog).await;
+            }
+            // クエリ実行中に切断された場合: 実行タスクの完了時にArcごと破棄される
+            Err(_) => {}
+        }
     }
 }

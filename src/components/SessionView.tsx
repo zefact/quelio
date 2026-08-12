@@ -4,6 +4,7 @@ import { badgeStyle } from "../colors";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import type { TableInfo, WorkTab } from "../types";
 import { QueryPanel } from "./QueryPanel";
+import { SelectMenu } from "./SelectMenu";
 import { StructureView } from "./StructureView";
 import { ExportDialog, ImportDialog } from "./TransferDialog";
 
@@ -161,20 +162,13 @@ export function SessionView({
             <ellipse cx="12" cy="5.5" rx="8" ry="3" stroke="currentColor" strokeWidth="2" />
             <path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13" stroke="currentColor" strokeWidth="2" />
           </svg>
-          <select
-            className="db-select mono"
+          <SelectMenu
+            className="mono"
             value={selectedDb ?? ""}
-            onChange={(e) => onSelectDb(e.target.value)}
-          >
-            <option value="" disabled>
-              データベースを選択
-            </option>
-            {databases.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
+            placeholder="データベースを選択"
+            options={databases.map((d) => ({ value: d, label: d }))}
+            onChange={onSelectDb}
+          />
         </div>
 
         {tab.serverInfo.length > 0 && (
@@ -307,7 +301,8 @@ export function SessionView({
                           (multiSel.has(key) ? " multi" : "")
                         }
                         onClick={(e) => handleTableClick(e, t, idx)}
-                        title={key}
+                        // MySQLはschemaが無いため、keyそのまま (".table名") ではなく表示用の名前を出す
+                        title={t.schema ? `${t.schema}.${t.name}` : t.name}
                       >
                         <span className={`type-chip mini ${badge.cls}`}>
                           {badge.label}

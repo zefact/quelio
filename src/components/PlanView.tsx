@@ -230,11 +230,11 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
   };
 
   /** 操作カラムの幅指定 (固定時のみ)。
-   * flex-basisで最小幅を決めつつgrowを許すことで、全行の右端 (メトリクス列) が
-   * 共通の幅に揃い、バッジ有無などによる行ごとのズレを防ぐ */
+   * 固定幅 (flex: none) にすることでドラッグした幅がそのまま反映される。
+   * 列位置のズレはCSS側 (op-fixed時のmargin-left: auto) で右端に揃えて防ぐ */
   const opStyle = (indent = 0): React.CSSProperties | undefined =>
     opWidth !== null
-      ? { flex: `1 0 ${opWidth}px`, paddingLeft: indent }
+      ? { width: opWidth, flex: "none", paddingLeft: indent }
       : { paddingLeft: indent };
 
   return (
@@ -256,7 +256,7 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
           <span
             className="plan-head-op-wrap"
             ref={headOpRef}
-            style={opWidth !== null ? { flex: `1 0 ${opWidth}px` } : undefined}
+            style={opWidth !== null ? { width: opWidth, flex: "none" } : undefined}
           >
             <HoverTip className="plan-head-op" text={PLAN_COL_DESC.op}>
               操作
