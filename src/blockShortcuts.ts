@@ -21,9 +21,8 @@ export function blockBrowserShortcuts(): void {
         // 再読み込み: F5 / Ctrl(Cmd)+R (Shift併用のスーパーリロード含む)
         e.key === "F5" ||
         (ctrl && key === "r") ||
-        // ページ内検索: Ctrl(Cmd)+F / F3 (WebView2の検索バー)
-        (ctrl && key === "f") ||
-        e.key === "F3" ||
+        // ※ Ctrl(Cmd)+F と F3 はアプリ独自の検索バー (FindBar) が
+        //   preventDefault込みで処理するため、ここでは抑止しない
         // キャレットブラウズ切替 (WebView2): F7
         e.key === "F7" ||
         // 印刷 / ページ保存 / ファイルを開く / ダウンロード一覧 / ソース表示

@@ -24,7 +24,7 @@ pub enum DbConn {
     Pg(PgConnection),
 }
 
-const CLOSE_TIMEOUT: Duration = Duration::from_secs(3);
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
 /// 生存確認pingのタイムアウト
 const PING_TIMEOUT: Duration = Duration::from_secs(5);
 /// この時間以上操作がなかったら、次の操作の前にpingで生存確認する
@@ -428,6 +428,7 @@ pub async fn run_query(
     order_dir: Option<String>,
     transaction: bool,
     explain: Option<String>,
+    timeout_secs: u64,
 ) -> Result<RunOutput, String> {
     let stmts = query::split_statements(sql);
     if stmts.is_empty() {
@@ -506,8 +507,8 @@ pub async fn run_query(
         qlog.add(&label, &db_label, &plan.sql);
 
         let res = match &mut session.conn {
-            DbConn::MySql(conn) => query::run_mysql(conn, &plan).await,
-            DbConn::Pg(conn) => query::run_pg(conn, &plan).await,
+            DbConn::MySql(conn) => query::run_mysql(conn, &plan, timeout_secs).await,
+            DbConn::Pg(conn) => query::run_pg(conn, &plan, timeout_secs).await,
         };
 
         match res {

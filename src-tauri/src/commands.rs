@@ -455,6 +455,7 @@ pub async fn open_console(app: AppHandle) -> Result<(), String> {
 /// 任意のSQLを実行する
 #[tauri::command]
 pub async fn run_query(
+    app: AppHandle,
     state: State<'_, Sessions>,
     qlog: State<'_, QueryLog>,
     session_id: String,
@@ -466,6 +467,10 @@ pub async fn run_query(
     transaction: Option<bool>,
     explain: Option<String>,
 ) -> Result<RunOutput, String> {
+    // SQL実行タイムアウトは設定画面の値を使う (0は無制限)
+    let timeout_secs = crate::app_settings::load(&app)
+        .map(|s| s.query_timeout_secs)
+        .unwrap_or(crate::query::DEFAULT_QUERY_TIMEOUT_SECS);
     sessions::run_query(
         &state,
         &qlog,
@@ -477,6 +482,7 @@ pub async fn run_query(
         order_dir,
         transaction.unwrap_or(false),
         explain,
+        timeout_secs,
     )
     .await
 }

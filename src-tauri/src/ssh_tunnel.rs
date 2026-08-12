@@ -43,7 +43,7 @@ impl SshTunnel {
     /// SSHプロトコルに則ってDisconnectメッセージを送ってから閉じる
     pub async fn close(&mut self) {
         let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
+            std::time::Duration::from_secs(10),
             self.handle
                 .disconnect(russh::Disconnect::ByApplication, "closed by Quelio", "en"),
         )
@@ -72,8 +72,12 @@ pub async fn open_tunnel(
         port: cfg.port,
         reject_reason: Arc::clone(&reject_reason),
     };
-    let mut session = client::connect(config, (cfg.host.as_str(), cfg.port), handler)
-        .await
+    let mut session = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        client::connect(config, (cfg.host.as_str(), cfg.port), handler),
+    )
+    .await
+    .map_err(|_| format!("SSH接続がタイムアウトしました ({}:{})", cfg.host, cfg.port))?
         .map_err(|e| {
             // ホスト鍵不一致で拒否した場合は詳しい理由を出す
             if let Some(reason) = reject_reason.lock().unwrap().take() {

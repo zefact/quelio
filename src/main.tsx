@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./App.css";
 import { ConsoleWindow } from "./components/ConsoleWindow";
+import { FindBar } from "./components/FindBar";
 import { DiffWindow } from "./components/DiffWindow";
 import { SchemaWindow } from "./components/SchemaWindow";
 import { initTheme } from "./theme";
@@ -39,5 +40,9 @@ const content = params.has("console") ? (
 );
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>{content}</React.StrictMode>,
+  <React.StrictMode>
+    {/* ページ内検索 (Cmd/Ctrl+F)。どのウィンドウでも使えるようルートに置く */}
+    <FindBar />
+    {content}
+  </React.StrictMode>,
 );

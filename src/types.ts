@@ -280,4 +280,6 @@ export interface AppSettings {
   structureCommentMode: StructureCommentMode;
   /** SQL結果に行番号を表示するか */
   showRowNumbers: boolean;
+  /** SQL実行のタイムアウト (秒)。0で無制限 */
+  queryTimeoutSecs: number;
 }

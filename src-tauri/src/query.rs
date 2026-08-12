@@ -10,7 +10,18 @@ use tokio::time::{timeout, Duration};
 use crate::db::format_db_error;
 use crate::models::QueryResult;
 
-const QUERY_TIMEOUT: Duration = Duration::from_secs(60);
+/// SQL実行タイムアウトの既定値 (秒)。設定画面から変更できる
+pub const DEFAULT_QUERY_TIMEOUT_SECS: u64 = 60;
+
+/// SQL実行タイムアウト。0は無制限 (実装上は十分大きな値) として扱う
+fn query_timeout(secs: u64) -> Duration {
+    if secs == 0 {
+        Duration::from_secs(60 * 60 * 24 * 365)
+    } else {
+        Duration::from_secs(secs)
+    }
+}
+
 /// 1ページの行数
 pub const PAGE_SIZE: usize = 1000;
 
@@ -119,16 +130,36 @@ pub fn split_statements(sql: &str) -> Vec<String> {
     stmts
 }
 
-/// 結果セットを返す種類のSQLかどうか
-fn is_fetch(sql: &str) -> bool {
-    let head = sql
-        .trim_start()
+/// 先頭のコメント (行コメント -- / #、ブロックコメント /* */) と空白を読み飛ばす。
+/// 「-- explain」のようなコメントで始まるSELECT文をSELECT系と判定できるようにする
+fn strip_leading_comments(mut s: &str) -> &str {
+    loop {
+        s = s.trim_start();
+        if let Some(rest) = s.strip_prefix("--") {
+            s = rest.split_once('\n').map_or("", |(_, r)| r);
+        } else if let Some(rest) = s.strip_prefix('#') {
+            s = rest.split_once('\n').map_or("", |(_, r)| r);
+        } else if let Some(rest) = s.strip_prefix("/*") {
+            s = rest.split_once("*/").map_or("", |(_, r)| r);
+        } else {
+            return s;
+        }
+    }
+}
+
+/// SQLの先頭キーワード (コメントを除いた最初の単語) を大文字で返す
+fn head_keyword(sql: &str) -> String {
+    strip_leading_comments(sql)
         .split_whitespace()
         .next()
         .unwrap_or("")
-        .to_ascii_uppercase();
+        .to_ascii_uppercase()
+}
+
+/// 結果セットを返す種類のSQLかどうか
+fn is_fetch(sql: &str) -> bool {
     matches!(
-        head.as_str(),
+        head_keyword(sql).as_str(),
         "SELECT" | "SHOW" | "WITH" | "EXPLAIN" | "DESCRIBE" | "DESC" | "VALUES" | "TABLE"
     )
 }
@@ -144,11 +175,7 @@ pub fn plan(
 ) -> PlannedQuery {
     let trimmed = sql.trim().trim_end_matches(';').trim();
     let fetch = is_fetch(trimmed);
-    let head = trimmed
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_ascii_uppercase();
+    let head = head_keyword(trimmed);
     let pageable = fetch
         && matches!(head.as_str(), "SELECT" | "WITH" | "TABLE" | "VALUES")
         && !trimmed.to_ascii_uppercase().contains("LIMIT");
@@ -261,11 +288,12 @@ fn pg_cell(row: &PgRow, i: usize) -> Option<String> {
 pub async fn run_mysql(
     conn: &mut MySqlConnection,
     plan: &PlannedQuery,
+    timeout_secs: u64,
 ) -> Result<QueryResult, String> {
     let started = Instant::now();
     if plan.is_fetch {
         let rows = timeout(
-            QUERY_TIMEOUT,
+            query_timeout(timeout_secs),
             sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch_all(&mut *conn),
         )
         .await
@@ -295,7 +323,7 @@ pub async fn run_mysql(
         })
     } else {
         let res = timeout(
-            QUERY_TIMEOUT,
+            query_timeout(timeout_secs),
             sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).execute(&mut *conn),
         )
         .await
@@ -318,11 +346,12 @@ pub async fn run_mysql(
 pub async fn run_pg(
     conn: &mut PgConnection,
     plan: &PlannedQuery,
+    timeout_secs: u64,
 ) -> Result<QueryResult, String> {
     let started = Instant::now();
     if plan.is_fetch {
         let rows = timeout(
-            QUERY_TIMEOUT,
+            query_timeout(timeout_secs),
             sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch_all(&mut *conn),
         )
         .await
@@ -352,7 +381,7 @@ pub async fn run_pg(
         })
     } else {
         let res = timeout(
-            QUERY_TIMEOUT,
+            query_timeout(timeout_secs),
             sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).execute(&mut *conn),
         )
         .await

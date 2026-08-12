@@ -616,8 +616,12 @@ export function QueryPanel({
             </div>
           )
         ) : result.rowsAffected !== null && result.rowsAffected !== undefined ? (
-          <div className="content-placeholder dim-center">
-            {result.rowsAffected}行に影響しました ({result.elapsedMs}ms)
+          <div className="result-banner ok exec-result">
+            <span className="dot" aria-hidden />
+            <strong>実行完了</strong>
+            <span className="result-detail">
+              {result.rowsAffected}行に影響しました ({result.elapsedMs}ms)
+            </span>
           </div>
         ) : result.rows.length === 0 ? (
           <div className="content-placeholder dim-center">結果は0行でした</div>

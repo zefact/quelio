@@ -28,6 +28,7 @@ export function SettingsGeneral({ notify }: Props) {
     commentDelimiter: "（",
     structureCommentMode: "comment",
     showRowNumbers: true,
+    queryTimeoutSecs: 60,
   });
 
   useEffect(() => {
@@ -126,6 +127,34 @@ export function SettingsGeneral({ notify }: Props) {
             />
             <span className="track" aria-hidden />
           </label>
+        </SettingRow>
+        <SettingRow
+          title="SQL実行のタイムアウト"
+          desc="この秒数を超えたSQL実行はエラーで打ち切ります。0にすると無制限です。次の実行から適用されます。"
+        >
+          <div className="timeout-field">
+            <input
+              className="delim-input mono"
+              type="number"
+              min={0}
+              max={86400}
+              value={app.queryTimeoutSecs}
+              onChange={(e) => {
+                const n = Number.parseInt(e.target.value, 10);
+                setApp({
+                  ...app,
+                  queryTimeoutSecs: Number.isNaN(n)
+                    ? 0
+                    : Math.min(Math.max(n, 0), 86400),
+                });
+              }}
+              onBlur={() => saveApp({ ...app })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveApp({ ...app });
+              }}
+            />
+            <span>秒</span>
+          </div>
         </SettingRow>
       </section>
 

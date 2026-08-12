@@ -14,6 +14,13 @@ pub struct AppSettings {
     /// SQL結果に行番号を表示するか
     #[serde(default = "default_true")]
     pub show_row_numbers: bool,
+    /// SQL実行のタイムアウト (秒)。0で無制限
+    #[serde(default = "default_query_timeout_secs")]
+    pub query_timeout_secs: u64,
+}
+
+fn default_query_timeout_secs() -> u64 {
+    60
 }
 
 fn default_true() -> bool {
@@ -34,6 +41,7 @@ impl Default for AppSettings {
             comment_delimiter: default_comment_delimiter(),
             structure_comment_mode: default_structure_comment_mode(),
             show_row_numbers: true,
+            query_timeout_secs: default_query_timeout_secs(),
         }
     }
 }
