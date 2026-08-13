@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 import {
+  addSqlHistory,
   cancelQuery,
   connectSession,
   createFolder,
@@ -276,6 +277,8 @@ function App() {
     const tab = tabs.find((t) => t.key === key);
     const sql = (sqlOverride ?? tab?.sql ?? "").trim();
     if (!tab || !sql) return;
+    // 実行履歴に記録する (失敗しても実行は続ける)
+    addSqlHistory(sql).catch(() => {});
     // 前回の実行結果はクリアしてから実行する
     updateTab(key, {
       runningQuery: true,

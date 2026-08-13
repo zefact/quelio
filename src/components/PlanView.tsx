@@ -12,7 +12,7 @@ interface Props {
   lines: string[];
 }
 
-interface PlanNode {
+export interface PlanNode {
   depth: number;
   /** 操作名 (Nested loop inner join など) */
   op: string;
@@ -37,7 +37,7 @@ const ACTUAL_RE = new RegExp(
 );
 
 /** 実行計画テキストをノード配列にパースする (失敗ならnull) */
-function parsePlan(lines: string[]): PlanNode[] | null {
+export function parsePlan(lines: string[]): PlanNode[] | null {
   const nodes: PlanNode[] = [];
 
   for (const raw of lines) {
@@ -126,19 +126,19 @@ function parsePlan(lines: string[]): PlanNode[] | null {
 }
 
 /** ミリ秒の表示 */
-function fmtMs(ms: number): string {
+export function fmtMs(ms: number): string {
   if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
   if (ms >= 1) return `${ms.toFixed(1)}ms`;
   return `${ms.toFixed(3)}ms`;
 }
 
 /** 行数の表示 (常にカンマ区切り) */
-function fmtRows(n: number): string {
+export function fmtRows(n: number): string {
   return Math.round(n).toLocaleString("en-US");
 }
 
 /** ループ回数の表示 (1億未満はカンマ区切り、1億以上のみ指数表示) */
-function fmtLoops(n: number): string {
+export function fmtLoops(n: number): string {
   return n >= 1e8
     ? n.toExponential(1).replace("e+", "e")
     : Math.round(n).toLocaleString("en-US");

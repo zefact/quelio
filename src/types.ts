@@ -283,3 +283,21 @@ export interface AppSettings {
   /** SQL実行のタイムアウト (秒)。0で無制限 */
   queryTimeoutSecs: number;
 }
+
+/** SQL実行履歴の1件 */
+export interface SqlHistoryEntry {
+  sql: string;
+  /** 実行日時 (UNIXエポックms) */
+  executedAtMs: number;
+}
+
+/** 保存SQLの1件 */
+export interface SavedSqlEntry {
+  id: string;
+  name: string;
+  /** フォルダパス ("" = ルート、"/"区切りで階層) */
+  folder: string;
+  sql: string;
+  /** 更新日時 (UNIXエポックms) */
+  updatedAtMs: number;
+}

@@ -8,7 +8,9 @@ mod known_hosts;
 mod models;
 mod query;
 mod query_log;
+mod saved_sql;
 mod sessions;
+mod sql_history;
 mod ssh_tunnel;
 mod storage;
 mod tools;
@@ -146,6 +148,11 @@ pub fn run() {
             commands::save_capture,
             commands::get_app_settings,
             commands::save_app_settings,
+            commands::get_sql_history,
+            commands::add_sql_history,
+            commands::get_saved_sql,
+            commands::upsert_saved_sql,
+            commands::delete_saved_sql,
             commands::get_tool_settings,
             commands::save_tool_settings,
             commands::detect_tools,

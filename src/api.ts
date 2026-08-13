@@ -10,8 +10,10 @@ import type {
   LayoutEntry,
   QueryLogEntry,
   RunOutput,
+  SavedSqlEntry,
   SchemaEntry,
   SessionSummary,
+  SqlHistoryEntry,
   StartedJob,
   TableDetail,
   TableInfo,
@@ -215,4 +217,34 @@ export function getAppSettings(): Promise<AppSettings> {
 /** アプリ全般の設定を保存する */
 export function saveAppSettings(settings: AppSettings): Promise<void> {
   return invoke("save_app_settings", { settings });
+}
+
+/** SQL実行履歴を取得する (新しい順・最大100件) */
+export function getSqlHistory(): Promise<SqlHistoryEntry[]> {
+  return invoke("get_sql_history");
+}
+
+/** SQL実行履歴に追加する */
+export function addSqlHistory(sql: string): Promise<void> {
+  return invoke("add_sql_history", { sql });
+}
+
+/** 保存SQLの一覧を取得する */
+export function getSavedSql(): Promise<SavedSqlEntry[]> {
+  return invoke("get_saved_sql");
+}
+
+/** 保存SQLを追加/更新する (idがnullなら新規)。更新後の全件を返す */
+export function upsertSavedSql(
+  id: string | null,
+  name: string,
+  folder: string,
+  sql: string
+): Promise<SavedSqlEntry[]> {
+  return invoke("upsert_saved_sql", { id, name, folder, sql });
+}
+
+/** 保存SQLを削除する。削除後の全件を返す */
+export function deleteSavedSql(id: string): Promise<SavedSqlEntry[]> {
+  return invoke("delete_saved_sql", { id });
 }

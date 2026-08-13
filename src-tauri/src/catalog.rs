@@ -295,12 +295,16 @@ pub async fn mysql_table_detail(
     }
 
     // テーブル情報
-    let sql = "SELECT ENGINE, CAST(TABLE_ROWS AS SIGNED) AS TABLE_ROWS, \
-                    CAST(DATA_LENGTH + IFNULL(INDEX_LENGTH, 0) AS SIGNED) AS TOTAL_SIZE, \
-                    TABLE_COLLATION, CAST(CREATE_TIME AS CHAR) AS CREATED, \
-                    CAST(UPDATE_TIME AS CHAR) AS UPDATED, TABLE_COMMENT \
-             FROM information_schema.TABLES \
-             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?";
+    let sql = "SELECT T.ENGINE, CAST(T.TABLE_ROWS AS SIGNED) AS TABLE_ROWS, \
+                    CAST(T.DATA_LENGTH + IFNULL(T.INDEX_LENGTH, 0) AS SIGNED) AS TOTAL_SIZE, \
+                    CAST(T.AUTO_INCREMENT AS SIGNED) AS AUTO_INC, \
+                    CCSA.CHARACTER_SET_NAME AS CHARSET, \
+                    T.TABLE_COLLATION, CAST(T.CREATE_TIME AS CHAR) AS CREATED, \
+                    CAST(T.UPDATE_TIME AS CHAR) AS UPDATED, T.TABLE_COMMENT \
+             FROM information_schema.TABLES T \
+             LEFT JOIN information_schema.COLLATION_CHARACTER_SET_APPLICABILITY CCSA \
+               ON CCSA.COLLATION_NAME = T.TABLE_COLLATION \
+             WHERE T.TABLE_SCHEMA = ? AND T.TABLE_NAME = ?";
     ctx.log(&bind2(sql, schema, table));
     let row = timeout(
         QUERY_TIMEOUT,
@@ -315,8 +319,9 @@ pub async fn mysql_table_detail(
 
     let mut info: Vec<(String, String)> = Vec::new();
     if let Some(r) = row {
-        let text_fields: [(&str, &str); 5] = [
+        let text_fields: [(&str, &str); 6] = [
             ("エンジン", "ENGINE"),
+            ("文字コード", "CHARSET"),
             ("照合順序", "TABLE_COLLATION"),
             ("作成", "CREATED"),
             ("更新", "UPDATED"),
@@ -325,6 +330,9 @@ pub async fn mysql_table_detail(
         for (label, col) in text_fields {
             if let Some(v) = opt(r.try_get(col).map_err(format_db_error)?) {
                 info.push((label.to_string(), v));
+            } else if label == "更新" {
+                // InnoDBはサーバー再起動後などにUPDATE_TIMEがNULLになるため "-" で明示する
+                info.push((label.to_string(), "-".to_string()));
             }
         }
         if let Some(n) = r
@@ -338,6 +346,13 @@ pub async fn mysql_table_detail(
             .map_err(format_db_error)?
         {
             info.insert(2.min(info.len()), ("サイズ".into(), format_bytes(n)));
+        }
+        // AUTO_INCREMENTを持つテーブルのみ表示 (値は次に採番される番号)
+        if let Some(n) = r
+            .try_get::<Option<i64>, _>("AUTO_INC")
+            .map_err(format_db_error)?
+        {
+            info.insert(3.min(info.len()), ("AUTO_INCREMENT".into(), n.to_string()));
         }
     }
 

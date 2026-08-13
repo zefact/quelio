@@ -219,6 +219,45 @@ pub fn get_app_settings(app: AppHandle) -> Result<crate::app_settings::AppSettin
     crate::app_settings::load(&app)
 }
 
+/// SQL実行履歴を返す (新しい順・最大100件)
+#[tauri::command]
+pub fn get_sql_history(app: AppHandle) -> Result<Vec<crate::sql_history::HistoryEntry>, String> {
+    crate::sql_history::load(&app)
+}
+
+/// SQL実行履歴に追加する (同一SQLは先頭へ移動)
+#[tauri::command]
+pub fn add_sql_history(app: AppHandle, sql: String) -> Result<(), String> {
+    crate::sql_history::add(&app, sql)
+}
+
+/// 保存SQLの一覧を返す
+#[tauri::command]
+pub fn get_saved_sql(app: AppHandle) -> Result<Vec<crate::saved_sql::SavedSql>, String> {
+    crate::saved_sql::load(&app)
+}
+
+/// 保存SQLを追加/更新して全件を返す (idが未指定なら新規)
+#[tauri::command]
+pub fn upsert_saved_sql(
+    app: AppHandle,
+    id: Option<String>,
+    name: String,
+    folder: String,
+    sql: String,
+) -> Result<Vec<crate::saved_sql::SavedSql>, String> {
+    crate::saved_sql::upsert(&app, id, name, folder, sql)
+}
+
+/// 保存SQLを削除して全件を返す
+#[tauri::command]
+pub fn delete_saved_sql(
+    app: AppHandle,
+    id: String,
+) -> Result<Vec<crate::saved_sql::SavedSql>, String> {
+    crate::saved_sql::delete(&app, &id)
+}
+
 /// アプリ全般の設定を保存する
 #[tauri::command]
 pub fn save_app_settings(

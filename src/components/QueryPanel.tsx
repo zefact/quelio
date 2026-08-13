@@ -6,6 +6,7 @@ import { useResizableHeight } from "../hooks/useResizableHeight";
 import type { DbType, StatementResult } from "../types";
 import { QUERY_PAGE_SIZE } from "../types";
 import { isPlanResult, planLines, PlanView } from "./PlanView";
+import { SqlLibraryMenu } from "./SqlLibraryMenu";
 import { GridColumn, ResizableGrid, SortState } from "./ResizableGrid";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
 
@@ -500,6 +501,7 @@ export function QueryPanel({
             </div>
           )}
         </div>
+        <SqlLibraryMenu currentSql={sql} onSelect={onChangeSql} />
         {running && (
           <button
             className="btn-secondary cancel-query-btn"
