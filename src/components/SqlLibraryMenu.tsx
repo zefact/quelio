@@ -247,13 +247,16 @@ export function SqlLibraryMenu({ currentSql, onSelect }: Props) {
 
   return (
     <div className="run-split saved-split">
+      {/* メニューを開いている間はツールチップがメニューに被るため出さない */}
       <button
-        className="btn-secondary has-tooltip tooltip-left"
+        className={
+          "btn-secondary" + (open ? "" : " has-tooltip tooltip-left")
+        }
         data-tooltip="実行履歴 (最新100件) と保存SQLを呼び出す"
         onClick={toggleMenu}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        履歴・保存
+        履歴・保存 <span className="menu-caret">▾</span>
       </button>
       {open && (
         <div

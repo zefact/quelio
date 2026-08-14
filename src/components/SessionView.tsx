@@ -186,9 +186,9 @@ export function SessionView({
         <button
           className="sql-btn has-tooltip"
           data-tooltip="ER図 (テーブルのリレーションを別ウィンドウで表示・PNG出力)"
-          disabled={!selectedDb}
           onClick={() => {
-            if (selectedDb) openEr(tab.key, selectedDb).catch(() => {});
+            // DB未選択でも開ける (ER図ウィンドウ側で接続・DBを選べる)
+            openEr(tab.key, selectedDb ?? "").catch(() => {});
           }}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>

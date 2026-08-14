@@ -512,8 +512,10 @@ export function QueryPanel({
           </button>
         )}
         <label
-          className="switch capture-switch has-tooltip tooltip-left"
-          data-tooltip="実行をBEGIN〜COMMITで包み、途中でエラーになったら自動ROLLBACKで全て取り消す"
+          className="switch capture-switch has-tooltip tooltip-left tooltip-wrap"
+          data-tooltip={
+            "ON: 実行をBEGIN〜COMMITで包み、途中でエラーになったら自動ROLLBACKで全て取り消します\nOFF: 各SQLは即時確定 (オートコミット)。エラーになっても実行済みのSQLは取り消されません"
+          }
         >
           <input
             type="checkbox"

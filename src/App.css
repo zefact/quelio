@@ -1455,6 +1455,28 @@ html.macos .diff-toolbar {
   color: var(--text);
 }
 
+/* スキーマ一覧: 対象の接続/DB表示 (この画面では変更不可) */
+.schema-target {
+  gap: 7px;
+  padding: 7px 13px;
+  font-size: 12.5px;
+}
+
+.schema-target-name {
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.schema-target-sep {
+  color: var(--text-faint);
+}
+
+.schema-target-db {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
 /* 設定 > ファイルの保存先 */
 .download-dir-field {
   display: flex;
@@ -2246,6 +2268,13 @@ html.macos .diff-toolbar {
   margin-left: 2px;
 }
 
+/* メニューが開くボタン共通の▾ */
+.menu-caret {
+  font-size: 10px;
+  margin-left: 2px;
+  opacity: 0.7;
+}
+
 .er-opts-pop {
   position: absolute;
   top: calc(100% + 6px);
@@ -2815,17 +2844,21 @@ html[data-theme="light"] .result-banner.ng {
   text-align: left;
   font-size: 12.5px;
   font-family: inherit;
-  color: var(--text);
+  /* 未選択の項目は文字色を薄くして、選択中との差をつける */
+  color: var(--text-dim);
   cursor: pointer;
   white-space: nowrap;
 }
 
 .select-menu-item.hover {
   background: rgba(99, 102, 241, 0.25);
+  color: var(--text);
 }
 
+/* 選択中の項目は通常の文字色 + 太字 */
 .select-menu-item.checked {
-  color: var(--accent-2, #a5b4fc);
+  color: var(--text);
+  font-weight: 700;
 }
 
 .select-menu-check {
@@ -2997,6 +3030,9 @@ html[data-theme="light"] .result-banner.ng {
 .session-content {
   flex: 1;
   overflow-y: auto;
+  /* ウィンドウが狭くてもペイン自体には横スクロールを出さない
+   * (結果グリッドやエディタは内部で個別にスクロールする) */
+  overflow-x: hidden;
   padding: 24px 28px;
   min-width: 0;
 }
@@ -3053,9 +3089,15 @@ html[data-theme="light"] .result-banner.ng {
   transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
 }
 
-.sql-btn:hover {
+.sql-btn:hover:not(:disabled) {
   color: var(--text);
   border-color: rgba(var(--ink), 0.3);
+}
+
+/* DB未選択時など: 押せないことがひと目で分かるように薄く表示する */
+.sql-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .sql-btn.active {
@@ -3104,6 +3146,14 @@ html[data-theme="light"] .result-banner.ng {
   gap: 10px;
   padding: 10px 0;
   flex-shrink: 0;
+  /* 幅が足りないときは折り返さず、スクロールバーを出さずに横パンできる
+   * (結果タブと同じ方式) */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.query-actions::-webkit-scrollbar {
+  display: none;
 }
 
 .query-actions .btn-primary,

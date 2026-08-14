@@ -3,7 +3,6 @@ import { exportSchemaCsv, getAppSettings, listSessions, schemaSnapshot } from ".
 import { parseComment } from "../comment";
 import type { SchemaEntry, SessionSummary, TableInfo } from "../types";
 import { GridColumn, ResizableGrid } from "./ResizableGrid";
-import { SelectMenu } from "./SelectMenu";
 
 function fullName(t: TableInfo): string {
   return t.schema ? `${t.schema}.${t.name}` : t.name;
@@ -61,7 +60,8 @@ const INDEX_COLS: GridColumn[] = [
 export function SchemaWindow() {
   const params = new URLSearchParams(window.location.search);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [sel, setSel] = useState({
+  // 対象の接続/DBは開いた画面で選択済みのものに固定 (この画面では変更しない)
+  const [sel] = useState({
     sessionId: params.get("session") ?? "",
     database: params.get("db") ?? "",
   });
@@ -267,35 +267,13 @@ export function SchemaWindow() {
   return (
     <div className="schema-window">
       <div className="diff-toolbar" data-tauri-drag-region>
-        <div className="diff-side-sel">
-          <SelectMenu
-            className="mono"
-            value={sel.sessionId}
-            placeholder="接続を選択"
-            options={sessions.map((s) => ({
-              value: s.sessionId,
-              label: s.name,
-            }))}
-            onChange={(v) => {
-              const s = sessions.find((x) => x.sessionId === v);
-              const db = s?.currentDb ?? s?.databases[0] ?? "";
-              setSel({ sessionId: v, database: db });
-              load(v, db);
-            }}
-          />
-          <SelectMenu
-            className="mono"
-            value={sel.database}
-            disabled={!session}
-            options={(session?.databases ?? [sel.database]).map((d) => ({
-              value: d,
-              label: d,
-            }))}
-            onChange={(v) => {
-              setSel({ ...sel, database: v });
-              load(sel.sessionId, v);
-            }}
-          />
+        {/* 開いた画面で選択済みの接続/DBを対象にするため、ここでは変更できない */}
+        <div className="diff-side-sel schema-target">
+          <span className="schema-target-name">
+            {session?.name ?? "接続"}
+          </span>
+          <span className="schema-target-sep">/</span>
+          <span className="mono schema-target-db">{sel.database}</span>
         </div>
 
         <input
