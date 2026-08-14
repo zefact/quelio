@@ -4,7 +4,9 @@ import type {
   ConnectInfo,
   ConnectionProfile,
   ConnectionStore,
+  ErDiagramData,
   ExportMode,
+  FkInfo,
   FolderInfo,
   JobStatus,
   LayoutEntry,
@@ -138,6 +140,39 @@ export function openDiff(): Promise<void> {
 
 export function openSchema(sessionId: string, database: string): Promise<void> {
   return invoke("open_schema", { sessionId, database });
+}
+
+/** ER図ウィンドウを開く */
+export function openEr(sessionId: string, database: string): Promise<void> {
+  return invoke("open_er", { sessionId, database });
+}
+
+/** 指定DBの外部キー一覧を取得する (ER図用) */
+export function foreignKeys(
+  sessionId: string,
+  database: string
+): Promise<FkInfo[]> {
+  return invoke("foreign_keys", { sessionId, database });
+}
+
+/** 保存済みER図を取得する (無ければnull) */
+export function getErDiagram(key: string): Promise<ErDiagramData | null> {
+  return invoke("get_er_diagram", { key });
+}
+
+/** ER図を保存する (キーごとに上書き) */
+export function saveErDiagram(key: string, data: ErDiagramData): Promise<void> {
+  return invoke("save_er_diagram", { key, data });
+}
+
+/** 保存済みER図の名前一覧を取得する */
+export function listErDiagrams(): Promise<string[]> {
+  return invoke("list_er_diagrams");
+}
+
+/** 保存済みER図を削除する */
+export function deleteErDiagram(key: string): Promise<void> {
+  return invoke("delete_er_diagram", { key });
 }
 
 export function openConsole(): Promise<void> {

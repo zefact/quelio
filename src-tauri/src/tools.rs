@@ -274,11 +274,7 @@ pub async fn start_export(
     tables: Vec<String>,
     mode: String, // full | schema | data
 ) -> Result<StartedJob, String> {
-    let dir = app
-        .path()
-        .download_dir()
-        .or_else(|_| app.path().home_dir())
-        .map_err(|e| format!("保存先フォルダを取得できません: {e}"))?;
+    let dir = crate::app_settings::download_dir(app)?;
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
     let out_path = dir.join(format!("{database}_{ts}.sql"));
     let out_file = std::fs::File::create(&out_path)

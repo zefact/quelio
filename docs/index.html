@@ -344,6 +344,15 @@
     .feature p { color: var(--ink-2); font-size: 13.4px; line-height: 1.8; }
 
     /* ===== Roadmap ===== */
+    /* ER図ミニチュア */
+    .mer-canvas { position: relative; height: 150px; margin: 10px 12px 12px; background: #f4f5fa; border-radius: 8px; }
+    .mer-table { position: absolute; width: 118px; background: #fff; border: 1px solid #d9dce7; border-radius: 7px; font-size: 9px; box-shadow: 0 3px 8px rgba(15, 18, 34, 0.06); }
+    .mer-h { padding: 4px 7px; font-weight: 700; font-size: 9.5px; background: rgba(99, 102, 241, 0.1); border-bottom: 1px solid #e3e5ef; border-radius: 7px 7px 0 0; }
+    .mer-h i { font-style: normal; font-weight: 400; font-size: 8.5px; color: #8a90a6; margin-left: 4px; }
+    .mer-r { padding: 2.5px 7px; color: #5b6478; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .mer-r span { float: right; color: #9aa1b5; }
+    .mer-r.hl { background: rgba(34, 211, 238, 0.16); }
+    .mer-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     .roadmap-list {
       max-width: 720px; margin: 44px auto 0;
       display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
@@ -404,6 +413,8 @@
     .dl-card h3 { font-size: 17px; }
     .dl-card .fmt { color: var(--ink-3); font-size: 13px; margin: 4px 0 20px; }
     .dl-card .btn { width: 100%; padding: 11px 0; font-size: 14px; }
+    /* ボタン直下の補足文はボタンから少し離す */
+    .dl-card .btn + .fmt { margin: 14px 0 0; }
     .dl-note { text-align: center; color: var(--ink-3); font-size: 13px; margin-top: 30px; }
     .dl-mac {
       max-width: 660px; margin: 24px auto 0;
@@ -800,7 +811,46 @@
         </div>
       </div>
 
-      <!-- 5. 接続管理 -->
+      <!-- 5. ER図 -->
+      <div class="deep rev">
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" aria-hidden="true">
+              <div class="mini-bar">
+                <span class="mbtn p">リバース</span>
+                <span class="mbtn s">表示設定 ▾</span>
+                <span class="mbtn s">PNG保存</span>
+              </div>
+              <div class="mer-canvas">
+                <div class="mer-table" style="left: 14px; top: 14px;">
+                  <div class="mer-h">customers<i>顧客</i></div>
+                  <div class="mer-r hl">● id<span>bigint</span></div>
+                  <div class="mer-r">● name<span>varchar</span></div>
+                </div>
+                <div class="mer-table" style="left: 170px; top: 64px;">
+                  <div class="mer-h">orders<i>注文</i></div>
+                  <div class="mer-r hl">● customer_id<span>bigint</span></div>
+                  <div class="mer-r">○ shipped_at<span>datetime</span></div>
+                </div>
+                <svg class="mer-line"><path d="M132 42 H151 V92 H170" fill="none" stroke="#6366f1" stroke-width="1.6" stroke-dasharray="5 4"/><circle cx="132" cy="42" r="2.5" fill="#6366f1"/><circle cx="170" cy="92" r="2.5" fill="#6366f1"/></svg>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <span class="deep-label">ER DIAGRAM</span>
+          <h3>DBから一発リバースで、動かせるER図</h3>
+          <p>「リバース」を押すだけで、外部キー制約と命名規則からリレーションを推測してER図を自動作成。そのままマウスで編集できる、"生きた"図面です。</p>
+          <ul>
+            <li><b>配置は自由、更新は追従</b> — テーブルはドラッグで自由配置。再リバースしても配置を維持したまま、カラムの増減だけを反映できます。</li>
+            <li><b>リレーションも編集できる</b> — カラムからドラッグで線を接続。複合キーの対応付けや線種・色の変更、交差の飛び越え表示にも対応します。</li>
+            <li><b>注釈とグルーピング</b> — 枠やテキストで補足を書き込めます。1つの図の中にタブで複数のER図を整理でき、接続をまたいで開けます。</li>
+            <li><b>共有はPNGで</b> — 日本語の論理名を表示したまま、ライト/ダークに合わせた配色で画像出力できます。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 6. 接続管理 -->
       <div class="deep">
         <div>
           <span class="deep-label">CONNECTIONS</span>
@@ -842,6 +892,11 @@
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="7.5" height="14" rx="1.5"/><rect x="13.5" y="5" width="7.5" height="14" rx="1.5"/><path d="M6.75 9h0M17.25 9h0M6.75 12.5h0M17.25 12.5h0" stroke-width="2.2"/></svg></div>
           <h3>スキーマ比較</h3>
           <p>2つの環境を並べてテーブル・カラム・インデックスの差異を検出。差異部分は文字単位でハイライトします。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="5.5" rx="1.2"/><rect x="14" y="9.5" width="7" height="5.5" rx="1.2"/><rect x="3" y="16" width="7" height="5.5" rx="1.2"/><path d="M10 5.8h5.5v3.7M10 18.8h5.5v-3.8"/></svg></div>
+          <h3>ER図作成</h3>
+          <p>DBからリバースしてER図を自動作成。配置や線をマウスで編集でき、注釈・タブでの複数管理・PNG出力に対応。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.5l1.5-2h6l1.5 2H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.2"/></svg></div>
@@ -922,20 +977,6 @@
             <p>実行結果をCSV / TSVとしてダウンロードできるようにします。</p>
           </div>
         </div>
-        <div class="rm-item">
-          <span class="rm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17.8 5.8 21 7 14.1 2 9.3l6.9-1L12 2l3.1 6.3 6.9 1-5 4.8 1.2 6.9z"/></svg></span>
-          <div>
-            <h3>クエリのお気に入り保存</h3>
-            <p>よく使うSQLをスニペットとして保存し、すぐに呼び出せるようにします。</p>
-          </div>
-        </div>
-        <div class="rm-item">
-          <span class="rm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="5.5" rx="1.2"/><rect x="14" y="9.5" width="7" height="5.5" rx="1.2"/><rect x="3" y="16" width="7" height="5.5" rx="1.2"/><path d="M10 5.8h5.5v3.7M10 18.8h5.5v-3.8"/></svg></span>
-          <div>
-            <h3>ER図の自動生成</h3>
-            <p>外部キーやテーブル定義からER図を自動描画。論理名表示にも対応し、DB全体の関係を一望できるようにします。</p>
-          </div>
-        </div>
       </div>
       <p class="rm-note">
         時期・内容は変更される場合があります。ご要望は
@@ -969,6 +1010,10 @@
         <details class="faq-item">
           <summary>対応OSは?</summary>
           <div class="a">macOS (Apple Silicon) と Windows に対応しています。Tauri製のネイティブアプリなので、ブラウザは不要です。</div>
+        </details>
+        <details class="faq-item">
+          <summary>macOSでキーチェーンへのアクセス許可を求められるのはなぜ?</summary>
+          <div class="a">接続パスワードを安全に保存するためです。Quelioは保存するパスワードをAES-256-GCMで暗号化し、その暗号鍵(マスターキー)だけをmacOSのキーチェーンに保管します(Windowsでは資格情報マネージャー)。初回起動時やアップデート後にダイアログが出た場合は「常に許可」を選ぶと、次回以降は表示されません。パスワードを平文のままファイルに保存することはありません。</div>
         </details>
         <details class="faq-item">
           <summary>英語UIはありますか?</summary>
@@ -1005,7 +1050,7 @@
           <h3>macOS</h3>
           <div class="fmt">.dmg (Apple Siliconのみ)</div>
           <a class="btn btn-dark" href="https://github.com/zefact/quelio/releases/latest">ダウンロード</a>
-          <div class="fmt">Quelio_0.2.0_aarch64.dmgをダウンロードしてください。</div>
+          <div class="fmt">Quelio_x.x.x_aarch64.dmgをダウンロードしてください。</div>
         </div>
         <div class="dl-card">
           <div class="os-ic"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5 10.5 4.4v7.1H3zm0 13 7.5 1.1v-7H3zm8.5 1.2L21 21V12.6h-9.5zm0-15.4v7.2H21V3z"/></svg></div>

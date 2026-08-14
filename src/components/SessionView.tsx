@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { openSchema } from "../api";
+import { openEr, openSchema } from "../api";
 import { badgeStyle } from "../colors";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import type { TableInfo, WorkTab } from "../types";
@@ -183,6 +183,21 @@ export function SessionView({
         )}
 
         <span className="toolbar-spacer" />
+        <button
+          className="sql-btn has-tooltip"
+          data-tooltip="ER図 (テーブルのリレーションを別ウィンドウで表示・PNG出力)"
+          disabled={!selectedDb}
+          onClick={() => {
+            if (selectedDb) openEr(tab.key, selectedDb).catch(() => {});
+          }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <rect x="3" y="3" width="8" height="6" rx="1.5" stroke="currentColor" strokeWidth="2" />
+            <rect x="13" y="15" width="8" height="6" rx="1.5" stroke="currentColor" strokeWidth="2" />
+            <path d="M7 9v6h6M17 15V9h-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          ER図
+        </button>
         <button
           className="sql-btn has-tooltip"
           data-tooltip="スキーマ一覧 (テーブル/カラム/インデックスを別ウィンドウで表示・CSV出力)"

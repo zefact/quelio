@@ -167,11 +167,7 @@ pub async fn export_schema_csv(
     let (tables, columns, indexes) =
         sessions::export_schema(&state, &qlog, &session_id, &database, &delim).await?;
 
-    let dir = app
-        .path()
-        .download_dir()
-        .or_else(|_| app.path().home_dir())
-        .map_err(|e| format!("保存先フォルダを取得できません: {e}"))?;
+    let dir = crate::app_settings::download_dir(&app)?;
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
 
     let mut paths = Vec::new();
@@ -198,11 +194,7 @@ pub async fn save_capture(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64)
         .map_err(|e| format!("画像データを解読できません: {e}"))?;
-    let dir = app
-        .path()
-        .download_dir()
-        .or_else(|_| app.path().home_dir())
-        .map_err(|e| format!("保存先フォルダを取得できません: {e}"))?;
+    let dir = crate::app_settings::download_dir(&app)?;
     // パス区切り等を除去した安全なファイル名にする
     let safe: String = file_name
         .chars()
@@ -423,6 +415,77 @@ pub async fn open_schema(
     b.build()
         .map_err(|e| format!("スキーマ一覧を開けません: {e}"))?;
     Ok(())
+}
+
+/// 指定DBの外部キー一覧を返す (ER図用)
+#[tauri::command]
+pub async fn foreign_keys(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+) -> Result<Vec<crate::models::FkInfo>, String> {
+    sessions::foreign_keys(&state, &qlog, &session_id, &database).await
+}
+
+/// ER図ウィンドウを開く(既にあればフォーカス)
+#[tauri::command]
+pub async fn open_er(
+    app: AppHandle,
+    session_id: String,
+    database: String,
+) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("er") {
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let url = format!(
+        "index.html?er=1&session={}&db={}",
+        url_encode(&session_id),
+        url_encode(&database)
+    );
+    let b = tauri::WebviewWindowBuilder::new(&app, "er", tauri::WebviewUrl::App(url.into()))
+        .title("Quelio — ER図")
+        .inner_size(1300.0, 820.0)
+        .min_inner_size(800.0, 480.0);
+    #[cfg(target_os = "macos")]
+    let b = b
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0));
+    b.build().map_err(|e| format!("ER図を開けません: {e}"))?;
+    Ok(())
+}
+
+/// 保存済みER図を返す (無ければnull)
+#[tauri::command]
+pub fn get_er_diagram(
+    app: AppHandle,
+    key: String,
+) -> Result<Option<serde_json::Value>, String> {
+    crate::er_store::load(&app, &key)
+}
+
+/// ER図を保存する (キーごとに上書き)
+#[tauri::command]
+pub fn save_er_diagram(
+    app: AppHandle,
+    key: String,
+    data: serde_json::Value,
+) -> Result<(), String> {
+    crate::er_store::save(&app, key, data)
+}
+
+/// 保存済みER図のキー一覧を返す
+#[tauri::command]
+pub fn list_er_diagrams(app: AppHandle) -> Result<Vec<String>, String> {
+    crate::er_store::list(&app)
+}
+
+/// 保存済みER図を削除する
+#[tauri::command]
+pub fn delete_er_diagram(app: AppHandle, key: String) -> Result<(), String> {
+    crate::er_store::delete(&app, &key)
 }
 
 /// スキーマ差分ウィンドウを開く(既にあればフォーカス)

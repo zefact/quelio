@@ -5,6 +5,7 @@ import "./App.css";
 import { ConsoleWindow } from "./components/ConsoleWindow";
 import { FindBar } from "./components/FindBar";
 import { DiffWindow } from "./components/DiffWindow";
+import { ErWindow } from "./components/ErWindow";
 import { SchemaWindow } from "./components/SchemaWindow";
 import { initTheme } from "./theme";
 import { blockBrowserShortcuts } from "./blockShortcuts";
@@ -35,6 +36,8 @@ const content = params.has("console") ? (
   <DiffWindow />
 ) : params.has("schema") ? (
   <SchemaWindow />
+) : params.has("er") ? (
+  <ErWindow />
 ) : (
   <App />
 );

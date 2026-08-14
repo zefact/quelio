@@ -3,6 +3,7 @@ mod catalog;
 mod commands;
 mod crypto;
 mod db;
+mod er_store;
 mod export;
 mod known_hosts;
 mod models;
@@ -166,6 +167,12 @@ pub fn run() {
             commands::schema_snapshot,
             commands::open_diff,
             commands::open_schema,
+            commands::open_er,
+            commands::foreign_keys,
+            commands::get_er_diagram,
+            commands::save_er_diagram,
+            commands::list_er_diagrams,
+            commands::delete_er_diagram,
             commands::disconnect_session,
             commands::get_query_log,
             commands::clear_query_log,

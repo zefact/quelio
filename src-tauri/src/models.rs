@@ -144,6 +144,16 @@ pub struct IndexInfo {
     pub cardinality: Option<i64>,
 }
 
+/// 外部キーの1件 (ER図のリレーション用)
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FkInfo {
+    pub table: String,
+    pub column: String,
+    pub ref_table: String,
+    pub ref_column: String,
+}
+
 /// テーブル構造の詳細
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -189,6 +199,8 @@ pub struct SchemaEntry {
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub session_id: String,
+    /// 接続プロファイルのID (ER図の保存キーなど、再起動をまたぐ紐付けに使う)
+    pub profile_id: String,
     pub name: String,
     pub db_type: DbType,
     pub databases: Vec<String>,

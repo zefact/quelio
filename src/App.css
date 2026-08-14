@@ -415,10 +415,26 @@ html.macos .diff-toolbar {
   transition-delay: 0.35s;
 }
 
+/* ホバー時のfilter等でボタンがスタッキングコンテキストになると
+ * ツールチップが後続要素 (ER図キャンバス等) の下に隠れるため、
+ * ホバー中はボタンごと前面に出す */
+.has-tooltip:hover {
+  z-index: 200;
+}
+
 /* 画面左側の要素用: ツールチップを左端起点で右へ伸ばす */
 .has-tooltip.tooltip-left::after {
   right: auto;
   left: 0;
+}
+
+/* 長文ツールチップ用: 折り返してウィンドウ外に隠れないようにする
+ * (data-tooltip内の改行もそのまま表示される) */
+.has-tooltip.tooltip-wrap::after {
+  white-space: pre-line;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 40px));
+  line-height: 1.5;
 }
 
 /* ============ コンソールウィンドウ ============ */
@@ -1306,6 +1322,1052 @@ html.macos .diff-toolbar {
   white-space: nowrap;
 }
 
+/* ============ ER図ウィンドウ ============ */
+
+.er-window {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.er-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle, rgba(var(--ink), 0.07) 1px, transparent 1px) 0 0 /
+      24px 24px,
+    var(--bg);
+  /* 背景ドラッグは範囲選択 (パンはスクロール/Shift+ドラッグ) */
+  cursor: default;
+}
+
+.er-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+.er-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+/* リレーションの線 (種類によらず破線で統一。由来はツールチップで確認できる) */
+.er-edge polyline,
+.er-edge path {
+  fill: none;
+  stroke: rgba(99, 102, 241, 0.75);
+  stroke-width: 1.4;
+  stroke-dasharray: 5 4;
+  pointer-events: stroke;
+}
+
+.er-edge circle {
+  fill: rgba(99, 102, 241, 0.9);
+}
+
+/* 線の追加モード: カラムをクリックで選択できることを示す */
+.er-canvas.link-mode .er-col-name {
+  cursor: crosshair;
+}
+
+.er-canvas.link-mode .er-col-name:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-radius: 4px;
+}
+
+/* 「線を追加」ボタンのモード中表示 */
+.er-link-active {
+  border-color: var(--accent) !important;
+  color: var(--accent-2, #a5b4fc) !important;
+}
+
+/* 「線を削除」ボタン */
+.er-del-edge {
+  color: var(--danger) !important;
+}
+
+/* クリック判定用の透明な太線 */
+.er-edge polyline.er-edge-hit {
+  stroke: transparent;
+  stroke-width: 12;
+  stroke-dasharray: none;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+/* リレーション選択中: 選択した線を強調し、他の線は薄くする */
+.er-edges.has-sel .er-edge:not(.selected) {
+  opacity: 0.22;
+}
+
+.er-edge.selected polyline:not(.er-edge-hit),
+.er-edge.selected path {
+  stroke: var(--accent-2, #a5b4fc);
+  stroke-width: 2.6;
+}
+
+.er-edge.selected circle {
+  fill: var(--accent-2, #a5b4fc);
+  r: 3.5px;
+}
+
+/* 選択中の線の端点ハンドル (ドラッグで接続位置を変更) */
+.er-edge.selected circle.er-edge-handle {
+  fill: var(--accent-2, #a5b4fc);
+  stroke: var(--bg);
+  stroke-width: 1.5;
+  r: 5.5px;
+  pointer-events: all;
+  cursor: move;
+}
+
+.er-edge.selected circle.er-edge-handle:hover {
+  r: 7px;
+}
+
+/* 選択中リレーションで結ばれたテーブルを光らせる */
+.er-node.related {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px rgba(99, 102, 241, 0.45),
+    0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+/* 選択中のテーブル (クリックで選択。Deleteで図から削除できる) */
+.er-node.selected {
+  border-color: var(--accent-2, #22d3ee);
+  box-shadow:
+    0 0 0 2.5px rgba(34, 211, 238, 0.5),
+    0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* 選択中リレーションの接続カラム */
+.er-col-name.hl {
+  background: rgba(99, 102, 241, 0.28);
+  border-radius: 4px;
+  color: var(--text);
+}
+
+/* 設定 > ファイルの保存先 */
+.download-dir-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.download-dir-path {
+  max-width: 280px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============ ER図のページ (タブ) バー ============ */
+
+.er-tabs {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 5px 10px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  flex-shrink: 0;
+  overflow-x: auto;
+  user-select: none;
+}
+
+.er-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 9px 9px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.er-tab:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.05);
+}
+
+.er-tab.active {
+  color: var(--text);
+  font-weight: 700;
+  background: var(--bg);
+  border-color: var(--border-strong);
+  position: relative;
+}
+
+/* アクティブタブの下線を背景色でつぶして繋げる */
+.er-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--bg);
+}
+
+.er-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.er-tab-close {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.er-tab-close:hover {
+  background: rgba(248, 113, 113, 0.18);
+  color: var(--danger);
+}
+
+.er-tab-input {
+  width: 110px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 2px 6px;
+  outline: none;
+}
+
+.er-tab-add {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  margin-left: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.er-tab-add:hover {
+  background: rgba(99, 102, 241, 0.18);
+  color: var(--text);
+}
+
+/* Shift+ドラッグの矩形選択 */
+.er-band {
+  position: absolute;
+  background: rgba(34, 211, 238, 0.1);
+  border: 1.5px dashed rgba(34, 211, 238, 0.65);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* カラム行ホバー時の接続ハンドル (ドラッグで線をつなぐ) */
+.er-link-handle {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.6);
+  cursor: crosshair;
+  z-index: 3;
+}
+
+.er-link-handle.left {
+  left: 1px;
+}
+
+.er-link-handle.right {
+  right: 1px;
+}
+
+.er-link-handle:hover {
+  transform: scale(1.3);
+}
+
+/* ドラッグ接続中のプレビュー線 */
+.er-link-preview {
+  fill: none;
+  stroke: var(--accent-2, #22d3ee);
+  stroke-width: 1.6;
+  stroke-dasharray: 6 4;
+  pointer-events: none;
+}
+
+/* 線の編集パネル (カラムの対応をチェックで設定) */
+.er-edge-panel {
+  position: fixed;
+  z-index: 350;
+  width: 420px;
+  max-width: calc(100vw - 16px);
+  display: flex;
+  flex-direction: column;
+  background: var(--menu-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  animation: er-modal-in 0.15s ease;
+}
+
+.er-edge-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 10px 4px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* テーブル名が長くても切れないように折り返す */
+.er-edge-panel-head span {
+  min-width: 0;
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.45;
+}
+
+.er-edge-panel-cap {
+  padding: 0 14px 9px;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.er-edge-panel-cols {
+  display: flex;
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+  border-radius: 0 0 12px 12px;
+}
+
+.er-edge-panel-list {
+  flex: 1;
+  min-width: 0;
+  max-height: 44vh;
+  overflow-y: auto;
+  padding: 7px;
+}
+
+.er-edge-panel-list + .er-edge-panel-list {
+  border-left: 1px solid var(--border);
+}
+
+.er-edge-panel-table {
+  padding: 2px 6px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-2, #a5b4fc);
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.er-edge-panel-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.er-edge-panel-item:hover {
+  background: rgba(var(--ink), 0.06);
+}
+
+.er-edge-panel-item.primary {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.er-edge-panel-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============ ER図ウィンドウのモーダル (共通デザイン) ============ */
+
+.er-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.er-modal {
+  width: 400px;
+  max-width: calc(100vw - 48px);
+  padding: 22px 22px 18px;
+  background: var(--modal-bg);
+  background: color-mix(in srgb, var(--modal-bg) 94%, transparent);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid rgba(var(--ink), 0.12);
+  border-radius: 16px;
+  box-shadow:
+    0 24px 64px rgba(0, 0, 0, 0.4),
+    0 4px 16px rgba(0, 0, 0, 0.25);
+  animation: er-modal-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+}
+
+@keyframes er-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.er-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 12px;
+}
+
+.er-modal-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  color: #fff;
+  font-size: 19px;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.4);
+}
+
+/* 削除確認用の赤いアイコンとボタン */
+.er-modal-icon.danger {
+  background: linear-gradient(135deg, #f87171, #dc2626);
+  box-shadow: 0 6px 18px rgba(239, 68, 68, 0.4);
+}
+
+.btn-delete {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3);
+}
+
+.btn-delete:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.er-modal-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.er-modal-sub {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.er-modal-body {
+  margin: 0 0 18px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--text-dim);
+}
+
+.er-modal-input {
+  width: 100%;
+  padding: 9px 12px;
+  margin-bottom: 18px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.er-modal-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.er-modal-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -6px 0 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.er-modal-actions {
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+}
+
+/* キャンセルは左端に離して配置 */
+.er-modal-actions .er-modal-cancel {
+  margin-right: auto;
+  color: var(--text-dim);
+}
+
+/* テーブル右端の幅リサイズハンドル */
+.er-node-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 7px;
+  height: 100%;
+  cursor: ew-resize;
+}
+
+.er-node-resize:hover {
+  background: rgba(99, 102, 241, 0.35);
+}
+
+/* クリックで選択中のカラム行 (⌘/Ctrl+Cで内容をコピーできる)。
+ * 背景は行全体を覆うオーバーレイ (.er-row-sel) で塗り、文字色だけ強調する */
+.er-col-name.sel,
+.er-col-type.sel,
+.er-col-logical.sel {
+  color: var(--text);
+}
+
+.er-row-sel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 17px;
+  background: rgba(34, 211, 238, 0.18);
+  pointer-events: none;
+}
+
+/* 注釈枠 (テーブルより背面。本体はクリックを透過し、ラベルとハンドルだけ操作できる) */
+.er-frame {
+  position: absolute;
+  border: 1.5px dashed rgba(var(--ink), 0.4);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+.er-frame.solid {
+  border-style: solid;
+}
+
+.er-frame.dotted {
+  border-style: dotted;
+}
+
+.er-frame.none {
+  border-color: transparent;
+}
+
+.er-frame.square {
+  border-radius: 3px;
+}
+
+/* テキスト見出し (枠なしの単体テキスト) */
+.er-text {
+  position: absolute;
+  padding: 2px 4px;
+  font-weight: 700;
+  color: var(--text-dim);
+  cursor: move;
+  user-select: none;
+  white-space: pre;
+  line-height: 1.3;
+  border-radius: 5px;
+}
+
+.er-text:hover {
+  outline: 1.5px dashed rgba(var(--ink), 0.35);
+}
+
+/* テキスト見出しのインライン編集 (画面上でそのまま入力) */
+.er-text-edit {
+  position: absolute;
+  font-weight: 700;
+  font-family: inherit;
+  line-height: 1.3;
+  padding: 2px 4px;
+  background: var(--input-bg);
+  border: 1.5px dashed var(--accent);
+  border-radius: 5px;
+  outline: none;
+}
+
+/* 枠ラベルのインライン編集 */
+.er-inline-input {
+  width: 150px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+}
+
+/* 右クリックメニュー内の文字サイズ入力 */
+.er-size-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+}
+
+.er-size-input {
+  width: 64px;
+  padding: 4px 6px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  outline: none;
+}
+
+.er-size-input:focus {
+  border-color: var(--accent);
+}
+
+.er-size-hint {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.er-size-chips {
+  display: flex;
+  gap: 5px;
+  padding: 2px 12px 6px;
+}
+
+.er-size-chip {
+  min-width: 30px;
+  padding: 3px 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: rgba(var(--ink), 0.06);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.er-size-chip:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.er-size-chip.checked {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.er-frame-label {
+  position: absolute;
+  top: 5px;
+  left: 8px;
+  max-width: calc(100% - 16px);
+  padding: 2px 9px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: rgba(var(--ink), 0.07);
+  border-radius: 6px;
+  cursor: move;
+  pointer-events: auto;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 枠線の色パレット (右クリックメニュー内) */
+.er-frame-colors {
+  display: flex;
+  gap: 7px;
+  padding: 6px 12px;
+}
+
+.er-frame-color {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.er-frame-color:hover {
+  transform: scale(1.15);
+}
+
+.er-frame-color.checked {
+  border-color: var(--text);
+}
+
+/* 「透明」スワッチ (斜線入り) */
+.er-frame-color.transparent {
+  background: linear-gradient(
+    135deg,
+    transparent 44%,
+    #f87171 44%,
+    #f87171 56%,
+    transparent 56%
+  );
+  box-shadow: inset 0 0 0 1.5px rgba(var(--ink), 0.4);
+}
+
+/* 右クリックメニュー内の小見出し */
+.context-caption {
+  padding: 5px 12px 2px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.er-frame-resize {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  pointer-events: auto;
+  border-right: 2px solid rgba(var(--ink), 0.45);
+  border-bottom: 2px solid rgba(var(--ink), 0.45);
+  border-radius: 0 0 8px 0;
+}
+
+/* 高さはJSX側でモデル値 (26 + 行数*17 + 6) を明示指定する。
+ * 線のアンカー計算と実描画を一致させるため、内部もheadを26px固定にする */
+.er-node {
+  position: absolute;
+  background: var(--modal-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  user-select: none;
+  overflow: hidden;
+  /* テーブル全体をドラッグで移動できる (ヘッダと同じ) */
+  cursor: move;
+}
+
+.er-node-head-logical {
+  margin-left: 8px;
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 10.5px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.er-node-head {
+  height: 26px;
+  line-height: 25px;
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  background: rgba(99, 102, 241, 0.16);
+  border-radius: 8px 8px 0 0;
+  border-bottom: 1px solid var(--border);
+  cursor: move;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* カラム表示は名前/型/日本語名の縦列が揃うようグリッドで並べる
+   (grid-template-columnsは表示オプションに応じてインラインで指定) */
+.er-node-cols {
+  display: grid;
+  column-gap: 10px;
+  align-items: baseline;
+  grid-auto-rows: 17px;
+  padding: 0 9px 4px;
+}
+
+.er-col-name,
+.er-col-type,
+.er-col-logical {
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.er-col-name.pk {
+  color: var(--accent-2, #a5b4fc);
+}
+
+.er-col-type {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+
+.er-col-logical {
+  font-size: 10px;
+  min-width: 0;
+}
+
+.er-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* 右上の通知トースト (5秒で自動的に消える) */
+.er-toast {
+  position: fixed;
+  top: 58px;
+  right: 16px;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 16px 10px 11px;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  background: var(--menu-bg);
+  background: color-mix(in srgb, var(--menu-bg) 88%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border: 1px solid rgba(var(--ink), 0.14);
+  border-radius: 12px;
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.22),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+  animation:
+    er-toast-in 0.24s cubic-bezier(0.2, 0.9, 0.3, 1.15),
+    er-toast-out 0.35s ease 4.6s forwards;
+  pointer-events: none;
+}
+
+.er-toast-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.45);
+}
+
+@keyframes er-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes er-toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+.er-error {
+  margin: 12px 16px;
+}
+
+/* 表示設定プルダウン (全カラム/日本語名/型・サイズ) */
+.er-opts {
+  position: relative;
+}
+
+.er-opts-caret {
+  font-size: 10px;
+  margin-left: 2px;
+}
+
+.er-opts-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 150;
+  min-width: 150px;
+  background: var(--menu-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+  animation: slide-in 0.1s ease;
+}
+
+.er-opts-pop .context-item {
+  white-space: nowrap;
+}
+
+/* 表示設定などのチェック項目: ONは太字、OFFは文字色を薄くして区別する */
+.er-opts-pop .context-item {
+  color: var(--text-dim);
+}
+
+.er-opts-pop .context-item.checked {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.context-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 図メニュー (図の名前を表示。長い名前は省略) */
+.er-diag-btn {
+  max-width: 240px;
+}
+
+.er-diag-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.er-diag-pop {
+  max-height: 60vh;
+  overflow-y: auto;
+  min-width: 200px;
+  max-width: 320px;
+}
+
+.er-diag-pop .context-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右下のズームコントロール (−/＋/Fit) */
+/* 右下のズームコントロール (＋/現在倍率/−/Fitを1つの枠にまとめ、控えめに表示) */
+.er-zoom-controls {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  background: var(--menu-bg);
+  background: color-mix(in srgb, var(--menu-bg) 78%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(var(--ink), 0.1);
+  border-radius: 9px;
+  overflow: hidden;
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
+}
+
+.er-zoom-controls:hover {
+  opacity: 1;
+}
+
+.er-zoom-controls button {
+  min-width: 26px;
+  height: 25px;
+  padding: 0 7px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.er-zoom-controls button:hover {
+  background: rgba(var(--ink), 0.08);
+  color: var(--text);
+}
+
+.er-zoom-controls .zoom-pct {
+  min-width: 44px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.er-zoom-controls button.fit {
+  font-size: 10.5px;
+  font-weight: 700;
+  border-left: 1px solid rgba(var(--ink), 0.1);
+}
+
+.er-legend {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  background: rgba(var(--ink), 0.05);
+  border-radius: 7px;
+  padding: 4px 9px;
+  pointer-events: none;
+}
+
 /* ============ 履歴・保存SQLの統合メニュー ============ */
 
 .lib-menu {
@@ -1492,6 +2554,17 @@ html.macos .diff-toolbar {
 }
 
 /* ============ ページ内検索バー (Cmd/Ctrl+F) ============ */
+
+/* ページ内検索の一致強調 (Custom Highlight API)。
+ * 全一致は薄い黄色、現在位置は濃いオレンジで区別する */
+::highlight(quelio-find) {
+  background: rgba(250, 204, 21, 0.35);
+}
+
+::highlight(quelio-find-active) {
+  background: rgba(249, 115, 22, 0.75);
+  color: #fff;
+}
 
 .find-bar {
   position: fixed;

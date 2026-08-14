@@ -417,6 +417,36 @@ pub async fn table_detail(
     }
 }
 
+/// 指定データベースの外部キー一覧を返す (ER図用)
+pub async fn foreign_keys(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: &str,
+) -> Result<Vec<crate::models::FkInfo>, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    let label = conn_label(&session.profile);
+    let ctx = LogCtx {
+        qlog,
+        connection: &label,
+        database,
+    };
+
+    match &mut session.conn {
+        DbConn::MySql(conn) => catalog::mysql_foreign_keys(conn, database, &ctx).await,
+        DbConn::Pg(_) => {
+            ensure_pg_database(session, database, qlog).await?;
+            match &mut session.conn {
+                DbConn::Pg(conn) => catalog::pg_foreign_keys(conn, &ctx).await,
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
 /// 任意のSQLを実行する。複数文はセミコロンで分割して逐次実行し、
 /// エラーが出た時点で停止する (offsetは単文実行時のページング用)
 /// BEGIN/COMMIT/ROLLBACK等の制御文を実行する
@@ -656,6 +686,7 @@ pub async fn list_sessions(sessions: &Sessions) -> Vec<SessionSummary> {
         if let Ok(s) = arc.try_lock() {
             list.push(SessionSummary {
                 session_id: id,
+                profile_id: s.profile.id.clone(),
                 name: conn_label(&s.profile),
                 db_type: s.profile.db_type,
                 databases: s.databases.clone(),

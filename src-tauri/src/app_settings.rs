@@ -17,6 +17,10 @@ pub struct AppSettings {
     /// SQL実行のタイムアウト (秒)。0で無制限
     #[serde(default = "default_query_timeout_secs")]
     pub query_timeout_secs: u64,
+    /// 各種ファイル (キャプチャ・CSV・エクスポート等) の保存先フォルダ。
+    /// 空文字ならOSのダウンロードフォルダを使う
+    #[serde(default)]
+    pub download_dir: String,
 }
 
 fn default_query_timeout_secs() -> u64 {
@@ -42,8 +46,26 @@ impl Default for AppSettings {
             structure_comment_mode: default_structure_comment_mode(),
             show_row_numbers: true,
             query_timeout_secs: default_query_timeout_secs(),
+            download_dir: String::new(),
         }
     }
+}
+
+/// 各種ファイルの保存先フォルダを返す。
+/// 設定があればそのフォルダ (無ければ作成)、空ならOSのダウンロードフォルダ
+pub fn download_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let settings = load(app)?;
+    let dir = settings.download_dir.trim();
+    if !dir.is_empty() {
+        let p = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&p)
+            .map_err(|e| format!("保存先フォルダを作成できません ({}): {e}", p.display()))?;
+        return Ok(p);
+    }
+    app.path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| format!("保存先フォルダを取得できません: {e}"))
 }
 
 fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { getAppSettings, saveAppSettings } from "../api";
 import { ColorMode, getColorMode, setColorMode } from "../theme";
@@ -29,6 +30,7 @@ export function SettingsGeneral({ notify }: Props) {
     structureCommentMode: "comment",
     showRowNumbers: true,
     queryTimeoutSecs: 60,
+    downloadDir: "",
   });
 
   useEffect(() => {
@@ -51,6 +53,23 @@ export function SettingsGeneral({ notify }: Props) {
   };
 
   const delim = app.commentDelimiter;
+
+  /** 保存先フォルダをOSのフォルダ選択ダイアログで変更する */
+  const handlePickDownloadDir = async () => {
+    try {
+      const dir = await open({
+        directory: true,
+        multiple: false,
+        defaultPath: app.downloadDir || undefined,
+        title: "保存先フォルダを選択",
+      });
+      if (typeof dir === "string" && dir) {
+        saveApp({ ...app, downloadDir: dir });
+      }
+    } catch (e) {
+      notify(String(e));
+    }
+  };
 
   // アップデート確認の状態
   type UpdState = "idle" | "checking" | "latest" | "available" | "installing";
@@ -205,6 +224,34 @@ export function SettingsGeneral({ notify }: Props) {
               if (e.key === "Enter") saveApp({ ...app, commentDelimiter: delim });
             }}
           />
+        </SettingRow>
+      </section>
+
+      <section className="set-section">
+        <h3 className="set-section-title">ファイルの保存先</h3>
+        <SettingRow
+          title="保存先フォルダ"
+          desc="キャプチャPNG・スキーマCSV・SQLエクスポートなどの保存先です。未設定の場合はOSのダウンロードフォルダに保存します。"
+        >
+          <div className="download-dir-field">
+            <span
+              className="download-dir-path mono"
+              title={app.downloadDir || "ダウンロードフォルダ (既定)"}
+            >
+              {app.downloadDir || "ダウンロードフォルダ (既定)"}
+            </span>
+            <button className="btn-secondary" onClick={handlePickDownloadDir}>
+              変更...
+            </button>
+            {app.downloadDir && (
+              <button
+                className="btn-ghost"
+                onClick={() => saveApp({ ...app, downloadDir: "" })}
+              >
+                既定に戻す
+              </button>
+            )}
+          </div>
         </SettingRow>
       </section>
 

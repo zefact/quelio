@@ -6,7 +6,7 @@ use sqlx::Row;
 use tokio::time::{timeout, Duration};
 
 use crate::db::format_db_error;
-use crate::models::{ColumnInfo, IndexInfo, TableDetail, TableInfo};
+use crate::models::{ColumnInfo, FkInfo, IndexInfo, TableDetail, TableInfo};
 use crate::query_log::QueryLog;
 
 const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
@@ -361,6 +361,80 @@ pub async fn mysql_table_detail(
         indexes,
         info,
     })
+}
+
+/// MySQL: 指定DBの外部キー一覧 (ER図用)
+pub async fn mysql_foreign_keys(
+    conn: &mut MySqlConnection,
+    schema: &str,
+    ctx: &LogCtx<'_>,
+) -> Result<Vec<FkInfo>, String> {
+    let sql = "SELECT TABLE_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME \
+             FROM information_schema.KEY_COLUMN_USAGE \
+             WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL \
+             ORDER BY TABLE_NAME, ORDINAL_POSITION";
+    ctx.log(&sql.replace('?', &format!("'{schema}'")));
+    let rows = timeout(QUERY_TIMEOUT, sqlx::query(sql).bind(schema).fetch_all(conn))
+        .await
+        .map_err(|_| "クエリがタイムアウトしました".to_string())?
+        .map_err(format_db_error)?;
+
+    rows.iter()
+        .map(|r| {
+            Ok(FkInfo {
+                table: r.try_get("TABLE_NAME").map_err(format_db_error)?,
+                column: r.try_get("COLUMN_NAME").map_err(format_db_error)?,
+                ref_table: r
+                    .try_get("REFERENCED_TABLE_NAME")
+                    .map_err(format_db_error)?,
+                ref_column: r
+                    .try_get("REFERENCED_COLUMN_NAME")
+                    .map_err(format_db_error)?,
+            })
+        })
+        .collect()
+}
+
+/// PostgreSQL: 接続中DBの外部キー一覧 (ER図用)
+pub async fn pg_foreign_keys(
+    conn: &mut PgConnection,
+    ctx: &LogCtx<'_>,
+) -> Result<Vec<FkInfo>, String> {
+    // pg_constraintから引く (複合FKはカラム位置を対応させて展開する)
+    let sql = "SELECT \
+                 src.relname AS table_name, \
+                 sa.attname AS column_name, \
+                 dst.relname AS ref_table, \
+                 da.attname AS ref_column \
+               FROM pg_constraint c \
+               JOIN pg_class src ON src.oid = c.conrelid \
+               JOIN pg_class dst ON dst.oid = c.confrelid \
+               JOIN pg_namespace n ON n.oid = src.relnamespace \
+               CROSS JOIN LATERAL unnest(c.conkey, c.confkey) \
+                 WITH ORDINALITY AS k(attnum, ref_attnum, ord) \
+               JOIN pg_attribute sa \
+                 ON sa.attrelid = c.conrelid AND sa.attnum = k.attnum \
+               JOIN pg_attribute da \
+                 ON da.attrelid = c.confrelid AND da.attnum = k.ref_attnum \
+               WHERE c.contype = 'f' \
+                 AND n.nspname NOT IN ('pg_catalog', 'information_schema') \
+               ORDER BY src.relname, c.conname, k.ord";
+    ctx.log(sql);
+    let rows = timeout(QUERY_TIMEOUT, sqlx::query(sql).fetch_all(conn))
+        .await
+        .map_err(|_| "クエリがタイムアウトしました".to_string())?
+        .map_err(format_db_error)?;
+
+    rows.iter()
+        .map(|r| {
+            Ok(FkInfo {
+                table: r.try_get("table_name").map_err(format_db_error)?,
+                column: r.try_get("column_name").map_err(format_db_error)?,
+                ref_table: r.try_get("ref_table").map_err(format_db_error)?,
+                ref_column: r.try_get("ref_column").map_err(format_db_error)?,
+            })
+        })
+        .collect()
 }
 
 // ---------- PostgreSQL ----------

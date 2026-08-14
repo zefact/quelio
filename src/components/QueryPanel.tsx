@@ -206,7 +206,7 @@ export function QueryPanel({
     setCaptureMsg("キャプチャ保存中...");
     captureResults(results)
       .then((paths) =>
-        setCaptureMsg(`キャプチャ保存: ${paths.length}件 → Downloads`)
+        setCaptureMsg(`キャプチャ保存: ${paths.length}件 → 保存先フォルダ`)
       )
       .catch((e) => setCaptureMsg(`キャプチャ失敗: ${e}`));
   }, [running, results]);
@@ -526,7 +526,7 @@ export function QueryPanel({
         </label>
         <label
           className="switch capture-switch has-tooltip tooltip-left"
-          data-tooltip="実行時にSQLと全結果タブをPNGでDownloadsに保存"
+          data-tooltip="実行時にSQLと全結果タブをPNGで保存 (保存先は設定で変更できます)"
         >
           <input
             type="checkbox"
