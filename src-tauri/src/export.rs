@@ -11,6 +11,41 @@ fn esc(s: &str) -> String {
     }
 }
 
+/// CSVへ書き出す1項目
+pub struct CsvCell {
+    pub text: String,
+    /// trueならダブルクォートで囲まない (数値型)
+    pub numeric: bool,
+}
+
+impl CsvCell {
+    /// 文字列・日時など、クォートで囲む値
+    pub fn text(text: String) -> Self {
+        Self {
+            text,
+            numeric: false,
+        }
+    }
+}
+
+/// データ出力用のCSV1行。
+/// 文字列・日時などは値に改行やカンマ・引用符が含まれても壊れないよう
+/// 常にダブルクォートで囲み、数値はそのまま出す。
+/// NULL (None) は空欄 (クォートなし) にして空文字と区別する
+pub fn csv_row_cells(fields: &[Option<CsvCell>]) -> String {
+    let mut line = fields
+        .iter()
+        .map(|f| match f {
+            Some(c) if c.numeric => c.text.clone(),
+            Some(c) => format!("\"{}\"", c.text.replace('"', "\"\"")),
+            None => String::new(),
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    line.push('\n');
+    line
+}
+
 fn row(fields: &[String]) -> String {
     let mut line = fields
         .iter()

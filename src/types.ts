@@ -112,6 +112,16 @@ export interface StatementResult {
   result: QueryResult;
 }
 
+/** SQL実行結果のCSV出力結果 */
+export interface CsvExportResult {
+  /** 保存したファイルのフルパス (キャンセル時は空) */
+  path: string;
+  /** 書き出した行数 (ヘッダ行は含まない) */
+  rows: number;
+  /** 途中でキャンセルされたか (この場合ファイルは残らない) */
+  cancelled: boolean;
+}
+
 /** 複数文実行の全体結果 */
 export interface RunOutput {
   statements: StatementResult[];

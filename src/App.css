@@ -4719,6 +4719,51 @@ html[data-theme="light"] .brand-name {
 
 /* 結果タブ (複数文実行時) */
 
+/* 結果ヘッダ (結果タブ + その結果の件数・ページ送り) */
+.result-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+/* CSV出力・件数・ページ送りはまとめて右端へ寄せる */
+.result-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.result-bar-right .query-meta {
+  margin-left: 0;
+}
+
+/* CSV出力中の進捗表示 (行数と経過時間) */
+.csv-progress {
+  color: var(--accent-2);
+  white-space: nowrap;
+}
+
+/* 結果タブのCSV出力ボタン (小さめ) */
+.csv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.csv-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .result-tabs {
   display: flex;
   gap: 4px;
@@ -4726,6 +4771,12 @@ html[data-theme="light"] .brand-name {
   flex-shrink: 0;
   overflow-x: auto;
   scrollbar-width: none;
+}
+
+/* 結果ヘッダ内のタブは横幅が足りないときだけスクロールさせる */
+.result-bar .result-tabs {
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .result-tabs::-webkit-scrollbar {

@@ -574,6 +574,87 @@ async fn exec_ctl(
     }
 }
 
+/// 選択中のDBに合わせる (MySQLはUSE、PostgreSQLは必要なら接続し直す)
+async fn ensure_database(
+    session: &mut Session,
+    database: Option<&String>,
+    qlog: &QueryLog,
+    label: &str,
+) -> Result<(), String> {
+    let Some(db) = database else {
+        return Ok(());
+    };
+    // MySQL: 選択中DBが変わっていればUSEで切り替える
+    if let DbConn::MySql(_) = &session.conn {
+        if session.current_db.as_deref() != Some(db.as_str()) {
+            let use_sql = format!("USE `{}`", db.replace('`', "``"));
+            qlog.add(label, db, &use_sql);
+            match &mut session.conn {
+                DbConn::MySql(conn) => {
+                    sqlx::raw_sql(sqlx::AssertSqlSafe(use_sql.clone()))
+                        .execute(&mut *conn)
+                        .await
+                        .map_err(db::format_db_error)?;
+                }
+                _ => unreachable!(),
+            }
+            session.current_db = Some(db.clone());
+        }
+    } else {
+        ensure_pg_database(session, db, qlog).await?;
+    }
+    Ok(())
+}
+
+/// SQL 1文の結果を全件CSVファイルへ書き出す。
+/// 画面のページング (1000行) とは無関係に、対象SQLの全行を出力する。
+/// jobを渡すと進捗の共有とキャンセルができる。
+/// 戻り値は (書き出した行数, キャンセルされたか)
+#[allow(clippy::too_many_arguments)]
+pub async fn export_query_csv(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: Option<String>,
+    sql: &str,
+    order_by: Option<String>,
+    order_dir: Option<String>,
+    path: &std::path::Path,
+    job: Option<&crate::csv_job::CsvJob>,
+) -> Result<(usize, bool), String> {
+    // 並び順 (方向はASC/DESCのみ許可)
+    let dir = match order_dir.as_deref() {
+        Some("desc") => "DESC",
+        _ => "ASC",
+    };
+    let order = order_by.as_deref().map(|c| (c, dir));
+
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    if matches!(session.conn, DbConn::Kv(_)) {
+        return Err("Valkey接続ではSQLは実行できません".into());
+    }
+    let label = conn_label(&session.profile);
+    let db_label = database.clone().unwrap_or_default();
+    ensure_database(session, database.as_ref(), qlog, &label).await?;
+
+    let mysql_quoting = matches!(session.conn, DbConn::MySql(_));
+    let out_sql = query::plan_export(sql, order, mysql_quoting);
+    qlog.add(&label, &db_label, &out_sql);
+
+    let file = std::fs::File::create(path).map_err(|e| format!("CSVを作成できません: {e}"))?;
+    let mut out = std::io::BufWriter::new(file);
+    let (rows, cancelled) = match &mut session.conn {
+        DbConn::MySql(conn) => query::export_csv_mysql(conn, &out_sql, &mut out, job).await,
+        DbConn::Pg(conn) => query::export_csv_pg(conn, &out_sql, &mut out, job).await,
+        DbConn::Kv(_) => unreachable!(),
+    }?;
+    std::io::Write::flush(&mut out).map_err(|e| format!("CSVを書き込めません: {e}"))?;
+    Ok((rows, cancelled))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_query(
     sessions: &Sessions,
@@ -610,27 +691,7 @@ pub async fn run_query(
     let label = conn_label(&session.profile);
     let db_label = database.clone().unwrap_or_default();
 
-    // MySQL: 選択中DBが変わっていればUSEで切り替える (最初に1回)
-    if let DbConn::MySql(_) = &session.conn {
-        if let Some(db) = &database {
-            if session.current_db.as_deref() != Some(db.as_str()) {
-                let use_sql = format!("USE `{}`", db.replace('`', "``"));
-                qlog.add(&label, db, &use_sql);
-                match &mut session.conn {
-                    DbConn::MySql(conn) => {
-                        sqlx::raw_sql(sqlx::AssertSqlSafe(use_sql.clone()))
-                            .execute(&mut *conn)
-                            .await
-                            .map_err(db::format_db_error)?;
-                    }
-                    _ => unreachable!(),
-                }
-                session.current_db = Some(db.clone());
-            }
-        }
-    } else if let Some(db) = &database {
-        ensure_pg_database(session, db, qlog).await?;
-    }
+    ensure_database(session, database.as_ref(), qlog, &label).await?;
 
     // トランザクション実行: 全文成功でCOMMIT、途中エラーでROLLBACK
     if transaction {

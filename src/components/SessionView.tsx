@@ -364,6 +364,8 @@ export function SessionView({
         <main className="session-content">
           {tab.view === "query" ? (
             <QueryPanel
+              sessionId={tab.key}
+              database={selectedDb ?? undefined}
               dbType={profile.dbType}
               sql={tab.sql}
               results={tab.queryResults}

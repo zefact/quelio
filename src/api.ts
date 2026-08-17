@@ -4,6 +4,7 @@ import type {
   ConnectInfo,
   ConnectionProfile,
   ConnectionStore,
+  CsvExportResult,
   ErDiagramData,
   ExportMode,
   FkInfo,
@@ -117,6 +118,38 @@ export function exportSchemaCsv(
   database: string
 ): Promise<string[]> {
   return invoke("export_schema_csv", { sessionId, database });
+}
+
+/**
+ * SQL実行結果 (1文ぶん) を全件CSVへ書き出す。
+ * 画面のページング (1000行) とは無関係に、そのSQLの全行が対象
+ */
+export function exportQueryCsv(
+  sessionId: string,
+  database: string | undefined,
+  sql: string,
+  jobId: string,
+  orderBy?: string,
+  orderDir?: string
+): Promise<CsvExportResult> {
+  return invoke("export_query_csv", {
+    sessionId,
+    database,
+    sql,
+    jobId,
+    orderBy,
+    orderDir,
+  });
+}
+
+/** CSV出力の進捗 (書き出し済み行数) を取得する。終了済みはnull */
+export function csvExportStatus(jobId: string): Promise<number | null> {
+  return invoke("csv_export_status", { jobId });
+}
+
+/** CSV出力をキャンセルする */
+export function cancelCsvExport(jobId: string): Promise<void> {
+  return invoke("cancel_csv_export", { jobId });
 }
 
 // ---------- 設定 > エクスポート/インポート ----------

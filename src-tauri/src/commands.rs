@@ -1,9 +1,10 @@
 use tauri::{AppHandle, Manager, State};
 
 use crate::models::{
-    ConnectInfo, ConnectionProfile, ConnectionStore, FolderInfo, LayoutEntry, RunOutput,
-    SchemaEntry, SessionSummary, TableDetail, TableInfo, TestResult,
+    ConnectInfo, ConnectionProfile, ConnectionStore, CsvExportResult, FolderInfo, LayoutEntry,
+    RunOutput, SchemaEntry, SessionSummary, TableDetail, TableInfo, TestResult,
 };
+use crate::csv_job::CsvJobs;
 use crate::query_log::{QueryLog, QueryLogEntry};
 use crate::sessions::{self, CancelRegistry, Sessions};
 use crate::tools::{self, JobStatus, Jobs, StartedJob, ToolSettings, ToolStatus};
@@ -189,6 +190,78 @@ pub async fn table_detail(
     table: String,
 ) -> Result<TableDetail, String> {
     sessions::table_detail(&state, &qlog, &session_id, &database, schema, &table).await
+}
+
+/// SQL実行結果 (1文ぶん) を全件CSVへ書き出し、保存先と行数を返す。
+/// 画面のページング (1000行) とは無関係に対象SQLの全行を出力する。
+/// job_idを指定すると、別コマンドから進捗取得・キャンセルができる
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn export_query_csv(
+    app: AppHandle,
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    jobs: State<'_, CsvJobs>,
+    session_id: String,
+    database: Option<String>,
+    sql: String,
+    order_by: Option<String>,
+    order_dir: Option<String>,
+    job_id: String,
+) -> Result<CsvExportResult, String> {
+    // 設定の「保存先フォルダ」に従う (未設定ならOSのダウンロードフォルダ)
+    let dir = crate::app_settings::download_dir(&app)?;
+    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let base = database.clone().unwrap_or_else(|| "query".to_string());
+    let path = dir.join(format!("{base}_query_{ts}.csv"));
+
+    let job = jobs.start(&job_id);
+    let res = sessions::export_query_csv(
+        &state,
+        &qlog,
+        &session_id,
+        database,
+        &sql,
+        order_by,
+        order_dir,
+        &path,
+        Some(&job),
+    )
+    .await;
+    jobs.finish(&job_id);
+
+    match res {
+        // キャンセル時は中途半端なファイルを残さない
+        Ok((rows, true)) => {
+            let _ = std::fs::remove_file(&path);
+            Ok(CsvExportResult {
+                path: String::new(),
+                rows,
+                cancelled: true,
+            })
+        }
+        Ok((rows, false)) => Ok(CsvExportResult {
+            path: path.to_string_lossy().to_string(),
+            rows,
+            cancelled: false,
+        }),
+        Err(e) => {
+            let _ = std::fs::remove_file(&path);
+            Err(e)
+        }
+    }
+}
+
+/// CSV出力の進捗 (書き出し済み行数) を返す。終了済みならnull
+#[tauri::command]
+pub fn csv_export_status(jobs: State<'_, CsvJobs>, job_id: String) -> Option<usize> {
+    jobs.rows(&job_id)
+}
+
+/// CSV出力のキャンセルを要求する
+#[tauri::command]
+pub fn cancel_csv_export(jobs: State<'_, CsvJobs>, job_id: String) {
+    jobs.cancel(&job_id);
 }
 
 /// 選択中DBのスキーマ情報をCSV3ファイルでDownloadsに書き出し、パスを返す

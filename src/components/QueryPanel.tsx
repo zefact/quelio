@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "sql-formatter";
-import { getAppSettings } from "../api";
+import {
+  cancelCsvExport,
+  csvExportStatus,
+  exportQueryCsv,
+  getAppSettings,
+} from "../api";
 import { captureResults } from "../capture";
 import { useResizableHeight } from "../hooks/useResizableHeight";
-import type { DbType, StatementResult } from "../types";
+import type { DbType, QueryResult, StatementResult } from "../types";
 import { QUERY_PAGE_SIZE } from "../types";
 import { isPlanResult, planLines, PlanView } from "./PlanView";
 import { SqlLibraryMenu } from "./SqlLibraryMenu";
@@ -70,6 +75,11 @@ const EXPLAIN_COL_DESC: Record<string, string> = {
     "追加情報。Using filesort / Using temporary が出ていたら改善余地のサイン。Using index はカバリングインデックスで良好",
 };
 
+/** 結果セットを返さない実行 (INSERT/UPDATE等) の結果かどうか */
+function isExecResult(r: QueryResult): boolean {
+  return r.rowsAffected !== null && r.rowsAffected !== undefined;
+}
+
 /** 結果タブのラベル: "1: SELECT" のように文の種類を添える */
 function statementLabel(sql: string, index: number): string {
   const head = sql.trim().split(/\s+/)[0]?.toUpperCase() ?? "SQL";
@@ -77,6 +87,10 @@ function statementLabel(sql: string, index: number): string {
 }
 
 interface Props {
+  /** CSV出力で使うセッションID (タブのキー) */
+  sessionId: string;
+  /** 選択中のデータベース */
+  database?: string;
   dbType: DbType;
   sql: string;
   results: StatementResult[] | null;
@@ -110,6 +124,8 @@ interface Props {
 
 /** SQLエディタ(行番号付き) + 実行結果ペイン(文ごとのタブ) */
 export function QueryPanel({
+  sessionId,
+  database,
   dbType,
   sql,
   results,
@@ -151,6 +167,20 @@ export function QueryPanel({
   const [runSource, setRunSource] = useState<"run" | "explain">("run");
   /** 行番号列を表示するか (設定。実行のたびに読み直す) */
   const [showRowNums, setShowRowNums] = useState(true);
+  /** CSV出力中のジョブ (対象の結果タブ・ID・開始時刻。未実行はnull) */
+  const [csvJob, setCsvJob] = useState<{
+    id: string;
+    index: number;
+    startedAt: number;
+  } | null>(null);
+  /** CSV出力の書き出し済み行数 */
+  const [csvRows, setCsvRows] = useState(0);
+  /** CSV出力の経過時間 (ms) */
+  const [csvElapsed, setCsvElapsed] = useState(0);
+  /** CSV出力の結果メッセージ (出力した結果タブでのみ表示する) */
+  const [csvMsg, setCsvMsg] = useState<{ index: number; text: string } | null>(
+    null
+  );
 
   useEffect(() => {
     getAppSettings()
@@ -283,6 +313,70 @@ export function QueryPanel({
 
   const active = results?.[activeIdx] ?? null;
   const result = active?.result ?? null;
+
+  /**
+   * 表示中の結果タブのSQLを全件CSVへ書き出す。
+   * 画面は1000行ずつだが、CSVは同じSQLを流し直して全行を出力する
+   */
+  const handleExportCsv = async () => {
+    if (!active || csvJob || running) return;
+    const job = {
+      id: `csv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      // 進捗・結果はこの結果タブでのみ表示する
+      index: activeIdx,
+      startedAt: Date.now(),
+    };
+    setCsvJob(job);
+    setCsvRows(0);
+    setCsvElapsed(0);
+    setCsvMsg(null);
+    const show = (text: string) => setCsvMsg({ index: job.index, text });
+    try {
+      const out = await exportQueryCsv(
+        sessionId,
+        database,
+        active.sql,
+        job.id,
+        result?.orderBy,
+        result?.orderDir
+      );
+      if (out.cancelled) {
+        show(
+          `CSV出力を中止しました (${out.rows.toLocaleString()}行で停止・ファイルは残していません)`
+        );
+      } else {
+        const name = out.path.split("/").pop() ?? out.path;
+        show(`${out.rows.toLocaleString()}行を保存: ${name}`);
+      }
+      window.setTimeout(() => setCsvMsg(null), 10000);
+    } catch (e) {
+      show(`CSV出力に失敗: ${e}`);
+    } finally {
+      setCsvJob(null);
+    }
+  };
+
+  /** CSV出力のキャンセル要求 (書き出し済みのファイルは破棄される) */
+  const handleCancelCsv = () => {
+    if (!csvJob) return;
+    cancelCsvExport(csvJob.id).catch(() => {});
+  };
+
+  // CSV出力中は経過時間と書き出し済み行数を定期的に更新する
+  useEffect(() => {
+    if (!csvJob) return;
+    const tick = () => {
+      setCsvElapsed(Date.now() - csvJob.startedAt);
+      csvExportStatus(csvJob.id)
+        .then((rows) => {
+          if (typeof rows === "number") setCsvRows(rows);
+        })
+        .catch(() => {});
+    };
+    tick();
+    const timer = window.setInterval(tick, 300);
+    return () => window.clearInterval(timer);
+  }, [csvJob]);
 
   const gridColumns: GridColumn[] = useMemo(() => {
     const cols: GridColumn[] = (result?.columns ?? []).map((name, i) => ({
@@ -564,43 +658,6 @@ export function QueryPanel({
             {(elapsedMs / 1000).toFixed(1)}s 経過
           </span>
         )}
-        {!running && result && (
-          <span className="query-meta mono">
-            {result.rowsAffected !== null && result.rowsAffected !== undefined
-              ? `${result.rowsAffected}行に影響`
-              : result.pageable
-                ? result.rows.length === 0
-                  ? "0行"
-                  : `${(result.offset + 1).toLocaleString()}〜${(
-                      result.offset + result.rows.length
-                    ).toLocaleString()}行目`
-                : `${result.rows.length}行${result.hasMore ? " (先頭のみ表示)" : ""}`}
-            {` — ${result.elapsedMs}ms`}
-          </span>
-        )}
-
-        {result?.pageable && (result.offset > 0 || result.hasMore) && (
-          <span className="pager">
-            <button
-              className="pager-btn"
-              title="前の1000行"
-              disabled={running || result.offset === 0}
-              onClick={() =>
-                onPage(activeIdx, Math.max(0, result.offset - QUERY_PAGE_SIZE))
-              }
-            >
-              ‹
-            </button>
-            <button
-              className="pager-btn"
-              title="次の1000行"
-              disabled={running || !result.hasMore}
-              onClick={() => onPage(activeIdx, result.offset + QUERY_PAGE_SIZE)}
-            >
-              ›
-            </button>
-          </span>
-        )}
       </div>
 
       <div
@@ -611,19 +668,115 @@ export function QueryPanel({
         <span className="grip" aria-hidden />
       </div>
 
-      {/* 結果タブ (複数文実行時のみ) */}
-      {results && results.length > 1 && (
-        <div className="result-tabs">
-          {results.map((s, i) => (
-            <button
-              key={i}
-              className={"result-tab" + (i === activeIdx ? " active" : "")}
-              title={s.sql}
-              onClick={() => setActiveIdx(i)}
-            >
-              {statementLabel(s.sql, i)}
-            </button>
-          ))}
+      {/* 結果ヘッダ: 文ごとのタブ + その文の件数・ページ送り
+          (件数とページ送りは結果タブごとの情報なので結果側に置く) */}
+      {results && results.length > 0 && (
+        <div className="result-bar">
+          {results.length > 1 && (
+            <div className="result-tabs">
+              {results.map((s, i) => (
+                <button
+                  key={i}
+                  className={"result-tab" + (i === activeIdx ? " active" : "")}
+                  title={s.sql}
+                  onClick={() => setActiveIdx(i)}
+                >
+                  {statementLabel(s.sql, i)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* 右側: CSV出力 / 件数 / ページ送り (いずれも表示中の結果タブの情報) */}
+          <div className="result-bar-right">
+            {/* 出力中は進捗 (行数と経過時間) を出し、キャンセルできるようにする。
+                進捗も結果メッセージも、出力した結果タブでのみ表示する */}
+            {csvJob?.index === activeIdx ? (
+              <>
+                <span className="capture-msg mono csv-progress">
+                  {csvRows.toLocaleString()}行 出力中... (
+                  {(csvElapsed / 1000).toFixed(1)}s)
+                </span>
+                <button
+                  className="btn-secondary cancel-query-btn"
+                  onClick={handleCancelCsv}
+                  title="CSV出力を中止する (作りかけのファイルは残しません)"
+                >
+                  キャンセル
+                </button>
+              </>
+            ) : (
+              csvMsg?.index === activeIdx && (
+                <span className="capture-msg mono" title={csvMsg.text}>
+                  {csvMsg.text}
+                </span>
+              )
+            )}
+
+            {!running && result && !isExecResult(result) && (
+              <button
+                // 画面右端のボタンなので、ツールチップは右端起点で左へ伸ばす
+                // (tooltip-leftを付けると右へ伸びて画面外で切れる)
+                className="btn-secondary explain-btn csv-btn has-tooltip tooltip-wrap"
+                data-tooltip={
+                  "この結果タブのSQLを全件CSVで保存します\n1000行を超えても全行出力します"
+                }
+                disabled={!!csvJob || result.rows.length === 0}
+                onClick={handleExportCsv}
+              >
+                {csvJob?.index === activeIdx ? (
+                  <>
+                    <span className="spinner accent" /> 出力中...
+                  </>
+                ) : (
+                  "CSVダウンロード"
+                )}
+              </button>
+            )}
+
+            {!running && result && (
+              <span className="query-meta mono">
+                {isExecResult(result)
+                  ? `${result.rowsAffected}行に影響`
+                  : result.pageable
+                    ? result.rows.length === 0
+                      ? "0行"
+                      : `${(result.offset + 1).toLocaleString()}〜${(
+                          result.offset + result.rows.length
+                        ).toLocaleString()}行目`
+                    : `${result.rows.length}行${result.hasMore ? " (先頭のみ表示)" : ""}`}
+                {` — ${result.elapsedMs}ms`}
+              </span>
+            )}
+
+            {result?.pageable && (result.offset > 0 || result.hasMore) && (
+              <span className="pager">
+                <button
+                  className="pager-btn"
+                  title="前の1000行"
+                  disabled={running || result.offset === 0}
+                  onClick={() =>
+                    onPage(
+                      activeIdx,
+                      Math.max(0, result.offset - QUERY_PAGE_SIZE)
+                    )
+                  }
+                >
+                  ‹
+                </button>
+                <button
+                  className="pager-btn"
+                  title="次の1000行"
+                  disabled={running || !result.hasMore}
+                  onClick={() =>
+                    onPage(activeIdx, result.offset + QUERY_PAGE_SIZE)
+                  }
+                >
+                  ›
+                </button>
+              </span>
+            )}
+          </div>
         </div>
       )}
 
@@ -642,7 +795,7 @@ export function QueryPanel({
               SQLを実行すると結果がここに表示されます
             </div>
           )
-        ) : result.rowsAffected !== null && result.rowsAffected !== undefined ? (
+        ) : isExecResult(result) ? (
           <div className="result-banner ok exec-result">
             <span className="dot" aria-hidden />
             <strong>実行完了</strong>

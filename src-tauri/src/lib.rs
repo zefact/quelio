@@ -3,6 +3,7 @@ mod backup;
 mod catalog;
 mod commands;
 mod crypto;
+mod csv_job;
 mod db;
 mod er_store;
 mod export;
@@ -135,6 +136,7 @@ pub fn run() {
         .manage(sessions::CancelRegistry::default())
         .manage(query_log::QueryLog::default())
         .manage(tools::Jobs::default())
+        .manage(csv_job::CsvJobs::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_connections,
             commands::save_connection,
@@ -152,6 +154,9 @@ pub fn run() {
             commands::kv_key_detail,
             commands::kv_exec,
             commands::export_schema_csv,
+            commands::export_query_csv,
+            commands::csv_export_status,
+            commands::cancel_csv_export,
             commands::export_connections,
             commands::import_connections,
             commands::export_er_diagrams,

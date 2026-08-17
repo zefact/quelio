@@ -231,6 +231,18 @@ pub struct RunOutput {
     pub failed_index: Option<usize>,
 }
 
+/// SQL実行結果のCSV出力結果
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CsvExportResult {
+    /// 保存したファイルのフルパス (キャンセル時は空)
+    pub path: String,
+    /// 書き出した行数 (ヘッダ行は含まない)
+    pub rows: usize,
+    /// 途中でキャンセルされたか (この場合ファイルは残さない)
+    pub cancelled: bool,
+}
+
 /// 接続テストの結果
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
