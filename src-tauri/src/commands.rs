@@ -79,9 +79,14 @@ pub fn update_layout(
     app: AppHandle,
     folders: Vec<FolderInfo>,
     order: Vec<LayoutEntry>,
+    root_order: Option<Vec<String>>,
 ) -> Result<(), String> {
     let mut store = storage::load(&app)?;
     store.folders = folders;
+    // ルート階層の表示順 (フォルダと接続の混在順)。未指定なら従来の順を維持する
+    if let Some(root_order) = root_order {
+        store.root_order = root_order;
+    }
 
     // orderで指定された順に並べ替え、所属フォルダを反映する。
     // orderに含まれない接続は末尾に残す。

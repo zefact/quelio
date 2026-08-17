@@ -1,4 +1,5 @@
-export type DbType = "mysql" | "postgresql" | "valkey";
+/** 対応DB種別 (sqliteはファイルベースで、databaseにファイルパスを入れる) */
+export type DbType = "mysql" | "postgresql" | "sqlite" | "valkey";
 
 export interface SshConfig {
   enabled: boolean;
@@ -39,6 +40,9 @@ export interface FolderInfo {
 export interface ConnectionStore {
   folders: FolderInfo[];
   connections: ConnectionProfile[];
+  /** ルート階層の表示順 (フォルダIDとフォルダ未所属の接続IDが混在)。
+   *  未設定なら「フォルダ → 接続」の順で表示する */
+  rootOrder?: string[];
 }
 
 /** 並べ替え保存用エントリ */
@@ -253,6 +257,8 @@ export function emptyTab(key: string): WorkTab {
 export const DEFAULT_PORTS: Record<DbType, number> = {
   mysql: 3306,
   postgresql: 5432,
+  // SQLiteはファイルを直接開くためポートを使わない
+  sqlite: 0,
   valkey: 6379,
 };
 

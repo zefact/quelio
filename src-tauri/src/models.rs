@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub enum DbType {
     Mysql,
     Postgresql,
+    /// SQLite (ファイルベース。databaseフィールドにファイルパスを入れる)
+    Sqlite,
     Valkey,
 }
 
@@ -82,6 +84,10 @@ pub struct ConnectionStore {
     pub folders: Vec<FolderInfo>,
     #[serde(default)]
     pub connections: Vec<ConnectionProfile>,
+    /// ルート階層の表示順 (フォルダIDとフォルダ未所属の接続IDが混在)。
+    /// 空の場合は従来どおり「フォルダ → 接続」の順で表示する
+    #[serde(default)]
+    pub root_order: Vec<String>,
 }
 
 /// 並べ替え・フォルダ移動の保存用エントリ

@@ -5,7 +5,7 @@ import {
   useRef,
 } from "react";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { MySQL, PostgreSQL, sql } from "@codemirror/lang-sql";
+import { MySQL, PostgreSQL, SQLite, sql } from "@codemirror/lang-sql";
 import {
   HighlightStyle,
   indentUnit,
@@ -128,7 +128,14 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         highlightActiveLineGutter(),
         history(),
         indentUnit.of("  "),
-        sql({ dialect: dbType === "mysql" ? MySQL : PostgreSQL }),
+        sql({
+          dialect:
+            dbType === "mysql"
+              ? MySQL
+              : dbType === "sqlite"
+                ? SQLite
+                : PostgreSQL,
+        }),
         syntaxHighlighting(highlight),
         editorTheme,
         cmPlaceholder(placeholder),

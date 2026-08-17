@@ -2,6 +2,7 @@ use std::time::Instant;
 
 use sqlx::mysql::{MySqlConnection, MySqlConnectOptions};
 use sqlx::postgres::{PgConnection, PgConnectOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use sqlx::{ConnectOptions, Connection};
 use tokio::time::{timeout, Duration};
 
@@ -85,6 +86,30 @@ pub async fn connect_pg(
         .map_err(format_db_error)
 }
 
+/// SQLiteのデータベースファイルを開く。
+/// 打ち間違いで空のDBができないよう、存在しないファイルはエラーにする
+pub async fn connect_sqlite(path: &str) -> Result<SqliteConnection, String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return Err("データベースファイルを指定してください".into());
+    }
+    let file = std::path::Path::new(path);
+    if !file.is_file() {
+        return Err(format!(
+            "データベースファイルが見つかりません: {path}\n(新規作成はしません。既存のファイルを指定してください)"
+        ));
+    }
+    let opts = SqliteConnectOptions::new()
+        .filename(file)
+        .create_if_missing(false)
+        // 外部キー制約を有効にする (ER図・整合性チェック用)
+        .foreign_keys(true);
+    timeout(CONNECT_TIMEOUT, opts.connect())
+        .await
+        .map_err(|_| "DB接続がタイムアウトしました".to_string())?
+        .map_err(format_db_error)
+}
+
 /// PostgreSQLはどこかのDBに接続する必要があるため、
 /// 未指定時は候補を順に試す: 指定DB → postgres → ユーザー名 → template1。
 /// 成功した接続と実際に接続したDB名を返す。
@@ -133,6 +158,24 @@ pub async fn run_test(profile: ConnectionProfile, qlog: &QueryLog) -> TestResult
 }
 
 async fn test_inner(p: &ConnectionProfile, qlog: &QueryLog) -> Result<String, String> {
+    // SQLiteはローカルファイルなので、エンドポイント解決 (SSHトンネル) は行わない
+    if p.db_type == DbType::Sqlite {
+        let path = p.database.as_deref().unwrap_or("");
+        let mut conn = connect_sqlite(path).await?;
+        let label: &str = if p.name.is_empty() {
+            path
+        } else {
+            p.name.as_str()
+        };
+        qlog.add(label, path, "SELECT sqlite_version()");
+        let version: String = sqlx::query_scalar("SELECT sqlite_version()")
+            .fetch_one(&mut conn)
+            .await
+            .map_err(format_db_error)?;
+        let _ = conn.close().await;
+        return Ok(format!("SQLite {version}"));
+    }
+
     let mut ep = resolve_endpoint(p).await?;
     let database = p.database.as_deref().filter(|s| !s.is_empty());
     let label = if p.name.is_empty() {
@@ -168,6 +211,8 @@ async fn test_inner(p: &ConnectionProfile, qlog: &QueryLog) -> Result<String, St
                 let _ = conn.close().await;
                 Ok(format!("PostgreSQL {version}"))
             }
+            // SQLiteは関数の先頭で処理済み
+            DbType::Sqlite => unreachable!(),
             DbType::Valkey => {
                 let db_index: i64 = database.and_then(|s| s.parse().ok()).unwrap_or(0);
                 let mut conn = crate::kv::connect(

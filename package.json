@@ -1,7 +1,7 @@
 {
   "name": "quelio",
   "private": true,
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "MySQL / PostgreSQL 対応の無料デスクトップDBクライアント (Tauri 2 + React + Rust)",
   "license": "MIT",
   "author": "ZEFACT Co., Ltd.",

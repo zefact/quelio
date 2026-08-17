@@ -17,6 +17,7 @@
   --danger: #f87171;
   --mysql: #f0a63a;
   --postgres: #5a9bd8;
+  --sqlite: #00b09b;
   --valkey: #d9564f;
 
   /* テーマ依存の派生色 (--ink はオーバーレイのRGBチャンネル) */
@@ -719,8 +720,27 @@ html.macos .diff-toolbar {
   outline: none;
 }
 
+/* フォルダの中身は字下げし、左側のガイド線で親子関係を示す */
 .folder-children {
-  padding-left: 22px !important;
+  position: relative;
+  padding-left: 26px !important;
+  margin-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+/* 子項目の左端に短い横線を出して、フォルダ配下であることを分かりやすくする */
+.folder-children > li {
+  position: relative;
+}
+
+.folder-children > li::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 8px;
+  height: 1px;
+  background: var(--border);
 }
 
 .folder-empty {
@@ -887,6 +907,12 @@ html.macos .diff-toolbar {
   color: var(--postgres);
   background: rgba(90, 155, 216, 0.14);
   border: 1px solid rgba(90, 155, 216, 0.32);
+}
+
+.db-badge.sqlite {
+  color: var(--sqlite);
+  background: rgba(0, 176, 155, 0.14);
+  border: 1px solid rgba(0, 176, 155, 0.32);
 }
 
 .db-badge.valkey {
@@ -2967,6 +2993,8 @@ html[data-theme="light"] .result-banner.ng {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 見出し・件数・アイコンは左に寄せ、余白は toolbar-spacer が吸収する */
+  gap: 6px;
   padding: 2px 6px 8px;
   font-size: 11px;
   font-weight: 700;
@@ -3195,6 +3223,7 @@ html[data-theme="light"] .result-banner.ng {
 .query-actions .btn-secondary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   border: none;
   border-radius: 9px;
@@ -3202,6 +3231,19 @@ html[data-theme="light"] .result-banner.ng {
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
+  /* 文字サイズや枠線の有無が違っても高さを揃える
+     (EXPLAINの▾が無いSQLiteでも他のボタンと同じ高さになる) */
+  height: 34px;
+}
+
+/* スプリットボタンは中の2つが同じ高さになるよう引き伸ばす */
+.run-split > .btn-primary,
+.run-split > .btn-secondary {
+  height: 100%;
+}
+
+.query-actions .run-split {
+  height: 34px;
 }
 
 .query-actions button:disabled {
@@ -4653,6 +4695,11 @@ html[data-theme="light"] .brand-name {
 .pane-icon-btn:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* 再読み込み中はアイコンを回す */
+.pane-icon-btn.spinning svg {
+  animation: refresh-rotate 0.8s linear infinite;
 }
 
 .query-meta {

@@ -5,7 +5,8 @@ use std::time::Instant;
 use futures_util::{Stream, TryStreamExt};
 use sqlx::mysql::{MySqlConnection, MySqlRow};
 use sqlx::postgres::{PgConnection, PgRow};
-use sqlx::{Column, Row};
+use sqlx::sqlite::{SqliteConnection, SqliteRow};
+use sqlx::{Column, Row, TypeInfo, ValueRef};
 use tokio::time::{timeout, Duration};
 
 use crate::csv_job::CsvJob;
@@ -183,7 +184,16 @@ fn head_keyword(sql: &str) -> String {
 fn is_fetch(sql: &str) -> bool {
     matches!(
         head_keyword(sql).as_str(),
-        "SELECT" | "SHOW" | "WITH" | "EXPLAIN" | "DESCRIBE" | "DESC" | "VALUES" | "TABLE"
+        "SELECT"
+            | "SHOW"
+            | "WITH"
+            | "EXPLAIN"
+            | "DESCRIBE"
+            | "DESC"
+            | "VALUES"
+            | "TABLE"
+            // SQLiteのPRAGMAは結果を返すものがある
+            | "PRAGMA"
     )
 }
 
@@ -358,6 +368,57 @@ fn pg_cell_max(row: &PgRow, i: usize, max: usize) -> Option<CsvCell> {
     Some(CsvCell::text("(未対応の型)".into()))
 }
 
+/// 画面表示用のセル値 (長すぎる値は切り詰める)
+fn sqlite_cell(row: &SqliteRow, i: usize) -> Option<String> {
+    sqlite_cell_max(row, i, MAX_CELL_CHARS).map(|c| c.text)
+}
+
+/// CSV出力用のセル値 (切り詰めず、数値かどうかも返す)
+fn sqlite_cell_full(row: &SqliteRow, i: usize) -> Option<CsvCell> {
+    sqlite_cell_max(row, i, usize::MAX)
+}
+
+/// SQLiteは列ではなく値ごとに型が決まる (動的型付け) ため、
+/// 宣言型ではなく実際に入っている値の型で文字列化する
+fn sqlite_cell_max(row: &SqliteRow, i: usize, max: usize) -> Option<CsvCell> {
+    let Ok(raw) = row.try_get_raw(i) else {
+        return Some(CsvCell::text("(取得できません)".into()));
+    };
+    if raw.is_null() {
+        return None;
+    }
+    let type_name = raw.type_info().name().to_string();
+    match type_name.as_str() {
+        "INTEGER" => row
+            .try_get::<Option<i64>, _>(i)
+            .ok()
+            .flatten()
+            .map(|v| CsvCell {
+                text: v.to_string(),
+                numeric: true,
+            }),
+        "REAL" => row
+            .try_get::<Option<f64>, _>(i)
+            .ok()
+            .flatten()
+            .map(|v| CsvCell {
+                text: v.to_string(),
+                numeric: true,
+            }),
+        "BLOB" => row
+            .try_get::<Option<Vec<u8>>, _>(i)
+            .ok()
+            .flatten()
+            .map(|b| CsvCell::text(bytes_preview(&b))),
+        // TEXT・その他はすべて文字列として扱う
+        _ => row
+            .try_get::<Option<String>, _>(i)
+            .ok()
+            .flatten()
+            .map(|s| CsvCell::text(clip_cell(s, max))),
+    }
+}
+
 /// 結果セットのストリームから1ページ分 (PAGE_SIZE行) だけ読み取る。
 ///
 /// PAGE_SIZE+1行目が届いた時点で読み取りを打ち切ってストリームを閉じるため、
@@ -456,6 +517,17 @@ pub async fn export_csv_pg<W: std::io::Write>(
     write_csv(stream, pg_cell_full, out, job).await
 }
 
+/// SQLite: SQLの結果を全件CSVへ書き出す
+pub async fn export_csv_sqlite<W: std::io::Write>(
+    conn: &mut SqliteConnection,
+    sql: &str,
+    out: &mut W,
+    job: Option<&CsvJob>,
+) -> Result<(usize, bool), String> {
+    let stream = sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_string())).fetch(&mut *conn);
+    write_csv(stream, sqlite_cell_full, out, job).await
+}
+
 pub async fn run_mysql(
     conn: &mut MySqlConnection,
     plan: &PlannedQuery,
@@ -518,6 +590,56 @@ pub async fn run_pg(
             fetch_page(
                 sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch(&mut *conn),
                 pg_cell,
+            ),
+        )
+        .await
+        .map_err(|_| "クエリがタイムアウトしました".to_string())??;
+
+        Ok(QueryResult {
+            columns,
+            rows: data,
+            offset: plan.offset,
+            has_more,
+            pageable: plan.pageable,
+            order_by: plan.order_by.clone(),
+            order_dir: plan.order_dir.clone(),
+            rows_affected: None,
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        })
+    } else {
+        let res = timeout(
+            query_timeout(timeout_secs),
+            sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).execute(&mut *conn),
+        )
+        .await
+        .map_err(|_| "クエリがタイムアウトしました".to_string())?
+        .map_err(format_db_error)?;
+        Ok(QueryResult {
+            columns: Vec::new(),
+            rows: Vec::new(),
+            offset: 0,
+            has_more: false,
+            pageable: false,
+            order_by: None,
+            order_dir: None,
+            rows_affected: Some(res.rows_affected()),
+            elapsed_ms: started.elapsed().as_millis() as u64,
+        })
+    }
+}
+
+pub async fn run_sqlite(
+    conn: &mut SqliteConnection,
+    plan: &PlannedQuery,
+    timeout_secs: u64,
+) -> Result<QueryResult, String> {
+    let started = Instant::now();
+    if plan.is_fetch {
+        let (columns, data, has_more) = timeout(
+            query_timeout(timeout_secs),
+            fetch_page(
+                sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch(&mut *conn),
+                sqlite_cell,
             ),
         )
         .await

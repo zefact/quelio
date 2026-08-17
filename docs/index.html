@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Quelio（クエリオ）- 軽量なMySQL / PostgreSQL / Valkeyクライアント</title>
-  <meta name="description" content="Quelio(クエリオ)は、Tauri製の軽量デスクトップDBクライアント。MySQL / PostgreSQL / Valkey対応、SSHトンネル、テーブル構造ビュー、EXPLAIN対応のクエリエディタ、エクスポート/インポートを搭載。" />
-  <meta property="og:title" content="Quelio（クエリオ）- 軽量なMySQL / PostgreSQL / Valkeyクライアント" />
+  <title>Quelio（クエリオ）- 軽量なMySQL / PostgreSQL / SQLite / Valkeyクライアント</title>
+  <meta name="description" content="Quelio(クエリオ)は、Tauri製の軽量デスクトップDBクライアント。MySQL / PostgreSQL / SQLite / Valkey対応、SSHトンネル、テーブル構造ビュー、EXPLAIN対応のクエリエディタ、クエリ結果のCSVダウンロード、エクスポート/インポートを搭載。" />
+  <meta property="og:title" content="Quelio（クエリオ）- 軽量なMySQL / PostgreSQL / SQLite / Valkeyクライアント" />
   <meta property="og:description" content="スキーマ差分チェック・結果の自動キャプチャ・日本語の論理名表示。現場で欲しかった機能を載せた無料のデスクトップDBクライアント (macOS / Windows)。" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://zefact.github.io/quelio/" />
@@ -525,7 +525,7 @@
 
   <header class="hero">
     <div class="container">
-      <span class="badge"><i></i>MySQL / PostgreSQL / Valkey 対応 · 無料 · ベータ版公開中</span>
+      <span class="badge"><i></i>MySQL / PostgreSQL / SQLite / Valkey 対応 · 無料 · ベータ版公開中</span>
       <h1>データベース作業を、<br /><span class="grad">軽く、速く。</span></h1>
       <p class="hero-name"><b>Quelio</b>（クエリオ）</p>
       <p class="sub">
@@ -910,8 +910,8 @@
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
-          <h3>MySQL / PostgreSQL / Valkey</h3>
-          <p>主要な2つのRDBMSに加え、Valkey (Redis互換KVS) にも対応。キーブラウザとコマンドコンソールで中身を確認できます。</p>
+          <h3>MySQL / PostgreSQL / SQLite / Valkey</h3>
+          <p>主要なRDBMSに加え、ファイル1つで完結するSQLiteと、Valkey (Redis互換KVS) にも対応。SQLiteはファイルを選ぶだけで開けます。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
@@ -927,6 +927,11 @@
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 7 5 5-5 5M12 19h7"/></svg></div>
           <h3>クエリエディタ</h3>
           <p>行番号付きエディタで複数SQLを実行。結果は文ごとのタブに分かれ、整形・キャンセルにも対応。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6m0 0 2.5-2.5M12 17l-2.5-2.5" stroke-width="1.6"/></svg></div>
+          <h3>クエリ結果のCSVダウンロード</h3>
+          <p>結果タブごとに全件をCSV出力。画面は1000行ずつでも、CSVはそのSQLの全行を書き出します。進捗表示とキャンセル付き。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.2 2.2M16.2 16.2l2.2 2.2M5.6 18.4l2.2-2.2M16.2 7.8l2.2-2.2"/><circle cx="12" cy="12" r="3.2"/></svg></div>
@@ -970,13 +975,6 @@
             <p>SELECT結果のセルを直接編集して、UPDATE / INSERT / DELETE を発行できるようにします。</p>
           </div>
         </div>
-        <div class="rm-item">
-          <span class="rm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></span>
-          <div>
-            <h3>クエリ結果のCSVエクスポート</h3>
-            <p>実行結果をCSV / TSVとしてダウンロードできるようにします。</p>
-          </div>
-        </div>
       </div>
       <p class="rm-note">
         時期・内容は変更される場合があります。ご要望は
@@ -1005,7 +1003,7 @@
         </details>
         <details class="faq-item">
           <summary>対応しているデータベースは?</summary>
-          <div class="a">MySQL・PostgreSQLと、Valkey (Redis互換のKVS) に対応しています。1つのアプリ内で複数の接続をタブで同時に開けます。ValkeyはAWS ElastiCache (Serverless含む) へのTLS接続にも対応しています。</div>
+          <div class="a">MySQL・PostgreSQL・SQLiteと、Valkey (Redis互換のKVS) に対応しています。SQLiteはサーバー不要で、データベースファイルを選ぶだけで開けます。1つのアプリ内で複数の接続をタブで同時に開けます。ValkeyはAWS ElastiCache (Serverless含む) へのTLS接続にも対応しています。</div>
         </details>
         <details class="faq-item">
           <summary>対応OSは?</summary>
@@ -1071,7 +1069,7 @@
   <footer>
     <div class="container foot-inner">
       <svg viewBox="0 0 1024 1024"><use href="#quelio-mark"/></svg>
-      <span>Quelio（クエリオ）— MySQL / PostgreSQL / Valkeyクライアント</span>
+      <span>Quelio（クエリオ）— MySQL / PostgreSQL / SQLite / Valkeyクライアント</span>
       <span class="foot-right">
         <a href="https://github.com/zefact/quelio/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
         &nbsp;·&nbsp; © <span id="copy-year">2026</span> <a href="https://zefact.co.jp" target="_blank" rel="noopener">Zefact</a>

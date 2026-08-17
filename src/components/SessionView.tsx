@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { openEr, openSchema } from "../api";
-import { badgeStyle } from "../colors";
+import { badgeStyle, dbBadgeLabel } from "../colors";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { tableKey } from "../tableSql";
 import type { TableInfo, TableTab, WorkTab } from "../types";
@@ -12,6 +12,8 @@ import { ExportDialog, ImportDialog } from "./TransferDialog";
 interface Props {
   tab: WorkTab;
   onSelectDb: (db: string) => void;
+  /** テーブル一覧の再読み込み (選択中のテーブルは維持する) */
+  onReloadTables: () => Promise<void> | void;
   onSelectTable: (table: TableInfo) => void;
   onToggleQuery: () => void;
   onChangeSql: (sql: string) => void;
@@ -56,6 +58,7 @@ function typeLabel(t: string): { label: string; cls: string } {
 export function SessionView({
   tab,
   onSelectDb,
+  onReloadTables,
   onSelectTable,
   onToggleQuery,
   onChangeSql,
@@ -76,6 +79,8 @@ export function SessionView({
   const [multiSel, setMultiSel] = useState<Set<string>>(new Set());
   const [anchorIdx, setAnchorIdx] = useState<number | null>(null);
   const [dialog, setDialog] = useState<"export" | "import" | null>(null);
+  /** テーブル一覧の再読み込み中か (アイコンの回転表示用) */
+  const [reloading, setReloading] = useState(false);
   const { profile, databases, selectedDb, tables, loadingTables } = tab;
 
   // DB切替やテーブル一覧の更新で複数選択をリセット
@@ -136,6 +141,21 @@ export function SessionView({
     }
   };
 
+  /** テーブル一覧を取得し直す (二重実行しない) */
+  const handleReloadTables = async () => {
+    if (reloading || !selectedDb) return;
+    setReloading(true);
+    try {
+      await onReloadTables();
+    } finally {
+      setReloading(false);
+    }
+  };
+
+  /** SQLiteはファイルベースのため、ホスト表示や外部ツール連携の扱いが変わる */
+  const isSqlite = profile.dbType === "sqlite";
+  const dbFilePath = profile.database ?? "";
+
   /** エクスポート対象のテーブル名 (PGはschema付き) */
   const exportNames = useMemo(
     () =>
@@ -157,34 +177,46 @@ export function SessionView({
           className={`db-badge ${profile.dbType}`}
           style={badgeStyle(profile.color)}
         >
-          {profile.dbType === "mysql" ? "My" : "Pg"}
+          {dbBadgeLabel(profile.dbType)}
         </span>
         <div className="session-conn">
           <span className="session-name">{profile.name || "(無名)"}</span>
           <span className="session-host mono">
-            {profile.ssh?.enabled && <span className="ssh-chip">SSH</span>}
-            <span
-              className="session-host-text"
-              title={`${profile.host}:${profile.port}`}
-            >
-              {profile.host}:{profile.port}
-            </span>
+            {/* SQLiteはホスト:ポートではなくファイルパスを表示する */}
+            {isSqlite ? (
+              <span className="session-host-text" title={dbFilePath}>
+                {dbFilePath}
+              </span>
+            ) : (
+              <>
+                {profile.ssh?.enabled && <span className="ssh-chip">SSH</span>}
+                <span
+                  className="session-host-text"
+                  title={`${profile.host}:${profile.port}`}
+                >
+                  {profile.host}:{profile.port}
+                </span>
+              </>
+            )}
           </span>
         </div>
 
-        <div className="db-select-wrap">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <ellipse cx="12" cy="5.5" rx="8" ry="3" stroke="currentColor" strokeWidth="2" />
-            <path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13" stroke="currentColor" strokeWidth="2" />
-          </svg>
-          <SelectMenu
-            className="mono"
-            value={selectedDb ?? ""}
-            placeholder="データベースを選択"
-            options={databases.map((d) => ({ value: d, label: d }))}
-            onChange={onSelectDb}
-          />
-        </div>
+        {/* SQLiteは1ファイル=1DBなので選択メニューは出さない */}
+        {!isSqlite && (
+          <div className="db-select-wrap">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <ellipse cx="12" cy="5.5" rx="8" ry="3" stroke="currentColor" strokeWidth="2" />
+              <path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13" stroke="currentColor" strokeWidth="2" />
+            </svg>
+            <SelectMenu
+              className="mono"
+              value={selectedDb ?? ""}
+              placeholder="データベースを選択"
+              options={databases.map((d) => ({ value: d, label: d }))}
+              onChange={onSelectDb}
+            />
+          </div>
+        )}
 
         {tab.serverInfo.length > 0 && (
           <div className="server-info">
@@ -282,7 +314,29 @@ export function SessionView({
                   : tables.length}
               </span>
             )}
+            <button
+              className={
+                "pane-icon-btn has-tooltip tooltip-left" +
+                (reloading ? " spinning" : "")
+              }
+              data-tooltip="テーブル一覧を再読み込み"
+              disabled={!selectedDb || loadingTables || reloading}
+              onClick={handleReloadTables}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
             <span className="toolbar-spacer" />
+            {/* エクスポート/インポートは外部ツール(mysqldump等)を使うためSQLiteでは出さない */}
+            {!isSqlite && (
+              <>
             <button
               className="pane-icon-btn has-tooltip tooltip-left"
               data-tooltip="選択テーブルをエクスポート (⌘クリックで複数選択 / ⌘Aで全選択)"
@@ -305,6 +359,8 @@ export function SessionView({
                 <path d="M4 20h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
             </button>
+              </>
+            )}
           </div>
           {!selectedDb ? (
             <div className="table-pane-empty">上部からデータベースを選択</div>

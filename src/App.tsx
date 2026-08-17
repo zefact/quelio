@@ -118,7 +118,11 @@ function App() {
   };
 
   /** フォルダ構成・並び順の変更を保存 (楽観的更新) */
-  const handleLayout = async (folders: FolderInfo[], order: LayoutEntry[]) => {
+  const handleLayout = async (
+    folders: FolderInfo[],
+    order: LayoutEntry[],
+    rootOrder?: string[]
+  ) => {
     setStore((s) => {
       const byId = new Map(s.connections.map((c) => [c.id, c]));
       const ordered: ConnectionProfile[] = [];
@@ -130,10 +134,14 @@ function App() {
         }
       }
       ordered.push(...byId.values());
-      return { folders, connections: ordered };
+      return {
+        folders,
+        connections: ordered,
+        rootOrder: rootOrder ?? s.rootOrder,
+      };
     });
     try {
-      await updateLayout(folders, order);
+      await updateLayout(folders, order, rootOrder);
     } catch {
       await reload();
     }
@@ -283,6 +291,31 @@ function App() {
       updateTab(key, { tables, loadingTables: false });
     } catch (e) {
       updateTab(key, { tables: [], loadingTables: false, error: String(e) });
+    }
+  };
+
+  /**
+   * テーブル一覧だけを取得し直す (再読み込みボタン)。
+   * 選択中のテーブルや表示中の内容は、一覧に残っている限り維持する
+   */
+  const reloadTables = async (key: string) => {
+    const tab = tabs.find((tb) => tb.key === key);
+    if (!tab?.selectedDb || tab.profile.dbType === "valkey") return;
+    try {
+      const tables = await listTables(key, tab.selectedDb);
+      const stillExists =
+        tab.selectedTable !== null &&
+        tables.some((t) => tableKey(t) === tab.selectedTable);
+      updateTab(key, {
+        tables,
+        error: null,
+        // 消えたテーブルを選んだままにしない
+        ...(stillExists
+          ? {}
+          : { selectedTable: null, tableDetail: null, tableData: null }),
+      });
+    } catch (e) {
+      updateTab(key, { error: String(e) });
     }
   };
 
@@ -658,6 +691,7 @@ function App() {
           <SessionView
             tab={activeTab}
             onSelectDb={(db) => loadTables(activeTab.key, db)}
+            onReloadTables={() => reloadTables(activeTab.key)}
             onSelectTable={(t) => handleSelectTable(activeTab.key, t)}
             onToggleQuery={() =>
               updateTab(activeTab.key, {

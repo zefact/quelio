@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { badgeStyle, PRESET_COLORS } from "../colors";
+import { badgeStyle, dbBadgeLabel, PRESET_COLORS } from "../colors";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import type {
   ConnectionProfile,
@@ -15,7 +15,11 @@ interface Props {
   store: ConnectionStore;
   onCreateFolder: () => Promise<FolderInfo | null>;
   onDeleteFolder: (id: string) => void;
-  onLayout: (folders: FolderInfo[], order: LayoutEntry[]) => void;
+  onLayout: (
+    folders: FolderInfo[],
+    order: LayoutEntry[],
+    rootOrder: string[]
+  ) => void;
   /** 接続のアイコン色を変更 (undefinedで既定色に戻す) */
   onSetConnColor: (id: string, color: string | undefined) => void;
   onChangeProfile: (profile: ConnectionProfile) => void;
@@ -28,12 +32,17 @@ interface Props {
 }
 
 type DragItem = { type: "conn" | "folder"; id: string };
+/** ドロップ先: 項目の前/後ろ、フォルダの中、一覧の末尾 */
 type DropTarget =
-  | { type: "conn-before"; id: string }
-  | { type: "conn-after"; id: string }
-  | { type: "folder-before"; id: string }
+  | { type: "before"; id: string }
+  | { type: "after"; id: string }
   | { type: "into-folder"; id: string }
   | { type: "root-end" };
+
+/** ルート階層に並ぶ項目 (フォルダ or フォルダ未所属の接続) */
+type RootItem =
+  | { kind: "folder"; folder: FolderInfo }
+  | { kind: "conn"; conn: ConnectionProfile };
 
 interface MenuState {
   x: number;
@@ -105,6 +114,48 @@ export function ConnectionPicker({
     [connections, childrenOf]
   );
 
+  /**
+   * ルート階層の表示順 (フォルダと接続の混在)。
+   * 保存された rootOrder を優先し、そこに無いものは
+   * 従来どおり「フォルダ → 接続」の順で末尾に並べる
+   */
+  const rootItems = useMemo<RootItem[]>(() => {
+    const items: RootItem[] = [];
+    const used = new Set<string>();
+    for (const id of store.rootOrder ?? []) {
+      const f = folders.find((x) => x.id === id);
+      if (f) {
+        items.push({ kind: "folder", folder: f });
+        used.add(id);
+        continue;
+      }
+      const c = rootConnections.find((x) => x.id === id);
+      if (c) {
+        items.push({ kind: "conn", conn: c });
+        used.add(id);
+      }
+    }
+    for (const f of folders) {
+      if (!used.has(f.id)) items.push({ kind: "folder", folder: f });
+    }
+    for (const c of rootConnections) {
+      if (!used.has(c.id)) items.push({ kind: "conn", conn: c });
+    }
+    return items;
+  }, [folders, rootConnections, store.rootOrder]);
+
+  const rootItemId = (it: RootItem) =>
+    it.kind === "folder" ? it.folder.id : it.conn.id;
+
+  /** 指定IDが属するルート項目のID (フォルダ内の接続なら親フォルダ) */
+  const rootAnchorOf = (id: string): string | null => {
+    if (rootItems.some((it) => rootItemId(it) === id)) return id;
+    const parent = folders.find((f) =>
+      (childrenOf.get(f.id) ?? []).some((c) => c.id === id)
+    );
+    return parent?.id ?? null;
+  };
+
   // メニューは画面のどこかをクリックしたら閉じる
   useEffect(() => {
     if (!menu) return;
@@ -115,83 +166,130 @@ export function ConnectionPicker({
 
   // ---------- 並び順の保存 ----------
 
-  /** 現在の表示順を LayoutEntry[] にする */
+  /** 現在の並びを (ルート項目ID, フォルダID→子接続ID) として取り出す */
+  const snapshot = () => ({
+    rootIds: rootItems.map(rootItemId),
+    childIds: new Map(
+      folders.map((f) => [
+        f.id,
+        (childrenOf.get(f.id) ?? []).map((c) => c.id),
+      ])
+    ),
+  });
+
+  /** 現在の表示順を LayoutEntry[] にする (保存・色変更などで使う) */
   const currentEntries = (): LayoutEntry[] => {
+    const { rootIds, childIds } = snapshot();
+    return buildEntries(rootIds, childIds);
+  };
+
+  /** ルート順とフォルダの子から、保存用の並び順を組み立てる */
+  const buildEntries = (
+    rootIds: string[],
+    childIds: Map<string, string[]>
+  ): LayoutEntry[] => {
     const entries: LayoutEntry[] = [];
-    for (const f of folders) {
-      for (const c of childrenOf.get(f.id) ?? []) {
-        entries.push({ id: c.id, folderId: f.id });
+    const done = new Set<string>();
+    for (const id of rootIds) {
+      const kids = childIds.get(id);
+      if (kids) {
+        // フォルダ: 直下の接続を続けて並べる
+        for (const cid of kids) entries.push({ id: cid, folderId: id });
+        done.add(id);
+      } else {
+        entries.push({ id, folderId: undefined });
       }
     }
-    for (const c of rootConnections) {
-      entries.push({ id: c.id, folderId: undefined });
+    // ルート順に載っていないフォルダの中身も失わないようにする
+    for (const [fid, kids] of childIds) {
+      if (done.has(fid)) continue;
+      for (const cid of kids) entries.push({ id: cid, folderId: fid });
     }
     return entries;
   };
 
-  const moveConnection = (connId: string, target: DropTarget) => {
-    const entries = currentEntries().filter((e) => e.id !== connId);
-    const conn = connections.find((c) => c.id === connId);
-    if (!conn) return;
-
-    if (target.type === "conn-before") {
-      const idx = entries.findIndex((e) => e.id === target.id);
-      if (idx < 0) return;
-      entries.splice(idx, 0, { id: connId, folderId: entries[idx].folderId });
-    } else if (target.type === "conn-after") {
-      // 対象の直後へ (フォルダ内の一番下にも置けるように)
-      const idx = entries.findIndex((e) => e.id === target.id);
-      if (idx < 0) return;
-      entries.splice(idx + 1, 0, {
-        id: connId,
-        folderId: entries[idx].folderId,
-      });
-    } else if (target.type === "into-folder") {
-      // フォルダ内の末尾へ
-      let last = -1;
-      entries.forEach((e, i) => {
-        if (e.folderId === target.id) last = i;
-      });
-      const insertAt =
-        last >= 0
-          ? last + 1
-          : entries.length - rootConnections.filter((c) => c.id !== connId).length;
-      entries.splice(insertAt, 0, { id: connId, folderId: target.id });
-    } else {
-      // ルート末尾へ
-      entries.push({ id: connId, folderId: undefined });
-    }
-    onLayout(folders, entries);
+  /** 並び替え結果を保存する (フォルダ配列もルート順に合わせる) */
+  const applyOrder = (rootIds: string[], childIds: Map<string, string[]>) => {
+    const rank = (id: string) => {
+      const i = rootIds.indexOf(id);
+      return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    const nextFolders = [...folders].sort((a, b) => rank(a.id) - rank(b.id));
+    onLayout(nextFolders, buildEntries(rootIds, childIds), rootIds);
   };
 
-  const moveFolder = (folderId: string, beforeId: string | null) => {
-    const rest = folders.filter((f) => f.id !== folderId);
-    const moving = folders.find((f) => f.id === folderId);
-    if (!moving) return;
-    if (beforeId === null) {
-      rest.push(moving);
-    } else {
-      const idx = rest.findIndex((f) => f.id === beforeId);
-      if (idx < 0) return;
-      rest.splice(idx, 0, moving);
+  /** 並びから対象IDを取り除く */
+  const withoutItem = (
+    rootIds: string[],
+    childIds: Map<string, string[]>,
+    id: string
+  ) => ({
+    rootIds: rootIds.filter((x) => x !== id),
+    childIds: new Map(
+      [...childIds].map(([k, v]) => [k, v.filter((x) => x !== id)])
+    ),
+  });
+
+  /** ルート階層の指定位置へ移動する (targetIdがnullなら末尾) */
+  const moveToRoot = (id: string, targetId: string | null, after: boolean) => {
+    const snap = snapshot();
+    const { rootIds, childIds } = withoutItem(snap.rootIds, snap.childIds, id);
+    const idx = targetId === null ? -1 : rootIds.indexOf(targetId);
+    if (idx < 0) rootIds.push(id);
+    else rootIds.splice(after ? idx + 1 : idx, 0, id);
+    applyOrder(rootIds, childIds);
+  };
+
+  /** 接続をフォルダの中 (末尾) へ移動する */
+  const moveIntoFolder = (connId: string, folderId: string) => {
+    const snap = snapshot();
+    const { rootIds, childIds } = withoutItem(
+      snap.rootIds,
+      snap.childIds,
+      connId
+    );
+    childIds.set(folderId, [...(childIds.get(folderId) ?? []), connId]);
+    applyOrder(rootIds, childIds);
+  };
+
+  /** 接続を対象項目の前後へ移動する (対象がフォルダ内ならそのフォルダ内で並べ替え) */
+  const moveConnNextTo = (connId: string, targetId: string, after: boolean) => {
+    const parent = folders.find((f) =>
+      (childrenOf.get(f.id) ?? []).some((c) => c.id === targetId)
+    );
+    if (!parent) {
+      // 対象はルート項目 (フォルダ or ルート接続)
+      moveToRoot(connId, targetId, after);
+      return;
     }
-    onLayout(rest, currentEntries());
+    const snap = snapshot();
+    const { rootIds, childIds } = withoutItem(
+      snap.rootIds,
+      snap.childIds,
+      connId
+    );
+    const kids = [...(childIds.get(parent.id) ?? [])];
+    const idx = kids.indexOf(targetId);
+    kids.splice(idx < 0 ? kids.length : after ? idx + 1 : idx, 0, connId);
+    childIds.set(parent.id, kids);
+    applyOrder(rootIds, childIds);
+  };
+
+  /** フォルダの属性 (開閉・名前・色) を変えつつ、並び順は維持して保存する */
+  const updateFolders = (next: FolderInfo[]) => {
+    onLayout(next, currentEntries(), rootItems.map(rootItemId));
   };
 
   const toggleFolder = (id: string) => {
-    onLayout(
-      folders.map((f) => (f.id === id ? { ...f, collapsed: !f.collapsed } : f)),
-      currentEntries()
+    updateFolders(
+      folders.map((f) => (f.id === id ? { ...f, collapsed: !f.collapsed } : f))
     );
   };
 
   const commitRename = () => {
     if (renamingId) {
       const name = renameText.trim() || "(無名)";
-      onLayout(
-        folders.map((f) => (f.id === renamingId ? { ...f, name } : f)),
-        currentEntries()
-      );
+      updateFolders(folders.map((f) => (f.id === renamingId ? { ...f, name } : f)));
     }
     setRenamingId(null);
   };
@@ -210,10 +308,7 @@ export function ConnectionPicker({
     if (!menu) return;
     if (menu.target.kind === "folder") {
       const id = menu.target.id;
-      onLayout(
-        folders.map((f) => (f.id === id ? { ...f, color } : f)),
-        currentEntries()
-      );
+      updateFolders(folders.map((f) => (f.id === id ? { ...f, color } : f)));
     } else if (menu.target.kind === "conn") {
       onSetConnColor(menu.target.id, color);
     }
@@ -241,19 +336,26 @@ export function ConnectionPicker({
     dragItem.current = null;
     setDropTarget(null);
     if (!item) return;
+    // 自分自身の上に落とした場合は何もしない
+    if ("id" in target && target.id === item.id) return;
 
     if (item.type === "conn") {
-      if (target.type === "folder-before") {
-        // 接続をフォルダの前に落とした場合はフォルダ内へ
-        moveConnection(item.id, { type: "into-folder", id: target.id });
-      } else {
-        moveConnection(item.id, target);
-      }
-    } else if (item.type === "folder") {
-      if (target.type === "folder-before") {
-        moveFolder(item.id, target.id);
+      if (target.type === "into-folder") {
+        moveIntoFolder(item.id, target.id);
       } else if (target.type === "root-end") {
-        moveFolder(item.id, null);
+        moveToRoot(item.id, null, false);
+      } else {
+        moveConnNextTo(item.id, target.id, target.type === "after");
+      }
+      return;
+    }
+    // フォルダはルート階層でのみ移動する (フォルダの入れ子は作らない)
+    if (target.type === "root-end") {
+      moveToRoot(item.id, null, false);
+    } else if (target.type !== "into-folder") {
+      const anchor = rootAnchorOf(target.id);
+      if (anchor && anchor !== item.id) {
+        moveToRoot(item.id, anchor, target.type === "after");
       }
     }
   };
@@ -271,8 +373,24 @@ export function ConnectionPicker({
   const connDropTarget = (e: React.DragEvent, id: string): DropTarget => {
     const r = e.currentTarget.getBoundingClientRect();
     return e.clientY > r.top + r.height / 2
-      ? { type: "conn-after", id }
-      : { type: "conn-before", id };
+      ? { type: "after", id }
+      : { type: "before", id };
+  };
+
+  /**
+   * フォルダ行のドロップ位置。
+   * 接続をドラッグ中は 上端/下端=フォルダの前後、中央=フォルダの中。
+   * フォルダをドラッグ中は 上半分/下半分=前後 (入れ子にはしない)
+   */
+  const folderDropTarget = (e: React.DragEvent, id: string): DropTarget => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientY - r.top) / (r.height || 1);
+    if (dragItem.current?.type === "folder") {
+      return ratio > 0.5 ? { type: "after", id } : { type: "before", id };
+    }
+    if (ratio < 0.28) return { type: "before", id };
+    if (ratio > 0.72) return { type: "after", id };
+    return { type: "into-folder", id };
   };
 
   // ---------- 右クリックメニュー ----------
@@ -291,10 +409,10 @@ export function ConnectionPicker({
         className={
           "connection-item" +
           (c.id === profile.id ? " selected" : "") +
-          (dropTarget?.type === "conn-before" && dropTarget.id === c.id
+          (dropTarget?.type === "before" && dropTarget.id === c.id
             ? " drop-before"
             : "") +
-          (dropTarget?.type === "conn-after" && dropTarget.id === c.id
+          (dropTarget?.type === "after" && dropTarget.id === c.id
             ? " drop-after"
             : "")
         }
@@ -309,18 +427,84 @@ export function ConnectionPicker({
         title="クリック: 選択 / ダブルクリック: 接続"
       >
         <span className={`db-badge ${c.dbType}`} style={badgeStyle(c.color)}>
-          {c.dbType === "mysql" ? "My" : c.dbType === "valkey" ? "Vk" : "Pg"}
+          {dbBadgeLabel(c.dbType)}
         </span>
         <span className="connection-info">
           <span className="connection-name">{c.name || "(無名)"}</span>
           <span className="connection-host">
-            {c.ssh?.enabled && <span className="ssh-chip">SSH</span>}
-            {c.host}:{c.port}
+            {/* SQLiteはホスト:ポートを持たないのでファイルパスを出す */}
+            {c.dbType === "sqlite" ? (
+              (c.database ?? "(ファイル未設定)")
+            ) : (
+              <>
+                {c.ssh?.enabled && <span className="ssh-chip">SSH</span>}
+                {c.host}:{c.port}
+              </>
+            )}
           </span>
         </span>
       </button>
     </li>
   );
+
+  const renderFolderItem = (f: FolderInfo) => {
+    const children = childrenOf.get(f.id) ?? [];
+    return (
+      <li key={f.id}>
+        <button
+          className={
+            "folder-item" +
+            (dropTarget?.type === "before" && dropTarget.id === f.id
+              ? " drop-before"
+              : "") +
+            (dropTarget?.type === "after" && dropTarget.id === f.id
+              ? " drop-after"
+              : "") +
+            (dropTarget?.type === "into-folder" && dropTarget.id === f.id
+              ? " drop-into"
+              : "")
+          }
+          draggable={renamingId !== f.id}
+          onDragStart={(e) => handleDragStart(e, { type: "folder", id: f.id })}
+          onDragEnd={handleDragEnd}
+          onDragOver={(e) => dragOver(e, folderDropTarget(e, f.id))}
+          onDrop={(e) => handleDrop(e, folderDropTarget(e, f.id))}
+          onClick={() => toggleFolder(f.id)}
+          onContextMenu={(e) => openMenu(e, { kind: "folder", id: f.id })}
+          title="クリック: 開閉 / ドラッグ: 並べ替え (中央へ落とすとフォルダに入ります)"
+        >
+          <span className={"chevron" + (f.collapsed ? "" : " open")} aria-hidden>
+            ▸
+          </span>
+          <span className="folder-icon" style={badgeStyle(f.color)}>
+            <FolderIcon open={!f.collapsed} />
+          </span>
+          {renamingId === f.id ? (
+            <input
+              className="folder-rename mono"
+              value={renameText}
+              autoFocus
+              onChange={(e) => setRenameText(e.target.value)}
+              onBlur={commitRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitRename();
+                if (e.key === "Escape") setRenamingId(null);
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span className="folder-name">{f.name}</span>
+          )}
+          <span className="folder-count">{children.length}</span>
+        </button>
+        {!f.collapsed && children.length > 0 && (
+          <ul className="connection-list folder-children">
+            {children.map(renderConnItem)}
+          </ul>
+        )}
+      </li>
+    );
+  };
 
   return (
     <div className="picker">
@@ -353,84 +537,11 @@ export function ConnectionPicker({
           onDrop={(e) => handleDrop(e, { type: "root-end" })}
         >
           <ul className="connection-list">
-            {folders.map((f) => {
-              const children = childrenOf.get(f.id) ?? [];
-              return (
-                <li key={f.id}>
-                  <button
-                    className={
-                      "folder-item" +
-                      (dropTarget?.type === "folder-before" &&
-                      dropTarget.id === f.id
-                        ? " drop-before"
-                        : "") +
-                      (dropTarget?.type === "into-folder" &&
-                      dropTarget.id === f.id
-                        ? " drop-into"
-                        : "")
-                    }
-                    draggable={renamingId !== f.id}
-                    onDragStart={(e) =>
-                      handleDragStart(e, { type: "folder", id: f.id })
-                    }
-                    onDragEnd={handleDragEnd}
-                    onDragOver={(e) =>
-                      dragOver(
-                        e,
-                        dragItem.current?.type === "conn"
-                          ? { type: "into-folder", id: f.id }
-                          : { type: "folder-before", id: f.id }
-                      )
-                    }
-                    onDrop={(e) =>
-                      handleDrop(
-                        e,
-                        dragItem.current?.type === "conn"
-                          ? { type: "into-folder", id: f.id }
-                          : { type: "folder-before", id: f.id }
-                      )
-                    }
-                    onClick={() => toggleFolder(f.id)}
-                    onContextMenu={(e) =>
-                      openMenu(e, { kind: "folder", id: f.id })
-                    }
-                  >
-                    <span
-                      className={"chevron" + (f.collapsed ? "" : " open")}
-                      aria-hidden
-                    >
-                      ▸
-                    </span>
-                    <span className="folder-icon" style={badgeStyle(f.color)}>
-                      <FolderIcon open={!f.collapsed} />
-                    </span>
-                    {renamingId === f.id ? (
-                      <input
-                        className="folder-rename mono"
-                        value={renameText}
-                        autoFocus
-                        onChange={(e) => setRenameText(e.target.value)}
-                        onBlur={commitRename}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") commitRename();
-                          if (e.key === "Escape") setRenamingId(null);
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span className="folder-name">{f.name}</span>
-                    )}
-                    <span className="folder-count">{children.length}</span>
-                  </button>
-                  {!f.collapsed && children.length > 0 && (
-                    <ul className="connection-list folder-children">
-                      {children.map(renderConnItem)}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-            {rootConnections.map(renderConnItem)}
+            {rootItems.map((item) =>
+              item.kind === "conn"
+                ? renderConnItem(item.conn)
+                : renderFolderItem(item.folder)
+            )}
             {connections.length === 0 && folders.length === 0 && (
               <li className="connection-empty">
                 保存済みの接続先がありません。

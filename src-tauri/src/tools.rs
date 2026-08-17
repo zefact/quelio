@@ -281,11 +281,11 @@ pub async fn start_export(
     let out_file = std::fs::File::create(&out_path)
         .map_err(|e| format!("出力ファイルを作成できません: {e}"))?;
 
-    if ep.db_type == DbType::Valkey {
-        return Err("Valkey接続ではエクスポート/インポートは使用できません".into());
+    if matches!(ep.db_type, DbType::Valkey | DbType::Sqlite) {
+        return Err("この接続ではエクスポート/インポートは使用できません".into());
     }
     let mut cmd = match ep.db_type {
-        DbType::Valkey => unreachable!(),
+        DbType::Valkey | DbType::Sqlite => unreachable!(),
         DbType::Mysql => {
             let tool = require_tool(app, "mysqldump")?;
             let mut c = Command::new(tool);
@@ -374,11 +374,11 @@ pub async fn start_import(
         .map_err(|e| format!("ファイルを読み込めません: {e}"))?
         .len();
 
-    if ep.db_type == DbType::Valkey {
-        return Err("Valkey接続ではエクスポート/インポートは使用できません".into());
+    if matches!(ep.db_type, DbType::Valkey | DbType::Sqlite) {
+        return Err("この接続ではエクスポート/インポートは使用できません".into());
     }
     let mut cmd = match ep.db_type {
-        DbType::Valkey => unreachable!(),
+        DbType::Valkey | DbType::Sqlite => unreachable!(),
         DbType::Mysql => {
             let tool = require_tool(app, "mysql")?;
             let mut c = Command::new(tool);

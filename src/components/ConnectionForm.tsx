@@ -39,8 +39,15 @@ export function ConnectionForm({
     if (profile.port === DEFAULT_PORTS[profile.dbType]) {
       patch.port = DEFAULT_PORTS[dbType];
     }
+    // SQLiteとそれ以外では「データベース」欄の意味が変わるためクリアする
+    if ((dbType === "sqlite") !== (profile.dbType === "sqlite")) {
+      patch.database = "";
+    }
     set(patch);
   };
+
+  /** SQLiteはファイルを直接開くため、ホスト・ユーザー等の入力を出さない */
+  const isSqlite = profile.dbType === "sqlite";
 
   return (
     <div className="form">
@@ -48,17 +55,20 @@ export function ConnectionForm({
         <div className="card-head">
           <h2>基本設定</h2>
           <div className="segmented" role="tablist" aria-label="DB種別">
-            {(["mysql", "postgresql", "valkey"] as DbType[]).map((t) => (
+            {(
+              [
+                ["mysql", "MySQL"],
+                ["postgresql", "PostgreSQL"],
+                ["sqlite", "SQLite"],
+                ["valkey", "Valkey"],
+              ] as [DbType, string][]
+            ).map(([t, label]) => (
               <button
                 key={t}
                 className={"segment" + (profile.dbType === t ? " active" : "")}
                 onClick={() => changeDbType(t)}
               >
-                {t === "mysql"
-                  ? "MySQL"
-                  : t === "postgresql"
-                    ? "PostgreSQL"
-                    : "Valkey"}
+                {label}
               </button>
             ))}
           </div>
@@ -73,6 +83,52 @@ export function ConnectionForm({
               placeholder="例: 本番DB (読み取り用)"
             />
           </label>
+          {isSqlite && (
+            <label className="span2">
+              <span className="field-label">データベースファイル</span>
+              <span className="key-path-row">
+                <input
+                  className="mono"
+                  value={profile.database ?? ""}
+                  onChange={(e) => set({ database: e.target.value })}
+                  placeholder="/path/to/app.db"
+                />
+                <button
+                  type="button"
+                  className="browse-btn"
+                  title="SQLiteのデータベースファイルを選択"
+                  onClick={async () => {
+                    const selected = await open({
+                      multiple: false,
+                      title: "SQLiteのデータベースファイルを選択",
+                      filters: [
+                        {
+                          name: "SQLite",
+                          extensions: ["db", "sqlite", "sqlite3", "db3"],
+                        },
+                        { name: "すべてのファイル", extensions: ["*"] },
+                      ],
+                    }).catch(() => null);
+                    if (typeof selected === "string") {
+                      set({ database: selected });
+                    }
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path
+                      d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  参照
+                </button>
+              </span>
+            </label>
+          )}
+          {!isSqlite && (
+            <>
           <label className="grow">
             <span className="field-label">ホスト</span>
             <input
@@ -152,9 +208,12 @@ export function ConnectionForm({
               </label>
             </div>
           )}
+            </>
+          )}
         </div>
       </section>
 
+      {!isSqlite && (
       <section className={"card" + (ssh.enabled ? "" : " collapsed")}>
         <div className="card-head">
           <h2>SSH踏み台</h2>
@@ -253,6 +312,7 @@ export function ConnectionForm({
           </div>
         )}
       </section>
+      )}
 
       <div className="form-actions">
         <button

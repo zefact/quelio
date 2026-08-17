@@ -306,6 +306,28 @@ export function KvSessionView({
               {keys.length}
               {dbsize >= 0 ? ` / ${dbsize}` : ""}
             </span>
+            {/* テーブル一覧と同じ位置に再読み込みを置く (先頭からSCANし直す) */}
+            <button
+              className={
+                "pane-icon-btn has-tooltip tooltip-left" +
+                (scanning ? " spinning" : "")
+              }
+              data-tooltip="キー一覧を再読み込み"
+              disabled={scanning}
+              onClick={() => scan(true)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M3 12a9 9 0 1 0 3-6.7M3 4v4h4"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+            {/* 余白を右側に寄せて、見出し・件数・アイコンを左揃えにする */}
+            <span className="toolbar-spacer" />
           </div>
           <input
             className="filter-input mono"
@@ -338,19 +360,25 @@ export function KvSessionView({
             )}
           </ul>
           <div className="kv-pane-foot">
+            {/* 続きの読み込み専用 (先頭から取り直すのは見出し横の再読み込みボタン) */}
             <button
               className="btn-secondary kv-more-btn"
-              disabled={scanning}
-              onClick={() => (done ? scan(true) : scan(false))}
+              disabled={scanning || done}
+              title={
+                done
+                  ? "この条件のキーはすべて読み込み済みです"
+                  : "続きのキーを読み込みます"
+              }
+              onClick={() => scan(false)}
             >
               {scanning ? (
                 <>
                   <span className="spinner" /> 読み込み中...
                 </>
               ) : done ? (
-                "再読み込み"
+                "すべて読み込み済み"
               ) : (
-                "さらに読み込む"
+                "続きを読み込む"
               )}
             </button>
           </div>

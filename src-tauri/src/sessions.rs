@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use sqlx::mysql::MySqlConnection;
 use sqlx::postgres::PgConnection;
+use sqlx::sqlite::SqliteConnection;
 use sqlx::Connection;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
@@ -24,8 +25,12 @@ use crate::ssh_tunnel::SshTunnel;
 pub enum DbConn {
     MySql(MySqlConnection),
     Pg(PgConnection),
+    Sqlite(SqliteConnection),
     Kv(redis::aio::MultiplexedConnection),
 }
+
+/// SQLiteは単一ファイル = 単一DBのため、DB一覧はこの名前だけを返す
+const SQLITE_DB: &str = "main";
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
 /// 生存確認pingのタイムアウト
@@ -97,11 +102,19 @@ async fn get_session(
 
 /// プロファイルのログ表示名
 fn conn_label(profile: &ConnectionProfile) -> String {
-    if profile.name.is_empty() {
-        format!("{}:{}", profile.host, profile.port)
-    } else {
-        profile.name.clone()
+    if !profile.name.is_empty() {
+        return profile.name.clone();
     }
+    // SQLiteはホスト:ポートを持たないため、ファイルパスを表示名にする
+    if profile.db_type == DbType::Sqlite {
+        return profile.database.clone().unwrap_or_default();
+    }
+    format!("{}:{}", profile.host, profile.port)
+}
+
+/// SQLiteのデータベースファイルパス
+fn sqlite_path(profile: &ConnectionProfile) -> String {
+    profile.database.clone().unwrap_or_default()
 }
 
 /// 接続を確立してセッションに登録し、DB一覧を返す
@@ -112,7 +125,16 @@ pub async fn connect(
     session_id: String,
     profile: ConnectionProfile,
 ) -> Result<ConnectInfo, String> {
-    let ep = db::resolve_endpoint(&profile).await?;
+    // SQLiteはローカルファイルなので、ホスト解決もSSHトンネルも行わない
+    let ep = if profile.db_type == DbType::Sqlite {
+        db::Endpoint {
+            host: String::new(),
+            port: 0,
+            tunnel: None,
+        }
+    } else {
+        db::resolve_endpoint(&profile).await?
+    };
     let database = profile.database.as_deref().filter(|s| !s.is_empty());
     let label = conn_label(&profile);
     qlog.add(&label, "", "-- 接続を確立しました");
@@ -150,6 +172,23 @@ pub async fn connect(
             let dbs = catalog::pg_databases(&mut c, &ctx).await?;
             let info = catalog::pg_server_info(&mut c, &ctx).await?;
             (DbConn::Pg(c), dbs, Some(actual_db), info)
+        }
+        DbType::Sqlite => {
+            // SQLiteはファイルを直接開く (ホスト・ポート・SSHは使わない)
+            let path = sqlite_path(&profile);
+            let mut c = db::connect_sqlite(&path).await?;
+            let ctx = LogCtx {
+                qlog,
+                connection: &label,
+                database: SQLITE_DB,
+            };
+            let info = catalog::sqlite_server_info(&mut c, &path, &ctx).await?;
+            (
+                DbConn::Sqlite(c),
+                vec![SQLITE_DB.to_string()],
+                Some(SQLITE_DB.to_string()),
+                info,
+            )
         }
         DbType::Valkey => {
             // Valkeyの「データベース名」は論理DB番号 (0-15)
@@ -238,6 +277,8 @@ async fn fetch_conn_id(conn: &mut DbConn) -> Result<i64, String> {
             .await
             .map(|pid| pid as i64)
             .map_err(db::format_db_error),
+        // SQLiteは他プロセスから中断できないため0 (キャンセル不可)
+        DbConn::Sqlite(_) => Ok(0),
         // ElastiCache Serverless等はCLIENT IDをサポートしないため、
         // 失敗しても接続は継続し0 (キャンセル不可) として扱う
         DbConn::Kv(c) => Ok(redis::cmd("CLIENT")
@@ -253,6 +294,7 @@ async fn ping_conn(conn: &mut DbConn) -> bool {
     match conn {
         DbConn::MySql(c) => matches!(timeout(PING_TIMEOUT, c.ping()).await, Ok(Ok(()))),
         DbConn::Pg(c) => matches!(timeout(PING_TIMEOUT, c.ping()).await, Ok(Ok(()))),
+        DbConn::Sqlite(c) => matches!(timeout(PING_TIMEOUT, c.ping()).await, Ok(Ok(()))),
         DbConn::Kv(c) => matches!(
             timeout(PING_TIMEOUT, redis::cmd("PING").query_async::<String>(c)).await,
             Ok(Ok(_))
@@ -300,6 +342,7 @@ async fn reconnect(session: &mut Session, qlog: &QueryLog) -> Result<(), String>
             session.current_db = Some(actual_db);
             DbConn::Pg(c)
         }
+        DbType::Sqlite => DbConn::Sqlite(db::connect_sqlite(&sqlite_path(&session.profile)).await?),
         DbType::Valkey => {
             let db_index: i64 = database
                 .as_deref()
@@ -420,6 +463,9 @@ pub async fn cancel_query(
                 .map_err(db::format_db_error)?;
             let _ = timeout(CLOSE_TIMEOUT, c.close()).await;
         }
+        DbType::Sqlite => {
+            return Err("SQLite接続では実行中SQLのキャンセルに対応していません".into());
+        }
         DbType::Valkey => {
             // CLIENT ID非対応のサーバー (ElastiCache Serverless等) ではキャンセル不可
             if target.conn_id == 0 {
@@ -479,6 +525,7 @@ pub async fn list_tables(
                 _ => unreachable!(),
             }
         }
+        DbConn::Sqlite(conn) => catalog::sqlite_tables(conn, &ctx).await,
         DbConn::Kv(_) => Err("Valkey接続ではテーブル一覧は使用できません".into()),
     }
 }
@@ -513,6 +560,7 @@ pub async fn table_detail(
                 _ => unreachable!(),
             }
         }
+        DbConn::Sqlite(conn) => catalog::sqlite_table_detail(conn, table, &ctx).await,
         DbConn::Kv(_) => Err("Valkey接続では使用できません".into()),
     }
 }
@@ -544,6 +592,7 @@ pub async fn foreign_keys(
                 _ => unreachable!(),
             }
         }
+        DbConn::Sqlite(conn) => catalog::sqlite_foreign_keys(conn, &ctx).await,
         DbConn::Kv(_) => Err("Valkey接続では使用できません".into()),
     }
 }
@@ -570,6 +619,11 @@ async fn exec_ctl(
             .await
             .map(|_| ())
             .map_err(db::format_db_error),
+        DbConn::Sqlite(c) => sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_string()))
+            .execute(&mut *c)
+            .await
+            .map(|_| ())
+            .map_err(db::format_db_error),
         DbConn::Kv(_) => Err("Valkey接続では使用できません".into()),
     }
 }
@@ -584,6 +638,10 @@ async fn ensure_database(
     let Some(db) = database else {
         return Ok(());
     };
+    // SQLiteは1ファイル=1DBのため切り替え不要
+    if matches!(session.conn, DbConn::Sqlite(_)) {
+        return Ok(());
+    }
     // MySQL: 選択中DBが変わっていればUSEで切り替える
     if let DbConn::MySql(_) = &session.conn {
         if session.current_db.as_deref() != Some(db.as_str()) {
@@ -649,6 +707,7 @@ pub async fn export_query_csv(
     let (rows, cancelled) = match &mut session.conn {
         DbConn::MySql(conn) => query::export_csv_mysql(conn, &out_sql, &mut out, job).await,
         DbConn::Pg(conn) => query::export_csv_pg(conn, &out_sql, &mut out, job).await,
+        DbConn::Sqlite(conn) => query::export_csv_sqlite(conn, &out_sql, &mut out, job).await,
         DbConn::Kv(_) => unreachable!(),
     }?;
     std::io::Write::flush(&mut out).map_err(|e| format!("CSVを書き込めません: {e}"))?;
@@ -704,7 +763,11 @@ pub async fn run_query(
         let plan = if let Some(mode) = &explain {
             // EXPLAIN / EXPLAIN ANALYZE モード: 文の先頭にプレフィックスを付けて
             // ページングやソートは行わずそのまま取得する
-            let prefix = if mode == "analyze" {
+            let prefix = if matches!(session.conn, DbConn::Sqlite(_)) {
+                // SQLiteのEXPLAINはバイトコードが出るだけなので、
+                // 読みやすいEXPLAIN QUERY PLANを使う (ANALYZEは無い)
+                "EXPLAIN QUERY PLAN "
+            } else if mode == "analyze" {
                 "EXPLAIN ANALYZE "
             } else {
                 "EXPLAIN "
@@ -730,6 +793,7 @@ pub async fn run_query(
         let res = match &mut session.conn {
             DbConn::MySql(conn) => query::run_mysql(conn, &plan, timeout_secs).await,
             DbConn::Pg(conn) => query::run_pg(conn, &plan, timeout_secs).await,
+            DbConn::Sqlite(conn) => query::run_sqlite(conn, &plan, timeout_secs).await,
             DbConn::Kv(_) => unreachable!(),
         };
 
@@ -801,6 +865,7 @@ async fn collect_schema_inner(
                 _ => unreachable!(),
             }
         }
+        DbConn::Sqlite(conn) => catalog::sqlite_tables(conn, &ctx).await?,
         DbConn::Kv(_) => return Err("Valkey接続では使用できません".into()),
     };
 
@@ -815,6 +880,7 @@ async fn collect_schema_inner(
                 let schema = t.schema.as_deref().unwrap_or("public");
                 catalog::pg_table_detail(conn, schema, &t.name, &ctx).await?
             }
+            DbConn::Sqlite(conn) => catalog::sqlite_table_detail(conn, &t.name, &ctx).await?,
             DbConn::Kv(_) => return Err("Valkey接続では使用できません".into()),
         };
         items.push(SchemaEntry {
@@ -951,6 +1017,9 @@ async fn close_conn_gracefully(conn: DbConn) {
             let _ = timeout(CLOSE_TIMEOUT, c.close()).await;
         }
         DbConn::Pg(c) => {
+            let _ = timeout(CLOSE_TIMEOUT, c.close()).await;
+        }
+        DbConn::Sqlite(c) => {
             let _ = timeout(CLOSE_TIMEOUT, c.close()).await;
         }
         // Valkeyはdropで切断される (明示的な終了通知は不要)

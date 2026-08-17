@@ -43,9 +43,10 @@ export function deleteFolder(id: string): Promise<void> {
 
 export function updateLayout(
   folders: FolderInfo[],
-  order: LayoutEntry[]
+  order: LayoutEntry[],
+  rootOrder?: string[]
 ): Promise<void> {
-  return invoke("update_layout", { folders, order });
+  return invoke("update_layout", { folders, order, rootOrder });
 }
 
 export function saveConnection(

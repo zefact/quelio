@@ -274,7 +274,12 @@ export function QueryPanel({
       // REPLACE INTO文と誤認してパースエラーになるため一時退避する
       const escaped = sql.replace(/\breplace\s*\(/gi, "QUELIO_REPLACE_FN(");
       let formatted = format(escaped, {
-        language: dbType === "mysql" ? "mysql" : "postgresql",
+        language:
+          dbType === "mysql"
+            ? "mysql"
+            : dbType === "sqlite"
+              ? "sqlite"
+              : "postgresql",
         keywordCase: "upper",
         tabWidth: 2,
       });
@@ -310,6 +315,9 @@ export function QueryPanel({
       onRun(0, undefined, txnOn);
     }
   };
+
+  /** EXPLAIN の種類を選べるDBか (SQLiteは EXPLAIN QUERY PLAN のみ) */
+  const hasExplainModes = dbType !== "sqlite";
 
   const active = results?.[activeIdx] ?? null;
   const result = active?.result ?? null;
@@ -549,25 +557,32 @@ export function QueryPanel({
         </div>
         <div className="run-split explain-split" ref={explainSplitRef}>
           <button
-            className="btn-secondary explain-btn run-main has-tooltip tooltip-left"
+            className={
+              "btn-secondary explain-btn has-tooltip tooltip-left" +
+              // SQLiteは種類の切り替えが無いので単独ボタンにする
+              (hasExplainModes ? " run-main" : "")
+            }
             data-tooltip={
-              explainMode === "explain"
-                ? "実行計画を表示 (EXPLAIN)"
-                : "実際に実行して計画と実測時間を表示 (EXPLAIN ANALYZE)"
+              !hasExplainModes
+                ? "実行計画を表示 (SQLiteは EXPLAIN QUERY PLAN を実行します)"
+                : explainMode === "explain"
+                  ? "実行計画を表示 (EXPLAIN)"
+                  : "実際に実行して計画と実測時間を表示 (EXPLAIN ANALYZE)"
             }
             disabled={running || !sql.trim()}
-            onClick={() => runExplain(explainMode)}
+            onClick={() => runExplain(hasExplainModes ? explainMode : "explain")}
           >
             {running && runSource === "explain" ? (
               <>
                 <span className="spinner accent" /> 実行中...
               </>
-            ) : explainMode === "explain" ? (
+            ) : !hasExplainModes || explainMode === "explain" ? (
               "EXPLAIN"
             ) : (
               "ANALYZE"
             )}
           </button>
+          {hasExplainModes && (
           <button
             className="btn-secondary explain-btn run-caret"
             onClick={() => setExplainMenuOpen((o) => !o)}
@@ -577,7 +592,8 @@ export function QueryPanel({
           >
             ▾
           </button>
-          {explainMenuOpen && (
+          )}
+          {hasExplainModes && explainMenuOpen && (
             <div
               className="context-menu run-menu"
               onMouseDown={(e) => e.stopPropagation()}

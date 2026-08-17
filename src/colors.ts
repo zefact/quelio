@@ -1,5 +1,20 @@
 /** アイコン色のプリセットとスタイル生成ヘルパー */
 import type { CSSProperties } from "react";
+import type { DbType } from "./types";
+
+/** DB種別バッジの短い表示名 */
+export function dbBadgeLabel(dbType: DbType): string {
+  switch (dbType) {
+    case "mysql":
+      return "My";
+    case "postgresql":
+      return "Pg";
+    case "sqlite":
+      return "SQ";
+    case "valkey":
+      return "Vk";
+  }
+}
 
 export const PRESET_COLORS: string[] = [
   "#f87171", // 赤

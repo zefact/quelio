@@ -61,6 +61,7 @@ pub fn load(app: &AppHandle) -> Result<ConnectionStore, String> {
         ConnectionStore {
             folders: Vec::new(),
             connections,
+            ..Default::default()
         }
     } else {
         serde_json::from_str(&text).map_err(|e| format!("設定ファイルの形式が不正です: {e}"))?
