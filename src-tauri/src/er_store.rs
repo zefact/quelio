@@ -46,6 +46,30 @@ pub fn list(app: &AppHandle) -> Result<Vec<String>, String> {
     Ok(keys)
 }
 
+/// 全ER図を返す (エクスポート用)
+pub fn all(app: &AppHandle) -> Result<HashMap<String, Value>, String> {
+    load_all(app)
+}
+
+/// 複数のER図を取り込む (同名は上書き)。(追加数, 上書き数) を返す
+pub fn merge(
+    app: &AppHandle,
+    incoming: HashMap<String, Value>,
+) -> Result<(usize, usize), String> {
+    let mut all = load_all(app).unwrap_or_default();
+    let mut added = 0;
+    let mut updated = 0;
+    for (k, v) in incoming {
+        if all.insert(k, v).is_some() {
+            updated += 1;
+        } else {
+            added += 1;
+        }
+    }
+    write_all(app, &all)?;
+    Ok((added, updated))
+}
+
 /// 指定キーのER図を削除する
 pub fn delete(app: &AppHandle, key: &str) -> Result<(), String> {
     let mut all = load_all(app).unwrap_or_default();

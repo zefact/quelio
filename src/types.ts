@@ -119,6 +119,12 @@ export interface RunOutput {
   failedIndex?: number;
 }
 
+/** 設定のエクスポート/インポートの取り込み結果 */
+export interface ImportCounts {
+  added: number;
+  updated: number;
+}
+
 /** スキーマスナップショットの1テーブル分 */
 export interface SchemaEntry {
   table: TableInfo;

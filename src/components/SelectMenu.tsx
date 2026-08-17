@@ -14,6 +14,12 @@ interface Props {
   disabled?: boolean;
   /** トリガーに追加するクラス (mono等) */
   className?: string;
+  /**
+   * ドロップダウンをウィンドウ基準の固定配置で出す。
+   * overflowのあるコンテナ (モーダル内のスクロール領域等) で
+   * メニューがクリップされる場合に使う
+   */
+  popFixed?: boolean;
 }
 
 /**
@@ -30,12 +36,29 @@ export function SelectMenu({
   placeholder = "選択",
   disabled = false,
   className = "",
+  popFixed = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   /** キーボード操作でハイライト中のindex (-1 = なし) */
   const [hover, setHover] = useState(-1);
+  /** popFixed時のドロップダウン座標 (開いたときのトリガー位置から計算) */
+  const [popPos, setPopPos] = useState({ x: 0, y: 0, w: 0 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+
+  const toggleOpen = () => {
+    if (!open && popFixed) {
+      const r = wrapRef.current?.getBoundingClientRect();
+      if (r) {
+        setPopPos({
+          x: Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8)),
+          y: r.bottom + 6,
+          w: r.width,
+        });
+      }
+    }
+    setOpen((o) => !o);
+  };
 
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? (value || placeholder);
@@ -46,8 +69,9 @@ export function SelectMenu({
     const onDown = (e: MouseEvent) => {
       if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    // モーダル等がstopPropagationしてもここに届くようキャプチャ段階で監視する
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
   }, [open]);
 
   // 開いたとき選択中の項目を表示範囲へスクロール
@@ -72,7 +96,7 @@ export function SelectMenu({
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       if (!open) {
-        setOpen(true);
+        toggleOpen();
       } else if (hover >= 0 && hover < options.length) {
         commit(options[hover].value);
       }
@@ -83,7 +107,7 @@ export function SelectMenu({
     } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       if (!open) {
-        setOpen(true);
+        toggleOpen();
         return;
       }
       const dir = e.key === "ArrowDown" ? 1 : -1;
@@ -101,7 +125,7 @@ export function SelectMenu({
         type="button"
         className={`db-select select-menu-trigger ${className}`}
         disabled={disabled}
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
         onKeyDown={onKeyDown}
         title={label}
       >
@@ -110,7 +134,22 @@ export function SelectMenu({
         </span>
       </button>
       {open && (
-        <div className="select-menu-pop" ref={popRef} role="listbox">
+        <div
+          className="select-menu-pop"
+          ref={popRef}
+          role="listbox"
+          style={
+            popFixed
+              ? {
+                  position: "fixed",
+                  left: popPos.x,
+                  top: popPos.y,
+                  minWidth: popPos.w,
+                  zIndex: 300,
+                }
+              : undefined
+          }
+        >
           {options.length === 0 && (
             <div className="select-menu-empty">(選択肢がありません)</div>
           )}

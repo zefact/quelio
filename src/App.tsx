@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import {
   addSqlHistory,
   cancelQuery,
+  getSqlParams,
+  saveSqlParams,
   connectSession,
   createFolder,
   deleteConnection,
@@ -14,6 +16,7 @@ import {
   openDiff,
   runQuery,
   saveConnection,
+  schemaSnapshot,
   tableDetail,
   testConnection,
   updateLayout,
@@ -23,12 +26,21 @@ import { KvSessionView } from "./components/KvSessionView";
 import { SessionView } from "./components/SessionView";
 import { TabBar } from "./components/TabBar";
 import { SettingsModal } from "./components/SettingsModal";
+import { SqlParamModal } from "./components/SqlParamModal";
 import { UpdateBanner } from "./components/UpdateBanner";
+import {
+  extractParams,
+  guessParamColumn,
+  isNumericType,
+  substituteParams,
+} from "./sqlParams";
+import type { ParamKind, ParamValue } from "./sqlParams";
 import type {
   ConnectionProfile,
   ConnectionStore,
   FolderInfo,
   LayoutEntry,
+  SchemaEntry,
   TableInfo,
   WorkTab,
 } from "./types";
@@ -47,6 +59,18 @@ function App() {
   const [tabs, setTabs] = useState<WorkTab[]>(() => [emptyTab("tab-0")]);
   const [activeKey, setActiveKey] = useState("tab-0");
   const [showSettings, setShowSettings] = useState(false);
+  /** SQLパラメータ入力モーダルの状態 (実行を保留した内容) */
+  const [paramReq, setParamReq] = useState<{
+    key: string;
+    offset: number;
+    sql: string;
+    params: string[];
+    initial: Record<string, ParamValue>;
+    transaction: boolean;
+    explain?: "explain" | "analyze";
+  } | null>(null);
+  /** パラメータ型推測用のスキーマキャッシュ (セッション:DB → スキーマ) */
+  const schemaCache = useRef(new Map<string, SchemaEntry[]>());
 
   const reload = async () => {
     try {
@@ -285,6 +309,82 @@ function App() {
     const tab = tabs.find((t) => t.key === key);
     const sql = (sqlOverride ?? tab?.sql ?? "").trim();
     if (!tab || !sql) return;
+    // パラメータ (:name / @name) があれば入力モーダルを出してから実行する
+    const params = extractParams(sql);
+    if (params.length > 0) {
+      const saved = await getSqlParams().catch(
+        () => ({}) as Record<string, { value: string; kind: string }>
+      );
+      const initial: Record<string, ParamValue> = {};
+      for (const p of params) {
+        const s = saved[p];
+        // 型は「明示的に選ばれた保存値」を優先し、無ければスキーマから推測する
+        const kind =
+          s && s.kind && s.kind !== "auto"
+            ? (s.kind as ParamKind)
+            : await inferParamKind(key, tab.selectedDb, sql, p);
+        initial[p] = { value: s?.value ?? "", kind };
+      }
+      setParamReq({ key, offset, sql, params, initial, transaction, explain });
+      return;
+    }
+    await execRunQuery(key, offset, sql, transaction, explain);
+  };
+
+  /**
+   * パラメータの埋め込み型をスキーマから推測する。
+   * SQL中の「カラム 演算子 :param」からカラム名を取り、
+   * 接続中DBのカラム定義が数値型なら number、文字列型等なら string を返す
+   */
+  const inferParamKind = async (
+    key: string,
+    db: string | null,
+    sql: string,
+    name: string
+  ): Promise<ParamKind> => {
+    if (!db) return "auto";
+    const col = guessParamColumn(sql, name);
+    if (!col) return "auto";
+    const cacheKey = `${key}:${db}`;
+    let entries = schemaCache.current.get(cacheKey);
+    if (!entries) {
+      entries = await schemaSnapshot(key, db).catch(() => [] as SchemaEntry[]);
+      schemaCache.current.set(cacheKey, entries);
+    }
+    const lc = col.toLowerCase();
+    const types = entries.flatMap((e) =>
+      e.detail.columns
+        .filter((c) => c.name.toLowerCase() === lc)
+        .map((c) => c.colType)
+    );
+    if (types.length === 0) return "auto";
+    return types.every(isNumericType) ? "number" : "string";
+  };
+
+  /** パラメータモーダルの実行確定: 値を保存して埋め込み実行する */
+  const handleParamSubmit = async (values: Record<string, ParamValue>) => {
+    const req = paramReq;
+    if (!req) return;
+    setParamReq(null);
+    saveSqlParams(values).catch(() => {});
+    await execRunQuery(
+      req.key,
+      req.offset,
+      substituteParams(req.sql, values),
+      req.transaction,
+      req.explain
+    );
+  };
+
+  const execRunQuery = async (
+    key: string,
+    offset: number,
+    sql: string,
+    transaction: boolean,
+    explain?: "explain" | "analyze"
+  ) => {
+    const tab = tabs.find((t) => t.key === key);
+    if (!tab) return;
     // 実行履歴に記録する (失敗しても実行は続ける)
     addSqlHistory(sql).catch(() => {});
     // 前回の実行結果はクリアしてから実行する
@@ -409,7 +509,19 @@ function App() {
       <UpdateBanner />
 
       {showSettings && (
-        <SettingsModal onClose={() => setShowSettings(false)} />
+        <SettingsModal
+          onClose={() => setShowSettings(false)}
+          onImported={() => reload()}
+        />
+      )}
+
+      {paramReq && (
+        <SqlParamModal
+          params={paramReq.params}
+          initial={paramReq.initial}
+          onCancel={() => setParamReq(null)}
+          onSubmit={handleParamSubmit}
+        />
       )}
 
       <div className="workspace">

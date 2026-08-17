@@ -5335,6 +5335,86 @@ html[data-theme="light"] .brand-name {
   background-clip: content-box;
 }
 
+/* ============ SQLパラメータ入力モーダル ============ */
+
+.sqlp-modal {
+  width: 540px;
+}
+
+/* 型 (自動/文字列/数値/そのまま) のプルダウン */
+.sqlp-kind {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 33px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+}
+
+.sqlp-kind .db-select {
+  min-width: 78px;
+  font-size: 12px;
+}
+
+.sqlp-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.sqlp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sqlp-name {
+  flex-shrink: 0;
+  width: 140px;
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sqlp-row input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.sqlp-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.sqlp-hint {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-faint);
+  margin-top: 10px;
+}
+
+/* 設定 > エクスポート/インポートのボタン列 */
+.set-btn-row {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 /* ============ Valkey (KVモード) ============ */
 
 .kv-db-label {

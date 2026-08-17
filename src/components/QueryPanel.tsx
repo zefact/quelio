@@ -123,6 +123,9 @@ export function QueryPanel({
   const [formatError, setFormatError] = useState<string | null>(null);
   const [runMode, setRunMode] = useState<RunMode>("all");
   const [runMenuOpen, setRunMenuOpen] = useState(false);
+  const runSplitRef = useRef<HTMLDivElement>(null);
+  const explainSplitRef = useRef<HTMLDivElement>(null);
+  const ctxMenuRef = useRef<HTMLDivElement>(null);
   const [explainMode, setExplainMode] = useState<"explain" | "analyze">(
     "explain"
   );
@@ -211,16 +214,19 @@ export function QueryPanel({
       .catch((e) => setCaptureMsg(`キャプチャ失敗: ${e}`));
   }, [running, results]);
 
-  // 各メニュー(実行モード / EXPLAIN / エディタ右クリック)は画面クリックで閉じる
+  // 各メニュー(実行モード / EXPLAIN / エディタ右クリック)は外側クリックで閉じる。
+  // 他のメニューを開いたときにも閉じるよう、キャプチャ段階で
+  // 自分の領域外かどうかを判定する (stopPropagationの影響を受けない)
   useEffect(() => {
     if (!runMenuOpen && !explainMenuOpen && !ctxMenu) return;
-    const close = () => {
-      setRunMenuOpen(false);
-      setExplainMenuOpen(false);
-      setCtxMenu(null);
+    const close = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!runSplitRef.current?.contains(t)) setRunMenuOpen(false);
+      if (!explainSplitRef.current?.contains(t)) setExplainMenuOpen(false);
+      if (!ctxMenuRef.current?.contains(t)) setCtxMenu(null);
     };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("mousedown", close, true);
+    return () => document.removeEventListener("mousedown", close, true);
   }, [runMenuOpen, explainMenuOpen, ctxMenu]);
 
   const handleFormat = () => {
@@ -364,6 +370,7 @@ export function QueryPanel({
       {ctxMenu && (
         <div
           className="context-menu"
+          ref={ctxMenuRef}
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -382,7 +389,7 @@ export function QueryPanel({
 
       {/* アクション */}
       <div className="query-actions">
-        <div className="run-split">
+        <div className="run-split" ref={runSplitRef}>
           <button
             className="btn-primary run-main"
             onClick={run}
@@ -443,7 +450,7 @@ export function QueryPanel({
             </div>
           )}
         </div>
-        <div className="run-split explain-split">
+        <div className="run-split explain-split" ref={explainSplitRef}>
           <button
             className="btn-secondary explain-btn run-main has-tooltip tooltip-left"
             data-tooltip={

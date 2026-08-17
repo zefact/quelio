@@ -224,6 +224,57 @@ pub async fn export_schema_csv(
     Ok(paths)
 }
 
+// ---------- SQLパラメータ ----------
+
+/// 保存済みのSQLパラメータ値を返す (パラメータ名 → 直近の値と埋め込み方)
+#[tauri::command]
+pub fn get_sql_params(
+    app: AppHandle,
+) -> Result<std::collections::HashMap<String, crate::sql_params::ParamSaved>, String> {
+    crate::sql_params::load(&app)
+}
+
+/// SQLパラメータ値を保存する (同名は上書き)
+#[tauri::command]
+pub fn save_sql_params(
+    app: AppHandle,
+    entries: std::collections::HashMap<String, crate::sql_params::ParamSaved>,
+) -> Result<(), String> {
+    crate::sql_params::merge(&app, entries)
+}
+
+// ---------- 設定 > エクスポート/インポート ----------
+
+/// 接続一覧をJSONファイルへ書き出す (件数を返す)
+#[tauri::command]
+pub fn export_connections(app: AppHandle, path: String) -> Result<usize, String> {
+    crate::backup::export_connections(&app, &path)
+}
+
+/// JSONファイルから接続一覧を取り込む
+#[tauri::command]
+pub fn import_connections(
+    app: AppHandle,
+    path: String,
+) -> Result<crate::backup::ImportResult, String> {
+    crate::backup::import_connections(&app, &path)
+}
+
+/// 全ER図をJSONファイルへ書き出す (件数を返す)
+#[tauri::command]
+pub fn export_er_diagrams(app: AppHandle, path: String) -> Result<usize, String> {
+    crate::backup::export_er_diagrams(&app, &path)
+}
+
+/// JSONファイルからER図を取り込む
+#[tauri::command]
+pub fn import_er_diagrams(
+    app: AppHandle,
+    path: String,
+) -> Result<crate::backup::ImportResult, String> {
+    crate::backup::import_er_diagrams(&app, &path)
+}
+
 /// SSH秘密鍵の参照ダイアログの初期フォルダを返す
 /// (~/.ssh があればそこ、無ければホームディレクトリ)
 #[tauri::command]

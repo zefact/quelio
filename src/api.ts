@@ -8,6 +8,7 @@ import type {
   ExportMode,
   FkInfo,
   FolderInfo,
+  ImportCounts,
   JobStatus,
   KvKeyDetail,
   KvRunOutput,
@@ -116,6 +117,28 @@ export function exportSchemaCsv(
   database: string
 ): Promise<string[]> {
   return invoke("export_schema_csv", { sessionId, database });
+}
+
+// ---------- 設定 > エクスポート/インポート ----------
+
+/** 接続一覧をJSONファイルへ書き出す (件数を返す)。パスワードは含まれない */
+export function exportConnections(path: string): Promise<number> {
+  return invoke("export_connections", { path });
+}
+
+/** JSONファイルから接続一覧を取り込む */
+export function importConnections(path: string): Promise<ImportCounts> {
+  return invoke("import_connections", { path });
+}
+
+/** 全ER図をJSONファイルへ書き出す (件数を返す) */
+export function exportErDiagrams(path: string): Promise<number> {
+  return invoke("export_er_diagrams", { path });
+}
+
+/** JSONファイルからER図を取り込む (同名は上書き) */
+export function importErDiagrams(path: string): Promise<ImportCounts> {
+  return invoke("import_er_diagrams", { path });
 }
 
 /** SSH秘密鍵の参照ダイアログの初期フォルダ (~/.ssh または ホーム) を返す */
@@ -304,6 +327,20 @@ export function getSqlHistory(): Promise<SqlHistoryEntry[]> {
 /** SQL実行履歴に追加する */
 export function addSqlHistory(sql: string): Promise<void> {
   return invoke("add_sql_history", { sql });
+}
+
+/** 保存済みのSQLパラメータ値を取得する (パラメータ名 → 直近の値と埋め込み方) */
+export function getSqlParams(): Promise<
+  Record<string, { value: string; kind: string }>
+> {
+  return invoke("get_sql_params");
+}
+
+/** SQLパラメータ値を保存する (同名は上書き) */
+export function saveSqlParams(
+  entries: Record<string, { value: string; kind: string }>
+): Promise<void> {
+  return invoke("save_sql_params", { entries });
 }
 
 /** 保存SQLの一覧を取得する */

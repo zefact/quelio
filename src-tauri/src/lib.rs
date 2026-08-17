@@ -1,4 +1,5 @@
 mod app_settings;
+mod backup;
 mod catalog;
 mod commands;
 mod crypto;
@@ -13,6 +14,7 @@ mod query_log;
 mod saved_sql;
 mod sessions;
 mod sql_history;
+mod sql_params;
 mod ssh_tunnel;
 mod storage;
 mod tools;
@@ -150,12 +152,18 @@ pub fn run() {
             commands::kv_key_detail,
             commands::kv_exec,
             commands::export_schema_csv,
+            commands::export_connections,
+            commands::import_connections,
+            commands::export_er_diagrams,
+            commands::import_er_diagrams,
             commands::default_ssh_key_dir,
             commands::save_capture,
             commands::get_app_settings,
             commands::save_app_settings,
             commands::get_sql_history,
             commands::add_sql_history,
+            commands::get_sql_params,
+            commands::save_sql_params,
             commands::get_saved_sql,
             commands::upsert_saved_sql,
             commands::delete_saved_sql,

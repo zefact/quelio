@@ -82,6 +82,7 @@ export function SqlLibraryMenu({
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<"history" | "saved">("history");
   // 履歴
   const [histEntries, setHistEntries] = useState<SqlHistoryEntry[]>([]);
@@ -127,12 +128,15 @@ export function SqlLibraryMenu({
   // メニュー外クリックで閉じる (メニュー内はmousedownのstopPropagationで防ぐ)
   useEffect(() => {
     if (!open) return;
-    const close = () => {
+    // 他のメニューを開いたときにも閉じるよう、キャプチャ段階で
+    // 自分の領域外かどうかを判定する (stopPropagationの影響を受けない)
+    const close = (e: MouseEvent) => {
+      if (wrapRef.current?.contains(e.target as Node)) return;
       setOpen(false);
       setConfirmId(null);
     };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("mousedown", close, true);
+    return () => document.removeEventListener("mousedown", close, true);
   }, [open]);
 
   const toggleMenu = () => {
@@ -266,7 +270,7 @@ export function SqlLibraryMenu({
   };
 
   return (
-    <div className="run-split saved-split">
+    <div className="run-split saved-split" ref={wrapRef}>
       {/* メニューを開いている間はツールチップがメニューに被るため出さない */}
       <button
         ref={btnRef}

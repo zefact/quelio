@@ -1,13 +1,16 @@
 import { ReactElement, useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { SettingsBackup } from "./SettingsBackup";
 import { SettingsGeneral } from "./SettingsGeneral";
 import { SettingsTools } from "./SettingsTools";
 
 interface Props {
   onClose: () => void;
+  /** 接続一覧のインポート後に一覧を再読込させる */
+  onImported: () => void;
 }
 
-type Page = "general" | "tools";
+type Page = "general" | "tools" | "backup";
 
 function GearIcon() {
   return (
@@ -47,13 +50,28 @@ function ToolIcon() {
   );
 }
 
+function PortIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M8 3v10m0 0 3-3m-3 3-3-3M16 21V11m0 0 3 3m-3-3-3 3"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 const NAV: { page: Page; label: string; icon: () => ReactElement }[] = [
   { page: "general", label: "一般", icon: GearIcon },
   { page: "tools", label: "外部ツール", icon: ToolIcon },
+  { page: "backup", label: "エクスポート/インポート", icon: PortIcon },
 ];
 
 /** 設定モーダル (左: ナビゲーション / 右: 設定行) */
-export function SettingsModal({ onClose }: Props) {
+export function SettingsModal({ onClose, onImported }: Props) {
   const [page, setPage] = useState<Page>("general");
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
@@ -103,8 +121,10 @@ export function SettingsModal({ onClose }: Props) {
         <div className="settings-body">
           {page === "general" ? (
             <SettingsGeneral notify={notify} />
-          ) : (
+          ) : page === "tools" ? (
             <SettingsTools notify={notify} />
+          ) : (
+            <SettingsBackup notify={notify} onImported={onImported} />
           )}
         </div>
 
