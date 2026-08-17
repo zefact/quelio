@@ -1,4 +1,4 @@
-export type DbType = "mysql" | "postgresql";
+export type DbType = "mysql" | "postgresql" | "valkey";
 
 export interface SshConfig {
   enabled: boolean;
@@ -18,6 +18,8 @@ export interface ConnectionProfile {
   user: string;
   password: string;
   database?: string;
+  /** TLSで接続する (Valkey用。AWS ElastiCache等のin-transit暗号化) */
+  tls?: boolean;
   ssh?: SshConfig;
   /** 所属フォルダID (未設定ならルート直下) */
   folderId?: string;
@@ -178,6 +180,10 @@ export interface WorkTab {
   error: string | null;
   testResult: TestResult | null;
   busy: "test" | "save" | "connect" | null;
+  /** Valkeyコンソールの実行結果 (タブを切り替えても保持する) */
+  kvResults?: KvStatementResult[];
+  /** Valkeyコンソールのエラー表示 */
+  kvExecError?: string | null;
 }
 
 export function emptyTab(key: string): WorkTab {
@@ -209,6 +215,7 @@ export function emptyTab(key: string): WorkTab {
 export const DEFAULT_PORTS: Record<DbType, number> = {
   mysql: 3306,
   postgresql: 5432,
+  valkey: 6379,
 };
 
 export function emptyProfile(): ConnectionProfile {
@@ -221,6 +228,7 @@ export function emptyProfile(): ConnectionProfile {
     user: "",
     password: "",
     database: "",
+    tls: false,
     ssh: emptySsh(),
   };
 }
@@ -411,6 +419,56 @@ export interface ErDiagramData {
   edgeColumns?: Record<string, { from: string[]; to: string[] }>;
   edgeStyles?: Record<string, ErEdgeStyle>;
   frames?: ErFrame[];
+}
+
+// ---------- Valkey (KVモード) ----------
+
+/** キー一覧の1件 */
+export interface KvKeyInfo {
+  key: string;
+  type: string;
+  /** 残りTTL秒 (-1: 無期限 / -2: 消滅) */
+  ttl: number;
+}
+
+/** SCAN 1ページぶんの結果 */
+export interface KvScanResult {
+  entries: KvKeyInfo[];
+  /** 続きを読むカーソル ("0"で終端) */
+  cursor: string;
+  done: boolean;
+  /** 選択中DBの総キー数 */
+  dbsize: number;
+}
+
+/** キー詳細 (型・TTL・値プレビュー) */
+export interface KvKeyDetail {
+  key: string;
+  type: string;
+  ttl: number;
+  memory: number | null;
+  encoding: string | null;
+  /** 総要素数 (stringはバイト長) */
+  total: number;
+  /** 値ビューの列ラベル */
+  cols: [string, string];
+  rows: [string, string][];
+  truncated: boolean;
+}
+
+/** コマンド1つの実行結果 */
+export interface KvStatementResult {
+  command: string;
+  /** redis-cli風の整形済み出力 */
+  lines: string[];
+  elapsedMs: number;
+}
+
+/** コマンド実行 (複数行) の全体結果 */
+export interface KvRunOutput {
+  statements: KvStatementResult[];
+  error?: string;
+  failedIndex?: number;
 }
 
 /** 保存SQLの1件 */

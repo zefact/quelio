@@ -19,6 +19,7 @@ import {
   updateLayout,
 } from "./api";
 import { ConnectionPicker } from "./components/ConnectionPicker";
+import { KvSessionView } from "./components/KvSessionView";
 import { SessionView } from "./components/SessionView";
 import { TabBar } from "./components/TabBar";
 import { SettingsModal } from "./components/SettingsModal";
@@ -218,10 +219,11 @@ function App() {
         selectedDb,
         tables: [],
         selectedTable: null,
-        loadingTables: selectedDb !== null,
+        loadingTables: saved.dbType !== "valkey" && selectedDb !== null,
         busy: null,
       });
-      if (selectedDb) {
+      // Valkeyはテーブルの概念が無いため一覧取得しない
+      if (selectedDb && saved.dbType !== "valkey") {
         await loadTables(key, selectedDb);
       }
     } catch (e) {
@@ -232,6 +234,12 @@ function App() {
   // ---------- 接続済みタブの操作 ----------
 
   const loadTables = async (key: string, database: string) => {
+    // ValkeyはDB番号の切替のみ (キー一覧はKvSessionView側でSCANする)
+    const tab = tabs.find((tb) => tb.key === key);
+    if (tab?.profile.dbType === "valkey") {
+      updateTab(key, { selectedDb: database, error: null });
+      return;
+    }
     updateTab(key, {
       selectedDb: database,
       loadingTables: true,
@@ -405,7 +413,21 @@ function App() {
       )}
 
       <div className="workspace">
-        {activeTab.connected ? (
+        {activeTab.connected && activeTab.profile.dbType === "valkey" ? (
+          <KvSessionView
+            tab={activeTab}
+            onSelectDb={(db) => loadTables(activeTab.key, db)}
+            onChangeSql={(sql) => updateTab(activeTab.key, { sql })}
+            onSetConsole={(open) =>
+              updateTab(activeTab.key, {
+                view: open ? "query" : "structure",
+              })
+            }
+            onKvOutput={(kvResults, kvExecError) =>
+              updateTab(activeTab.key, { kvResults, kvExecError })
+            }
+          />
+        ) : activeTab.connected ? (
           <SessionView
             tab={activeTab}
             onSelectDb={(db) => loadTables(activeTab.key, db)}

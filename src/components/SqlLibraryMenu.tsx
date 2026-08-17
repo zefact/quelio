@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   deleteSavedSql,
@@ -11,8 +11,10 @@ import type { SavedSqlEntry, SqlHistoryEntry } from "../types";
 interface Props {
   /** 現在エディタにあるSQL (保存ダイアログの初期値) */
   currentSql: string;
-  /** 履歴・保存SQLを選んだときにエディタへ反映する */
+  /** 履歴・お気に入りを選んだときにエディタへ反映する */
   onSelect: (sql: string) => void;
+  /** 保存対象の呼び名 (SQL / コマンド等)。メニューの文言に使う */
+  contentLabel?: string;
 }
 
 /** 実行履歴メニューに表示する1行プレビュー */
@@ -72,15 +74,21 @@ function buildTree(entries: SavedSqlEntry[]): FolderNode {
  * 1つのボタンからドロップダウンを開き、タブで「履歴 / 保存SQL」を切り替える。
  * どちらも項目を選ぶとエディタへ反映のみ行う (実行はしない)
  */
-export function SqlLibraryMenu({ currentSql, onSelect }: Props) {
+export function SqlLibraryMenu({
+  currentSql,
+  onSelect,
+  contentLabel = "SQL",
+}: Props) {
   const [open, setOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
   const [mode, setMode] = useState<"history" | "saved">("history");
   // 履歴
   const [histEntries, setHistEntries] = useState<SqlHistoryEntry[]>([]);
   // 保存SQL
   const [entries, setEntries] = useState<SavedSqlEntry[]>([]);
-  /** 折りたたみ中のフォルダパス */
-  const [closed, setClosed] = useState<Set<string>>(new Set());
+  /** 開いているフォルダパス (既定は全て閉じた状態) */
+  const [opened, setOpened] = useState<Set<string>>(new Set());
   /** 削除確認中の項目id (1回目のクリックで確認、2回目で削除) */
   const [confirmId, setConfirmId] = useState<string | null>(null);
   // 保存/編集ダイアログ (editing = null なら新規保存、そうでなければ編集)
@@ -131,12 +139,24 @@ export function SqlLibraryMenu({ currentSql, onSelect }: Props) {
     if (!open) {
       reload();
       setConfirmId(null);
+      // 開くたびにフォルダは全て閉じた状態から始める
+      setOpened(new Set());
+      // ボタン位置からfixed配置の座標を決める。
+      // 親 (query-actions等) のoverflowにクリップされないようにするため
+      const r = btnRef.current?.getBoundingClientRect();
+      if (r) {
+        const menuW = 460; // lib-menuのmin-width相当
+        setMenuPos({
+          x: Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8)),
+          y: r.bottom + 5,
+        });
+      }
     }
     setOpen((o) => !o);
   };
 
   const toggleFolder = (path: string) =>
-    setClosed((prev) => {
+    setOpened((prev) => {
       const next = new Set(prev);
       if (next.has(path)) {
         next.delete(path);
@@ -190,7 +210,7 @@ export function SqlLibraryMenu({ currentSql, onSelect }: Props) {
   const renderFolder = (node: FolderNode, depth: number): ReactNode[] => {
     const out: ReactNode[] = [];
     for (const f of node.folders) {
-      const isClosed = closed.has(f.path);
+      const isClosed = !opened.has(f.path);
       out.push(
         <button
           key={`f:${f.path}`}
@@ -249,10 +269,11 @@ export function SqlLibraryMenu({ currentSql, onSelect }: Props) {
     <div className="run-split saved-split">
       {/* メニューを開いている間はツールチップがメニューに被るため出さない */}
       <button
+        ref={btnRef}
         className={
           "btn-secondary" + (open ? "" : " has-tooltip tooltip-left")
         }
-        data-tooltip="実行履歴 (最新100件) と保存SQLを呼び出す"
+        data-tooltip="実行履歴 (最新100件) とお気に入りを呼び出す"
         onClick={toggleMenu}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -260,7 +281,8 @@ export function SqlLibraryMenu({ currentSql, onSelect }: Props) {
       </button>
       {open && (
         <div
-          className="context-menu run-menu lib-menu"
+          className="context-menu lib-menu"
+          style={{ left: menuPos.x, top: menuPos.y }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="lib-tabs">
@@ -274,7 +296,7 @@ export function SqlLibraryMenu({ currentSql, onSelect }: Props) {
               className={mode === "saved" ? "active" : ""}
               onClick={() => setMode("saved")}
             >
-              保存SQL
+              お気に入り
             </button>
           </div>
           <div className="context-sep" />
@@ -311,11 +333,11 @@ export function SqlLibraryMenu({ currentSql, onSelect }: Props) {
                   openSaveDialog();
                 }}
               >
-                ＋ 現在のSQLを保存...
+                ＋ 現在の{contentLabel}を保存...
               </button>
               <div className="context-sep" />
               {entries.length === 0 ? (
-                <div className="history-empty">保存されたSQLはありません</div>
+                <div className="history-empty">お気に入りはありません</div>
               ) : (
                 renderFolder(tree, 0)
               )}
@@ -335,7 +357,9 @@ export function SqlLibraryMenu({ currentSql, onSelect }: Props) {
           >
             <div className="modal-head">
               <span className="modal-title">
-                {editing ? "保存SQLを編集" : "SQLを保存"}
+                {editing
+                  ? "お気に入りを編集"
+                  : `${contentLabel}をお気に入りに保存`}
               </span>
               <button
                 className="modal-close"

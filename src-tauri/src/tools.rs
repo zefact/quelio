@@ -274,13 +274,21 @@ pub async fn start_export(
     tables: Vec<String>,
     mode: String, // full | schema | data
 ) -> Result<StartedJob, String> {
-    let dir = crate::app_settings::download_dir(app)?;
+    let dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| format!("保存先フォルダを取得できません: {e}"))?;
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
     let out_path = dir.join(format!("{database}_{ts}.sql"));
     let out_file = std::fs::File::create(&out_path)
         .map_err(|e| format!("出力ファイルを作成できません: {e}"))?;
 
+    if ep.db_type == DbType::Valkey {
+        return Err("Valkey接続ではエクスポート/インポートは使用できません".into());
+    }
     let mut cmd = match ep.db_type {
+        DbType::Valkey => unreachable!(),
         DbType::Mysql => {
             let tool = require_tool(app, "mysqldump")?;
             let mut c = Command::new(tool);
@@ -369,7 +377,11 @@ pub async fn start_import(
         .map_err(|e| format!("ファイルを読み込めません: {e}"))?
         .len();
 
+    if ep.db_type == DbType::Valkey {
+        return Err("Valkey接続ではエクスポート/インポートは使用できません".into());
+    }
     let mut cmd = match ep.db_type {
+        DbType::Valkey => unreachable!(),
         DbType::Mysql => {
             let tool = require_tool(app, "mysql")?;
             let mut c = Command::new(tool);

@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.3.1"
+version = "0.4.0"
 description = "Quelio - MySQL / PostgreSQL クライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -27,6 +27,12 @@ serde_json = "1"
 tokio = { version = "1.53.1", features = ["full"] }
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "chrono", "rust_decimal", "uuid", "json"] }
 russh = "0.62.5"
+redis = { version = "0.27", default-features = false, features = ["tokio-comp", "keep-alive"] }
+# Valkey TLS (AWS ElastiCache等のin-transit暗号化) 用。
+# redisクレートのTLSはinsecure時にSNIを送らずAWSに接続を切られるため、
+# 自前でハンドシェイクしてSSHトンネル経由でも本来のホスト名でSNI/証明書検証を行う
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+webpki-roots = "0.26"
 uuid = { version = "1.24.0", features = ["v4"] }
 chrono = "0.4.45"
 rust_decimal = "1.42.1"

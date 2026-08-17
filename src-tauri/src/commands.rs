@@ -120,6 +120,43 @@ pub async fn connect_session(
     sessions::connect(&state, &cancel, &qlog, session_id, profile).await
 }
 
+/// Valkey: キー一覧をSCANで1ページぶん取得する
+#[tauri::command]
+pub async fn kv_scan(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+    pattern: String,
+    cursor: String,
+) -> Result<crate::kv::KvScanResult, String> {
+    sessions::kv_scan(&state, &qlog, &session_id, &database, &pattern, &cursor).await
+}
+
+/// Valkey: キーの詳細 (型・TTL・値プレビュー) を返す
+#[tauri::command]
+pub async fn kv_key_detail(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+    key: String,
+) -> Result<crate::kv::KvKeyDetail, String> {
+    sessions::kv_key_detail(&state, &qlog, &session_id, &database, &key).await
+}
+
+/// Valkey: コマンド (複数行) を逐次実行する
+#[tauri::command]
+pub async fn kv_exec(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+    commands: Vec<String>,
+) -> Result<crate::kv::KvRunOutput, String> {
+    sessions::kv_exec(&state, &qlog, &session_id, &database, commands).await
+}
+
 /// 実行中のクエリをキャンセルする (別接続からKILL/pg_cancel_backend)
 #[tauri::command]
 pub async fn cancel_query(
@@ -167,7 +204,11 @@ pub async fn export_schema_csv(
     let (tables, columns, indexes) =
         sessions::export_schema(&state, &qlog, &session_id, &database, &delim).await?;
 
-    let dir = crate::app_settings::download_dir(&app)?;
+    let dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| format!("保存先フォルダを取得できません: {e}"))?;
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
 
     let mut paths = Vec::new();
@@ -183,6 +224,19 @@ pub async fn export_schema_csv(
     Ok(paths)
 }
 
+/// SSH秘密鍵の参照ダイアログの初期フォルダを返す
+/// (~/.ssh があればそこ、無ければホームディレクトリ)
+#[tauri::command]
+pub fn default_ssh_key_dir(app: AppHandle) -> Result<String, String> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|e| format!("ホームディレクトリを取得できません: {e}"))?;
+    let ssh = home.join(".ssh");
+    let dir = if ssh.is_dir() { ssh } else { home };
+    Ok(dir.to_string_lossy().to_string())
+}
+
 /// 実行結果キャプチャ(PNG)をDownloadsに保存し、パスを返す
 #[tauri::command]
 pub async fn save_capture(
@@ -194,7 +248,11 @@ pub async fn save_capture(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64)
         .map_err(|e| format!("画像データを解読できません: {e}"))?;
-    let dir = crate::app_settings::download_dir(&app)?;
+    let dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| format!("保存先フォルダを取得できません: {e}"))?;
     // パス区切り等を除去した安全なファイル名にする
     let safe: String = file_name
         .chars()

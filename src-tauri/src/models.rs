@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum DbType {
     Mysql,
     Postgresql,
+    Valkey,
 }
 
 /// SSH踏み台(トンネル)設定
@@ -45,6 +46,9 @@ pub struct ConnectionProfile {
     /// 接続先データベース名(任意)
     #[serde(default)]
     pub database: Option<String>,
+    /// TLSで接続する (Valkey用。AWS ElastiCache等のin-transit暗号化)
+    #[serde(default)]
+    pub tls: bool,
     /// SSHトンネル設定(任意)
     #[serde(default)]
     pub ssh: Option<SshConfig>,

@@ -203,7 +203,9 @@ export function SessionView({
           data-tooltip="スキーマ一覧 (テーブル/カラム/インデックスを別ウィンドウで表示・CSV出力)"
           disabled={!selectedDb}
           onClick={() => {
-            if (selectedDb) openSchema(tab.key, selectedDb).catch(() => {});
+            if (selectedDb) {
+              openSchema(tab.key, selectedDb, profile.name).catch(() => {});
+            }
           }}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>

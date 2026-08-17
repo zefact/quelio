@@ -1,4 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { defaultSshKeyDir } from "../api";
 import type { ConnectionProfile, DbType, SshConfig } from "../types";
 import { DEFAULT_PORTS, emptySsh } from "../types";
 
@@ -47,13 +48,17 @@ export function ConnectionForm({
         <div className="card-head">
           <h2>基本設定</h2>
           <div className="segmented" role="tablist" aria-label="DB種別">
-            {(["mysql", "postgresql"] as DbType[]).map((t) => (
+            {(["mysql", "postgresql", "valkey"] as DbType[]).map((t) => (
               <button
                 key={t}
                 className={"segment" + (profile.dbType === t ? " active" : "")}
                 onClick={() => changeDbType(t)}
               >
-                {t === "mysql" ? "MySQL" : "PostgreSQL"}
+                {t === "mysql"
+                  ? "MySQL"
+                  : t === "postgresql"
+                    ? "PostgreSQL"
+                    : "Valkey"}
               </button>
             ))}
           </div>
@@ -88,16 +93,33 @@ export function ConnectionForm({
           </label>
           <label>
             <span className="field-label">
-              データベース名 <em>任意</em>
+              {profile.dbType === "valkey" ? (
+                <>
+                  DB番号 (0-15) <em>任意</em>
+                </>
+              ) : (
+                <>
+                  データベース名 <em>任意</em>
+                </>
+              )}
             </span>
             <input
               className="mono"
               value={profile.database ?? ""}
+              placeholder={profile.dbType === "valkey" ? "0" : undefined}
               onChange={(e) => set({ database: e.target.value })}
             />
           </label>
           <label>
-            <span className="field-label">ユーザー</span>
+            <span className="field-label">
+              {profile.dbType === "valkey" ? (
+                <>
+                  ユーザー <em>任意 (ACL)</em>
+                </>
+              ) : (
+                "ユーザー"
+              )}
+            </span>
             <input
               className="mono"
               value={profile.user}
@@ -112,6 +134,24 @@ export function ConnectionForm({
               onChange={(e) => set({ password: e.target.value })}
             />
           </label>
+          {profile.dbType === "valkey" && (
+            <div className="span2 tls-row">
+              <span className="field-label">TLS (in-transit暗号化)</span>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={profile.tls ?? false}
+                  onChange={(e) => set({ tls: e.target.checked })}
+                />
+                <span className="track" aria-hidden />
+                <span className="switch-label">
+                  {profile.tls
+                    ? "TLSで接続する (AWS ElastiCache等で必要)"
+                    : "TLSで接続しない"}
+                </span>
+              </label>
+            </div>
+          )}
         </div>
       </section>
 
@@ -173,10 +213,14 @@ export function ConnectionForm({
                   className="browse-btn"
                   title="Finderで秘密鍵ファイルを選択"
                   onClick={async () => {
-                    // ~/.ssh は不可視フォルダのためデフォルトの開始場所に指定する
+                    // ~/.ssh は不可視フォルダのため、絶対パスに解決して
+                    // 初期フォルダに指定する (無ければホームディレクトリ)。
+                    // ダイアログはフォルダの中を直接開くので、隠しフォルダでも
+                    // 中の鍵ファイルはそのまま選択できる
+                    const dir = await defaultSshKeyDir().catch(() => null);
                     const selected = await open({
                       multiple: false,
-                      defaultPath: "~/.ssh",
+                      defaultPath: dir ?? undefined,
                       title: "秘密鍵ファイルを選択",
                     }).catch(() => null);
                     if (typeof selected === "string") {

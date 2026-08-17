@@ -230,7 +230,10 @@ export function DiffWindow() {
 
   const refreshSessions = async () => {
     try {
-      setSessions(await listSessions());
+      // Valkeyはスキーマの概念が無いため差分の対象から除外する
+      setSessions(
+        (await listSessions()).filter((s) => s.dbType !== "valkey")
+      );
     } catch {
       /* 無視 */
     }

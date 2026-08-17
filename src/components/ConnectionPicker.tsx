@@ -30,6 +30,7 @@ interface Props {
 type DragItem = { type: "conn" | "folder"; id: string };
 type DropTarget =
   | { type: "conn-before"; id: string }
+  | { type: "conn-after"; id: string }
   | { type: "folder-before"; id: string }
   | { type: "into-folder"; id: string }
   | { type: "root-end" };
@@ -137,6 +138,14 @@ export function ConnectionPicker({
       const idx = entries.findIndex((e) => e.id === target.id);
       if (idx < 0) return;
       entries.splice(idx, 0, { id: connId, folderId: entries[idx].folderId });
+    } else if (target.type === "conn-after") {
+      // 対象の直後へ (フォルダ内の一番下にも置けるように)
+      const idx = entries.findIndex((e) => e.id === target.id);
+      if (idx < 0) return;
+      entries.splice(idx + 1, 0, {
+        id: connId,
+        folderId: entries[idx].folderId,
+      });
     } else if (target.type === "into-folder") {
       // フォルダ内の末尾へ
       let last = -1;
@@ -258,6 +267,14 @@ export function ConnectionPicker({
     );
   };
 
+  /** 接続項目上のドロップ位置: 上半分なら前へ、下半分なら後ろへ挿入 */
+  const connDropTarget = (e: React.DragEvent, id: string): DropTarget => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return e.clientY > r.top + r.height / 2
+      ? { type: "conn-after", id }
+      : { type: "conn-before", id };
+  };
+
   // ---------- 右クリックメニュー ----------
 
   const openMenu = (e: React.MouseEvent, target: MenuState["target"]) => {
@@ -276,20 +293,23 @@ export function ConnectionPicker({
           (c.id === profile.id ? " selected" : "") +
           (dropTarget?.type === "conn-before" && dropTarget.id === c.id
             ? " drop-before"
+            : "") +
+          (dropTarget?.type === "conn-after" && dropTarget.id === c.id
+            ? " drop-after"
             : "")
         }
         draggable
         onDragStart={(e) => handleDragStart(e, { type: "conn", id: c.id })}
         onDragEnd={handleDragEnd}
-        onDragOver={(e) => dragOver(e, { type: "conn-before", id: c.id })}
-        onDrop={(e) => handleDrop(e, { type: "conn-before", id: c.id })}
+        onDragOver={(e) => dragOver(e, connDropTarget(e, c.id))}
+        onDrop={(e) => handleDrop(e, connDropTarget(e, c.id))}
         onClick={() => onSelectFavorite(c)}
         onDoubleClick={() => onConnect(c)}
         onContextMenu={(e) => openMenu(e, { kind: "conn", id: c.id })}
         title="クリック: 選択 / ダブルクリック: 接続"
       >
         <span className={`db-badge ${c.dbType}`} style={badgeStyle(c.color)}>
-          {c.dbType === "mysql" ? "My" : "Pg"}
+          {c.dbType === "mysql" ? "My" : c.dbType === "valkey" ? "Vk" : "Pg"}
         </span>
         <span className="connection-info">
           <span className="connection-name">{c.name || "(無名)"}</span>

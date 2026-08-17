@@ -53,7 +53,8 @@ const highlight = HighlightStyle.define([
 
 const MONO = '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace';
 
-const theme = EditorView.theme({
+/** エディタ共通テーマ (KvCommandEditorでも使う) */
+export const editorTheme = EditorView.theme({
   "&": {
     height: "100%",
     fontSize: "13px",
@@ -129,7 +130,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         indentUnit.of("  "),
         sql({ dialect: dbType === "mysql" ? MySQL : PostgreSQL }),
         syntaxHighlighting(highlight),
-        theme,
+        editorTheme,
         cmPlaceholder(placeholder),
         EditorView.lineWrapping,
         Prec.highest(

@@ -130,6 +130,9 @@ export function SchemaWindow() {
   };
 
   const session = sessions.find((s) => s.sessionId === sel.sessionId);
+  // 接続名は起動パラメータで渡されるため、読み込み中でもはじめから表示できる
+  // (パラメータが無い場合のみセッション一覧から補完する)
+  const connName = params.get("name") || session?.name || "接続";
   const f = filter.toLowerCase();
 
   // ---------- 行データ ----------
@@ -269,9 +272,7 @@ export function SchemaWindow() {
       <div className="diff-toolbar" data-tauri-drag-region>
         {/* 開いた画面で選択済みの接続/DBを対象にするため、ここでは変更できない */}
         <div className="diff-side-sel schema-target">
-          <span className="schema-target-name">
-            {session?.name ?? "接続"}
-          </span>
+          <span className="schema-target-name">{connName}</span>
           <span className="schema-target-sep">/</span>
           <span className="mono schema-target-db">{sel.database}</span>
         </div>

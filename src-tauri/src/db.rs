@@ -168,6 +168,33 @@ async fn test_inner(p: &ConnectionProfile, qlog: &QueryLog) -> Result<String, St
                 let _ = conn.close().await;
                 Ok(format!("PostgreSQL {version}"))
             }
+            DbType::Valkey => {
+                let db_index: i64 = database.and_then(|s| s.parse().ok()).unwrap_or(0);
+                let mut conn = crate::kv::connect(
+                    &ep.host,
+                    ep.port,
+                    &p.user,
+                    &p.password,
+                    db_index,
+                    p.tls,
+                    ep.tunnel.is_some().then_some(p.host.as_str()),
+                )
+                .await
+                .map_err(|e| {
+                    ep.tunnel
+                        .as_ref()
+                        .and_then(|t| t.take_error())
+                        .unwrap_or(e)
+                })?;
+                qlog.add(&label, "", "INFO");
+                let info = crate::kv::server_info(&mut conn).await?;
+                let version = info
+                    .iter()
+                    .find(|(l, _)| l == "バージョン")
+                    .map(|(_, v)| v.clone())
+                    .unwrap_or_else(|| "Valkey".to_string());
+                Ok(version)
+            }
         }
     }
     .await;

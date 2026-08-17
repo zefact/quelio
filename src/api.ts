@@ -9,6 +9,9 @@ import type {
   FkInfo,
   FolderInfo,
   JobStatus,
+  KvKeyDetail,
+  KvRunOutput,
+  KvScanResult,
   LayoutEntry,
   QueryLogEntry,
   RunOutput,
@@ -115,6 +118,11 @@ export function exportSchemaCsv(
   return invoke("export_schema_csv", { sessionId, database });
 }
 
+/** SSH秘密鍵の参照ダイアログの初期フォルダ (~/.ssh または ホーム) を返す */
+export function defaultSshKeyDir(): Promise<string> {
+  return invoke("default_ssh_key_dir");
+}
+
 /** 実行結果キャプチャ(PNG)をDownloadsに保存し、保存先パスを返す */
 export function saveCapture(
   fileName: string,
@@ -138,8 +146,12 @@ export function openDiff(): Promise<void> {
   return invoke("open_diff");
 }
 
-export function openSchema(sessionId: string, database: string): Promise<void> {
-  return invoke("open_schema", { sessionId, database });
+export function openSchema(
+  sessionId: string,
+  database: string,
+  name?: string
+): Promise<void> {
+  return invoke("open_schema", { sessionId, database, name: name ?? null });
 }
 
 /** ER図ウィンドウを開く */
@@ -225,6 +237,36 @@ export function jobStatus(jobId: string): Promise<JobStatus> {
 /** 実行中のSQLをキャンセルする */
 export function cancelQuery(sessionId: string): Promise<void> {
   return invoke("cancel_query", { sessionId });
+}
+
+// ---------- Valkey (KVモード) ----------
+
+/** キー一覧をSCANで1ページぶん取得する */
+export function kvScan(
+  sessionId: string,
+  database: string,
+  pattern: string,
+  cursor: string
+): Promise<KvScanResult> {
+  return invoke("kv_scan", { sessionId, database, pattern, cursor });
+}
+
+/** キーの詳細 (型・TTL・値プレビュー) を取得する */
+export function kvKeyDetail(
+  sessionId: string,
+  database: string,
+  key: string
+): Promise<KvKeyDetail> {
+  return invoke("kv_key_detail", { sessionId, database, key });
+}
+
+/** コマンド (複数行) を逐次実行する */
+export function kvExec(
+  sessionId: string,
+  database: string,
+  commands: string[]
+): Promise<KvRunOutput> {
+  return invoke("kv_exec", { sessionId, database, commands });
 }
 
 export function cancelJob(jobId: string): Promise<void> {

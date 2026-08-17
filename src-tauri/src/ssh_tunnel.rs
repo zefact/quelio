@@ -37,9 +37,17 @@ pub struct SshTunnel {
     pub local_port: u16,
     handle: Arc<client::Handle<ClientHandler>>,
     task: tokio::task::JoinHandle<()>,
+    /// 踏み台→接続先のチャネルが開けなかったときの理由。
+    /// ローカル側には接続リセットとしか見えないため、ここから取り出して表示する
+    last_error: Arc<Mutex<Option<String>>>,
 }
 
 impl SshTunnel {
+    /// 踏み台→接続先の接続失敗理由を取り出す (あれば)
+    pub fn take_error(&self) -> Option<String> {
+        self.last_error.lock().unwrap().take()
+    }
+
     /// SSHプロトコルに則ってDisconnectメッセージを送ってから閉じる
     pub async fn close(&mut self) {
         let _ = tokio::time::timeout(
@@ -123,6 +131,8 @@ pub async fn open_tunnel(
     // Handleは切断通知(close)用にも保持するためArcで共有する
     let handle = Arc::new(session);
     let task_handle = Arc::clone(&handle);
+    let last_error = Arc::new(Mutex::new(None));
+    let err_slot = Arc::clone(&last_error);
 
     let task = tokio::spawn(async move {
         loop {
@@ -139,7 +149,14 @@ pub async fn open_tunnel(
                 .await
             {
                 Ok(ch) => ch,
-                Err(_) => break,
+                Err(e) => {
+                    // 踏み台から接続先に到達できない (セキュリティグループ等)。
+                    // 理由を控えて次のローカル接続を待つ (トンネル自体は維持)
+                    *err_slot.lock().unwrap() = Some(format!(
+                        "SSH踏み台から接続先 {target_host}:{target_port} に接続できませんでした ({e})。踏み台からの到達性 (セキュリティグループ・ホスト名・ポート) を確認してください"
+                    ));
+                    continue;
+                }
             };
             tokio::spawn(async move {
                 let mut remote_stream = channel.into_stream();
@@ -153,6 +170,7 @@ pub async fn open_tunnel(
         local_port,
         handle,
         task,
+        last_error,
     })
 }
 

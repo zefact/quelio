@@ -12,6 +12,7 @@ use tokio::time::{timeout, Duration};
 use crate::catalog::{self, LogCtx};
 use crate::db;
 use crate::export;
+use crate::kv;
 use crate::models::{
     ConnectInfo, ConnectionProfile, DbType, RunOutput, SchemaEntry, SessionSummary,
     StatementResult, TableDetail, TableInfo,
@@ -23,6 +24,7 @@ use crate::ssh_tunnel::SshTunnel;
 pub enum DbConn {
     MySql(MySqlConnection),
     Pg(PgConnection),
+    Kv(redis::aio::MultiplexedConnection),
 }
 
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -42,6 +44,10 @@ pub struct CancelTarget {
     pub password: String,
     /// MySQL: CONNECTION_ID() / PostgreSQL: pg_backend_pid()
     pub conn_id: i64,
+    /// Valkey: TLSで接続するか (キャンセル用の別接続にも同じ設定を使う)
+    pub tls: bool,
+    /// Valkey: TLSのSNI/証明書検証に使う本来のホスト名 (SSHトンネル経由時)
+    pub tls_sni: Option<String>,
 }
 
 /// セッションID → キャンセル対象 (クエリ実行中でも参照できるよう独立したロック)
@@ -145,6 +151,33 @@ pub async fn connect(
             let info = catalog::pg_server_info(&mut c, &ctx).await?;
             (DbConn::Pg(c), dbs, Some(actual_db), info)
         }
+        DbType::Valkey => {
+            // Valkeyの「データベース名」は論理DB番号 (0-15)
+            let db_index: i64 = database.map(|s| s.parse().unwrap_or(0)).unwrap_or(0);
+            let mut c = kv::connect(
+                &ep.host,
+                ep.port,
+                &profile.user,
+                &profile.password,
+                db_index,
+                profile.tls,
+                // SSHトンネル経由は接続先が127.0.0.1になるため、
+                // SNI/証明書検証には本来のホスト名を使う
+                ep.tunnel.is_some().then_some(profile.host.as_str()),
+            )
+            .await
+            // 踏み台→接続先の失敗はローカルには接続リセットとしか見えないため、
+            // トンネル側に控えた理由があればそちらを表示する
+            .map_err(|e| {
+                ep.tunnel
+                    .as_ref()
+                    .and_then(|t| t.take_error())
+                    .unwrap_or(e)
+            })?;
+            let info = kv::server_info(&mut c).await?;
+            let dbs: Vec<String> = (0..16).map(|i| i.to_string()).collect();
+            (DbConn::Kv(c), dbs, Some(db_index.to_string()), info)
+        }
     };
 
     // キャンセル用に接続IDを控えておく
@@ -159,6 +192,8 @@ pub async fn connect(
             user: profile.user.clone(),
             password: profile.password.clone(),
             conn_id,
+            tls: profile.tls,
+            tls_sni: ep.tunnel.is_some().then(|| profile.host.clone()),
         },
     );
 
@@ -191,7 +226,7 @@ pub async fn connect(
     })
 }
 
-/// 接続IDを取得する (MySQL: CONNECTION_ID / PG: pg_backend_pid)
+/// 接続IDを取得する (MySQL: CONNECTION_ID / PG: pg_backend_pid / Valkey: CLIENT ID)
 async fn fetch_conn_id(conn: &mut DbConn) -> Result<i64, String> {
     match conn {
         DbConn::MySql(c) => sqlx::query_scalar::<_, i64>("SELECT CAST(CONNECTION_ID() AS SIGNED)")
@@ -203,6 +238,13 @@ async fn fetch_conn_id(conn: &mut DbConn) -> Result<i64, String> {
             .await
             .map(|pid| pid as i64)
             .map_err(db::format_db_error),
+        // ElastiCache Serverless等はCLIENT IDをサポートしないため、
+        // 失敗しても接続は継続し0 (キャンセル不可) として扱う
+        DbConn::Kv(c) => Ok(redis::cmd("CLIENT")
+            .arg("ID")
+            .query_async::<i64>(c)
+            .await
+            .unwrap_or(0)),
     }
 }
 
@@ -211,6 +253,10 @@ async fn ping_conn(conn: &mut DbConn) -> bool {
     match conn {
         DbConn::MySql(c) => matches!(timeout(PING_TIMEOUT, c.ping()).await, Ok(Ok(()))),
         DbConn::Pg(c) => matches!(timeout(PING_TIMEOUT, c.ping()).await, Ok(Ok(()))),
+        DbConn::Kv(c) => matches!(
+            timeout(PING_TIMEOUT, redis::cmd("PING").query_async::<String>(c)).await,
+            Ok(Ok(_))
+        ),
     }
 }
 
@@ -253,6 +299,31 @@ async fn reconnect(session: &mut Session, qlog: &QueryLog) -> Result<(), String>
             .await?;
             session.current_db = Some(actual_db);
             DbConn::Pg(c)
+        }
+        DbType::Valkey => {
+            let db_index: i64 = database
+                .as_deref()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
+            DbConn::Kv(
+                kv::connect(
+                    &session.host,
+                    session.port,
+                    &session.profile.user,
+                    &session.profile.password,
+                    db_index,
+                    session.profile.tls,
+                    session.tunnel.is_some().then_some(session.profile.host.as_str()),
+                )
+                .await
+                .map_err(|e| {
+                    session
+                        .tunnel
+                        .as_ref()
+                        .and_then(|t| t.take_error())
+                        .unwrap_or(e)
+                })?,
+            )
         }
     };
 
@@ -349,6 +420,33 @@ pub async fn cancel_query(
                 .map_err(db::format_db_error)?;
             let _ = timeout(CLOSE_TIMEOUT, c.close()).await;
         }
+        DbType::Valkey => {
+            // CLIENT ID非対応のサーバー (ElastiCache Serverless等) ではキャンセル不可
+            if target.conn_id == 0 {
+                return Err(
+                    "この接続先はコマンドのキャンセルに対応していません".into()
+                );
+            }
+            let mut c = kv::connect(
+                &target.host,
+                target.port,
+                &target.user,
+                &target.password,
+                0,
+                target.tls,
+                target.tls_sni.as_deref(),
+            )
+            .await?;
+            let cmd = format!("CLIENT KILL ID {}", target.conn_id);
+            qlog.add(&target.label, "", &cmd);
+            redis::cmd("CLIENT")
+                .arg("KILL")
+                .arg("ID")
+                .arg(target.conn_id)
+                .query_async::<i64>(&mut c)
+                .await
+                .map_err(kv::format_err)?;
+        }
     }
     Ok(())
 }
@@ -381,6 +479,7 @@ pub async fn list_tables(
                 _ => unreachable!(),
             }
         }
+        DbConn::Kv(_) => Err("Valkey接続ではテーブル一覧は使用できません".into()),
     }
 }
 
@@ -414,6 +513,7 @@ pub async fn table_detail(
                 _ => unreachable!(),
             }
         }
+        DbConn::Kv(_) => Err("Valkey接続では使用できません".into()),
     }
 }
 
@@ -444,6 +544,7 @@ pub async fn foreign_keys(
                 _ => unreachable!(),
             }
         }
+        DbConn::Kv(_) => Err("Valkey接続では使用できません".into()),
     }
 }
 
@@ -469,6 +570,7 @@ async fn exec_ctl(
             .await
             .map(|_| ())
             .map_err(db::format_db_error),
+        DbConn::Kv(_) => Err("Valkey接続では使用できません".into()),
     }
 }
 
@@ -502,6 +604,9 @@ pub async fn run_query(
     let mut guard = arc.lock().await;
     let session = &mut *guard;
     ensure_alive(session, qlog).await?;
+    if matches!(session.conn, DbConn::Kv(_)) {
+        return Err("Valkey接続ではSQLは実行できません (コマンドコンソールを使用してください)".into());
+    }
     let label = conn_label(&session.profile);
     let db_label = database.clone().unwrap_or_default();
 
@@ -564,6 +669,7 @@ pub async fn run_query(
         let res = match &mut session.conn {
             DbConn::MySql(conn) => query::run_mysql(conn, &plan, timeout_secs).await,
             DbConn::Pg(conn) => query::run_pg(conn, &plan, timeout_secs).await,
+            DbConn::Kv(_) => unreachable!(),
         };
 
         match res {
@@ -634,6 +740,7 @@ async fn collect_schema_inner(
                 _ => unreachable!(),
             }
         }
+        DbConn::Kv(_) => return Err("Valkey接続では使用できません".into()),
     };
 
     // テーブルごとの詳細
@@ -647,6 +754,7 @@ async fn collect_schema_inner(
                 let schema = t.schema.as_deref().unwrap_or("public");
                 catalog::pg_table_detail(conn, schema, &t.name, &ctx).await?
             }
+            DbConn::Kv(_) => return Err("Valkey接続では使用できません".into()),
         };
         items.push(SchemaEntry {
             table: t.clone(),
@@ -784,6 +892,8 @@ async fn close_conn_gracefully(conn: DbConn) {
         DbConn::Pg(c) => {
             let _ = timeout(CLOSE_TIMEOUT, c.close()).await;
         }
+        // Valkeyはdropで切断される (明示的な終了通知は不要)
+        DbConn::Kv(_) => {}
     }
 }
 
@@ -803,6 +913,104 @@ async fn close_session_gracefully(mut session: Session, qlog: &QueryLog) {
 async fn close_session_arc(arc: Arc<Mutex<Session>>, qlog: &QueryLog) {
     if let Ok(m) = Arc::try_unwrap(arc) {
         close_session_gracefully(m.into_inner(), qlog).await;
+    }
+}
+
+// ---------- Valkey (KV) セッション操作 ----------
+
+/// Valkeyで指定の論理DBを選択していなければSELECTで切り替える
+async fn ensure_kv_db(
+    session: &mut Session,
+    database: &str,
+    qlog: &QueryLog,
+) -> Result<(), String> {
+    if session.current_db.as_deref() == Some(database) {
+        return Ok(());
+    }
+    let idx: i64 = database
+        .parse()
+        .map_err(|_| format!("DB番号が不正です: {database}"))?;
+    let label = conn_label(&session.profile);
+    qlog.add(&label, database, &format!("SELECT {idx}"));
+    match &mut session.conn {
+        DbConn::Kv(c) => {
+            redis::cmd("SELECT")
+                .arg(idx)
+                .query_async::<()>(c)
+                .await
+                .map_err(kv::format_err)?;
+        }
+        _ => return Err("Valkey接続ではありません".into()),
+    }
+    session.current_db = Some(database.to_string());
+    Ok(())
+}
+
+/// Valkey: キー一覧をSCANで1ページぶん取得する
+pub async fn kv_scan(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: &str,
+    pattern: &str,
+    cursor: &str,
+) -> Result<kv::KvScanResult, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    ensure_kv_db(session, database, qlog).await?;
+    let label = conn_label(&session.profile);
+    qlog.add(
+        &label,
+        database,
+        &format!("SCAN {cursor} MATCH {pattern} COUNT {}", kv::SCAN_COUNT),
+    );
+    match &mut session.conn {
+        DbConn::Kv(c) => kv::scan(c, pattern, cursor).await,
+        _ => Err("Valkey接続ではありません".into()),
+    }
+}
+
+/// Valkey: キーの詳細 (型・TTL・値プレビュー) を返す
+pub async fn kv_key_detail(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: &str,
+    key: &str,
+) -> Result<kv::KvKeyDetail, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    ensure_kv_db(session, database, qlog).await?;
+    match &mut session.conn {
+        DbConn::Kv(c) => kv::key_detail(c, key).await,
+        _ => Err("Valkey接続ではありません".into()),
+    }
+}
+
+/// Valkey: コマンド (複数行) を逐次実行する
+pub async fn kv_exec(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: &str,
+    commands: Vec<String>,
+) -> Result<kv::KvRunOutput, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    ensure_kv_db(session, database, qlog).await?;
+    let label = conn_label(&session.profile);
+    for c in &commands {
+        qlog.add(&label, database, c);
+    }
+    match &mut session.conn {
+        DbConn::Kv(c) => kv::exec(c, &commands).await,
+        _ => Err("Valkey接続ではありません".into()),
     }
 }
 

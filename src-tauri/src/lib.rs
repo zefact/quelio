@@ -6,6 +6,7 @@ mod db;
 mod er_store;
 mod export;
 mod known_hosts;
+mod kv;
 mod models;
 mod query;
 mod query_log;
@@ -145,7 +146,11 @@ pub fn run() {
             commands::table_detail,
             commands::run_query,
             commands::cancel_query,
+            commands::kv_scan,
+            commands::kv_key_detail,
+            commands::kv_exec,
             commands::export_schema_csv,
+            commands::default_ssh_key_dir,
             commands::save_capture,
             commands::get_app_settings,
             commands::save_app_settings,
