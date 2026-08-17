@@ -3889,11 +3889,12 @@ dependencies = [
 
 [[package]]
 name = "quelio"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.22.1",
  "chrono",
+ "futures-util",
  "keyring",
  "redis",
  "russh",

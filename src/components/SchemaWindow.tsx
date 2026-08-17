@@ -120,7 +120,7 @@ export function SchemaWindow() {
     try {
       const paths = await exportSchemaCsv(sel.sessionId, sel.database);
       const names = paths.map((p) => p.split("/").pop()).join(" / ");
-      setNotice(`ダウンロードフォルダに保存しました: ${names}`);
+      setNotice(`保存先フォルダに保存しました: ${names}`);
       setTimeout(() => setNotice(null), 10000);
     } catch (e) {
       setError(String(e));

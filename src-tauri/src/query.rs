@@ -2,6 +2,7 @@
 
 use std::time::Instant;
 
+use futures_util::{Stream, TryStreamExt};
 use sqlx::mysql::{MySqlConnection, MySqlRow};
 use sqlx::postgres::{PgConnection, PgRow};
 use sqlx::{Column, Row};
@@ -24,6 +25,25 @@ fn query_timeout(secs: u64) -> Duration {
 
 /// 1ページの行数
 pub const PAGE_SIZE: usize = 1000;
+
+/// 1セルとして画面へ返す最大文字数。
+/// 長大なTEXT/JSON列をそのまま持つとメモリを圧迫するため、超えた分は切り詰める
+pub const MAX_CELL_CHARS: usize = 1000;
+
+/// セル文字列を表示用に切り詰める (切り詰めた場合は全体の文字数を添える)
+fn clip_cell(s: String) -> String {
+    // 大半の値は短いので、まず安価なバイト長で判定する
+    // (1文字1バイト以上なので、バイト長が上限以下なら文字数も上限以下)
+    if s.len() <= MAX_CELL_CHARS {
+        return s;
+    }
+    let total = s.chars().count();
+    if total <= MAX_CELL_CHARS {
+        return s;
+    }
+    let head: String = s.chars().take(MAX_CELL_CHARS).collect();
+    format!("{head}… (全{total}文字)")
+}
 
 /// 実行計画: LIMIT自動付与の有無を決めた実行用SQL
 pub struct PlannedQuery {
@@ -235,7 +255,7 @@ macro_rules! try_types {
     ($row:expr, $i:expr, [$($t:ty),+ $(,)?]) => {
         $(
             if let Ok(v) = $row.try_get::<Option<$t>, _>($i) {
-                return v.map(|x| x.to_string());
+                return v.map(|x| clip_cell(x.to_string()));
             }
         )+
     };
@@ -285,6 +305,37 @@ fn pg_cell(row: &PgRow, i: usize) -> Option<String> {
     Some("(未対応の型)".into())
 }
 
+/// 結果セットのストリームから1ページ分 (PAGE_SIZE行) だけ読み取る。
+///
+/// PAGE_SIZE+1行目が届いた時点で読み取りを打ち切ってストリームを閉じるため、
+/// LIMITを付けられないSQL (LIMIT指定済み・SHOW等) で結果が何百万行あっても、
+/// アプリが保持する行数は常に1ページ分に収まる。
+/// 戻り値は (カラム名, 行データ, 次ページの有無)
+async fn fetch_page<R, S>(
+    mut stream: S,
+    cell: fn(&R, usize) -> Option<String>,
+) -> Result<(Vec<String>, Vec<Vec<Option<String>>>, bool), String>
+where
+    R: Row,
+    S: Stream<Item = Result<R, sqlx::Error>> + Unpin,
+{
+    let mut columns: Vec<String> = Vec::new();
+    let mut rows: Vec<Vec<Option<String>>> = Vec::new();
+    let mut has_more = false;
+    while let Some(row) = stream.try_next().await.map_err(format_db_error)? {
+        if columns.is_empty() {
+            columns = row.columns().iter().map(|c| c.name().to_string()).collect();
+        }
+        if rows.len() >= PAGE_SIZE {
+            // 次のページがあることが分かれば十分なので、ここで読み取りをやめる
+            has_more = true;
+            break;
+        }
+        rows.push((0..row.columns().len()).map(|i| cell(&row, i)).collect());
+    }
+    Ok((columns, rows, has_more))
+}
+
 pub async fn run_mysql(
     conn: &mut MySqlConnection,
     plan: &PlannedQuery,
@@ -292,24 +343,16 @@ pub async fn run_mysql(
 ) -> Result<QueryResult, String> {
     let started = Instant::now();
     if plan.is_fetch {
-        let rows = timeout(
+        let (columns, data, has_more) = timeout(
             query_timeout(timeout_secs),
-            sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch_all(&mut *conn),
+            fetch_page(
+                sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch(&mut *conn),
+                mysql_cell,
+            ),
         )
         .await
-        .map_err(|_| "クエリがタイムアウトしました".to_string())?
-        .map_err(format_db_error)?;
+        .map_err(|_| "クエリがタイムアウトしました".to_string())??;
 
-        let columns = rows
-            .first()
-            .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect())
-            .unwrap_or_default();
-        let has_more = rows.len() > PAGE_SIZE;
-        let data = rows
-            .iter()
-            .take(PAGE_SIZE)
-            .map(|r| (0..r.columns().len()).map(|i| mysql_cell(r, i)).collect())
-            .collect();
         Ok(QueryResult {
             columns,
             rows: data,
@@ -350,24 +393,16 @@ pub async fn run_pg(
 ) -> Result<QueryResult, String> {
     let started = Instant::now();
     if plan.is_fetch {
-        let rows = timeout(
+        let (columns, data, has_more) = timeout(
             query_timeout(timeout_secs),
-            sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch_all(&mut *conn),
+            fetch_page(
+                sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch(&mut *conn),
+                pg_cell,
+            ),
         )
         .await
-        .map_err(|_| "クエリがタイムアウトしました".to_string())?
-        .map_err(format_db_error)?;
+        .map_err(|_| "クエリがタイムアウトしました".to_string())??;
 
-        let columns = rows
-            .first()
-            .map(|r| r.columns().iter().map(|c| c.name().to_string()).collect())
-            .unwrap_or_default();
-        let has_more = rows.len() > PAGE_SIZE;
-        let data = rows
-            .iter()
-            .take(PAGE_SIZE)
-            .map(|r| (0..r.columns().len()).map(|i| pg_cell(r, i)).collect())
-            .collect();
         Ok(QueryResult {
             columns,
             rows: data,

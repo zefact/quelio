@@ -204,11 +204,8 @@ pub async fn export_schema_csv(
     let (tables, columns, indexes) =
         sessions::export_schema(&state, &qlog, &session_id, &database, &delim).await?;
 
-    let dir = app
-        .path()
-        .download_dir()
-        .or_else(|_| app.path().home_dir())
-        .map_err(|e| format!("保存先フォルダを取得できません: {e}"))?;
+    // 設定の「保存先フォルダ」に従う (未設定ならOSのダウンロードフォルダ)
+    let dir = crate::app_settings::download_dir(&app)?;
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
 
     let mut paths = Vec::new();
@@ -299,11 +296,8 @@ pub async fn save_capture(
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64)
         .map_err(|e| format!("画像データを解読できません: {e}"))?;
-    let dir = app
-        .path()
-        .download_dir()
-        .or_else(|_| app.path().home_dir())
-        .map_err(|e| format!("保存先フォルダを取得できません: {e}"))?;
+    // 設定の「保存先フォルダ」に従う (未設定ならOSのダウンロードフォルダ)
+    let dir = crate::app_settings::download_dir(&app)?;
     // パス区切り等を除去した安全なファイル名にする
     let safe: String = file_name
         .chars()

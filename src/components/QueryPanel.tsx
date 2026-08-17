@@ -7,7 +7,12 @@ import type { DbType, StatementResult } from "../types";
 import { QUERY_PAGE_SIZE } from "../types";
 import { isPlanResult, planLines, PlanView } from "./PlanView";
 import { SqlLibraryMenu } from "./SqlLibraryMenu";
-import { GridColumn, ResizableGrid, SortState } from "./ResizableGrid";
+import {
+  GridColumn,
+  ResizableGrid,
+  SortDir,
+  SortState,
+} from "./ResizableGrid";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
 
 type RunMode = "all" | "selection";
@@ -81,6 +86,8 @@ interface Props {
   runStartedAt: number | null;
   /** 直前の実行がEXPLAIN系だったか (ヘッダの意味ツールチップ用) */
   explainKind: "explain" | "analyze" | null;
+  /** カラム名 → 論理名・補足・型の説明 (ヘッダのツールチップ用) */
+  columnTips: Record<string, string>;
   onChangeSql: (sql: string) => void;
   /** offset行目からの実行。sqlOverride指定時は選択実行、transactionでBEGIN〜COMMIT/ROLLBACKに包む */
   onRun: (
@@ -110,6 +117,7 @@ export function QueryPanel({
   running,
   runStartedAt,
   explainKind,
+  columnTips,
   onChangeSql,
   onRun,
   onCancel,
@@ -282,50 +290,45 @@ export function QueryPanel({
       label: name,
       width: Math.min(260, Math.max(90, name.length * 10 + 40)),
       minWidth: 60,
-      // EXPLAIN結果ならカラムの意味をヘッダのツールチップに出す
+      // EXPLAIN結果ならカラムの意味を、通常の結果なら
+      // 定義から読み取った論理名・補足をヘッダのツールチップに出す
       description: explainKind
         ? EXPLAIN_COL_DESC[name.toLowerCase()]
-        : undefined,
+        : columnTips[name.toLowerCase()],
     }));
     if (showRowNums && cols.length > 0) {
       // 表示中の最大行番号に合わせて幅を決める
       const maxNum = (result?.offset ?? 0) + (result?.rows.length ?? 0);
-      const width = Math.max(48, String(maxNum).length * 9 + 26);
+      const width = Math.max(58, String(maxNum).length * 9 + 36);
       cols.unshift({
         id: "__row",
-        label: "#",
+        label: "行",
         width,
-        minWidth: 40,
+        minWidth: 46,
         align: "right",
+        cellClass: "rownum-cell",
+        sortable: false,
+        excludeFromCopy: true,
+        description: "行番号 (取得結果の通し番号。データの値ではありません)",
       });
     }
     return cols;
-  }, [result, showRowNums, explainKind]);
+  }, [result, showRowNums, explainKind, columnTips]);
 
   /**
-   * ヘッダクリック: 昇順 → 降順 → なし の順に切り替え。
+   * ヘッダのソートメニューでの選択。
    * ページング可能な結果はサーバーサイドソート(その文を再実行)、
    * それ以外は表示中の行のクライアントソート。
    */
-  const toggleSort = (id: string) => {
+  const selectSort = (id: string, dir: SortDir) => {
     if (id === "__row") return;
     if (result?.pageable) {
       const colName = result.columns[Number(id.slice(1))];
       if (!colName || running) return;
-      if (result.orderBy !== colName) {
-        onServerSort(activeIdx, colName, "asc");
-      } else if (result.orderDir !== "desc") {
-        onServerSort(activeIdx, colName, "desc");
-      } else {
-        onServerSort(activeIdx, null, "asc");
-      }
+      onServerSort(activeIdx, dir ? colName : null, dir ?? "asc");
       return;
     }
-    setSort((cur) => {
-      if (cur?.id !== id) return { id, dir: "asc" };
-      if (cur.dir === "asc") return { id, dir: "desc" };
-      return null;
-    });
+    setSort(dir ? { id, dir } : null);
   };
 
   /** グリッドに表示するソート状態 (サーバーソート優先) */
@@ -653,9 +656,13 @@ export function QueryPanel({
           <PlanView lines={planLines(result.rows)} />
         ) : (
           <ResizableGrid
+            // 実行のたび・結果タブの切替のたびに列幅を内容へフィットさせる
+            autoFit
+            fitKey={`${runStartedAt ?? 0}:${activeIdx}`}
+            selectable
             columns={gridColumns}
             sort={gridSort}
-            onSortToggle={toggleSort}
+            onSortSelect={selectSort}
             rows={sortedRows.map((r) => {
               const cells = r.cells.map((v) =>
                 v === null ? (

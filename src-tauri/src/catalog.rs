@@ -213,19 +213,21 @@ pub async fn mysql_table_detail(
 
     // インデックス (カラムを1行にまとめる)。
     // EXPRESSION列は関数(式)インデックスの式 (MySQL 8.0.13+)。
-    // 古いサーバーには存在しないため、失敗したらEXPRESSIONなしで再取得する
+    // 古いサーバーには存在しないため、失敗したらEXPRESSIONなしで再取得する。
+    // 並び順は主キー(PRIMARY)を先頭に固定し、残りはインデックス名順。
+    // 各インデックス内のカラムはSEQ_IN_INDEX順 (複合インデックスの定義順)
     let sql_expr = "SELECT INDEX_NAME, CAST(NON_UNIQUE AS SIGNED) AS NON_UNIQUE, \
                     COLUMN_NAME, EXPRESSION, INDEX_TYPE, \
                     CAST(CARDINALITY AS SIGNED) AS CARDINALITY \
              FROM information_schema.STATISTICS \
              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? \
-             ORDER BY INDEX_NAME, SEQ_IN_INDEX";
+             ORDER BY (INDEX_NAME = 'PRIMARY') DESC, INDEX_NAME, SEQ_IN_INDEX";
     let sql_plain = "SELECT INDEX_NAME, CAST(NON_UNIQUE AS SIGNED) AS NON_UNIQUE, \
                     COLUMN_NAME, INDEX_TYPE, \
                     CAST(CARDINALITY AS SIGNED) AS CARDINALITY \
              FROM information_schema.STATISTICS \
              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? \
-             ORDER BY INDEX_NAME, SEQ_IN_INDEX";
+             ORDER BY (INDEX_NAME = 'PRIMARY') DESC, INDEX_NAME, SEQ_IN_INDEX";
     ctx.log(&bind2(sql_expr, schema, table));
     let (rows, has_expression) = match timeout(
         QUERY_TIMEOUT,
@@ -555,7 +557,7 @@ pub async fn pg_table_detail(
         });
     }
 
-    // インデックス
+    // インデックス (主キーを先頭に固定し、残りはインデックス名順)
     let sql = "SELECT i.relname AS name, ix.indisunique AS unique_flag, \
                     am.amname AS index_type, \
                     pg_get_indexdef(ix.indexrelid) AS definition \
@@ -565,7 +567,7 @@ pub async fn pg_table_detail(
              JOIN pg_namespace n ON n.oid = t.relnamespace \
              LEFT JOIN pg_am am ON am.oid = i.relam \
              WHERE n.nspname = $1 AND t.relname = $2 \
-             ORDER BY i.relname";
+             ORDER BY ix.indisprimary DESC, i.relname";
     ctx.log(&bind2_pg(sql, schema, table));
     let rows = timeout(
         QUERY_TIMEOUT,

@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { openEr, openSchema } from "../api";
 import { badgeStyle } from "../colors";
 import { useResizableWidth } from "../hooks/useResizableWidth";
-import type { TableInfo, WorkTab } from "../types";
+import { tableKey } from "../tableSql";
+import type { TableInfo, TableTab, WorkTab } from "../types";
 import { QueryPanel } from "./QueryPanel";
 import { SelectMenu } from "./SelectMenu";
-import { StructureView } from "./StructureView";
+import { TableView } from "./TableView";
 import { ExportDialog, ImportDialog } from "./TransferDialog";
 
 interface Props {
@@ -30,6 +31,18 @@ interface Props {
     orderBy: string | null,
     orderDir: "asc" | "desc"
   ) => void;
+  /** 定義 / データ タブの切替 */
+  onChangeTableTab: (view: TableTab) => void;
+  /** データタブの絞り込み条件の変更 */
+  onChangeWhere: (where: string) => void;
+  /** 絞り込みを適用して先頭ページから取得し直す */
+  onApplyWhere: () => void;
+  /** 表示中のページを取得し直す */
+  onReloadData: () => void;
+  /** データタブのページ送り */
+  onPageData: (offset: number) => void;
+  /** データタブのソート変更 */
+  onSortData: (orderBy: string | null, orderDir: "asc" | "desc") => void;
 }
 
 function typeLabel(t: string): { label: string; cls: string } {
@@ -37,10 +50,6 @@ function typeLabel(t: string): { label: string; cls: string } {
   if (t === "MATERIALIZED VIEW") return { label: "MV", cls: "view" };
   if (t === "FOREIGN TABLE") return { label: "F", cls: "view" };
   return { label: "T", cls: "table" };
-}
-
-function tableKey(t: TableInfo): string {
-  return `${t.schema ?? ""}.${t.name}`;
 }
 
 /** 接続済みタブの中身: 上部DBセレクタ + 左テーブル一覧 + コンテンツ領域 */
@@ -54,6 +63,12 @@ export function SessionView({
   onCancelQuery,
   onPageQuery,
   onSortQuery,
+  onChangeTableTab,
+  onChangeWhere,
+  onApplyWhere,
+  onReloadData,
+  onPageData,
+  onSortData,
 }: Props) {
   const [filter, setFilter] = useState("");
   const [paneWidth, startResize] = useResizableWidth(260, 170, 520);
@@ -356,6 +371,7 @@ export function SessionView({
               running={tab.runningQuery}
               runStartedAt={tab.runStartedAt}
               explainKind={tab.queryExplain}
+              columnTips={tab.columnTips}
               onChangeSql={onChangeSql}
               onRun={onRunQuery}
               onCancel={onCancelQuery}
@@ -363,10 +379,21 @@ export function SessionView({
               onServerSort={onSortQuery}
             />
           ) : selected ? (
-            <StructureView
+            <TableView
               table={selected}
+              view={tab.tableTab}
+              onChangeView={onChangeTableTab}
               detail={tab.tableDetail}
-              loading={tab.loadingDetail}
+              loadingDetail={tab.loadingDetail}
+              data={tab.tableData}
+              loadingData={tab.loadingData}
+              dataError={tab.dataError}
+              where={tab.dataWhere}
+              onChangeWhere={onChangeWhere}
+              onApplyWhere={onApplyWhere}
+              onReloadData={onReloadData}
+              onPageData={onPageData}
+              onSortData={onSortData}
             />
           ) : (
             <div className="content-placeholder dim-center">

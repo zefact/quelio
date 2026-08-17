@@ -157,6 +157,9 @@ export interface TestResult {
   elapsedMs: number;
 }
 
+/** テーブル選択時の表示タブ (定義 / データ) */
+export type TableTab = "definition" | "data";
+
 /** 1タブの状態。未接続なら接続選択画面、接続後はDBブラウザになる */
 export interface WorkTab {
   /** タブ固有キー (バックエンドのセッションIDと同一) */
@@ -173,6 +176,18 @@ export interface WorkTab {
   selectedTable: string | null;
   tableDetail: TableDetail | null;
   loadingDetail: boolean;
+  /** テーブル画面で表示中のタブ (定義 / データ)。テーブルを切り替えても維持する */
+  tableTab: TableTab;
+  /** データタブの1ページぶんの結果 */
+  tableData: QueryResult | null;
+  loadingData: boolean;
+  dataError: string | null;
+  /** データタブの絞り込み条件 (WHERE句) */
+  dataWhere: string;
+  /** SQL結果ヘッダ用のカラム説明 (カラム名(小文字) → 論理名・補足・型) */
+  columnTips: Record<string, string>;
+  /** columnTipsを読み込み済みのDB名 (未読込はnull) */
+  columnTipsDb: string | null;
   /** 接続後の右ペイン表示 (構造 or SQLエディタ) */
   view: "structure" | "query";
   sql: string;
@@ -205,6 +220,13 @@ export function emptyTab(key: string): WorkTab {
     selectedTable: null,
     tableDetail: null,
     loadingDetail: false,
+    tableTab: "definition",
+    tableData: null,
+    loadingData: false,
+    dataError: null,
+    dataWhere: "",
+    columnTips: {},
+    columnTipsDb: null,
     view: "structure",
     sql: "",
     queryResults: null,

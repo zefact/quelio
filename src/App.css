@@ -3248,8 +3248,9 @@ html[data-theme="light"] .result-banner.ng {
   min-width: 220px;
 }
 
+/* メニューの選択中項目 (DB選択メニューなどと同じ「通常色 + 太字」に揃える) */
 .context-item.checked {
-  color: var(--accent-2, #a5b4fc);
+  color: var(--text);
   font-weight: 700;
 }
 
@@ -3419,7 +3420,8 @@ html[data-theme="light"] .result-banner.ng {
   line-height: 1.6;
   letter-spacing: normal;
   text-transform: none;
-  white-space: normal;
+  /* 論理名 / 補足 / 型を改行で分けて表示するため、改行はそのまま活かす */
+  white-space: pre-line;
   pointer-events: none;
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
   animation: tip-in 0.12s ease 0.3s both;
@@ -3677,6 +3679,20 @@ html[data-theme="light"] .result-banner.ng {
   color: var(--text-faint);
   font-size: 11.5px;
   user-select: none;
+}
+
+/* 行番号列: データの値と見間違えないよう、
+   SQLエディタの行番号と同じ「余白(ガター)」の見た目にする */
+.grid td.rownum-cell {
+  background: rgba(var(--ink), 0.04);
+  border-right: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+.grid th.rownum-cell {
+  border-right: 1px solid var(--border);
+  /* ソート対象外の列なのでクリックしても反応しないことを示す */
+  cursor: default;
 }
 
 .rownum-switch {
@@ -4771,6 +4787,115 @@ html[data-theme="light"] .brand-name {
   min-width: 0;
 }
 
+/* ============ テーブル表示 (定義 / データ タブ) ============ */
+
+.table-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 「定義 / データ」タブ (アプリ上部のタブバーと同じ、はっきりしたタブ表示) */
+.table-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  margin-top: 2px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.table-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 20px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.table-tab:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.04);
+}
+
+.table-tab.active {
+  color: var(--text);
+  background: var(--bg-card);
+  border-color: var(--border);
+  position: relative;
+}
+
+/* アクティブタブの下端をアクセント色で強調する */
+.table-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: 2px;
+}
+
+/* 定義タブは中身に応じてスクロール、データタブは高さいっぱいに広げる */
+.table-view-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 14px;
+}
+
+.table-view-body.fill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.table-data {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.table-data-actions {
+  padding-top: 0;
+}
+
+/* 絞り込み入力 (filter-inputの下マージンを打ち消して1行に並べる) */
+.table-where {
+  flex: 1;
+  min-width: 160px;
+  max-width: 520px;
+  margin-bottom: 0;
+}
+
+.table-data-grid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* スクロールはgrid-wrap側で行い、ヘッダのsticky固定を効かせる */
+  overflow: hidden;
+}
+
+.table-data-grid .grid-wrap {
+  max-height: 100%;
+  overflow: auto;
+}
+
 .structure-loading {
   display: flex;
   align-items: center;
@@ -4906,10 +5031,45 @@ html[data-theme="light"] .brand-name {
   box-shadow: inset 0 0 0 100px rgba(var(--ink), 0.08);
 }
 
+/* 並び替え中の列に出す方向マーク (見落とさないよう大きめ・アクセント色) */
 .sort-arrow {
-  margin-left: 5px;
-  font-size: 8px;
-  color: var(--accent-2);
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  vertical-align: middle;
+}
+
+/* ヘッダクリックで開くソートメニュー */
+.grid-sort-menu {
+  min-width: 230px;
+}
+
+/* 行の右クリックメニュー */
+.grid-row-menu {
+  min-width: 200px;
+}
+
+/* 対象行数の見出しはカラム名ではないので等幅にしない */
+.grid-row-menu .grid-sort-head {
+  font-family: inherit;
+}
+
+.grid-sort-head {
+  padding: 4px 12px 6px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .col-resizer {
@@ -4964,6 +5124,56 @@ html[data-theme="light"] .brand-name {
 
 .grid tbody tr:hover td {
   background: rgba(var(--ink), 0.03);
+}
+
+/* 選択中の行 (データ・SQL実行結果でクリック選択できるグリッド) */
+.grid tbody tr.selected td {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.grid tbody tr.selected:hover td {
+  background: rgba(99, 102, 241, 0.26);
+}
+
+.grid tbody tr.selected td.rownum-cell {
+  background: rgba(99, 102, 241, 0.32);
+  color: var(--text);
+}
+
+/* 行選択できるグリッドはフォーカス枠を出さない (キー操作の受け皿にしているだけ) */
+.grid-wrap.selectable:focus {
+  outline: none;
+}
+
+/* コピー結果などの一時表示 */
+.grid-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  z-index: 600;
+  padding: 8px 16px;
+  border-radius: 9px;
+  background: var(--menu-bg);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  pointer-events: none;
+  animation: grid-toast-in 0.12s ease;
+}
+
+/* 中央寄せのtranslateを保ったまま出すため、専用のキーフレームを使う */
+@keyframes grid-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .grid td.strong {
@@ -5321,6 +5531,15 @@ html[data-theme="light"] .brand-name {
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
+}
+
+/* 縦横スクロールバーの交差部分。既定では白い四角が出てしまうため透明にする */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {

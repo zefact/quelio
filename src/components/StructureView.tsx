@@ -1,18 +1,14 @@
-import { useEffect, useState } from "react";
-import { getAppSettings } from "../api";
 import { parseComment } from "../comment";
-import type { AppSettings, TableDetail, TableInfo } from "../types";
+import type { TableDetail } from "../types";
 import { GridColumn, ResizableGrid } from "./ResizableGrid";
 
 interface Props {
-  table: TableInfo;
   detail: TableDetail | null;
   loading: boolean;
-}
-
-function typeChip(t: string): string {
-  if (t.includes("VIEW")) return "view";
-  return "table";
+  /** コメントを論理名+補足に分けて表示するか (設定) */
+  split: boolean;
+  /** 論理名と補足の区切り文字 (設定) */
+  delim: string;
 }
 
 /** "varchar(100)" → 型: varchar / サイズ: 100 に分離する */
@@ -22,9 +18,23 @@ function splitType(colType: string): { base: string; size: string } {
   return { base: `${m[1]}${m[3] ?? ""}`.trim(), size: m[2] };
 }
 
+/** 行番号列 (データの値と区別できるようガター表示にする) */
+function rowNumCol(description: string): GridColumn {
+  return {
+    id: "no",
+    label: "No",
+    width: 52,
+    minWidth: 44,
+    align: "right",
+    cellClass: "rownum-cell",
+    description,
+  };
+}
+
 /** カラムグリッドの列定義 (コメント表示モードで変わる) */
 function columnCols(split: boolean): GridColumn[] {
   return [
+    rowNumCol("カラムの定義順 (行番号)"),
     { id: "name", label: "フィールド", width: 190, minWidth: 90 },
     ...(split
       ? [{ id: "logical", label: "論理名", width: 160, minWidth: 80 }]
@@ -43,6 +53,7 @@ function columnCols(split: boolean): GridColumn[] {
 }
 
 const INDEX_COLS: GridColumn[] = [
+  rowNumCol("インデックスの通し番号 (行番号)"),
   { id: "name", label: "名前", width: 180, minWidth: 80 },
   { id: "unique", label: "ユニーク", width: 70, minWidth: 56, align: "center" },
   { id: "columns", label: "カラム", width: 280, minWidth: 100, wrap: true },
@@ -51,39 +62,9 @@ const INDEX_COLS: GridColumn[] = [
 ];
 
 /** 選択テーブルの構造表示 (カラム / インデックス / テーブル情報) */
-export function StructureView({ table, detail, loading }: Props) {
-  const [settings, setSettings] = useState<AppSettings | null>(null);
-
-  // 設定 (表示モード・区切り文字) はテーブル切替のたびに読み直す
-  useEffect(() => {
-    getAppSettings().then(setSettings).catch(() => {});
-  }, [table]);
-
-  const split = settings?.structureCommentMode === "split";
-  const delim = settings?.commentDelimiter ?? "（";
-
-  /** テーブルコメントの論理名 (split時に英字テーブル名の横へ出す) */
-  const tableComment =
-    detail?.info.find(([label]) => label === "コメント")?.[1] ?? "";
-  const tableLogical = split ? parseComment(tableComment, delim)[0] : "";
-
+export function StructureView({ detail, loading, split, delim }: Props) {
   return (
     <div className="structure">
-      <div className="content-table-head">
-        <span className={`type-chip ${typeChip(table.tableType)}`}>
-          {table.tableType}
-        </span>
-        <h2 className="mono">
-          {table.schema ? `${table.schema}.` : ""}
-          {table.name}
-        </h2>
-        {tableLogical && (
-          <span className="table-logical" title={tableComment}>
-            {tableLogical}
-          </span>
-        )}
-      </div>
-
       {loading ? (
         <div className="structure-loading">
           <span className="spinner accent" /> 構造を読み込み中...
@@ -107,12 +88,13 @@ export function StructureView({ table, detail, loading }: Props) {
           <ResizableGrid
             autoFit
             columns={columnCols(split)}
-            rows={detail.columns.map((c) => {
+            rows={detail.columns.map((c, i) => {
               const { base, size } = splitType(c.colType);
               const [logical, note] = parseComment(c.comment ?? "", delim);
               return {
                 key: c.name,
                 cells: [
+                  <span className="mono row-num">{i + 1}</span>,
                   <span className="mono strong" title={c.name}>
                     {c.name}
                   </span>,
@@ -163,9 +145,10 @@ export function StructureView({ table, detail, loading }: Props) {
             autoFit
             columns={INDEX_COLS}
             emptyText="インデックスがありません"
-            rows={detail.indexes.map((ix) => ({
+            rows={detail.indexes.map((ix, i) => ({
               key: ix.name,
               cells: [
+                <span className="mono row-num">{i + 1}</span>,
                 <span className="mono strong" title={ix.name}>
                   {ix.name}
                 </span>,

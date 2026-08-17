@@ -7,6 +7,7 @@ import {
   saveSqlParams,
   connectSession,
   createFolder,
+  getAppSettings,
   deleteConnection,
   deleteFolder,
   disconnectSession,
@@ -35,6 +36,8 @@ import {
   substituteParams,
 } from "./sqlParams";
 import type { ParamKind, ParamValue } from "./sqlParams";
+import { buildSchemaTips } from "./columnTips";
+import { buildTableSelect, tableKey } from "./tableSql";
 import type {
   ConnectionProfile,
   ConnectionStore,
@@ -42,6 +45,7 @@ import type {
   LayoutEntry,
   SchemaEntry,
   TableInfo,
+  TableTab,
   WorkTab,
 } from "./types";
 import { emptyProfile, emptyTab } from "./types";
@@ -269,6 +273,9 @@ function App() {
       loadingTables: true,
       selectedTable: null,
       tableDetail: null,
+      // カラム説明はDB単位のため作り直す
+      columnTips: {},
+      columnTipsDb: null,
       error: null,
     });
     try {
@@ -279,23 +286,109 @@ function App() {
     }
   };
 
-  /** テーブル選択 → 構造を読み込む */
+  /** テーブル選択 → 構造を読み込む (データタブを開いていればデータも取得する) */
   const handleSelectTable = async (key: string, t: TableInfo) => {
     const tab = tabs.find((tb) => tb.key === key);
     if (!tab?.selectedDb) return;
     updateTab(key, {
-      selectedTable: `${t.schema ?? ""}.${t.name}`,
+      selectedTable: tableKey(t),
       tableDetail: null,
       loadingDetail: true,
+      // データは対象テーブルが変わるため破棄する (絞り込み条件も引き継がない)
+      tableData: null,
+      dataError: null,
+      dataWhere: "",
       view: "structure",
       error: null,
     });
+    if (tab.tableTab === "data") {
+      loadTableData(key, t, "", 0);
+    }
     try {
       const detail = await tableDetail(key, tab.selectedDb, t.schema, t.name);
       updateTab(key, { tableDetail: detail, loadingDetail: false });
     } catch (e) {
       updateTab(key, { loadingDetail: false, error: String(e) });
     }
+  };
+
+  // ---------- データタブ ----------
+
+  /** 選択中のテーブル情報を取り出す */
+  const currentTable = (key: string): TableInfo | null => {
+    const tab = tabs.find((t) => t.key === key);
+    if (!tab) return null;
+    return tab.tables.find((t) => tableKey(t) === tab.selectedTable) ?? null;
+  };
+
+  /** テーブルのデータを1ページぶん取得する (SQL実行と同じページング機構を使う) */
+  const loadTableData = async (
+    key: string,
+    table: TableInfo,
+    where: string,
+    offset: number,
+    orderBy?: string,
+    orderDir?: string
+  ) => {
+    const tab = tabs.find((t) => t.key === key);
+    if (!tab?.selectedDb) return;
+    updateTab(key, { loadingData: true, dataError: null });
+    try {
+      const out = await runQuery(
+        key,
+        tab.selectedDb,
+        buildTableSelect(tab.profile.dbType, table, where),
+        offset,
+        orderBy,
+        orderDir
+      );
+      const first = out.statements[0];
+      if (out.error || !first) {
+        updateTab(key, {
+          loadingData: false,
+          dataError: out.error ?? "データを取得できませんでした",
+        });
+        return;
+      }
+      updateTab(key, {
+        tableData: first.result,
+        loadingData: false,
+        dataError: null,
+      });
+    } catch (e) {
+      updateTab(key, { loadingData: false, dataError: String(e) });
+    }
+  };
+
+  /** 定義 / データ タブの切替 (データは初めて開いたときに取得する) */
+  const handleChangeTableTab = (key: string, view: TableTab) => {
+    const tab = tabs.find((t) => t.key === key);
+    updateTab(key, { tableTab: view });
+    if (view !== "data" || !tab || tab.tableData || tab.loadingData) return;
+    const table = currentTable(key);
+    if (table) loadTableData(key, table, tab.dataWhere, 0);
+  };
+
+  /** データタブの再取得 (offsetとソートの扱いを呼び出し元で指定する) */
+  const reloadTableData = (
+    key: string,
+    offset: number | "keep",
+    order?: { by: string | null; dir: "asc" | "desc" }
+  ) => {
+    const tab = tabs.find((t) => t.key === key);
+    const table = currentTable(key);
+    if (!tab || !table) return;
+    const cur = tab.tableData;
+    const by = order ? (order.by ?? undefined) : cur?.orderBy;
+    const dir = order ? order.dir : cur?.orderDir;
+    return loadTableData(
+      key,
+      table,
+      tab.dataWhere,
+      offset === "keep" ? (cur?.offset ?? 0) : offset,
+      by,
+      dir
+    );
   };
 
   /** SQLを実行する (sqlOverrideは選択実行用、offsetはページング用、transactionでBEGIN〜COMMIT/ROLLBACKに包む) */
@@ -411,6 +504,8 @@ function App() {
         queryError: out.error ?? null,
         runningQuery: false,
       });
+      // ヘッダのツールチップ用にカラム説明を用意しておく (失敗しても実行結果には影響しない)
+      if (tab.selectedDb) ensureColumnTips(key, tab.selectedDb);
     } catch (e) {
       updateTab(key, {
         queryResults: null,
@@ -418,6 +513,26 @@ function App() {
         runningQuery: false,
       });
     }
+  };
+
+  /**
+   * SQL結果のヘッダに出すカラム説明 (論理名・補足) を読み込む。
+   * DB全体のスキーマが要るため、SQLを実行した時点で1回だけ取得する
+   */
+  const ensureColumnTips = async (key: string, db: string) => {
+    const tab = tabs.find((t) => t.key === key);
+    if (!tab || tab.columnTipsDb === db) return;
+    const cacheKey = `${key}:${db}`;
+    let entries = schemaCache.current.get(cacheKey);
+    if (!entries) {
+      entries = await schemaSnapshot(key, db).catch(() => [] as SchemaEntry[]);
+      schemaCache.current.set(cacheKey, entries);
+    }
+    const settings = await getAppSettings().catch(() => null);
+    updateTab(key, {
+      columnTips: buildSchemaTips(entries, settings?.commentDelimiter ?? "（"),
+      columnTipsDb: db,
+    });
   };
 
   /** 実行中のSQLをキャンセルする */
@@ -565,6 +680,14 @@ function App() {
             }
             onSortQuery={(index, orderBy, orderDir) =>
               handleSortQuery(activeTab.key, index, orderBy, orderDir)
+            }
+            onChangeTableTab={(v) => handleChangeTableTab(activeTab.key, v)}
+            onChangeWhere={(w) => updateTab(activeTab.key, { dataWhere: w })}
+            onApplyWhere={() => reloadTableData(activeTab.key, 0)}
+            onReloadData={() => reloadTableData(activeTab.key, "keep")}
+            onPageData={(offset) => reloadTableData(activeTab.key, offset)}
+            onSortData={(orderBy, orderDir) =>
+              reloadTableData(activeTab.key, 0, { by: orderBy, dir: orderDir })
             }
           />
         ) : (

@@ -6,6 +6,8 @@ interface Props {
   text?: string;
   children: ReactNode;
   className?: string;
+  /** trueの間はツールチップを出さない (メニューを開いているときなど) */
+  disabled?: boolean;
 }
 
 const TIP_WIDTH = 340;
@@ -15,7 +17,7 @@ const TIP_WIDTH = 340;
  * ホバー時に位置を計算してbody直下にポータル表示するため、
  * スクロールコンテナにクリップされず、スクロール/リサイズ後も正しい位置に出る。
  */
-export function HoverTip({ text, children, className }: Props) {
+export function HoverTip({ text, children, className, disabled }: Props) {
   const ref = useRef<HTMLSpanElement>(null);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -42,6 +44,7 @@ export function HoverTip({ text, children, className }: Props) {
         {children}
       </span>
       {pos &&
+        !disabled &&
         createPortal(
           <div className="hover-tip" style={{ left: pos.x, top: pos.y }}>
             {text}
