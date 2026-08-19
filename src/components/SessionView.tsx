@@ -118,8 +118,8 @@ export function SessionView({
   const renameBusy = useRef(false);
   /** Escで抜けたときは、直後のフォーカスアウトで確定させない */
   const skipRenameBlur = useRef(false);
-  /** SQLエディタの入力補完に使うテーブル・カラム名 */
-  const [completionSchema, setCompletionSchema] = useState<SchemaMap>({});
+  /** テーブル・カラムの一覧 (入力補完と、一覧の日本語名表示に使う) */
+  const [schemaMap, setSchemaMap] = useState<SchemaMap>({});
   /** アプリ設定 (コメント区切り・入力補完) */
   const [settings, setSettings] = useState<AppSettings | null>(null);
   /** 削除の確認中のテーブル (nullなら確認していない) */
@@ -171,17 +171,25 @@ export function SessionView({
 
   const commentDelim = settings?.commentDelimiter ?? "（";
 
-  // 入力補完に使うテーブル・カラムは、DBが変わったときに取り直す
+  /** テーブルの日本語名 (テーブルコメントの論理名部分)。無ければ空 */
+  const logicalOf = (t: TableInfo): string => {
+    const qualified = t.schema ? `${t.schema}.${t.name}` : t.name;
+    return (
+      schemaMap[qualified]?.logical ?? schemaMap[t.name]?.logical ?? ""
+    );
+  };
+
+  // テーブル・カラムの一覧は、DBが変わったときに取り直す
   useEffect(() => {
     if (!selectedDb) {
-      setCompletionSchema({});
+      setSchemaMap({});
       return;
     }
     let alive = true;
     schemaColumns(tab.key, selectedDb)
       .then((list) => {
         if (!alive) return;
-        setCompletionSchema(
+        setSchemaMap(
           Object.fromEntries(
             list.map((t) => [
               t.name,
@@ -198,11 +206,12 @@ export function SessionView({
         );
       })
       // 補完は補助機能なので、取れなくても黙って諦める
-      .catch(() => alive && setCompletionSchema({}));
+      .catch(() => alive && setSchemaMap({}));
     return () => {
       alive = false;
     };
-  }, [tab.key, selectedDb, commentDelim]);
+    // テーブル一覧が更新されたとき (作成・改名・削除の後) も取り直す
+  }, [tab.key, selectedDb, commentDelim, tables]);
 
   // 右クリックメニューは外側クリック・リサイズで閉じる
   useEffect(() => {
@@ -690,6 +699,14 @@ export function SessionView({
                           )}
                           {t.name}
                         </span>
+                        {logicalOf(t) && (
+                          <span
+                            className="side-table-logical"
+                            title={logicalOf(t)}
+                          >
+                            {logicalOf(t)}
+                          </span>
+                        )}
                       </button>
                     </li>
                   );
@@ -719,7 +736,7 @@ export function SessionView({
               runStartedAt={tab.runStartedAt}
               explainKind={tab.queryExplain}
               columnTips={tab.columnTips}
-              schema={completionSchema}
+              schema={schemaMap}
               autocomplete={settings?.autocompleteEnabled ?? true}
               autocompleteDelayMs={settings?.autocompleteDelayMs ?? 100}
               onChangeSql={onChangeSql}

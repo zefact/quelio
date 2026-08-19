@@ -1,6 +1,6 @@
 # Quelio (クエリオ)
 
-MySQL / PostgreSQL 対応の無料デスクトップDBクライアント。
+MySQL / PostgreSQL / SQLite / Valkey 対応の無料デスクトップDBクライアント。
 macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です。
 
 **紹介ページ**: https://zefact.github.io/quelio/
@@ -13,15 +13,20 @@ macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です�
 
 ## 主な機能
 
-- MySQL / PostgreSQL への接続 (SSH踏み台トンネル対応・鍵認証)
+- MySQL / PostgreSQL / SQLite / Valkey への接続 (SSH踏み台トンネル対応・鍵認証)
 - 接続先のプロファイル管理 (フォルダ分け・並び替え・アイコン色)
 - タブ式セッション、テーブル構造表示 (カラム / インデックス / テーブル情報)
-- SQLエディタ (シンタックスハイライト・整形・複数SQL実行・1000行ページング・サーバーサイドソート)
+- カラムコメントから「論理名 (日本語名)」を取り出して表示
+- テーブル定義の編集 (カラム・インデックスの追加/変更/削除、テーブルの作成・改名・削除・日本語名)
+- データタブでの直接編集 (UPDATE / INSERT / DELETE。主キーのあるテーブルのみ)
+- SQLエディタ (シンタックスハイライト・入力補完・整形・複数SQL実行・1000行ページング・サーバーサイドソート)
 - EXPLAIN / EXPLAIN ANALYZE の実行計画ビュー (時間バー・ボトルネック強調)
-- 実行結果のキャプチャ保存 (SQL＋全行をPNG化)
+- 実行結果のキャプチャ保存 (SQL＋全行をPNG化)・クエリ結果のCSV出力
 - SQLコンソール (実行した全SQLの履歴)
 - スキーマ一覧・定義書CSV出力、スキーマ差分ビューア (2接続の比較)
+- ER図の自動生成 (リバース・手動編集・PNG出力)
 - テーブル選択式エクスポート / SQLファイルのインポート (mysqldump / pg_dump / mysql / psql 連携)
+- アプリ内アップデート (新しいバージョンの確認とインストール)
 
 ## インストール
 
@@ -35,11 +40,16 @@ macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です�
 Windowsで初回実行時にSmartScreenの警告が出た場合は「詳細情報」→「実行」を選択してください。
 
 エクスポート/インポート機能を使う場合は外部ツールが必要です (設定画面で自動検出されます)。
+SQLite・Valkeyは外部ツールなしで利用できます。
 
 ```bash
+# macOS の例
 brew install mysql-client   # mysqldump / mysql
 brew install libpq          # pg_dump / psql
 ```
+
+Windowsは MySQL / PostgreSQL の公式インストーラに含まれる同名のコマンドを使います。
+インストール先は設定画面から指定できます。
 
 ## セキュリティとプライバシー
 
@@ -53,7 +63,7 @@ brew install libpq          # pg_dump / psql
 | 内容 | パス |
 |---|---|
 | 接続プロファイル・設定 | `~/Library/Application Support/jp.co.zefact.quelio/` |
-| CSV / SQL / キャプチャ出力 | `~/Downloads` |
+| CSV / SQL / キャプチャ出力 | 設定 > 一般の「保存先フォルダ」。未指定ならOSのダウンロードフォルダ |
 
 ## 開発 (ソースからビルド)
 

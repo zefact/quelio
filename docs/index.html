@@ -728,18 +728,19 @@
                   <tr><td>10248</td><td>shipped</td><td>12,800</td></tr>
                 </table>
               </div>
-              <div class="mcap-note">✓ キャプチャ保存: 1件 → Downloads</div>
+              <div class="mcap-note">✓ キャプチャ保存: 1件 → 保存先フォルダ</div>
             </div>
           </div>
         </div>
         <div>
           <span class="deep-label">AUTO CAPTURE</span>
           <h3>クエリと結果を、実行と同時に自動キャプチャ</h3>
-          <p>スイッチをONにして実行するだけで、SQLと結果セットをまとめた画像がDownloadsに保存されます。スクショを撮って、切り抜いて、貼り付けて——はもう不要です。</p>
+          <p>スイッチをONにして実行するだけで、SQLと結果セットをまとめた画像がファイルとして保存されます。スクショを撮って、切り抜いて、貼り付けて——はもう不要です。</p>
           <ul>
             <li><b>エビデンスがそのまま完成</b> — 実行したSQL・結果・接続先・日時が1枚のPNGに。報告資料や作業記録にそのまま使えます。</li>
             <li><b>複数SQLもまとめて保存</b> — 文ごとの結果がそれぞれキャプチャされます。</li>
             <li><b>画面の写しではなくデータから描画</b> — 結果データから直接画像を生成するため、スクロールで隠れた行も欠けません。</li>
+            <li><b>保存先は自由</b> — 設定でフォルダを指定できます。指定しなければOSのダウンロードフォルダに保存されます。</li>
           </ul>
         </div>
       </div>
@@ -931,7 +932,7 @@
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.5l1.5-2h6l1.5 2H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.2"/></svg></div>
           <h3>結果の自動キャプチャ</h3>
-          <p>実行と同時にクエリ+結果セットをPNGとしてDownloadsに保存。エビデンス作成の手間をゼロにします。</p>
+          <p>実行と同時にクエリ+結果セットをPNGで保存。保存先フォルダは設定で指定でき、エビデンス作成の手間をゼロにします。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h9M4 9h6M4 15h9M4 19h6"/><path d="M16 5l3 3-3 3M19 15l-3 3 3 3" stroke-width="1.6"/></svg></div>
@@ -1020,6 +1021,13 @@
             <p>テーブルのデータタブは編集に対応しました。今後はSELECT結果のセルからも直接 UPDATE / INSERT / DELETE を発行できるようにします。</p>
           </div>
         </div>
+        <div class="rm-item">
+          <span class="rm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M17 11.5v-1a2 2 0 0 1 4 0v1"/><rect x="16" y="11.5" width="6" height="5" rx="1.2"/></svg></span>
+          <div>
+            <h3>ユーザー・権限管理</h3>
+            <p>接続先のユーザーとロールを一覧で確認し、作成・削除やパスワードの変更、テーブル単位の権限 (GRANT / REVOKE) を画面から操作できるようにします。</p>
+          </div>
+        </div>
       </div>
       <p class="rm-note">
         時期・内容は変更される場合があります。ご要望は
@@ -1040,7 +1048,7 @@
         </details>
         <details class="faq-item">
           <summary>クエリ結果のキャプチャはどこに保存されますか?</summary>
-          <div class="a">Downloadsフォルダに、実行したSQL・結果・接続先・日時を含むPNG画像として保存されます。キャプチャスイッチをONにして実行するだけで、文ごとに1枚ずつ自動保存されます。</div>
+          <div class="a">実行したSQL・結果・接続先・日時を含むPNG画像として保存されます。保存先は設定 &gt; 一般の「保存先フォルダ」で指定でき、指定がなければOSのダウンロードフォルダに保存されます (CSV出力やエクスポートも同じフォルダを使います)。キャプチャスイッチをONにして実行するだけで、文ごとに1枚ずつ自動保存されます。</div>
         </details>
         <details class="faq-item">
           <summary>カラムの論理名(日本語名)を表示するには?</summary>

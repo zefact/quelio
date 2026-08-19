@@ -15,8 +15,9 @@ copyrighted by its respective authors and distributed under its own license.
 | @lezer/highlight | MIT | https://github.com/lezer-parser/highlight |
 | sql-formatter | MIT | https://github.com/sql-formatter-org/sql-formatter |
 | @tauri-apps/api, plugin-dialog, plugin-opener | MIT / Apache-2.0 | https://github.com/tauri-apps/tauri |
-| Vite | MIT | https://github.com/vitejs/vite |
-| TypeScript | Apache-2.0 | https://github.com/microsoft/TypeScript |
+| @tauri-apps/plugin-updater, plugin-process | MIT / Apache-2.0 | https://github.com/tauri-apps/plugins-workspace |
+| Vite / @vitejs/plugin-react (開発時) | MIT | https://github.com/vitejs/vite |
+| TypeScript (開発時) | Apache-2.0 | https://github.com/microsoft/TypeScript |
 
 ## バックエンド (Rust crates)
 
@@ -33,7 +34,23 @@ copyrighted by its respective authors and distributed under its own license.
 | uuid | MIT / Apache-2.0 | https://github.com/uuid-rs/uuid |
 | rust_decimal | MIT | https://github.com/paupino/rust-decimal |
 | base64 | MIT / Apache-2.0 | https://github.com/marshallpierce/rust-base64 |
+| futures-util | MIT / Apache-2.0 | https://github.com/rust-lang/futures-rs |
+| redis | BSD-3-Clause | https://github.com/redis-rs/redis-rs |
+| rustls / tokio-rustls | MIT / Apache-2.0 / ISC | https://github.com/rustls/rustls |
+| ring | Apache-2.0 AND ISC | https://github.com/briansmith/ring |
+| webpki-roots | CDLA-Permissive-2.0 | https://github.com/rustls/webpki-roots |
+| libsqlite3-sys (SQLite本体を同梱) | MIT (SQLite本体はパブリックドメイン) | https://www.sqlite.org/copyright.html |
+| WebView (wry / tao) | MIT / Apache-2.0 | https://github.com/tauri-apps/wry |
 
 上記の直接依存のほか、それぞれが依存するライブラリ (推移的依存) も
-MIT / Apache-2.0 / BSD 等の寛容なライセンスで配布されています。
+MIT / Apache-2.0 / BSD / ISC などの寛容なライセンスで配布されています。
+一部にファイル単位のコピーレフトである MPL-2.0 のライブラリ
+(cssparser / selectors / dtoa-short / option-ext など)、
+および証明書データを含む CDLA-Permissive-2.0 のライブラリ (webpki-roots) が含まれますが、
+いずれも改変せずそのまま利用しており、本ソフトウェアのライセンス (MIT) には影響しません。
 各ライセンスの全文は上記URLのリポジトリに含まれています。
+
+なお Quelio は MySQL / PostgreSQL / SQLite / Valkey のクライアントライブラリとして
+sqlx・redis クレートを利用しており、各データベースのサーバー本体は同梱していません。
+エクスポート / インポート機能は、利用者の環境にインストールされた
+mysqldump / mysql / pg_dump / psql を呼び出して実行します (同梱はしていません)。

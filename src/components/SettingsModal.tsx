@@ -84,6 +84,15 @@ export function SettingsModal({ onClose, onImported }: Props) {
     return () => window.clearTimeout(timer.current);
   }, []);
 
+  // Escでも閉じられるようにする (☓を探さなくて済むように)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   /** 保存トーストの表示 (各ページから呼ばれる) */
   const notify = (msg: string) => {
     setToast(msg);

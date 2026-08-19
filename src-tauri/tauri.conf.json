@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Quelio",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "identifier": "jp.co.zefact.quelio",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -46,6 +46,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "publisher": "ZEFACT Co., Ltd.",
+    "homepage": "https://zefact.github.io/quelio/",
+    "category": "DeveloperTool",
+    "shortDescription": "デスクトップDBクライアント",
+    "longDescription": "MySQL / PostgreSQL / SQLite / Valkey に対応した無料のデスクトップDBクライアント。スキーマ比較・ER図・結果キャプチャ・日本語の論理名表示を備えています。",
+    "license": "MIT",
     "copyright": "© 2026 ZEFACT Co., Ltd.",
     "windows": {
       "nsis": {

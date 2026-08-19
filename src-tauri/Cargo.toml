@@ -1,7 +1,7 @@
 [package]
 name = "quelio"
-version = "0.5.0"
-description = "Quelio - MySQL / PostgreSQL クライアント"
+version = "0.5.1"
+description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
 repository = "https://github.com/zefact/quelio"

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Update } from "@tauri-apps/plugin-updater";
 import { getAppSettings, saveAppSettings } from "../api";
+import { isMac } from "../platform";
 import { ColorMode, getColorMode, setColorMode } from "../theme";
 import type { AppSettings } from "../types";
 import { checkForUpdate, installUpdate } from "../updater";
@@ -17,9 +18,13 @@ const COLOR_MODES: [ColorMode, string][] = [
   ["system", "システム"],
 ];
 
-/** 入力補完の操作キー (設定画面に出す一覧) */
+/**
+ * 入力補完の操作キー (設定画面に出す一覧)。
+ * 候補を出すキーは、macOSは⌃SpaceがIME切り替えに取られるため⌥Space、
+ * WindowsやLinuxは一般的なCtrl+Spaceを案内する
+ */
 const KEY_HINTS: [string[], string][] = [
-  [["⌥", "Space"], "候補を出す"],
+  [isMac ? ["⌥", "Space"] : ["Ctrl", "Space"], "候補を出す"],
   [["Tab"], "確定"],
   [["Enter"], "確定"],
   [["↑", "↓"], "選ぶ"],
