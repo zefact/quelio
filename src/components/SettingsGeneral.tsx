@@ -17,6 +17,15 @@ const COLOR_MODES: [ColorMode, string][] = [
   ["system", "システム"],
 ];
 
+/** 入力補完の操作キー (設定画面に出す一覧) */
+const KEY_HINTS: [string[], string][] = [
+  [["⌥", "Space"], "候補を出す"],
+  [["Tab"], "確定"],
+  [["Enter"], "確定"],
+  [["↑", "↓"], "選ぶ"],
+  [["Esc"], "閉じる"],
+];
+
 /** 区切り文字に対応する閉じ括弧 (例の表示用) */
 function closing(delim: string): string {
   return { "（": "）", "(": ")", "【": "】", "[": "]" }[delim] ?? "";
@@ -31,6 +40,8 @@ export function SettingsGeneral({ notify }: Props) {
     showRowNumbers: true,
     queryTimeoutSecs: 60,
     downloadDir: "",
+    autocompleteEnabled: true,
+    autocompleteDelayMs: 100,
   });
 
   useEffect(() => {
@@ -173,6 +184,72 @@ export function SettingsGeneral({ notify }: Props) {
               }}
             />
             <span>秒</span>
+          </div>
+        </SettingRow>
+      </section>
+
+      <section className="set-section">
+        <h3 className="set-section-title">SQLエディタ</h3>
+        <SettingRow
+          title="入力補完"
+          desc="SQLを書いている場所に合わせて、テーブル名・カラム名の候補を表示します。"
+        >
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={app.autocompleteEnabled}
+              onChange={(e) =>
+                saveApp({ ...app, autocompleteEnabled: e.target.checked })
+              }
+            />
+            <span className="track" aria-hidden />
+          </label>
+        </SettingRow>
+        <SettingRow
+          title="自動表示までの待ち時間"
+          desc="入力が止まってから候補を出すまでの時間です。0にすると自動では表示せず、ショートカットのときだけ出します。"
+        >
+          <div className="timeout-field">
+            <input
+              className="delim-input mono"
+              type="number"
+              min={0}
+              max={5000}
+              step={50}
+              disabled={!app.autocompleteEnabled}
+              value={app.autocompleteDelayMs}
+              onChange={(e) => {
+                const n = Number.parseInt(e.target.value, 10);
+                setApp({
+                  ...app,
+                  autocompleteDelayMs: Number.isNaN(n)
+                    ? 0
+                    : Math.min(Math.max(n, 0), 5000),
+                });
+              }}
+              onBlur={() => saveApp({ ...app })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveApp({ ...app });
+              }}
+            />
+            <span>ミリ秒</span>
+          </div>
+        </SettingRow>
+        <SettingRow
+          title="ショートカット"
+          desc="待ち時間が0でも、このキーで候補を出せます。"
+        >
+          <div className="key-hints">
+            {KEY_HINTS.map(([keys, label]) => (
+              <div className="key-hint" key={label}>
+                <span className="key-hint-keys">
+                  {keys.map((k) => (
+                    <kbd key={k}>{k}</kbd>
+                  ))}
+                </span>
+                <span className="key-hint-label">{label}</span>
+              </div>
+            ))}
           </div>
         </SettingRow>
       </section>

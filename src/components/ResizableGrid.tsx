@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { rowsToTsv, writeClipboard } from "../gridCopy";
 import { HoverTip } from "./HoverTip";
@@ -28,6 +28,8 @@ export type SortDir = "asc" | "desc" | null;
 export interface GridRow {
   key: string;
   cells: ReactNode[];
+  /** 行に追加するclass (編集中の行を目立たせる等) */
+  className?: string;
 }
 
 export interface SortState {
@@ -53,6 +55,21 @@ interface Props {
    * ⌘/Ctrl+Aで全選択、⌘/Ctrl+Cで選択行 (未選択なら全行) をコピー
    */
   selectable?: boolean;
+  /** セルのダブルクリック通知 (行単位のインライン編集を始めるのに使う) */
+  onCellDoubleClick?: (rowKey: string, columnId: string) => void;
+  /** 行の右クリック通知 (selectableのコピーメニューとは別に独自メニューを出す用) */
+  onRowContextMenu?: (rowKey: string, e: React.MouseEvent) => void;
+  /**
+   * 行(tr)に追加で付けるDOM属性を返す。
+   * ドラッグでの並べ替え (onDragOver/onDrop など) に使う。
+   * classNameは行のclassに足される
+   */
+  rowProps?: (
+    rowKey: string,
+    index: number
+  ) => React.HTMLAttributes<HTMLTableRowElement>;
+  /** trueなら行の並びが変わったときに、その場から滑らかに動かす */
+  animateRows?: boolean;
 }
 
 /** ソートメニューの選択肢 */
@@ -86,6 +103,10 @@ export function ResizableGrid({
   autoFit,
   fitKey,
   selectable,
+  onCellDoubleClick,
+  onRowContextMenu,
+  rowProps,
+  animateRows,
 }: Props) {
   /** 開いているソートメニュー (対象列と表示位置) */
   const [sortMenu, setSortMenu] = useState<{
@@ -124,6 +145,43 @@ export function ResizableGrid({
   const wrapRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const [containerW, setContainerW] = useState(0);
+
+  // 行の並びが変わったとき、旧位置から新位置へ滑らかに動かす (FLIP)。
+  // 「一度ずらしてから元に戻す」ことで、レイアウトはそのままに動きだけ付ける
+  const prevTops = useRef<Map<string, number>>(new Map());
+  const orderKey = rows.map((r) => r.key).join("\u0000");
+  useLayoutEffect(() => {
+    const table = tableRef.current;
+    if (!animateRows || !table) return;
+    const trs = Array.from(
+      table.querySelectorAll<HTMLTableRowElement>("tbody > tr[data-row-key]")
+    );
+    const next = new Map<string, number>();
+    const moves: [HTMLTableRowElement, number][] = [];
+    for (const tr of trs) {
+      const key = tr.dataset.rowKey;
+      if (!key) continue;
+      const top = tr.offsetTop;
+      next.set(key, top);
+      const prev = prevTops.current.get(key);
+      if (prev !== undefined && prev !== top) moves.push([tr, prev - top]);
+    }
+    prevTops.current = next;
+    if (moves.length === 0) return;
+
+    // まず旧位置へ戻してから、次のフレームで新位置へ動かす
+    for (const [tr, dy] of moves) {
+      tr.style.transition = "none";
+      tr.style.transform = `translateY(${dy}px)`;
+    }
+    const raf = requestAnimationFrame(() => {
+      for (const [tr] of moves) {
+        tr.style.transition = "transform 160ms cubic-bezier(0.2, 0, 0, 1)";
+        tr.style.transform = "";
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [orderKey, animateRows]);
 
   // コンテナ幅を監視 (ウィンドウリサイズやペイン幅変更に追従)
   useEffect(() => {
@@ -478,11 +536,22 @@ export function ResizableGrid({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, rowIdx) => (
+          {rows.map((r, rowIdx) => {
+            const extra = rowProps?.(r.key, rowIdx) ?? {};
+            return (
             <tr
               key={r.key}
               data-row-key={r.key}
-              className={selected.has(r.key) ? "selected" : undefined}
+              {...extra}
+              className={
+                [
+                  selected.has(r.key) ? "selected" : "",
+                  r.className,
+                  extra.className,
+                ]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
               // Shift+クリックはブラウザ標準の文字列選択が伸びてしまうため、
               // mousedownの既定動作を止める (フォーカスはクリック処理で移す)
               onMouseDown={
@@ -498,9 +567,11 @@ export function ResizableGrid({
                   : undefined
               }
               onContextMenu={
-                selectable
-                  ? (e) => handleRowContextMenu(e, r.key, rowIdx)
-                  : undefined
+                onRowContextMenu
+                  ? (e) => onRowContextMenu(r.key, e)
+                  : selectable
+                    ? (e) => handleRowContextMenu(e, r.key, rowIdx)
+                    : undefined
               }
             >
               {r.cells.map((cell, i) => {
@@ -509,13 +580,22 @@ export function ResizableGrid({
                   .filter(Boolean)
                   .join(" ");
                 return (
-                  <td key={c.id} className={cls}>
+                  <td
+                    key={c.id}
+                    className={cls}
+                    onDoubleClick={
+                      onCellDoubleClick
+                        ? () => onCellDoubleClick(r.key, c.id)
+                        : undefined
+                    }
+                  >
                     {cell}
                   </td>
                 );
               })}
             </tr>
-          ))}
+            );
+          })}
           {rows.length === 0 && emptyText && (
             <tr>
               <td colSpan={columns.length} className="faint">

@@ -21,6 +21,16 @@ pub struct AppSettings {
     /// 空文字ならOSのダウンロードフォルダを使う
     #[serde(default)]
     pub download_dir: String,
+    /// SQLエディタの入力補完を使うか
+    #[serde(default = "default_true")]
+    pub autocomplete_enabled: bool,
+    /// 入力補完が自動で開くまでの待ち時間 (ミリ秒)。0なら自動では開かない
+    #[serde(default = "default_autocomplete_delay_ms")]
+    pub autocomplete_delay_ms: u64,
+}
+
+fn default_autocomplete_delay_ms() -> u64 {
+    100
 }
 
 fn default_query_timeout_secs() -> u64 {
@@ -47,6 +57,8 @@ impl Default for AppSettings {
             show_row_numbers: true,
             query_timeout_secs: default_query_timeout_secs(),
             download_dir: String::new(),
+            autocomplete_enabled: true,
+            autocomplete_delay_ms: default_autocomplete_delay_ms(),
         }
     }
 }

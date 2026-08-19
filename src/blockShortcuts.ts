@@ -37,3 +37,31 @@ export function blockBrowserShortcuts(): void {
     { capture: true }
   );
 }
+
+/** 文字を選択・編集できる場所か (入力欄・SQLエディタなど) */
+function isTextArea(el: HTMLElement | null): boolean {
+  return !!el?.closest(
+    "input, textarea, select, [contenteditable='true'], .cm-editor"
+  );
+}
+
+/**
+ * 入力欄の外での Cmd/Ctrl+A (ページ全体の選択) を無効にする。
+ *
+ * WebViewだと画面全体が青く反転してデスクトップアプリらしくないため止める。
+ * ただし preventDefault だけに留めて伝播は止めないので、
+ * グリッドの「⌘Aで全行選択」などアプリ独自の処理はそのまま動く。
+ *
+ * リロード抑止と違い、開発中も同じ挙動で確認したいのでDEVでも有効にする
+ */
+export function blockSelectAll(): void {
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "a") return;
+      if (isTextArea(e.target as HTMLElement | null)) return;
+      e.preventDefault();
+    },
+    { capture: true }
+  );
+}

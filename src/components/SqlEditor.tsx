@@ -4,14 +4,23 @@ import {
   useImperativeHandle,
   useRef,
 } from "react";
+import {
+  acceptCompletion,
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+  completionStatus,
+  startCompletion,
+} from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { MySQL, PostgreSQL, SQLite, sql } from "@codemirror/lang-sql";
+import { MySQL, PostgreSQL, SQLite } from "@codemirror/lang-sql";
 import {
   HighlightStyle,
   indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language";
-import { Prec } from "@codemirror/state";
+import { Compartment, Prec } from "@codemirror/state";
 import {
   EditorView,
   highlightActiveLine,
@@ -19,9 +28,16 @@ import {
   keymap,
   lineNumbers,
   placeholder as cmPlaceholder,
+  tooltips,
 } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import type { DbType } from "../types";
+import { watchCompletionLayout } from "./completionLayout";
+import {
+  completionCells,
+  sqlCompletion,
+  type SchemaMap,
+} from "./sqlCompletion";
 
 /** 親から選択テキストを取得するためのハンドル */
 export interface SqlEditorHandle {
@@ -37,6 +53,59 @@ interface Props {
   onRun: () => void;
   onSelectionChange: (hasSelection: boolean) => void;
   onContextMenu: (x: number, y: number) => void;
+  /**
+   * 補完に使うテーブル・カラム名 ("テーブル名" → カラム名の配列)。
+   * 接続先から取得したものを渡す
+   */
+  schema?: SchemaMap;
+  /** 入力補完を使うか (設定) */
+  autocomplete?: boolean;
+  /** 入力補完が自動で開くまでの待ち時間 (ミリ秒)。0なら自動では開かない */
+  autocompleteDelayMs?: number;
+}
+
+/** 入力補完の拡張 (無効なら何も入れない) */
+function completionExt(
+  enabled: boolean,
+  delayMs: number,
+  getSchema: () => SchemaMap
+) {
+  if (!enabled) return [];
+  return autocompletion({
+    // 待ち時間が0のときは自動で開かず、⌥Spaceのときだけ出す
+    activateOnTyping: delayMs > 0,
+    activateOnTypingDelay: Math.max(delayMs, 1),
+    icons: false,
+    // ここを超えると一覧の下に「···」が出て、その先は続きを出す操作が要る。
+    // カラムもテーブルもたいていこの数に収まるので、めったに出ない
+    maxRenderedOptions: 200,
+    // 名前の右に「テーブル名 / 日本語名 / 型」の列を足す
+    addToOptions: completionCells,
+    // 候補はテーブル・カラムだけ (予約語は出さない)
+    override: [sqlCompletion(getSchema)],
+  });
+}
+
+/**
+ * 候補リストの置き場所。
+ * エディタ枠の中だと overflow: hidden で切れるのでbody直下に出す。
+ * アプリのレイアウト (flex) の影響を受けないよう、専用の箱を1つだけ作って使う
+ */
+function tooltipHost(): HTMLElement {
+  const id = "cm-tooltip-host";
+  const found = document.getElementById(id);
+  if (found) return found;
+  const host = document.createElement("div");
+  host.id = id;
+  document.body.appendChild(host);
+  // 候補が出るたびに列幅を揃える
+  watchCompletionLayout(host);
+  return host;
+}
+
+/** DB種別に対応するSQLの方言 */
+function dialectOf(dbType: DbType) {
+  return dbType === "mysql" ? MySQL : dbType === "sqlite" ? SQLite : PostgreSQL;
 }
 
 /* シンタックスハイライト (色はテーマ変数でライト/ダーク両対応) */
@@ -96,11 +165,27 @@ export const editorTheme = EditorView.theme({
 
 /** SQL専用エディタ (シンタックスハイライト・行番号つき) */
 export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
-  { value, dbType, placeholder, onChange, onRun, onSelectionChange, onContextMenu },
+  {
+    value,
+    dbType,
+    placeholder,
+    onChange,
+    onRun,
+    onSelectionChange,
+    onContextMenu,
+    schema,
+    autocomplete = true,
+    autocompleteDelayMs = 100,
+  },
   ref
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // 補完は候補を出すたびにrefを読むので、スキーマが変わっても作り直し不要
+  const schemaRef = useRef(schema);
+  schemaRef.current = schema;
+  /** 設定変更で入れ替えられるよう、補完の拡張は入れ替え可能にしておく */
+  const acRef = useRef(new Compartment());
   // コールバックはrefで持ち、エディタの再生成を避ける
   const cbRef = useRef({ onChange, onRun, onSelectionChange, onContextMenu });
   cbRef.current = { onChange, onRun, onSelectionChange, onContextMenu };
@@ -128,14 +213,17 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         highlightActiveLineGutter(),
         history(),
         indentUnit.of("  "),
-        sql({
-          dialect:
-            dbType === "mysql"
-              ? MySQL
-              : dbType === "sqlite"
-                ? SQLite
-                : PostgreSQL,
-        }),
+        // sql()ではなくlanguageだけ入れる。
+        // sql()は予約語の補完候補も一緒に登録してしまうため
+        dialectOf(dbType).language,
+        closeBrackets(),
+        // 候補はエディタの外に出す (枠内だと overflow: hidden で右側が切れる)
+        tooltips({ parent: tooltipHost() }),
+        acRef.current.of(
+          completionExt(autocomplete, autocompleteDelayMs, () =>
+            schemaRef.current ?? {}
+          )
+        ),
         syntaxHighlighting(highlight),
         editorTheme,
         cmPlaceholder(placeholder),
@@ -152,13 +240,37 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
             {
               key: "Tab",
               run: (v) => {
+                // 補完の候補が出ているときはTabで確定する
+                if (completionStatus(v.state) !== null) return acceptCompletion(v);
                 v.dispatch(v.state.replaceSelection("  "));
                 return true;
               },
             },
           ])
         ),
-        keymap.of([...defaultKeymap, ...historyKeymap]),
+        keymap.of([
+          ...closeBracketsKeymap,
+          ...completionKeymap,
+          ...defaultKeymap,
+          ...historyKeymap,
+        ]),
+        // 補完を手で開くキー。
+        // macOSは⌥+キーが別の文字(´やnbsp)になりキーマップで拾えないため、
+        // 物理キー(code)で判定する。⌃SpaceはOSのIME切り替えに取られるので⌥Spaceを使う
+        EditorView.domEventHandlers({
+          keydown(event, view) {
+            if (
+              event.code === "Space" &&
+              (event.altKey || event.ctrlKey) &&
+              !event.metaKey
+            ) {
+              event.preventDefault();
+              startCompletion(view);
+              return true;
+            }
+            return false;
+          },
+        }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) {
             cbRef.current.onChange(u.state.doc.toString());
@@ -185,6 +297,17 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     // dbType変更時のみ作り直す (valueは下のeffectで同期)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dbType]);
+
+  // 設定 (入力補完の有効・待ち時間) が変わったら、その拡張だけ入れ替える
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: acRef.current.reconfigure(
+        completionExt(autocomplete, autocompleteDelayMs, () =>
+          schemaRef.current ?? {}
+        )
+      ),
+    });
+  }, [autocomplete, autocompleteDelayMs]);
 
   // 外部からのvalue変更 (整形など) をエディタへ反映
   useEffect(() => {

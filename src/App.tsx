@@ -319,6 +319,25 @@ function App() {
     }
   };
 
+  /** 選択中テーブルの定義を取得し直す (カラム変更後などに使う) */
+  const reloadTableDetail = async (key: string) => {
+    const tab = tabs.find((t) => t.key === key);
+    const table = tab?.tables.find((t) => tableKey(t) === tab.selectedTable);
+    if (!tab?.selectedDb || !table) return;
+    updateTab(key, { loadingDetail: true, error: null });
+    try {
+      const detail = await tableDetail(
+        key,
+        tab.selectedDb,
+        table.schema,
+        table.name
+      );
+      updateTab(key, { tableDetail: detail, loadingDetail: false });
+    } catch (e) {
+      updateTab(key, { loadingDetail: false, error: String(e) });
+    }
+  };
+
   /** テーブル選択 → 構造を読み込む (データタブを開いていればデータも取得する) */
   const handleSelectTable = async (key: string, t: TableInfo) => {
     const tab = tabs.find((tb) => tb.key === key);
@@ -692,6 +711,10 @@ function App() {
             tab={activeTab}
             onSelectDb={(db) => loadTables(activeTab.key, db)}
             onReloadTables={() => reloadTables(activeTab.key)}
+            onReloadDetail={() => reloadTableDetail(activeTab.key)}
+            onSendToEditor={(sql) =>
+              updateTab(activeTab.key, { sql, view: "query" })
+            }
             onSelectTable={(t) => handleSelectTable(activeTab.key, t)}
             onToggleQuery={() =>
               updateTab(activeTab.key, {

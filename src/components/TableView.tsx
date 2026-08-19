@@ -1,19 +1,43 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { getAppSettings } from "../api";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  APP_SETTINGS_EVENT,
+  applyColumnDdl,
+  applyIndexDdl,
+  applyRowChange,
+  getAppSettings,
+  listCollations,
+  listColumnTypes,
+  setTableComment,
+} from "../api";
 import { buildColumnTips } from "../columnTips";
 import { parseComment } from "../comment";
 import type {
   AppSettings,
+  ColumnChange,
+  ColumnInfo,
+  DbType,
+  IndexChange,
   QueryResult,
+  RowChange,
   TableDetail,
   TableInfo,
   TableTab,
 } from "../types";
+import { joinComment } from "./columnDraft";
+import { DropColumnConfirm } from "./DropColumnConfirm";
 import { StructureView } from "./StructureView";
 import { TableDataView } from "./TableDataView";
 
 interface Props {
   table: TableInfo;
+  /** DDL (カラム変更) 用の接続情報 */
+  sessionId: string;
+  database?: string;
+  dbType: DbType;
+  /** 定義を取得し直す (DDL実行後) */
+  onReloadDetail: () => void;
+  /** 生成したSQLをSQLエディタへ送る */
+  onSendToEditor: (sql: string) => void;
   /** 表示中のタブ (定義 / データ) */
   view: TableTab;
   onChangeView: (view: TableTab) => void;
@@ -77,6 +101,11 @@ const TABS: [TableTab, string, () => ReactNode][] = [
 /** 選択テーブルの表示。ヘッダ + 「定義 / データ」タブの切り替えを担う */
 export function TableView({
   table,
+  sessionId,
+  database,
+  dbType,
+  onReloadDetail,
+  onSendToEditor,
   view,
   onChangeView,
   detail,
@@ -92,11 +121,78 @@ export function TableView({
   onSortData,
 }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  /** 削除の確認中カラム (削除は取り返しがつかないので確認を出す) */
+  const [dropping, setDropping] = useState<ColumnInfo | null>(null);
+  /** 型・照合順序の選択肢 (接続とDBが変わったら取り直す) */
+  const [types, setTypes] = useState<string[]>([]);
+  const [collations, setCollations] = useState<string[]>([]);
+  /** テーブルの日本語名 (コメント) を編集中の値。nullなら表示のみ */
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  /** Enterとフォーカスアウトで二重に実行しないためのガード */
+  const nameBusy = useRef(false);
+  /** Escで抜けた直後のフォーカスアウトでは確定させない */
+  const skipNameBlur = useRef(false);
 
-  // 設定 (表示モード・区切り文字・行番号) はテーブル切替のたびに読み直す
+  /** カラムの変更をそのまま実行する (失敗は呼び出し元へ投げ返す) */
+  const applyDdl = async (change: ColumnChange) => {
+    await applyColumnDdl(sessionId, database, table.schema, table.name, change);
+    onReloadDetail();
+  };
+
+  /** インデックスの変更をそのまま実行する */
+  const applyIndex = async (change: IndexChange) => {
+    await applyIndexDdl(sessionId, database, table.schema, table.name, change);
+    onReloadDetail();
+  };
+
+  /** データ1行の追加・更新・削除を実行し、一覧を取得し直す */
+  const applyRow = async (change: RowChange) => {
+    await applyRowChange(sessionId, database, table.schema, table.name, change);
+    onReloadData();
+  };
+
+  /** ビューとValkeyは定義を変更できない */
+  const canEdit =
+    dbType !== "valkey" && !table.tableType.toUpperCase().includes("VIEW");
+  /** SQLiteにはテーブルコメントの仕組みが無い */
+  const canName = canEdit && dbType !== "sqlite";
+
+  // 設定 (表示モード・区切り文字・行番号) はテーブル切替と、
+  // 設定モーダルでの変更のたびに読み直す
   useEffect(() => {
-    getAppSettings().then(setSettings).catch(() => {});
+    const load = () => {
+      getAppSettings().then(setSettings).catch(() => {});
+    };
+    load();
+    window.addEventListener(APP_SETTINGS_EVENT, load);
+    return () => window.removeEventListener(APP_SETTINGS_EVENT, load);
   }, [table]);
+
+  // 型・照合順序の選択肢はDB単位で決まるので、接続とDBが変わったときだけ取り直す
+  useEffect(() => {
+    if (dbType === "valkey") {
+      setTypes([]);
+      setCollations([]);
+      return;
+    }
+    let alive = true;
+    // SQLiteはDB名を持たないので空文字で呼ぶ (バックエンド側で無視する)
+    const db = database ?? "";
+    listColumnTypes(sessionId, db)
+      .then((v) => alive && setTypes(v))
+      .catch(() => alive && setTypes([]));
+    if (dbType === "sqlite") {
+      setCollations([]);
+    } else {
+      listCollations(sessionId, db)
+        .then((v) => alive && setCollations(v))
+        .catch(() => alive && setCollations([]));
+    }
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, database, dbType]);
 
   const split = settings?.structureCommentMode === "split";
   const delim = settings?.commentDelimiter ?? "（";
@@ -110,7 +206,52 @@ export function TableView({
   /** テーブルコメントの論理名 (split時に英字テーブル名の横へ出す) */
   const tableComment =
     detail?.info.find(([label]) => label === "コメント")?.[1] ?? "";
-  const tableLogical = split ? parseComment(tableComment, delim)[0] : "";
+  const [tableLogical, tableNote] = parseComment(tableComment, delim);
+  /** 見出しに出す日本語名 (分割表示なら論理名だけ、それ以外はコメント全体) */
+  const displayName = split ? tableLogical : tableComment;
+
+  /** 日本語名の編集を始める */
+  const startEditName = () => {
+    if (!canName) return;
+    setNameError(null);
+    setNameDraft(displayName);
+  };
+
+  /** 入力された日本語名をテーブルコメントとして保存する (確認は挟まない) */
+  const saveName = async () => {
+    if (nameBusy.current || nameDraft === null) return;
+    const next = nameDraft.trim();
+    if (next === displayName.trim()) {
+      setNameDraft(null);
+      setNameError(null);
+      return;
+    }
+    // 分割表示のときは補足を残したままにする
+    const comment = split ? joinComment(next, tableNote, delim) : next;
+    nameBusy.current = true;
+    setNameError(null);
+    try {
+      await setTableComment(
+        sessionId,
+        database,
+        table.schema,
+        table.name,
+        comment
+      );
+      setNameDraft(null);
+      onReloadDetail();
+    } catch (e) {
+      setNameError(String(e));
+    } finally {
+      nameBusy.current = false;
+    }
+  };
+
+  // テーブルを切り替えたら編集状態を解除する
+  useEffect(() => {
+    setNameDraft(null);
+    setNameError(null);
+  }, [table]);
 
   return (
     <div className="table-view">
@@ -122,11 +263,53 @@ export function TableView({
           {table.schema ? `${table.schema}.` : ""}
           {table.name}
         </h2>
-        {tableLogical && (
-          <span className="table-logical" title={tableComment}>
-            {tableLogical}
+        {nameDraft !== null ? (
+          <input
+            className="table-logical-input"
+            autoFocus
+            value={nameDraft}
+            placeholder="日本語名 (テーブルコメント)"
+            onChange={(e) => setNameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                saveName();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                skipNameBlur.current = true;
+                setNameDraft(null);
+                setNameError(null);
+              }
+            }}
+            // 別の場所をクリックしたときも確定する
+            // (エラー表示中は直してもらうため何もしない)
+            onBlur={() => {
+              if (skipNameBlur.current) {
+                skipNameBlur.current = false;
+                return;
+              }
+              if (nameError) return;
+              saveName();
+            }}
+          />
+        ) : displayName ? (
+          <span
+            className={"table-logical" + (canName ? " editable" : "")}
+            title={
+              canName ? `${tableComment}\n(ダブルクリックで変更)` : tableComment
+            }
+            onDoubleClick={startEditName}
+          >
+            {displayName}
           </span>
+        ) : (
+          canName && (
+            <button className="table-logical-add" onClick={startEditName}>
+              ＋ 日本語名
+            </button>
+          )
         )}
+        {nameError && <span className="table-logical-error">{nameError}</span>}
       </div>
 
       <div className="table-tabs" role="tablist">
@@ -151,6 +334,14 @@ export function TableView({
             loading={loadingDetail}
             split={split}
             delim={delim}
+            canEdit={canEdit}
+            dbType={dbType}
+            resetKey={`${table.schema ?? ""}.${table.name}`}
+            onApplyDdl={applyDdl}
+            onRequestDrop={setDropping}
+            onApplyIndexDdl={applyIndex}
+            types={types}
+            collations={collations}
           />
         ) : (
           <TableDataView
@@ -160,6 +351,9 @@ export function TableView({
             where={where}
             showRowNumbers={settings?.showRowNumbers ?? true}
             columnTips={columnTips}
+            tableColumns={detail?.columns ?? []}
+            canEdit={canEdit}
+            onApplyRow={applyRow}
             onChangeWhere={onChangeWhere}
             onApplyWhere={onApplyWhere}
             onReload={onReloadData}
@@ -168,6 +362,19 @@ export function TableView({
           />
         )}
       </div>
+
+      {dropping && (
+        <DropColumnConfirm
+          sessionId={sessionId}
+          database={database}
+          schema={table.schema}
+          table={table.name}
+          column={dropping}
+          onClose={() => setDropping(null)}
+          onApplied={onReloadDetail}
+          onSendToEditor={onSendToEditor}
+        />
+      )}
     </div>
   );
 }

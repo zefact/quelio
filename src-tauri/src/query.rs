@@ -59,6 +59,9 @@ pub struct PlannedQuery {
     /// サーバーサイドソート中のカラムと方向
     pub order_by: Option<String>,
     pub order_dir: Option<String>,
+    /// trueなら値の切り詰めも行数の打ち切りもしない。
+    /// EXPLAIN の実行計画は1セルに長い木が入るため、途中で切れると読めなくなる
+    pub full: bool,
 }
 
 /// SQLテキストをセミコロンで文単位に分割する。
@@ -251,6 +254,7 @@ pub fn plan(
             offset: 0,
             order_by: None,
             order_dir: None,
+            full: false,
         };
     }
 
@@ -267,6 +271,7 @@ pub fn plan(
                 offset,
                 order_by: Some(column.to_string()),
                 order_dir: Some(dir.to_ascii_lowercase()),
+                full: false,
             }
         }
         None => PlannedQuery {
@@ -276,6 +281,7 @@ pub fn plan(
             offset,
             order_by: None,
             order_dir: None,
+            full: false,
         },
     }
 }
@@ -309,6 +315,11 @@ fn mysql_cell(row: &MySqlRow, i: usize) -> Option<String> {
     mysql_cell_max(row, i, MAX_CELL_CHARS).map(|c| c.text)
 }
 
+/// 切り詰めない画面表示用のセル値 (EXPLAINの実行計画など)
+fn mysql_cell_all(row: &MySqlRow, i: usize) -> Option<String> {
+    mysql_cell_max(row, i, usize::MAX).map(|c| c.text)
+}
+
 /// CSV出力用のセル値 (切り詰めず、数値かどうかも返す)
 fn mysql_cell_full(row: &MySqlRow, i: usize) -> Option<CsvCell> {
     mysql_cell_max(row, i, usize::MAX)
@@ -338,6 +349,11 @@ fn mysql_cell_max(row: &MySqlRow, i: usize, max: usize) -> Option<CsvCell> {
 /// 画面表示用のセル値 (長すぎる値は切り詰める)
 fn pg_cell(row: &PgRow, i: usize) -> Option<String> {
     pg_cell_max(row, i, MAX_CELL_CHARS).map(|c| c.text)
+}
+
+/// 切り詰めない画面表示用のセル値 (EXPLAINの実行計画など)
+fn pg_cell_all(row: &PgRow, i: usize) -> Option<String> {
+    pg_cell_max(row, i, usize::MAX).map(|c| c.text)
 }
 
 /// CSV出力用のセル値 (切り詰めず、数値かどうかも返す)
@@ -371,6 +387,11 @@ fn pg_cell_max(row: &PgRow, i: usize, max: usize) -> Option<CsvCell> {
 /// 画面表示用のセル値 (長すぎる値は切り詰める)
 fn sqlite_cell(row: &SqliteRow, i: usize) -> Option<String> {
     sqlite_cell_max(row, i, MAX_CELL_CHARS).map(|c| c.text)
+}
+
+/// 切り詰めない画面表示用のセル値 (EXPLAINの実行計画など)
+fn sqlite_cell_all(row: &SqliteRow, i: usize) -> Option<String> {
+    sqlite_cell_max(row, i, usize::MAX).map(|c| c.text)
 }
 
 /// CSV出力用のセル値 (切り詰めず、数値かどうかも返す)
@@ -428,6 +449,7 @@ fn sqlite_cell_max(row: &SqliteRow, i: usize, max: usize) -> Option<CsvCell> {
 async fn fetch_page<R, S>(
     mut stream: S,
     cell: fn(&R, usize) -> Option<String>,
+    limit: usize,
 ) -> Result<(Vec<String>, Vec<Vec<Option<String>>>, bool), String>
 where
     R: Row,
@@ -440,7 +462,7 @@ where
         if columns.is_empty() {
             columns = row.columns().iter().map(|c| c.name().to_string()).collect();
         }
-        if rows.len() >= PAGE_SIZE {
+        if rows.len() >= limit {
             // 次のページがあることが分かれば十分なので、ここで読み取りをやめる
             has_more = true;
             break;
@@ -539,7 +561,8 @@ pub async fn run_mysql(
             query_timeout(timeout_secs),
             fetch_page(
                 sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch(&mut *conn),
-                mysql_cell,
+                if plan.full { mysql_cell_all } else { mysql_cell },
+                if plan.full { usize::MAX } else { PAGE_SIZE },
             ),
         )
         .await
@@ -589,7 +612,8 @@ pub async fn run_pg(
             query_timeout(timeout_secs),
             fetch_page(
                 sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch(&mut *conn),
-                pg_cell,
+                if plan.full { pg_cell_all } else { pg_cell },
+                if plan.full { usize::MAX } else { PAGE_SIZE },
             ),
         )
         .await
@@ -639,7 +663,8 @@ pub async fn run_sqlite(
             query_timeout(timeout_secs),
             fetch_page(
                 sqlx::raw_sql(sqlx::AssertSqlSafe(plan.sql.clone())).fetch(&mut *conn),
-                sqlite_cell,
+                if plan.full { sqlite_cell_all } else { sqlite_cell },
+                if plan.full { usize::MAX } else { PAGE_SIZE },
             ),
         )
         .await

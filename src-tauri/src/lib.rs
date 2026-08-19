@@ -5,6 +5,8 @@ mod commands;
 mod crypto;
 mod csv_job;
 mod db;
+mod ddl;
+mod dml;
 mod er_store;
 mod export;
 mod known_hosts;
@@ -155,6 +157,17 @@ pub fn run() {
             commands::kv_exec,
             commands::export_schema_csv,
             commands::export_query_csv,
+            commands::list_collations,
+            commands::schema_columns,
+            commands::list_column_types,
+            commands::create_table,
+            commands::rename_table,
+            commands::drop_table,
+            commands::set_table_comment,
+            commands::preview_column_ddl,
+            commands::apply_column_ddl,
+            commands::apply_index_ddl,
+            commands::apply_row_change,
             commands::csv_export_status,
             commands::cancel_csv_export,
             commands::export_connections,

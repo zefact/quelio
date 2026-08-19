@@ -10,6 +10,7 @@ import { captureResults } from "../capture";
 import { useResizableHeight } from "../hooks/useResizableHeight";
 import type { DbType, QueryResult, StatementResult } from "../types";
 import { QUERY_PAGE_SIZE } from "../types";
+import type { SchemaMap } from "./sqlCompletion";
 import { isPlanResult, planLines, PlanView } from "./PlanView";
 import { SqlLibraryMenu } from "./SqlLibraryMenu";
 import {
@@ -102,6 +103,12 @@ interface Props {
   explainKind: "explain" | "analyze" | null;
   /** カラム名 → 論理名・補足・型の説明 (ヘッダのツールチップ用) */
   columnTips: Record<string, string>;
+  /** 入力補完に使うテーブル・カラム名 */
+  schema?: SchemaMap;
+  /** 入力補完を使うか (設定) */
+  autocomplete?: boolean;
+  /** 入力補完が自動で開くまでの待ち時間 (ミリ秒) */
+  autocompleteDelayMs?: number;
   onChangeSql: (sql: string) => void;
   /** offset行目からの実行。sqlOverride指定時は選択実行、transactionでBEGIN〜COMMIT/ROLLBACKに包む */
   onRun: (
@@ -134,6 +141,9 @@ export function QueryPanel({
   runStartedAt,
   explainKind,
   columnTips,
+  schema,
+  autocomplete,
+  autocompleteDelayMs,
   onChangeSql,
   onRun,
   onCancel,
@@ -468,6 +478,9 @@ export function QueryPanel({
           onRun={runViaShortcut}
           onSelectionChange={setHasSelection}
           onContextMenu={(x, y) => setCtxMenu({ x, y })}
+          schema={schema}
+          autocomplete={autocomplete}
+          autocompleteDelayMs={autocompleteDelayMs}
         />
       </div>
 

@@ -82,6 +82,41 @@ export interface IndexInfo {
   columns: string;
   indexType?: string;
   cardinality?: number;
+  /** 主キー・UNIQUE制約に紐づくインデックス (画面からは変更できない) */
+  constrained: boolean;
+}
+
+/** インデックスの追加・変更で指定する内容 */
+export interface IndexSpec {
+  name: string;
+  unique: boolean;
+  /** 対象カラム (並び順どおり) */
+  columns: string[];
+  /** 種別 (空ならDBの既定。MySQL: BTREE/HASH/FULLTEXT/SPATIAL) */
+  indexType?: string;
+}
+
+/** インデックスに対する変更内容 (バックエンドでSQLに変換する) */
+export type IndexChange =
+  | { kind: "add"; index: IndexSpec }
+  | { kind: "drop"; name: string }
+  | { kind: "modify"; before: string; index: IndexSpec };
+
+/** SQLエディタの補完に使うカラム (名前と型) */
+export interface SchemaColumn {
+  name: string;
+  /** 表示用の型名 (取れない場合は空) */
+  dataType: string;
+  /** カラムコメント (日本語名の取り出しに使う。SQLiteは常に空) */
+  comment: string;
+}
+
+/** SQLエディタの補完に使うテーブル */
+export interface SchemaTable {
+  name: string;
+  /** テーブルコメント (日本語名の取り出しに使う。SQLiteは常に空) */
+  comment: string;
+  columns: SchemaColumn[];
 }
 
 export interface TableDetail {
@@ -170,6 +205,42 @@ export interface TestResult {
   serverVersion?: string;
   elapsedMs: number;
 }
+
+/** カラム変更 (DDL) で指定する、変更後 (または追加する) カラムの内容 */
+export interface ColumnSpec {
+  name: string;
+  /** 型 (例: varchar(100)) */
+  colType: string;
+  nullable: boolean;
+  /** デフォルト値の式 (空なら指定なし)。値はそのままSQLへ埋め込まれる */
+  default?: string;
+  /** カラムコメント (MySQL / PostgreSQLのみ) */
+  comment?: string;
+  /** 照合順序 (MySQL / PostgreSQLのみ。空ならDBの既定) */
+  collation?: string;
+  /** MySQLのみ: 位置。"FIRST" で先頭、カラム名ならその直後 */
+  after?: string;
+  /** MySQLのみ: AUTO_INCREMENT等の属性。変更時に引き継ぐために送る */
+  extra?: string;
+}
+
+/** カラムに対する変更内容 (バックエンドでSQLに変換する) */
+export type ColumnChange =
+  | { kind: "add"; column: ColumnSpec }
+  | { kind: "drop"; name: string }
+  | { kind: "modify"; before: ColumnSpec; column: ColumnSpec };
+
+/** データ編集で扱う1カラム分の値 (NULLはnull) */
+export interface RowCell {
+  column: string;
+  value: string | null;
+}
+
+/** データの1行に対する変更内容 (バックエンドでSQLに変換する) */
+export type RowChange =
+  | { kind: "update"; key: RowCell[]; set: RowCell[] }
+  | { kind: "insert"; values: RowCell[] }
+  | { kind: "delete"; key: RowCell[] };
 
 /** テーブル選択時の表示タブ (定義 / データ) */
 export type TableTab = "definition" | "data";
@@ -339,6 +410,10 @@ export interface AppSettings {
   /** 各種ファイル (キャプチャ・CSV・エクスポート等) の保存先フォルダ。
    * 空文字ならOSのダウンロードフォルダ */
   downloadDir: string;
+  /** SQLエディタの入力補完を使うか */
+  autocompleteEnabled: boolean;
+  /** 入力補完が自動で開くまでの待ち時間 (ミリ秒)。0なら自動では開かない */
+  autocompleteDelayMs: number;
 }
 
 /** SQL実行履歴の1件 */

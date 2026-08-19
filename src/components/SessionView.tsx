@@ -1,9 +1,21 @@
-import { useEffect, useMemo, useState } from "react";
-import { openEr, openSchema } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+  APP_SETTINGS_EVENT,
+  createTable,
+  getAppSettings,
+  openEr,
+  openSchema,
+  renameTable,
+  schemaColumns,
+} from "../api";
 import { badgeStyle, dbBadgeLabel } from "../colors";
+import { parseComment } from "../comment";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { tableKey } from "../tableSql";
-import type { TableInfo, TableTab, WorkTab } from "../types";
+import type { AppSettings, TableInfo, TableTab, WorkTab } from "../types";
+import type { SchemaMap } from "./sqlCompletion";
+import { DropTableConfirm } from "./DropTableConfirm";
 import { QueryPanel } from "./QueryPanel";
 import { SelectMenu } from "./SelectMenu";
 import { TableView } from "./TableView";
@@ -14,6 +26,10 @@ interface Props {
   onSelectDb: (db: string) => void;
   /** テーブル一覧の再読み込み (選択中のテーブルは維持する) */
   onReloadTables: () => Promise<void> | void;
+  /** 選択中テーブルの定義を取得し直す (DDL実行後) */
+  onReloadDetail: () => void;
+  /** 生成したSQLをSQLエディタへ送る */
+  onSendToEditor: (sql: string) => void;
   onSelectTable: (table: TableInfo) => void;
   onToggleQuery: () => void;
   onChangeSql: (sql: string) => void;
@@ -59,6 +75,8 @@ export function SessionView({
   tab,
   onSelectDb,
   onReloadTables,
+  onReloadDetail,
+  onSendToEditor,
   onSelectTable,
   onToggleQuery,
   onChangeSql,
@@ -81,6 +99,37 @@ export function SessionView({
   const [dialog, setDialog] = useState<"export" | "import" | null>(null);
   /** テーブル一覧の再読み込み中か (アイコンの回転表示用) */
   const [reloading, setReloading] = useState(false);
+  /** 新規テーブル名の入力中の値 (nullなら入力欄を出さない) */
+  const [newTable, setNewTable] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  /** 作成・改名直後に選択したいテーブル (一覧に現れたら選ぶ) */
+  const [pendingSelect, setPendingSelect] = useState<{
+    schema?: string;
+    name: string;
+  } | null>(null);
+  /** 名前を変更中のテーブル (キーと入力中の新しい名前) */
+  const [renaming, setRenaming] = useState<{
+    key: string;
+    value: string;
+  } | null>(null);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  /** 改名の二重実行防止 (Enterとフォーカスアウトが続けて起きるため) */
+  const renameBusy = useRef(false);
+  /** Escで抜けたときは、直後のフォーカスアウトで確定させない */
+  const skipRenameBlur = useRef(false);
+  /** SQLエディタの入力補完に使うテーブル・カラム名 */
+  const [completionSchema, setCompletionSchema] = useState<SchemaMap>({});
+  /** アプリ設定 (コメント区切り・入力補完) */
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  /** 削除の確認中のテーブル (nullなら確認していない) */
+  const [dropping, setDropping] = useState<TableInfo | null>(null);
+  /** テーブル項目の右クリックメニュー */
+  const [tableMenu, setTableMenu] = useState<{
+    x: number;
+    y: number;
+    table: TableInfo;
+  } | null>(null);
   const { profile, databases, selectedDb, tables, loadingTables } = tab;
 
   // DB切替やテーブル一覧の更新で複数選択をリセット
@@ -88,6 +137,84 @@ export function SessionView({
     setMultiSel(new Set());
     setAnchorIdx(null);
   }, [selectedDb, tables]);
+
+  // 作成したテーブルが一覧に現れたら選択して定義を表示する
+  useEffect(() => {
+    if (!pendingSelect) return;
+    const found = tables.find(
+      (t) =>
+        t.name === pendingSelect.name &&
+        (pendingSelect.schema === undefined || t.schema === pendingSelect.schema)
+    );
+    if (found) {
+      setPendingSelect(null);
+      setFilter("");
+      onSelectTable(found);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tables, pendingSelect]);
+
+  // 設定を読む。設定モーダルでの変更 (イベント) と、
+  // 別ウィンドウでの変更 (ウィンドウに戻ってきたとき) の両方で読み直す
+  useEffect(() => {
+    const load = () => {
+      getAppSettings().then(setSettings).catch(() => {});
+    };
+    load();
+    window.addEventListener(APP_SETTINGS_EVENT, load);
+    window.addEventListener("focus", load);
+    return () => {
+      window.removeEventListener(APP_SETTINGS_EVENT, load);
+      window.removeEventListener("focus", load);
+    };
+  }, []);
+
+  const commentDelim = settings?.commentDelimiter ?? "（";
+
+  // 入力補完に使うテーブル・カラムは、DBが変わったときに取り直す
+  useEffect(() => {
+    if (!selectedDb) {
+      setCompletionSchema({});
+      return;
+    }
+    let alive = true;
+    schemaColumns(tab.key, selectedDb)
+      .then((list) => {
+        if (!alive) return;
+        setCompletionSchema(
+          Object.fromEntries(
+            list.map((t) => [
+              t.name,
+              {
+                logical: parseComment(t.comment ?? "", commentDelim)[0],
+                columns: t.columns.map((c) => ({
+                  name: c.name,
+                  logical: parseComment(c.comment ?? "", commentDelim)[0],
+                  dataType: c.dataType,
+                })),
+              },
+            ])
+          )
+        );
+      })
+      // 補完は補助機能なので、取れなくても黙って諦める
+      .catch(() => alive && setCompletionSchema({}));
+    return () => {
+      alive = false;
+    };
+  }, [tab.key, selectedDb, commentDelim]);
+
+  // 右クリックメニューは外側クリック・リサイズで閉じる
+  useEffect(() => {
+    if (!tableMenu) return;
+    const close = () => setTableMenu(null);
+    document.addEventListener("mousedown", close);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [tableMenu]);
 
   const filteredTables = useMemo(
     () =>
@@ -149,6 +276,59 @@ export function SessionView({
       await onReloadTables();
     } finally {
       setReloading(false);
+    }
+  };
+
+  /** 入力されたテーブル名で雛形テーブルを作る (確認は挟まない) */
+  const handleCreateTable = async () => {
+    const raw = (newTable ?? "").trim();
+    if (!raw || creating || !selectedDb) return;
+    // PostgreSQLだけは "スキーマ.テーブル" の指定を受け付ける
+    let schema: string | undefined;
+    let name = raw;
+    if (profile.dbType === "postgresql" && raw.includes(".")) {
+      const i = raw.indexOf(".");
+      schema = raw.slice(0, i).trim();
+      name = raw.slice(i + 1).trim();
+    }
+    setCreating(true);
+    setCreateError(null);
+    try {
+      await createTable(tab.key, selectedDb, schema, name);
+      setNewTable(null);
+      setPendingSelect({ schema, name });
+      await onReloadTables();
+    } catch (e) {
+      setCreateError(String(e));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  /**
+   * 入力された名前でテーブル名を変更する (確認は挟まない)。
+   * Enterのほか、入力欄からフォーカスが外れたときにも確定する
+   */
+  const handleRenameTable = async (t: TableInfo) => {
+    if (renameBusy.current) return;
+    const next = (renaming?.value ?? "").trim();
+    // 空欄や変更なしのときは、そのまま編集を閉じるだけにする
+    if (!next || !selectedDb || next === t.name) {
+      setRenaming(null);
+      setRenameError(null);
+      return;
+    }
+    renameBusy.current = true;
+    setRenameError(null);
+    try {
+      await renameTable(tab.key, selectedDb, t.schema, t.name, next);
+      setRenaming(null);
+      setPendingSelect({ schema: t.schema, name: next });
+      await onReloadTables();
+    } catch (e) {
+      setRenameError(String(e));
+    } finally {
+      renameBusy.current = false;
     }
   };
 
@@ -333,6 +513,24 @@ export function SessionView({
                 />
               </svg>
             </button>
+            <button
+              className="pane-icon-btn has-tooltip tooltip-left"
+              data-tooltip="テーブルを新規作成 (主キーidのみの雛形を作ります)"
+              disabled={!selectedDb || loadingTables || creating}
+              onClick={() => {
+                setCreateError(null);
+                setNewTable("");
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M12 5v14M5 12h14"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
             <span className="toolbar-spacer" />
             {/* エクスポート/インポートは外部ツール(mysqldump等)を使うためSQLiteでは出さない */}
             {!isSqlite && (
@@ -362,6 +560,48 @@ export function SessionView({
               </>
             )}
           </div>
+          {newTable !== null && (
+            <div className="new-table-row">
+              <div className="new-table-input">
+                {creating ? (
+                  <span className="spinner accent" />
+                ) : (
+                  <span className="new-table-mark" aria-hidden>
+                    +
+                  </span>
+                )}
+                <input
+                  className="mono"
+                  autoFocus
+                  disabled={creating}
+                  value={newTable}
+                  placeholder={
+                    profile.dbType === "postgresql"
+                      ? "テーブル名 (schema.name も可)"
+                      : "テーブル名"
+                  }
+                  onChange={(e) => setNewTable(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleCreateTable();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setNewTable(null);
+                      setCreateError(null);
+                    }
+                  }}
+                />
+              </div>
+              {createError ? (
+                <p className="new-table-error">{createError}</p>
+              ) : (
+                <p className="new-table-hint">
+                  Enterで作成 / Escで取り消し
+                </p>
+              )}
+            </div>
+          )}
           {!selectedDb ? (
             <div className="table-pane-empty">上部からデータベースを選択</div>
           ) : loadingTables ? (
@@ -380,6 +620,50 @@ export function SessionView({
                 {filteredTables.map((t, idx) => {
                   const badge = typeLabel(t.tableType);
                   const key = tableKey(t);
+                  // 名前を変更中の行は、その場で入力欄に差し替える
+                  if (renaming?.key === key) {
+                    return (
+                      <li key={key}>
+                        <div className="rename-table-row">
+                          <span className={`type-chip mini ${badge.cls}`}>
+                            {badge.label}
+                          </span>
+                          <input
+                            className="mono"
+                            autoFocus
+                            value={renaming.value}
+                            onChange={(e) =>
+                              setRenaming({ key, value: e.target.value })
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleRenameTable(t);
+                              } else if (e.key === "Escape") {
+                                e.preventDefault();
+                                skipRenameBlur.current = true;
+                                setRenaming(null);
+                                setRenameError(null);
+                              }
+                            }}
+                            // 別の場所をクリックしたときも確定する
+                            // (失敗表示が出ているときは直してもらうため何もしない)
+                            onBlur={() => {
+                              if (skipRenameBlur.current) {
+                                skipRenameBlur.current = false;
+                                return;
+                              }
+                              if (renameError) return;
+                              handleRenameTable(t);
+                            }}
+                          />
+                        </div>
+                        {renameError && (
+                          <p className="new-table-error">{renameError}</p>
+                        )}
+                      </li>
+                    );
+                  }
                   return (
                     <li key={key}>
                       <button
@@ -389,6 +673,11 @@ export function SessionView({
                           (multiSel.has(key) ? " multi" : "")
                         }
                         onClick={(e) => handleTableClick(e, t, idx)}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setRenameError(null);
+                          setTableMenu({ x: e.clientX, y: e.clientY, table: t });
+                        }}
                         // MySQLはschemaが無いため、keyそのまま (".table名") ではなく表示用の名前を出す
                         title={t.schema ? `${t.schema}.${t.name}` : t.name}
                       >
@@ -430,6 +719,9 @@ export function SessionView({
               runStartedAt={tab.runStartedAt}
               explainKind={tab.queryExplain}
               columnTips={tab.columnTips}
+              schema={completionSchema}
+              autocomplete={settings?.autocompleteEnabled ?? true}
+              autocompleteDelayMs={settings?.autocompleteDelayMs ?? 100}
               onChangeSql={onChangeSql}
               onRun={onRunQuery}
               onCancel={onCancelQuery}
@@ -439,6 +731,11 @@ export function SessionView({
           ) : selected ? (
             <TableView
               table={selected}
+              sessionId={tab.key}
+              database={selectedDb ?? undefined}
+              dbType={profile.dbType}
+              onReloadDetail={onReloadDetail}
+              onSendToEditor={onSendToEditor}
               view={tab.tableTab}
               onChangeView={onChangeTableTab}
               detail={tab.tableDetail}
@@ -479,6 +776,62 @@ export function SessionView({
           connName={profile.name || profile.host}
           onClose={() => setDialog(null)}
           onImported={() => onSelectDb(selectedDb)}
+        />
+      )}
+
+      {/* テーブル項目の右クリックメニュー */}
+      {tableMenu &&
+        createPortal(
+          <div
+            className="context-menu"
+            style={{ left: tableMenu.x, top: tableMenu.y }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="grid-sort-head mono">{tableMenu.table.name}</div>
+            <button
+              className="context-item"
+              disabled={tableMenu.table.tableType.toUpperCase().includes("VIEW")}
+              onClick={() => {
+                const t = tableMenu.table;
+                setTableMenu(null);
+                setRenaming({ key: tableKey(t), value: t.name });
+              }}
+            >
+              テーブル名を変更
+            </button>
+            <button
+              className="context-item"
+              onClick={() => {
+                setTableMenu(null);
+                setCreateError(null);
+                setNewTable("");
+              }}
+            >
+              テーブルを新規作成
+            </button>
+            <button
+              className="context-item danger"
+              onClick={() => {
+                const t = tableMenu.table;
+                setTableMenu(null);
+                setDropping(t);
+              }}
+            >
+              テーブルを削除
+            </button>
+          </div>,
+          document.body
+        )}
+
+      {dropping && (
+        <DropTableConfirm
+          sessionId={tab.key}
+          database={selectedDb ?? undefined}
+          table={dropping}
+          onClose={() => setDropping(null)}
+          onDropped={() => {
+            void onReloadTables();
+          }}
         />
       )}
     </div>

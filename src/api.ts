@@ -3,6 +3,9 @@ import type {
   AppSettings,
   ConnectInfo,
   ConnectionProfile,
+  ColumnChange,
+  IndexChange,
+  RowChange,
   ConnectionStore,
   CsvExportResult,
   ErDiagramData,
@@ -19,6 +22,7 @@ import type {
   RunOutput,
   SavedSqlEntry,
   SchemaEntry,
+  SchemaTable,
   SessionSummary,
   SqlHistoryEntry,
   StartedJob,
@@ -111,6 +115,152 @@ export function runQuery(
     orderDir,
     transaction: transaction ?? false,
     explain: explain ?? null,
+  });
+}
+
+/** 新しいテーブルを雛形 (主キーidのみ) で作成する。実行したSQLを返す */
+export function createTable(
+  sessionId: string,
+  database: string | undefined,
+  schema: string | undefined,
+  table: string
+): Promise<string[]> {
+  return invoke("create_table", { sessionId, database, schema, table });
+}
+
+/** テーブル名を変更する。実行したSQLを返す */
+export function renameTable(
+  sessionId: string,
+  database: string | undefined,
+  schema: string | undefined,
+  table: string,
+  newName: string
+): Promise<string[]> {
+  return invoke("rename_table", {
+    sessionId,
+    database,
+    schema,
+    table,
+    newName,
+  });
+}
+
+/** テーブル (ビュー) を削除する。実行したSQLを返す */
+export function dropTable(
+  sessionId: string,
+  database: string | undefined,
+  schema: string | undefined,
+  table: string,
+  tableType: string
+): Promise<string[]> {
+  return invoke("drop_table", {
+    sessionId,
+    database,
+    schema,
+    table,
+    tableType,
+  });
+}
+
+/** テーブルのコメント (日本語名) を設定する。空文字で削除 */
+export function setTableComment(
+  sessionId: string,
+  database: string | undefined,
+  schema: string | undefined,
+  table: string,
+  comment: string
+): Promise<string[]> {
+  return invoke("set_table_comment", {
+    sessionId,
+    database,
+    schema,
+    table,
+    comment,
+  });
+}
+
+/** データを1行だけ追加・更新・削除する。実行したSQLを返す */
+export function applyRowChange(
+  sessionId: string,
+  database: string | undefined,
+  schema: string | undefined,
+  table: string,
+  change: RowChange
+): Promise<string> {
+  return invoke("apply_row_change", {
+    sessionId,
+    database,
+    schema,
+    table,
+    change,
+  });
+}
+
+/** SQLエディタの補完に使うテーブル・カラムの一覧を返す */
+export function schemaColumns(
+  sessionId: string,
+  database: string
+): Promise<SchemaTable[]> {
+  return invoke("schema_columns", { sessionId, database });
+}
+
+/** カラムに使える型の一覧を返す (PostgreSQLはユーザー定義型も含む) */
+export function listColumnTypes(
+  sessionId: string,
+  database: string
+): Promise<string[]> {
+  return invoke("list_column_types", { sessionId, database });
+}
+
+/** 使える照合順序の一覧を返す (MySQL / PostgreSQLのみ。他は空配列) */
+export function listCollations(
+  sessionId: string,
+  database: string
+): Promise<string[]> {
+  return invoke("list_collations", { sessionId, database });
+}
+
+/** インデックスの追加・変更・削除を実行する。実行したSQLを返す */
+export function applyIndexDdl(
+  sessionId: string,
+  database: string | undefined,
+  schema: string | undefined,
+  table: string,
+  change: IndexChange
+): Promise<string[]> {
+  return invoke("apply_index_ddl", {
+    sessionId,
+    database,
+    schema,
+    table,
+    change,
+  });
+}
+
+/** カラム変更のSQLを組み立てて返す (実行はしない) */
+export function previewColumnDdl(
+  sessionId: string,
+  schema: string | undefined,
+  table: string,
+  change: ColumnChange
+): Promise<string[]> {
+  return invoke("preview_column_ddl", { sessionId, schema, table, change });
+}
+
+/** カラム変更を実行する (実行したSQLを返す) */
+export function applyColumnDdl(
+  sessionId: string,
+  database: string | undefined,
+  schema: string | undefined,
+  table: string,
+  change: ColumnChange
+): Promise<string[]> {
+  return invoke("apply_column_ddl", {
+    sessionId,
+    database,
+    schema,
+    table,
+    change,
   });
 }
 
@@ -348,9 +498,14 @@ export function getAppSettings(): Promise<AppSettings> {
   return invoke("get_app_settings");
 }
 
+/** 設定が保存されたことを同じウィンドウ内の画面へ伝えるイベント名 */
+export const APP_SETTINGS_EVENT = "quelio-app-settings-changed";
+
 /** アプリ全般の設定を保存する */
-export function saveAppSettings(settings: AppSettings): Promise<void> {
-  return invoke("save_app_settings", { settings });
+export async function saveAppSettings(settings: AppSettings): Promise<void> {
+  await invoke("save_app_settings", { settings });
+  // 設定はモーダルで変えるため、開いたままの画面へ変更を知らせる
+  window.dispatchEvent(new CustomEvent(APP_SETTINGS_EVENT));
 }
 
 /** SQL実行履歴を取得する (新しい順・最大100件) */

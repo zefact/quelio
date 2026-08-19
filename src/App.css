@@ -13,6 +13,9 @@
   --text-faint: #5b6275;
   --accent: #6366f1;
   --accent-2: #22d3ee;
+  /* 入力補完の選択行と一致文字 (地の色に対して読める濃さにする) */
+  --completion-sel: #4f46e5;
+  --completion-match: #a5b4fc;
   --success: #34d399;
   --danger: #f87171;
   --mysql: #f0a63a;
@@ -55,6 +58,8 @@ html[data-theme="light"] {
   --text-faint: #9aa1b5;
   --success: #0c9e6e;
   --danger: #dc4a4a;
+  --completion-sel: #4338ca;
+  --completion-match: #4338ca;
   --ink: 17, 24, 39;
   --input-bg: #ffffff;
   --menu-bg: #ffffff;
@@ -77,6 +82,37 @@ html[data-theme="light"] {
 
 body {
   margin: 0;
+  /*
+   * デスクトップアプリらしく、ボタン・タブ・一覧などのUI部分は
+   * マウスドラッグで文字を選択できないようにする。
+   * コピーしたくなる場所だけ下で選択可に戻す
+   */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 値・カラム名・SQL・エラー文など、コピーしたくなる箇所は選択できるようにする */
+input,
+textarea,
+select,
+[contenteditable="true"],
+.cm-editor,
+.grid td,
+.grid th .th-label,
+.content-table-head h2,
+.column-sql,
+.result-detail,
+.info-chip-value,
+.ddl-bar-text.ng,
+.new-table-error {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 行番号は値ではないのでコピー対象から外す */
+.grid td.rownum-cell {
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .mono {
@@ -807,15 +843,21 @@ html.macos .diff-toolbar {
   cursor: pointer;
 }
 
-.context-item:hover {
+.context-item:hover:not(:disabled) {
   background: rgba(99, 102, 241, 0.25);
+}
+
+/* ビューなど、その操作ができない項目 */
+.context-item:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .context-item.danger {
   color: var(--danger);
 }
 
-.context-item.danger:hover {
+.context-item.danger:hover:not(:disabled) {
   background: rgba(248, 113, 113, 0.15);
 }
 
@@ -1197,7 +1239,8 @@ html.macos .diff-toolbar {
 
 /* ボタンの基本形 (どこに置いてもネイティブの四角いボタンにならないように) */
 .btn-primary,
-.btn-secondary {
+.btn-secondary,
+.btn-danger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1213,7 +1256,8 @@ html.macos .diff-toolbar {
 }
 
 .btn-primary:disabled,
-.btn-secondary:disabled {
+.btn-secondary:disabled,
+.btn-danger:disabled {
   opacity: 0.55;
   cursor: default;
 }
@@ -1255,7 +1299,7 @@ html.macos .diff-toolbar {
   margin-left: auto;
 }
 
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled) {
   background: rgba(248, 113, 113, 0.1);
 }
 
@@ -2646,6 +2690,46 @@ html.macos .diff-toolbar {
   text-align: right;
 }
 
+/* 設定画面のキー操作一覧 (入力補完のショートカット) */
+.key-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+
+.key-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.key-hint-keys {
+  display: flex;
+  gap: 3px;
+}
+
+.key-hint kbd {
+  min-width: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--bg-panel);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.key-hint-label {
+  min-width: 64px;
+  text-align: left;
+}
+
 /* ============ ページ内検索バー (Cmd/Ctrl+F) ============ */
 
 /* ページ内検索の一致強調 (Custom Highlight API)。
@@ -3117,6 +3201,11 @@ html[data-theme="light"] .result-banner.ng {
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+/* テーブル名はコピーしたいことがあるので、文字を選べるようにする */
+.content-table-head h2 {
+  cursor: text;
 }
 
 .content-table-head h2 {
@@ -4229,6 +4318,60 @@ html[data-theme="light"] .brand-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 日本語名はダブルクリックで編集できる */
+.table-logical.editable {
+  padding: 2px 6px;
+  margin-left: 0;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: text;
+}
+
+.table-logical.editable:hover {
+  border-color: var(--border-strong);
+  background: rgba(var(--ink), 0.04);
+}
+
+/* 日本語名の入力欄 */
+.table-logical-input {
+  min-width: 180px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.table-logical-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.22);
+}
+
+/* 日本語名が未設定のときに出す追加ボタン */
+.table-logical-add {
+  padding: 2px 9px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  background: none;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.table-logical-add:hover {
+  color: var(--text-dim);
+  border-color: rgba(var(--ink), 0.3);
+}
+
+.table-logical-error {
+  color: var(--danger);
+  font-size: 11.5px;
+  font-weight: 600;
 }
 
 /* βバッジとバージョン表示 */
@@ -5955,4 +6098,868 @@ html[data-theme="light"] .brand-name {
   flex-shrink: 0;
   font-size: 11.5px;
   color: var(--text-faint);
+}
+
+/* ============ テーブルの新規作成 ============ */
+
+.new-table-row {
+  margin: 0 10px 8px;
+}
+
+.new-table-input {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--input-bg);
+}
+
+.new-table-input input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.new-table-input input:focus {
+  outline: none;
+}
+
+.new-table-input input::placeholder {
+  color: var(--text-faint);
+}
+
+/* 新規行であることを示す + マーク */
+.new-table-mark {
+  flex: none;
+  width: 15px;
+  text-align: center;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.new-table-hint,
+.new-table-error {
+  margin: 5px 2px 0;
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+
+.new-table-hint {
+  color: var(--text-faint);
+}
+
+.new-table-error {
+  color: var(--danger);
+  font-weight: 600;
+  white-space: pre-line;
+  max-height: 92px;
+  overflow: auto;
+}
+
+/* テーブル名の変更 (一覧の行をその場で入力欄にする) */
+.rename-table-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 1px 0;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--input-bg);
+}
+
+.rename-table-row input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.rename-table-row input:focus {
+  outline: none;
+}
+
+/* ============ カラム変更 (DDL) ============ */
+
+.column-modal {
+  width: min(640px, calc(100vw - 60px));
+}
+
+/* 対象テーブル・カラム名 (見出しの右) */
+.column-modal-target {
+  margin-left: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.column-modal-body {
+  margin-bottom: 14px;
+}
+
+.column-form {
+  margin-bottom: 4px;
+}
+
+.column-form select {
+  width: 100%;
+  font-size: 12.5px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+
+.column-note {
+  margin: 4px 0 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+
+/* 削除時の注意書き */
+.column-warn {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* 実行するSQLのプレビュー */
+.column-sql {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.column-error {
+  margin-top: 12px;
+  white-space: pre-line;
+}
+
+.column-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* カラム一覧の操作列 */
+.col-ops {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.grid td.col-ops-cell {
+  padding: 2px 6px;
+  overflow: visible;
+}
+
+.pane-icon-btn.danger:hover:not(:disabled) {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+/* 削除確認ダイアログ */
+.ddl-confirm {
+  width: min(620px, calc(100vw - 60px));
+}
+
+.ddl-confirm:focus {
+  outline: none;
+}
+
+/* 見出しの操作ヒント */
+.ddl-hint {
+  margin-right: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--text-faint);
+}
+
+/* ---- 行を直接編集するときの操作バー ---- */
+
+.ddl-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: -1px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  background: rgba(99, 102, 241, 0.08);
+  font-size: 11.5px;
+}
+
+.ddl-bar-text {
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.ddl-bar-text.ng {
+  color: var(--danger);
+  font-weight: 600;
+  white-space: pre-line;
+  /* 長いエラーでもバーが伸び続けないようにする */
+  max-height: 76px;
+  overflow: auto;
+}
+
+.ddl-bar kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--bg-panel);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* エラーの丸アイコン */
+.ddl-bar-icon.ng {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ddl-bar-btn {
+  flex: none;
+  padding: 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ddl-bar-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: rgba(var(--ink), 0.3);
+}
+
+.ddl-bar-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.ddl-bar-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  color: #fff;
+}
+
+.ddl-bar-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 操作バーとグリッドを1つの塊に見せる */
+.ddl-bar + .grid-wrap {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.ddl-bar + .grid-wrap .grid th:first-child,
+.ddl-bar + .grid-wrap .grid th:last-child {
+  border-radius: 0;
+}
+
+/* ---- 編集中の行 ---- */
+
+/* 入力欄はセルいっぱいに広げるので、セル自体の余白は無くす */
+.grid tr.row-editing > td {
+  padding: 0;
+  background: rgba(99, 102, 241, 0.06);
+  overflow: hidden;
+}
+
+/* 行番号と編集できない列は通常どおりの余白に戻す */
+.grid tr.row-editing > td.rownum-cell {
+  padding: 7px 12px;
+}
+
+.grid tr.row-editing > td > .cell-locked {
+  display: block;
+  padding: 7px 12px;
+}
+
+/* 編集中であることを示す左のライン */
+.grid tr.row-editing > td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.grid tr.row-editing.has-error > td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.grid tr.row-editing.has-error > td {
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.grid tr.row-editing.busy > td {
+  opacity: 0.6;
+}
+
+/* 追加中の行 */
+.grid tr.row-new > td:first-child {
+  box-shadow: inset 3px 0 0 #22c55e;
+}
+
+.grid tr.row-new > td {
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.grid tr.row-new .row-num {
+  font-size: 10px;
+  font-weight: 700;
+  color: #16a34a;
+}
+
+/* セルいっぱいに広がる入力欄 (枠線は内側の影で描き、幅・高さを増やさない) */
+.cell-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  margin: 0;
+  padding: 0 11px;
+  border: none;
+  border-radius: 0;
+  background: var(--input-bg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.cell-input.right {
+  text-align: right;
+}
+
+.cell-input::placeholder {
+  color: var(--text-faint);
+}
+
+.cell-input:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cell-input:disabled {
+  opacity: 0.6;
+}
+
+/* ---- ドラッグでのカラム並べ替え (MySQL) ---- */
+
+/* 行番号のところをつまんで動かす */
+.grid td.rownum-cell .drag-handle {
+  display: block;
+  cursor: grab;
+}
+
+/* ドラッグ中はどこにカーソルがあっても「つかんでいる手」にする */
+body.row-dragging,
+body.row-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/*
+ * 動かしている行。
+ * 台紙から持ち上がって宙に浮いているように見せる。
+ * 影はセルごとではなく行全体の形に対して落とすので、
+ * カラムの境目に影の切れ目が出ない
+ */
+.grid tr.row-moving {
+  filter: drop-shadow(0 7px 9px rgba(0, 0, 0, 0.4))
+    drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+}
+
+.grid tr.row-moving > td {
+  position: relative;
+  z-index: 3;
+  /* 下の行が透けないよう不透明にする (浮いた1枚の板に見せる) */
+  background: var(--bg-panel);
+  border-bottom-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(99, 102, 241, 0.55),
+    inset 0 -1px 0 rgba(99, 102, 241, 0.55);
+}
+
+/* 左右の端は角を丸めて1枚のカードに見せる */
+.grid tr.row-moving > td:first-child {
+  border-radius: 8px 0 0 8px;
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 0 1px 0 rgba(99, 102, 241, 0.55),
+    inset 0 -1px 0 rgba(99, 102, 241, 0.55);
+}
+
+.grid tr.row-moving > td:last-child {
+  border-radius: 0 8px 8px 0;
+  box-shadow:
+    inset -1px 0 0 rgba(99, 102, 241, 0.55),
+    inset 0 1px 0 rgba(99, 102, 241, 0.55),
+    inset 0 -1px 0 rgba(99, 102, 241, 0.55);
+}
+
+.grid tr.row-moving .row-num {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* 見出しの横に出す「?」ヒントボタン */
+.hint-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.hint-btn:hover {
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.12);
+}
+
+/* 種別の説明ポップアップ */
+.index-help {
+  width: 440px;
+  /* 高さは画面の余白に合わせてJS側で指定する */
+  overflow-y: auto;
+  padding: 6px 4px 8px;
+}
+
+.index-help-list {
+  margin: 0;
+  padding: 2px 10px 0;
+}
+
+.index-help-list > div + div {
+  margin-top: 10px;
+}
+
+.index-help-list dt {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.index-help-list dd {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+/* ---- SQLエディタの入力補完 ---- */
+
+/* 候補リストの置き場所。
+ * エディタ枠の中だと overflow: hidden で切れるので body の直下に出す。
+ * 高さ0・絶対配置なので、まわりのレイアウトには影響しない */
+#cm-tooltip-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+  z-index: 400;
+}
+
+/* CodeMirror標準のテーマ (.ͼ1 .cm-tooltip...) の方が詳細度が高いので、
+ * html body を付けて確実に上書きする */
+html body .cm-tooltip.cm-tooltip-autocomplete {
+  /* 中身の幅に合わせる (右端が切れないように) */
+  width: max-content;
+  max-width: min(720px, 92vw);
+  border: 1px solid var(--border-strong);
+  /* 角丸だと候補が見づらいので四角にする */
+  border-radius: 0;
+  background: var(--bg-panel);
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+html body .cm-tooltip.cm-tooltip-autocomplete > ul {
+  max-height: 260px;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  overflow: auto;
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-size: 12px;
+}
+
+/* 候補は「名前 / テーブル名 / 日本語名 / 型」の4列。
+ * 最小幅だけ決めて縦を揃え、はみ出す行はその行だけ広がるようにする
+ * (途中で切ってしまうより読めるほうを優先) */
+html body .cm-tooltip.cm-tooltip-autocomplete > ul > li {
+  display: flex;
+  align-items: baseline;
+  /* 列の間は2文字分くらい空ければ十分 */
+  gap: 12px;
+  padding: 3px 8px;
+  color: var(--text);
+  line-height: 1.55;
+  cursor: pointer;
+}
+
+/* 選択中の候補 (文字は白で固定し、ライト・ダークとも読めるようにする) */
+html body .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--completion-sel);
+  color: #fff;
+}
+
+/* 列の幅は completionLayout.ts が測って揃える (styleのwidthが入る)。
+ * CSS側は折り返さないことだけ決めておく */
+.cm-completionLabel {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.cm-completionCell {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+
+html body .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionCell {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* 入力中の文字に一致した部分 */
+.cm-completionMatchedText {
+  color: var(--completion-match);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+html body .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
+  color: #fff;
+  text-decoration: underline;
+}
+
+/* ---- データ編集 ---- */
+
+/* null と入力した欄は、値ではなくNULLだと分かるようにする */
+.cell-input.is-null {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* インデックスの対象カラム (順序が分かるよう番号付きのチップで並べる) */
+/* 1カラムずつ縦に並べる (順序が上から読める) */
+.index-col-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.index-col-chip {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px 2px 3px;
+  border: 1px solid var(--border);
+  /* 折り返しても不格好にならないよう、角丸は控えめにする */
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-all;
+}
+
+/* 単一カラムのときは番号を出さないので、左右の余白をそろえる */
+.index-col-chip:not(:has(.index-col-seq)) {
+  padding-left: 8px;
+}
+
+.index-col-seq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  /* 折り返しても先頭行の高さに合わせる */
+  margin-top: 1px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.18);
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+/* インデックスの対象カラムを選ぶボタン (セルいっぱいに広げる) */
+.cell-pick {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 0;
+  background: var(--input-bg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cell-pick:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.cell-pick.empty {
+  color: var(--text-faint);
+}
+
+.cell-pick:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---- 対象カラムを選ぶダイアログ ---- */
+
+.index-cols-modal {
+  width: min(560px, calc(100vw - 60px));
+}
+
+.index-cols-modal:focus {
+  outline: none;
+}
+
+.index-cols-body {
+  margin-bottom: 14px;
+}
+
+.index-cols-pane + .index-cols-pane {
+  margin-top: 14px;
+}
+
+.index-cols-empty {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+/* 選択済み (順序どおり) */
+.index-cols-picked {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.index-cols-picked li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  background: var(--bg-card);
+}
+
+.index-cols-picked li + li {
+  border-top: 1px solid var(--border);
+}
+
+.index-cols-no {
+  flex: none;
+  width: 18px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.index-cols-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 追加できるカラム */
+.index-cols-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.index-cols-choice {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.index-cols-choice:hover {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.index-cols-type {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+/* 型名の候補ドロップダウン (セルの外に出すので幅で切れない) */
+.type-suggest {
+  /* 高さは画面の余白に合わせてJS側で指定する */
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.type-suggest .context-item {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+/* セルいっぱいに広がる選択欄 (MySQLの属性) */
+.cell-select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 0;
+  background: var(--input-bg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cell-select:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cell-select:disabled {
+  opacity: 0.6;
+}
+
+.cell-check {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 9px auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* テーブルの既定と違う照合順序 (見落とさないよう濃く出す) */
+.collation-diff {
+  color: var(--text);
+}
+
+/* 編集中は変更できない列 (キー・属性・照合順序など) */
+.cell-locked {
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+
+/* 右クリックメニューの削除項目 */
+.context-item.danger {
+  color: var(--danger);
+}
+
+/* 「カラム追加」ボタン (見出しの右) */
+.ddl-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: rgba(var(--ink), 0.05);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.ddl-add-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: rgba(var(--ink), 0.3);
+}
+
+/* 別の行を編集中は押せない */
+.ddl-add-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }

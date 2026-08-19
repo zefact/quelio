@@ -8,10 +8,11 @@ import { DiffWindow } from "./components/DiffWindow";
 import { ErWindow } from "./components/ErWindow";
 import { SchemaWindow } from "./components/SchemaWindow";
 import { initTheme } from "./theme";
-import { blockBrowserShortcuts } from "./blockShortcuts";
+import { blockBrowserShortcuts, blockSelectAll } from "./blockShortcuts";
 
 initTheme();
 blockBrowserShortcuts();
+blockSelectAll();
 
 // macOSではタイトルバーをアプリに統合(Overlay)するため、
 // 信号機ボタンぶんの余白をCSSで確保できるようクラスを付ける

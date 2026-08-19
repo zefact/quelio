@@ -1,7 +1,7 @@
 {
   "name": "quelio",
   "private": true,
-  "version": "0.4.4",
+  "version": "0.5.0",
   "description": "MySQL / PostgreSQL 対応の無料デスクトップDBクライアント (Tauri 2 + React + Rust)",
   "license": "MIT",
   "author": "ZEFACT Co., Ltd.",
@@ -32,6 +32,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/language": "^6.12.4",

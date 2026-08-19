@@ -4,7 +4,9 @@ use crate::models::{
     ConnectInfo, ConnectionProfile, ConnectionStore, CsvExportResult, FolderInfo, LayoutEntry,
     RunOutput, SchemaEntry, SessionSummary, TableDetail, TableInfo, TestResult,
 };
+use crate::catalog;
 use crate::csv_job::CsvJobs;
+use crate::ddl;
 use crate::query_log::{QueryLog, QueryLogEntry};
 use crate::sessions::{self, CancelRegistry, Sessions};
 use crate::tools::{self, JobStatus, Jobs, StartedJob, ToolSettings, ToolStatus};
@@ -195,6 +197,198 @@ pub async fn table_detail(
     table: String,
 ) -> Result<TableDetail, String> {
     sessions::table_detail(&state, &qlog, &session_id, &database, schema, &table).await
+}
+
+/// SQLエディタの補完に使うテーブル・カラム名の一覧を返す
+#[tauri::command]
+pub async fn schema_columns(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+) -> Result<catalog::SchemaColumns, String> {
+    sessions::schema_columns(&state, &qlog, &session_id, &database).await
+}
+
+/// カラムに使える型の一覧を返す (カラム編集の選択肢用)
+#[tauri::command]
+pub async fn list_column_types(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+) -> Result<Vec<String>, String> {
+    sessions::list_column_types(&state, &qlog, &session_id, &database).await
+}
+
+/// 使える照合順序の一覧を返す (カラム編集の選択肢用)
+#[tauri::command]
+pub async fn list_collations(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+) -> Result<Vec<String>, String> {
+    sessions::list_collations(&state, &qlog, &session_id, &database).await
+}
+
+// ---------- データの編集 (DML) ----------
+
+/// データを1行だけ追加・更新・削除し、実行したSQLを返す
+#[tauri::command]
+pub async fn apply_row_change(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    table: String,
+    change: crate::dml::RowChange,
+) -> Result<String, String> {
+    sessions::apply_row_change(
+        &state,
+        &qlog,
+        &session_id,
+        database,
+        schema,
+        &table,
+        &change,
+    )
+    .await
+}
+
+// ---------- テーブル定義の変更 (DDL) ----------
+
+/// 新しいテーブルを雛形 (主キーidのみ) で作成し、実行したSQLを返す。
+/// カラムは作成後に定義画面のインライン編集で足してもらう
+#[tauri::command]
+pub async fn create_table(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    table: String,
+) -> Result<Vec<String>, String> {
+    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let statements = ddl::build_create_table(db_type, schema.as_deref(), &table)?;
+    sessions::exec_ddl(&state, &qlog, &session_id, database, &statements).await?;
+    Ok(statements)
+}
+
+/// テーブル名を変更し、実行したSQLを返す
+#[tauri::command]
+pub async fn rename_table(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    table: String,
+    new_name: String,
+) -> Result<Vec<String>, String> {
+    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let statements =
+        ddl::build_rename_table(db_type, schema.as_deref(), &table, &new_name)?;
+    sessions::exec_ddl(&state, &qlog, &session_id, database, &statements).await?;
+    Ok(statements)
+}
+
+/// テーブルを削除し、実行したSQLを返す
+#[tauri::command]
+pub async fn drop_table(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    table: String,
+    table_type: String,
+) -> Result<Vec<String>, String> {
+    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let statements =
+        ddl::build_drop_table(db_type, schema.as_deref(), &table, &table_type)?;
+    sessions::exec_ddl(&state, &qlog, &session_id, database, &statements).await?;
+    Ok(statements)
+}
+
+/// テーブルのコメント (日本語名) を設定し、実行したSQLを返す
+#[tauri::command]
+pub async fn set_table_comment(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    table: String,
+    comment: String,
+) -> Result<Vec<String>, String> {
+    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let statements =
+        ddl::build_set_table_comment(db_type, schema.as_deref(), &table, &comment)?;
+    sessions::exec_ddl(&state, &qlog, &session_id, database, &statements).await?;
+    Ok(statements)
+}
+
+/// インデックスの追加・変更・削除を実行し、実行したSQLを返す
+#[tauri::command]
+pub async fn apply_index_ddl(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    table: String,
+    change: ddl::IndexChange,
+) -> Result<Vec<String>, String> {
+    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let statements = ddl::build_index(db_type, schema.as_deref(), &table, &change)?;
+    sessions::exec_ddl(&state, &qlog, &session_id, database, &statements).await?;
+    Ok(statements)
+}
+
+/// カラム変更のSQLを組み立てて返す (実行はしない。画面のプレビュー用)
+#[tauri::command]
+pub async fn preview_column_ddl(
+    state: State<'_, Sessions>,
+    session_id: String,
+    schema: Option<String>,
+    table: String,
+    change: ddl::ColumnChange,
+) -> Result<Vec<String>, String> {
+    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    // プレビューは削除の確認だけに使うので、型チェックは不要
+    ddl::build(db_type, schema.as_deref(), &table, &change, &[])
+}
+
+/// 型チェック用の一覧を取る (取れなければ空を返し、チェックを省く)
+async fn column_types(
+    state: &State<'_, Sessions>,
+    qlog: &State<'_, QueryLog>,
+    session_id: &str,
+    database: Option<&str>,
+) -> Vec<String> {
+    sessions::list_column_types(state, qlog, session_id, database.unwrap_or(""))
+        .await
+        .unwrap_or_default()
+}
+
+/// カラム変更のSQLを組み立てて実行する (成功したら実行したSQLを返す)
+#[tauri::command]
+pub async fn apply_column_ddl(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: Option<String>,
+    schema: Option<String>,
+    table: String,
+    change: ddl::ColumnChange,
+) -> Result<Vec<String>, String> {
+    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let types = column_types(&state, &qlog, &session_id, database.as_deref()).await;
+    let statements = ddl::build(db_type, schema.as_deref(), &table, &change, &types)?;
+    sessions::exec_ddl(&state, &qlog, &session_id, database, &statements).await?;
+    Ok(statements)
 }
 
 /// SQL実行結果 (1文ぶん) を全件CSVへ書き出し、保存先と行数を返す。

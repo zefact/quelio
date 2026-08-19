@@ -1,5 +1,6 @@
 //! データベース・テーブル一覧を取得するカタログクエリ
 
+use serde::Serialize;
 use sqlx::mysql::MySqlConnection;
 use sqlx::postgres::PgConnection;
 use sqlx::sqlite::SqliteConnection;
@@ -285,6 +286,7 @@ pub async fn mysql_table_detail(
                 continue;
             }
         }
+        let is_primary = name == "PRIMARY";
         indexes.push(IndexInfo {
             name,
             unique: r
@@ -294,6 +296,8 @@ pub async fn mysql_table_detail(
             columns: column,
             index_type: r.try_get("INDEX_TYPE").map_err(format_db_error)?,
             cardinality: r.try_get("CARDINALITY").map_err(format_db_error)?,
+            // MySQLの主キーは常に PRIMARY という名前のインデックスになる
+            constrained: is_primary,
         });
     }
 
@@ -460,6 +464,277 @@ pub async fn pg_databases(
     Ok(rows)
 }
 
+/// SQLエディタの補完に出すカラム (名前・型・コメント)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaColumn {
+    pub name: String,
+    /// 表示用の型名 (取れない場合は空)
+    pub data_type: String,
+    /// カラムコメント (日本語名の取り出しに使う。SQLiteは常に空)
+    pub comment: String,
+}
+
+/// SQLエディタの補完に出すテーブル
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaTable {
+    pub name: String,
+    /// テーブルコメント (日本語名の取り出しに使う。SQLiteは常に空)
+    pub comment: String,
+    pub columns: Vec<SchemaColumn>,
+}
+
+/// SQLエディタの補完に使うテーブル・カラムの一覧。
+/// 定義の全取得は重いので、必要な列だけを1クエリで集める
+pub type SchemaColumns = Vec<SchemaTable>;
+
+/// 取得した (テーブル名, テーブルコメント, カラム) の並びをテーブルごとにまとめる
+fn group_columns(rows: Vec<(String, String, SchemaColumn)>) -> SchemaColumns {
+    let mut out: SchemaColumns = Vec::new();
+    for (table, comment, column) in rows {
+        match out.last_mut() {
+            Some(t) if t.name == table => t.columns.push(column),
+            _ => out.push(SchemaTable {
+                name: table,
+                comment,
+                columns: vec![column],
+            }),
+        }
+    }
+    out
+}
+
+/// MySQL: 補完用のテーブル・カラム一覧
+pub async fn mysql_schema_columns(
+    conn: &mut MySqlConnection,
+    database: &str,
+    ctx: &LogCtx<'_>,
+) -> Result<SchemaColumns, String> {
+    // ビューのTABLE_COMMENTは 'VIEW' が入るだけなので、日本語名としては使わない
+    let sql = "SELECT c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_TYPE, c.COLUMN_COMMENT, \
+                    CASE WHEN t.TABLE_TYPE = 'VIEW' THEN '' ELSE t.TABLE_COMMENT END AS TBL_COMMENT \
+             FROM information_schema.COLUMNS c \
+             JOIN information_schema.TABLES t \
+               ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME \
+             WHERE c.TABLE_SCHEMA = ? ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION";
+    ctx.log(&sql.replacen('?', &format!("'{database}'"), 1));
+    let rows = timeout(
+        QUERY_TIMEOUT,
+        sqlx::query(sql).bind(database).fetch_all(conn),
+    )
+    .await
+    .map_err(|_| "クエリがタイムアウトしました".to_string())?
+    .map_err(format_db_error)?;
+    let pairs = rows
+        .iter()
+        .map(|r| {
+            Ok((
+                r.try_get::<String, _>("TABLE_NAME").map_err(format_db_error)?,
+                r.try_get::<String, _>("TBL_COMMENT").map_err(format_db_error)?,
+                SchemaColumn {
+                    name: r
+                        .try_get::<String, _>("COLUMN_NAME")
+                        .map_err(format_db_error)?,
+                    data_type: r
+                        .try_get::<String, _>("COLUMN_TYPE")
+                        .map_err(format_db_error)?,
+                    comment: r
+                        .try_get::<String, _>("COLUMN_COMMENT")
+                        .map_err(format_db_error)?,
+                },
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(group_columns(pairs))
+}
+
+/// PostgreSQL: 補完用のテーブル・カラム一覧 (スキーマ付きの名前も入れる)
+pub async fn pg_schema_columns(
+    conn: &mut PgConnection,
+    ctx: &LogCtx<'_>,
+) -> Result<SchemaColumns, String> {
+    let sql = "SELECT n.nspname AS schema, c.relname AS tbl, a.attname AS col, \
+                    format_type(a.atttypid, a.atttypmod) AS typ, \
+                    COALESCE(col_description(c.oid, a.attnum), '') AS cmt, \
+                    COALESCE(obj_description(c.oid, 'pg_class'), '') AS tbl_cmt \
+             FROM pg_attribute a \
+             JOIN pg_class c ON c.oid = a.attrelid \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f') \
+               AND a.attnum > 0 AND NOT a.attisdropped \
+               AND n.nspname NOT IN ('pg_catalog', 'information_schema') \
+               AND NOT n.nspname LIKE 'pg_toast%' \
+             ORDER BY n.nspname, c.relname, a.attnum";
+    ctx.log(sql);
+    let rows = timeout(QUERY_TIMEOUT, sqlx::query(sql).fetch_all(conn))
+        .await
+        .map_err(|_| "クエリがタイムアウトしました".to_string())?
+        .map_err(format_db_error)?;
+
+    // 素のテーブル名と "スキーマ.テーブル" の両方で引けるようにする
+    let mut plain: Vec<(String, String, SchemaColumn)> = Vec::with_capacity(rows.len());
+    let mut qualified: Vec<(String, String, SchemaColumn)> = Vec::with_capacity(rows.len());
+    for r in &rows {
+        let schema: String = r.try_get("schema").map_err(format_db_error)?;
+        let table: String = r.try_get("tbl").map_err(format_db_error)?;
+        let col: String = r.try_get("col").map_err(format_db_error)?;
+        let typ: String = r.try_get("typ").map_err(format_db_error)?;
+        let cmt: String = r.try_get("cmt").map_err(format_db_error)?;
+        let tbl_cmt: String = r.try_get("tbl_cmt").map_err(format_db_error)?;
+        plain.push((
+            table.clone(),
+            tbl_cmt.clone(),
+            SchemaColumn {
+                name: col.clone(),
+                data_type: typ.clone(),
+                comment: cmt.clone(),
+            },
+        ));
+        qualified.push((
+            format!("{schema}.{table}"),
+            tbl_cmt,
+            SchemaColumn {
+                name: col,
+                data_type: typ,
+                comment: cmt,
+            },
+        ));
+    }
+    let mut out = group_columns(plain);
+    out.extend(group_columns(qualified));
+    Ok(out)
+}
+
+/// SQLite: 補完用のテーブル・カラム一覧 (コメントの仕組みが無いので空で返す)
+pub async fn sqlite_schema_columns(
+    conn: &mut SqliteConnection,
+    ctx: &LogCtx<'_>,
+) -> Result<SchemaColumns, String> {
+    let sql = "SELECT m.name AS tbl, p.name AS col, p.\"type\" AS typ \
+             FROM sqlite_master m \
+             JOIN pragma_table_info(m.name) p \
+             WHERE m.type IN ('table', 'view') AND m.name NOT LIKE 'sqlite_%' \
+             ORDER BY m.name, p.cid";
+    ctx.log(sql);
+    let rows = timeout(QUERY_TIMEOUT, sqlx::query(sql).fetch_all(conn))
+        .await
+        .map_err(|_| "クエリがタイムアウトしました".to_string())?
+        .map_err(format_db_error)?;
+    let pairs = rows
+        .iter()
+        .map(|r| {
+            Ok((
+                r.try_get::<String, _>("tbl").map_err(format_db_error)?,
+                String::new(),
+                SchemaColumn {
+                    name: r.try_get::<String, _>("col").map_err(format_db_error)?,
+                    data_type: r.try_get::<String, _>("typ").map_err(format_db_error)?,
+                    comment: String::new(),
+                },
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(group_columns(pairs))
+}
+
+/// PostgreSQL: テーブルのカラム名と型 (データ編集のキャストに使う)
+pub async fn pg_column_types(
+    conn: &mut PgConnection,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let sql = "SELECT a.attname AS name, \
+                    format_type(a.atttypid, a.atttypmod) AS type \
+             FROM pg_attribute a \
+             JOIN pg_class c ON c.oid = a.attrelid \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname = $1 AND c.relname = $2 \
+               AND a.attnum > 0 AND NOT a.attisdropped";
+    let rows = timeout(
+        QUERY_TIMEOUT,
+        sqlx::query(sql).bind(schema).bind(table).fetch_all(conn),
+    )
+    .await
+    .map_err(|_| "クエリがタイムアウトしました".to_string())?
+    .map_err(format_db_error)?;
+    rows.iter()
+        .map(|r| {
+            Ok((
+                r.try_get::<String, _>("name").map_err(format_db_error)?,
+                r.try_get::<String, _>("type").map_err(format_db_error)?,
+            ))
+        })
+        .collect()
+}
+
+/// PostgreSQL: カラムに使える型の一覧。
+/// ユーザー定義のenumやドメイン、拡張 (PostGISのgeometry等) も含めたいのでDBから取る
+pub async fn pg_types(
+    conn: &mut PgConnection,
+    ctx: &LogCtx<'_>,
+) -> Result<Vec<String>, String> {
+    // typtype: b=基本型 e=列挙型 d=ドメイン r=範囲型
+    // typelem<>0 は配列なので除く (要素型のほうを候補に出す)
+    let sql = "SELECT DISTINCT format_type(t.oid, NULL) AS name \
+               FROM pg_type t \
+               JOIN pg_namespace n ON n.oid = t.typnamespace \
+               WHERE t.typtype IN ('b', 'e', 'd', 'r') \
+                 AND t.typelem = 0 \
+                 AND t.typname NOT LIKE 'pg\\_%' \
+                 AND n.nspname <> 'information_schema' \
+               ORDER BY name";
+    ctx.log(sql);
+    let rows = timeout(QUERY_TIMEOUT, sqlx::query(sql).fetch_all(conn))
+        .await
+        .map_err(|_| "クエリがタイムアウトしました".to_string())?
+        .map_err(format_db_error)?;
+    rows.iter()
+        .map(|r| r.try_get::<String, _>("name").map_err(format_db_error))
+        .collect()
+}
+
+/// MySQL: 使える照合順序の一覧 (よく使うutf8mb4を先頭にまとめる)
+pub async fn mysql_collations(
+    conn: &mut MySqlConnection,
+    ctx: &LogCtx<'_>,
+) -> Result<Vec<String>, String> {
+    let sql = "SELECT COLLATION_NAME FROM information_schema.COLLATIONS \
+             ORDER BY (CHARACTER_SET_NAME = 'utf8mb4') DESC, \
+                      CHARACTER_SET_NAME, COLLATION_NAME";
+    ctx.log(sql);
+    let rows = timeout(QUERY_TIMEOUT, sqlx::query(sql).fetch_all(conn))
+        .await
+        .map_err(|_| "クエリがタイムアウトしました".to_string())?
+        .map_err(format_db_error)?;
+    rows.iter()
+        .map(|r| {
+            r.try_get::<Option<String>, _>("COLLATION_NAME")
+                .map_err(format_db_error)
+                .map(|v| v.unwrap_or_default())
+        })
+        .collect::<Result<Vec<_>, String>>()
+        .map(|v| v.into_iter().filter(|s| !s.is_empty()).collect())
+}
+
+/// PostgreSQL: 使える照合順序の一覧
+pub async fn pg_collations(
+    conn: &mut PgConnection,
+    ctx: &LogCtx<'_>,
+) -> Result<Vec<String>, String> {
+    // 同名の照合順序が複数のスキーマにあることがあるので重複は除く
+    let sql = "SELECT DISTINCT collname FROM pg_collation \
+             WHERE collname <> 'default' ORDER BY collname";
+    ctx.log(sql);
+    let rows = timeout(QUERY_TIMEOUT, sqlx::query(sql).fetch_all(conn))
+        .await
+        .map_err(|_| "クエリがタイムアウトしました".to_string())?
+        .map_err(format_db_error)?;
+    rows.iter()
+        .map(|r| r.try_get::<String, _>("collname").map_err(format_db_error))
+        .collect()
+}
+
 pub async fn pg_tables(
     conn: &mut PgConnection,
     ctx: &LogCtx<'_>,
@@ -561,12 +836,14 @@ pub async fn pg_table_detail(
     // インデックス (主キーを先頭に固定し、残りはインデックス名順)
     let sql = "SELECT i.relname AS name, ix.indisunique AS unique_flag, \
                     am.amname AS index_type, \
+                    (ix.indisprimary OR con.oid IS NOT NULL) AS constrained, \
                     pg_get_indexdef(ix.indexrelid) AS definition \
              FROM pg_index ix \
              JOIN pg_class i ON i.oid = ix.indexrelid \
              JOIN pg_class t ON t.oid = ix.indrelid \
              JOIN pg_namespace n ON n.oid = t.relnamespace \
              LEFT JOIN pg_am am ON am.oid = i.relam \
+             LEFT JOIN pg_constraint con ON con.conindid = i.oid \
              WHERE n.nspname = $1 AND t.relname = $2 \
              ORDER BY ix.indisprimary DESC, i.relname";
     ctx.log(&bind2_pg(sql, schema, table));
@@ -595,6 +872,7 @@ pub async fn pg_table_detail(
             columns: columns_part,
             index_type: r.try_get("index_type").map_err(format_db_error)?,
             cardinality: None,
+            constrained: r.try_get("constrained").map_err(format_db_error)?,
         });
     }
 
@@ -729,9 +1007,14 @@ pub async fn sqlite_table_detail(
     .map_err(format_db_error)?;
 
     let mut columns = Vec::with_capacity(rows.len());
+    // 主キーのカラム (pkは1始まりの並び順)
+    let mut pk_columns: Vec<(i64, String)> = Vec::new();
     for r in &rows {
         let notnull: i64 = r.try_get("notnull").map_err(format_db_error)?;
         let pk: i64 = r.try_get("pk").map_err(format_db_error)?;
+        if pk > 0 {
+            pk_columns.push((pk, r.try_get("name").map_err(format_db_error)?));
+        }
         let col_type: String = r.try_get("type").map_err(format_db_error)?;
         columns.push(ColumnInfo {
             name: r.try_get("name").map_err(format_db_error)?,
@@ -802,10 +1085,36 @@ pub async fn sqlite_table_detail(
                 _ => "INDEX".to_string(),
             }),
             cardinality: None,
+            // origin: c=CREATE INDEX, pk=主キー, u=UNIQUE制約
+            constrained: origin != "c",
         });
     }
     // 主キー由来のインデックスを先頭にする (他DBの表示と揃える)
     indexes.sort_by_key(|i| i.index_type.as_deref() != Some("PRIMARY KEY"));
+
+    // INTEGER PRIMARY KEY はrowid自体なので専用のインデックスが作られず、
+    // pragma_index_listにも出てこない。主キーが分からないと紛らわしいので補う
+    let has_pk_index = indexes
+        .iter()
+        .any(|i| i.index_type.as_deref() == Some("PRIMARY KEY"));
+    if !has_pk_index && !pk_columns.is_empty() {
+        pk_columns.sort_by_key(|(seq, _)| *seq);
+        indexes.insert(
+            0,
+            IndexInfo {
+                name: "PRIMARY".into(),
+                unique: true,
+                columns: pk_columns
+                    .iter()
+                    .map(|(_, name)| name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                index_type: Some("PRIMARY KEY (rowid)".into()),
+                cardinality: None,
+                constrained: true,
+            },
+        );
+    }
 
     // テーブル情報 (種別と定義SQL)
     let sql = "SELECT type, sql FROM sqlite_master WHERE name = ?";

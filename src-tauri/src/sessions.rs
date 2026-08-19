@@ -499,6 +499,115 @@ pub async fn cancel_query(
 
 /// 指定データベースのテーブル一覧を返す。
 /// PostgreSQLで別DBが指定された場合は接続を張り直す。
+/// SQLエディタの補完に使う「テーブル名 → カラム名」の一覧を返す
+pub async fn schema_columns(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: &str,
+) -> Result<catalog::SchemaColumns, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    let label = conn_label(&session.profile);
+    let ctx = LogCtx {
+        qlog,
+        connection: &label,
+        database,
+    };
+    match &mut session.conn {
+        DbConn::MySql(conn) => {
+            catalog::mysql_schema_columns(conn, database, &ctx).await
+        }
+        DbConn::Pg(_) => {
+            ensure_pg_database(session, database, qlog).await?;
+            match &mut session.conn {
+                DbConn::Pg(conn) => catalog::pg_schema_columns(conn, &ctx).await,
+                _ => unreachable!(),
+            }
+        }
+        DbConn::Sqlite(conn) => catalog::sqlite_schema_columns(conn, &ctx).await,
+        DbConn::Kv(_) => Ok(Vec::new()),
+    }
+}
+
+/// カラムに使える型の一覧を返す。
+/// MySQL / SQLiteは仕様で決まっているので固定の一覧、
+/// PostgreSQLはユーザー定義型もあるのでDBから取得する
+pub async fn list_column_types(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: &str,
+) -> Result<Vec<String>, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    let label = conn_label(&session.profile);
+    let ctx = LogCtx {
+        qlog,
+        connection: &label,
+        database,
+    };
+    match &mut session.conn {
+        DbConn::MySql(_) => Ok(crate::ddl::MYSQL_TYPES
+            .iter()
+            .map(|s| s.to_string())
+            .collect()),
+        DbConn::Pg(conn) => {
+            // よく使う型を先頭に、DBから取れた型、最後に別名 (int4など) を足す
+            let mut out: Vec<String> = crate::ddl::PG_COMMON_TYPES
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            let push = |out: &mut Vec<String>, t: String| {
+                if !out.iter().any(|x| x.eq_ignore_ascii_case(&t)) {
+                    out.push(t);
+                }
+            };
+            for t in catalog::pg_types(conn, &ctx).await? {
+                push(&mut out, t);
+            }
+            for a in crate::ddl::PG_TYPE_ALIASES {
+                push(&mut out, a.to_string());
+            }
+            Ok(out)
+        }
+        DbConn::Sqlite(_) => Ok(crate::ddl::SQLITE_TYPES
+            .iter()
+            .map(|s| s.to_string())
+            .collect()),
+        DbConn::Kv(_) => Ok(Vec::new()),
+    }
+}
+
+/// 使える照合順序の一覧を返す (MySQL / PostgreSQLのみ。他は空)
+pub async fn list_collations(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: &str,
+) -> Result<Vec<String>, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    let label = conn_label(&session.profile);
+    let ctx = LogCtx {
+        qlog,
+        connection: &label,
+        database,
+    };
+    match &mut session.conn {
+        DbConn::MySql(conn) => catalog::mysql_collations(conn, &ctx).await,
+        DbConn::Pg(conn) => catalog::pg_collations(conn, &ctx).await,
+        // SQLiteの照合順序は型定義の一部で、後から変えられない
+        DbConn::Sqlite(_) | DbConn::Kv(_) => Ok(Vec::new()),
+    }
+}
+
 pub async fn list_tables(
     sessions: &Sessions,
     qlog: &QueryLog,
@@ -714,6 +823,172 @@ pub async fn export_query_csv(
     Ok((rows, cancelled))
 }
 
+/// セッションのDB種別を返す (DDLの方言を決めるのに使う)
+pub async fn session_db_type(
+    sessions: &Sessions,
+    session_id: &str,
+) -> Result<DbType, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let guard = arc.lock().await;
+    Ok(guard.profile.db_type)
+}
+
+/// DDL (カラム変更など) を順に実行する。
+/// PostgreSQL / SQLite はDDLもトランザクションに入れられるため、
+/// 途中で失敗したときに中途半端な状態が残らないよう BEGIN〜COMMIT で包む
+pub async fn exec_ddl(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: Option<String>,
+    statements: &[String],
+) -> Result<(), String> {
+    if statements.is_empty() {
+        return Err("実行するSQLがありません".into());
+    }
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    if matches!(session.conn, DbConn::Kv(_)) {
+        return Err("Valkey接続では実行できません".into());
+    }
+    let label = conn_label(&session.profile);
+    let db_label = database.clone().unwrap_or_default();
+    ensure_database(session, database.as_ref(), qlog, &label).await?;
+
+    // MySQLはDDLで暗黙コミットされるためトランザクションで包まない
+    let use_txn = !matches!(session.conn, DbConn::MySql(_)) && statements.len() > 1;
+    if use_txn {
+        exec_ctl(&mut session.conn, qlog, &label, &db_label, "BEGIN").await?;
+    }
+    for sql in statements {
+        if let Err(e) = exec_ctl(&mut session.conn, qlog, &label, &db_label, sql).await {
+            if use_txn {
+                let _ = exec_ctl(&mut session.conn, qlog, &label, &db_label, "ROLLBACK").await;
+                return Err(format!("{e}\n(変更はすべて取り消されました)"));
+            }
+            return Err(e);
+        }
+    }
+    if use_txn {
+        exec_ctl(&mut session.conn, qlog, &label, &db_label, "COMMIT").await?;
+    }
+    Ok(())
+}
+
+/// プレースホルダに値を渡してSQLを1つ実行し、影響した行数を返す
+async fn exec_bound(
+    conn: &mut DbConn,
+    qlog: &QueryLog,
+    label: &str,
+    db_label: &str,
+    sql: &str,
+    params: &[Option<String>],
+) -> Result<u64, String> {
+    qlog.add(label, db_label, sql);
+    // SQLは自前で組み立てた固定の形 (値はすべてプレースホルダ) なので安全
+    let safe = sqlx::AssertSqlSafe(sql.to_string());
+    match conn {
+        DbConn::MySql(c) => {
+            let mut q = sqlx::query(safe);
+            for p in params {
+                q = q.bind(p.clone());
+            }
+            q.execute(&mut *c)
+                .await
+                .map(|r| r.rows_affected())
+                .map_err(db::format_db_error)
+        }
+        DbConn::Pg(c) => {
+            let mut q = sqlx::query(safe);
+            for p in params {
+                q = q.bind(p.clone());
+            }
+            q.execute(&mut *c)
+                .await
+                .map(|r| r.rows_affected())
+                .map_err(db::format_db_error)
+        }
+        DbConn::Sqlite(c) => {
+            let mut q = sqlx::query(safe);
+            for p in params {
+                q = q.bind(p.clone());
+            }
+            q.execute(&mut *c)
+                .await
+                .map(|r| r.rows_affected())
+                .map_err(db::format_db_error)
+        }
+        DbConn::Kv(_) => Err("Valkey接続では使用できません".into()),
+    }
+}
+
+/// データの1行を追加・更新・削除する。
+///
+/// 主キーの指定ミスなどで意図せず複数行に当たると取り返しがつかないため、
+/// トランザクションで包み、影響行数がちょうど1行でなければ取り消す
+pub async fn apply_row_change(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: Option<String>,
+    schema: Option<String>,
+    table: &str,
+    change: &crate::dml::RowChange,
+) -> Result<String, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    let db_type = session.profile.db_type;
+    if matches!(session.conn, DbConn::Kv(_)) {
+        return Err("Valkey接続ではこの操作はできません".into());
+    }
+    let label = conn_label(&session.profile);
+    let db_label = database.clone().unwrap_or_default();
+    ensure_database(session, database.as_ref(), qlog, &label).await?;
+
+    // PostgreSQLは値のキャストにカラム型が要る
+    let mut types: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    if let DbConn::Pg(conn) = &mut session.conn {
+        let schema_name = schema.clone().unwrap_or_else(|| "public".to_string());
+        for (name, t) in catalog::pg_column_types(conn, &schema_name, table).await? {
+            types.insert(name, t);
+        }
+    }
+
+    let (sql, params) =
+        crate::dml::build(db_type, schema.as_deref(), table, change, &types)?;
+
+    exec_ctl(&mut session.conn, qlog, &label, &db_label, "BEGIN").await?;
+    let affected = match exec_bound(
+        &mut session.conn,
+        qlog,
+        &label,
+        &db_label,
+        &sql,
+        &params,
+    )
+    .await
+    {
+        Ok(n) => n,
+        Err(e) => {
+            let _ = exec_ctl(&mut session.conn, qlog, &label, &db_label, "ROLLBACK").await;
+            return Err(e);
+        }
+    };
+    if affected != 1 {
+        let _ = exec_ctl(&mut session.conn, qlog, &label, &db_label, "ROLLBACK").await;
+        return Err(format!(
+            "対象が1行になりませんでした ({affected}行)\n変更は取り消しました。一覧を再読み込みしてください"
+        ));
+    }
+    exec_ctl(&mut session.conn, qlog, &label, &db_label, "COMMIT").await?;
+    Ok(sql)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_query(
     sessions: &Sessions,
@@ -779,6 +1054,8 @@ pub async fn run_query(
                 offset: 0,
                 order_by: None,
                 order_dir: None,
+                // 実行計画は途中で切れると読めないので、切り詰めずに全部返す
+                full: true,
             }
         } else {
             query::plan(

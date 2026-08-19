@@ -152,6 +152,9 @@ pub struct IndexInfo {
     pub columns: String,
     pub index_type: Option<String>,
     pub cardinality: Option<i64>,
+    /// 主キーやUNIQUE制約に紐づくインデックスか。
+    /// これらはCREATE/DROP INDEXで作り直せないので画面から変更させない
+    pub constrained: bool,
 }
 
 /// 外部キーの1件 (ER図のリレーション用)
