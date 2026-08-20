@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addSqlHistory, kvExec, kvKeyDetail, kvScan } from "../api";
+import { addSqlHistory, kvApply, kvExec, kvKeyDetail, kvScan } from "../api";
 import { captureResults } from "../capture";
 import { badgeStyle } from "../colors";
 import { useResizableHeight } from "../hooks/useResizableHeight";
 import { useResizableWidth } from "../hooks/useResizableWidth";
-import { tryFormatValue } from "../kvFormat";
 import type {
+  KvBrowseState,
+  KvChange,
   KvKeyDetail,
   KvKeyInfo,
   KvStatementResult,
@@ -13,6 +14,7 @@ import type {
   WorkTab,
 } from "../types";
 import { KvCommandEditor } from "./KvCommandEditor";
+import { KvValueGrid } from "./KvValueGrid";
 import { SelectMenu } from "./SelectMenu";
 import { SqlLibraryMenu } from "./SqlLibraryMenu";
 
@@ -25,6 +27,8 @@ interface Props {
   onSetConsole: (open: boolean) => void;
   /** コンソール実行結果の保存 (タブ状態として保持) */
   onKvOutput: (results: KvStatementResult[], error: string | null) => void;
+  /** キーブラウザの状態保存 (タブを切り替えても戻せるように) */
+  onKvBrowse: (state: KvBrowseState) => void;
 }
 
 /** 破壊的なため実行前に確認するコマンド */
@@ -94,6 +98,7 @@ export function KvSessionView({
   onChangeSql,
   onSetConsole,
   onKvOutput,
+  onKvBrowse,
 }: Props) {
   const { profile, databases, selectedDb } = tab;
   const db = selectedDb ?? "0";
@@ -104,20 +109,39 @@ export function KvSessionView({
   const execError = tab.kvExecError ?? null;
 
   // ---------- キーブラウザ ----------
-  const [pattern, setPattern] = useState("*");
-  const [keys, setKeys] = useState<KvKeyInfo[]>([]);
-  const [cursor, setCursor] = useState("0");
-  const [done, setDone] = useState(true);
-  const [dbsize, setDbsize] = useState(-1);
+  // タブを離れて戻ってきたときは、前回の一覧・選択をそのまま復元する
+  const saved = tab.kvBrowse;
+  const [pattern, setPattern] = useState(saved?.pattern ?? "*");
+  const [keys, setKeys] = useState<KvKeyInfo[]>(saved?.keys ?? []);
+  const [cursor, setCursor] = useState(saved?.cursor ?? "0");
+  const [done, setDone] = useState(saved?.done ?? true);
+  const [dbsize, setDbsize] = useState(saved?.dbsize ?? -1);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // ---------- キー詳細 ----------
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(
+    saved?.selectedKey ?? null
+  );
   const [detail, setDetail] = useState<KvKeyDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   /** 値の整形表示 (JSON / PHPシリアライズ) */
   const [pretty, setPretty] = useState(false);
+  /** キー名を変更中の入力値 (nullなら表示のみ) */
+  const [keyDraft, setKeyDraft] = useState<string | null>(null);
+  /** TTLを変更中の入力値 (秒。nullなら表示のみ) */
+  const [ttlDraft, setTtlDraft] = useState<string | null>(null);
+  /** キー操作 (改名・TTL・削除・作成) のエラー */
+  const [keyError, setKeyError] = useState<string | null>(null);
+  /** 削除の確認中のキー */
+  const [deleting, setDeleting] = useState<string | null>(null);
+  /** 新規キーの入力 (nullなら作成していない) */
+  const [newKey, setNewKey] = useState<{
+    key: string;
+    type: string;
+    field: string;
+    value: string;
+  } | null>(null);
   const [paneWidth, startPaneResize] = useResizableWidth(260, 170, 520);
 
   // ---------- コンソール ----------
@@ -158,13 +182,41 @@ export function KvSessionView({
     [tab.key, db, pattern, cursor]
   );
 
-  // 初回・DB切替時は先頭から読み込む
+  /** 直前に読み込んだ「タブ+DB」。同じValkeyタブ同士の切替でも作り直すため両方見る */
+  const loaded = useRef<string | null>(null);
+
+  // タブ・DBが変わったら、そのタブの保存内容を復元する。
+  // 保存が無い (初めて開く / DBを切り替えた) ときだけ先頭から読み込む
   useEffect(() => {
-    setSelectedKey(null);
+    const id = `${tab.key}\u0000${db}`;
+    if (loaded.current === id) return;
+    loaded.current = id;
+    const keep = tab.kvBrowse;
     setDetail(null);
-    scan(true);
+    if (keep && keep.db === db && keep.keys.length > 0) {
+      setPattern(keep.pattern);
+      setKeys(keep.keys);
+      setCursor(keep.cursor);
+      setDone(keep.done);
+      setDbsize(keep.dbsize);
+      setSelectedKey(keep.selectedKey);
+      if (keep.selectedKey) void openKey(keep.selectedKey);
+      return;
+    }
+    const pat = keep?.db === db ? (keep?.pattern ?? "*") : "*";
+    setPattern(pat);
+    setKeys([]);
+    setCursor("0");
+    setSelectedKey(null);
+    void scan(true, pat);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.key, db]);
+
+  // 一覧・選択が変わったらタブ側へ保存する (タブ切替で消えないように)
+  useEffect(() => {
+    onKvBrowse({ db, pattern, keys, cursor, done, dbsize, selectedKey });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, pattern, keys, cursor, done, dbsize, selectedKey]);
 
   /** キー選択 → 詳細を取得 */
   const openKey = async (key: string) => {
@@ -180,6 +232,93 @@ export function KvSessionView({
     } finally {
       setLoadingDetail(false);
     }
+  };
+
+  // キー名・TTLの編集や新規キーの入力は、フォーカスが外れていてもEscで取り消す
+  useEffect(() => {
+    if (keyDraft === null && ttlDraft === null && !newKey && !deleting) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setKeyDraft(null);
+      setTtlDraft(null);
+      setNewKey(null);
+      setDeleting(null);
+      setKeyError(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [keyDraft, ttlDraft, newKey, deleting]);
+
+  /** キーへの変更を実行する (失敗したらエラーを表示して何もしない) */
+  const applyKey = async (change: KvChange): Promise<boolean> => {
+    try {
+      await kvApply(tab.key, db, change);
+      setKeyError(null);
+      return true;
+    } catch (e) {
+      setKeyError(String(e));
+      return false;
+    }
+  };
+
+  /** キー名の変更を確定する */
+  const commitRename = async () => {
+    const next = (keyDraft ?? "").trim();
+    if (!detail || next === "" || next === detail.key) {
+      setKeyDraft(null);
+      return;
+    }
+    const ok = await applyKey({
+      kind: "rename",
+      key: detail.key,
+      newKey: next,
+    });
+    if (!ok) return;
+    setKeyDraft(null);
+    await scan(true);
+    await openKey(next);
+  };
+
+  /** TTLの変更を確定する (0以下で無期限) */
+  const commitTtl = async () => {
+    const n = Number.parseInt((ttlDraft ?? "").trim(), 10);
+    if (!detail || Number.isNaN(n)) {
+      setTtlDraft(null);
+      return;
+    }
+    const ok = await applyKey({ kind: "expire", key: detail.key, ttl: n });
+    if (!ok) return;
+    setTtlDraft(null);
+    await scan(true);
+    await openKey(detail.key);
+  };
+
+  /** キーを削除する (確認モーダルから呼ばれる) */
+  const commitDelete = async (key: string) => {
+    const ok = await applyKey({ kind: "deleteKey", key });
+    setDeleting(null);
+    if (!ok) return;
+    setSelectedKey(null);
+    setDetail(null);
+    await scan(true);
+  };
+
+  /** 新しいキーを作る */
+  const commitCreate = async () => {
+    if (!newKey) return;
+    const key = newKey.key.trim();
+    if (key === "") return;
+    const ok = await applyKey({
+      kind: "createKey",
+      key,
+      kvType: newKey.type,
+      row: { field: newKey.field, value: newKey.value },
+    });
+    if (!ok) return;
+    setNewKey(null);
+    await scan(true);
+    await openKey(key);
   };
 
   /** コマンド実行 (確認済みならconfirmed=true) */
@@ -308,6 +447,23 @@ export function KvSessionView({
             </span>
             {/* テーブル一覧と同じ位置に再読み込みを置く (先頭からSCANし直す) */}
             <button
+              className="pane-icon-btn has-tooltip tooltip-left"
+              data-tooltip="キーを新規作成"
+              onClick={() => {
+                setKeyError(null);
+                setNewKey({ key: "", type: "string", field: "", value: "" });
+              }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M12 5v14M5 12h14"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+            <button
               className={
                 "pane-icon-btn has-tooltip tooltip-left" +
                 (scanning ? " spinning" : "")
@@ -338,6 +494,71 @@ export function KvSessionView({
               if (e.key === "Enter") scan(true);
             }}
           />
+          {newKey && (
+            <div className="kv-new-key">
+              <input
+                className="mono"
+                autoFocus
+                placeholder="キー名"
+                value={newKey.key}
+                onChange={(e) => setNewKey({ ...newKey, key: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    setNewKey(null);
+                    setKeyError(null);
+                  }
+                }}
+              />
+              <select
+                className="cell-select"
+                value={newKey.type}
+                onChange={(e) => setNewKey({ ...newKey, type: e.target.value })}
+              >
+                {["string", "hash", "list", "set", "zset"].map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              {(newKey.type === "hash" || newKey.type === "zset") && (
+                <input
+                  className="mono"
+                  placeholder={newKey.type === "hash" ? "フィールド" : "スコア"}
+                  value={newKey.field}
+                  onChange={(e) =>
+                    setNewKey({ ...newKey, field: e.target.value })
+                  }
+                />
+              )}
+              <input
+                className="mono"
+                placeholder={newKey.type === "zset" ? "メンバー" : "値"}
+                value={newKey.value}
+                onChange={(e) => setNewKey({ ...newKey, value: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void commitCreate();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    setNewKey(null);
+                    setKeyError(null);
+                  }
+                }}
+              />
+              <div className="kv-new-key-foot">
+                <span className="ddl-bar-text">
+                  <kbd>Enter</kbd> で作成 / <kbd>Esc</kbd> で取り消し
+                </span>
+                <span className="toolbar-spacer" />
+                <button className="sql-btn" onClick={() => void commitCreate()}>
+                  作成
+                </button>
+              </div>
+              {keyError && <p className="new-table-error">{keyError}</p>}
+            </div>
+          )}
           <ul className="side-table-list kv-key-list">
             {keys.map((k) => (
               <li key={k.key}>
@@ -504,7 +725,35 @@ export function KvSessionView({
           ) : detail ? (
             <div className="kv-detail">
               <div className="kv-detail-head">
-                <span className="kv-detail-key mono">{detail.key}</span>
+                {keyDraft !== null ? (
+                  <input
+                    className="cell-input mono kv-key-input"
+                    autoFocus
+                    value={keyDraft}
+                    onChange={(e) => setKeyDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void commitRename();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setKeyDraft(null);
+                        setKeyError(null);
+                      }
+                    }}
+                  />
+                ) : (
+                  <span
+                    className="kv-detail-key mono"
+                    title="ダブルクリックでキー名を変更"
+                    onDoubleClick={() => {
+                      setKeyError(null);
+                      setKeyDraft(detail.key);
+                    }}
+                  >
+                    {detail.key}
+                  </span>
+                )}
                 {typeBadge(detail.type)}
                 <span className="toolbar-spacer" />
                 <button
@@ -514,14 +763,54 @@ export function KvSessionView({
                 >
                   整形
                 </button>
+                <button
+                  className="sql-btn danger"
+                  title="このキーを削除します"
+                  onClick={() => setDeleting(detail.key)}
+                >
+                  キーを削除
+                </button>
               </div>
               <div className="kv-detail-meta mono">
                 <span>
                   TTL:{" "}
-                  {detail.ttl < 0
-                    ? "無期限"
-                    : `${detail.ttl.toLocaleString()}秒` +
-                      (detail.ttl >= 60 ? ` (約${ttlLabel(detail.ttl)})` : "")}
+                  {ttlDraft !== null ? (
+                    <span className="kv-ttl-edit">
+                      <input
+                        className="cell-input mono kv-ttl-input"
+                        autoFocus
+                        type="number"
+                        min={0}
+                        value={ttlDraft}
+                        onChange={(e) => setTtlDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void commitTtl();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            setTtlDraft(null);
+                            setKeyError(null);
+                          }
+                        }}
+                      />
+                      <span className="kv-ttl-unit">秒 (0で無期限)</span>
+                    </span>
+                  ) : (
+                    <span
+                      className="kv-editable"
+                      title="ダブルクリックで変更 (秒。0で無期限に戻します)"
+                      onDoubleClick={() => {
+                        setKeyError(null);
+                        setTtlDraft(detail.ttl < 0 ? "0" : String(detail.ttl));
+                      }}
+                    >
+                      {detail.ttl < 0
+                        ? "無期限"
+                        : `${detail.ttl.toLocaleString()}秒` +
+                          (detail.ttl >= 60 ? ` (約${ttlLabel(detail.ttl)})` : "")}
+                    </span>
+                  )}
                 </span>
                 <span>{countLabel(detail.type, detail.total)}</span>
                 <span>メモリ: {bytesLabel(detail.memory)}</span>
@@ -533,26 +822,22 @@ export function KvSessionView({
                 </div>
               ) : (
                 <>
-                  <div className="grid-wrap kv-value-wrap">
-                    <table className="grid mono kv-value-grid">
-                      <thead>
-                        <tr>
-                          <th>{detail.cols[0]}</th>
-                          <th>{detail.cols[1]}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.rows.map(([a, b], i) => (
-                          <tr key={i}>
-                            <td className="kv-cell-a">{a}</td>
-                            <td className="kv-cell-b">
-                              {pretty ? (tryFormatValue(b) ?? b) : b}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  {keyError && (
+                    <div className="result-banner ng kv-edit-error">
+                      <span className="dot" aria-hidden />
+                      <span className="result-detail">{keyError}</span>
+                    </div>
+                  )}
+                  <KvValueGrid
+                    sessionId={tab.key}
+                    database={db}
+                    detail={detail}
+                    pretty={pretty}
+                    onReload={() => {
+                      void openKey(detail.key);
+                      void scan(true);
+                    }}
+                  />
                   {detail.truncated && (
                     <div className="kv-truncated">
                       {detail.type === "string"
@@ -576,6 +861,38 @@ export function KvSessionView({
           )}
         </main>
       </div>
+
+      {/* キー削除の確認 (取り消せないため確認する) */}
+      {deleting && (
+        <div className="er-modal-overlay" onMouseDown={() => setDeleting(null)}>
+          <div className="er-modal" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="er-modal-head">
+              <div className="er-modal-icon danger">✕</div>
+              <div>
+                <div className="er-modal-title">キーを削除します</div>
+                <div className="er-modal-sub">
+                  値はすべて失われます。取り消しはできません
+                </div>
+              </div>
+            </div>
+            <p className="er-modal-body mono">{deleting}</p>
+            <div className="er-modal-actions">
+              <button
+                className="btn-ghost er-modal-cancel"
+                onClick={() => setDeleting(null)}
+              >
+                キャンセル
+              </button>
+              <button
+                className="btn-primary btn-delete"
+                onClick={() => void commitDelete(deleting)}
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 破壊的コマンドの確認ダイアログ */}
       {confirmCmd && (

@@ -2,7 +2,7 @@
 //! sqlx系のセッションと同じ仕組みに載せるための薄いラッパー
 
 use redis::aio::MultiplexedConnection;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::time::{timeout, Duration};
 
 use crate::db::CONNECT_TIMEOUT;
@@ -461,7 +461,12 @@ pub async fn key_detail(
         ),
     };
 
-    let truncated = (rows.len() as i64) < total && kv_type != "string";
+    // stringは先頭VALUE_PREVIEW_BYTESバイトまでしか読んでいない
+    let truncated = if kv_type == "string" {
+        total > VALUE_PREVIEW_BYTES as i64
+    } else {
+        (rows.len() as i64) < total
+    };
     Ok(KvKeyDetail {
         key: key.to_string(),
         kv_type,
@@ -473,6 +478,443 @@ pub async fn key_detail(
         rows,
         truncated,
     })
+}
+
+// ---------- 値の編集 ----------
+
+/// 値ビューの1行 (1列目 = field / 2列目 = value)。
+/// 型によって意味が変わる:
+///   string → value のみ / hash → フィールド名と値 / list → indexと値
+///   set → #とメンバー / zset → スコアとメンバー / stream → IDとフィールド
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KvRow {
+    pub field: String,
+    pub value: String,
+}
+
+/// キーに対する変更内容
+#[derive(Debug, Clone, Deserialize)]
+// rename_all はバリアント名だけなので、中のフィールド名にも別途camelCaseを指定する
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum KvChange {
+    /// 既存の要素を書き換える (beforeの行をafterの内容へ)
+    Update {
+        key: String,
+        kv_type: String,
+        before: KvRow,
+        after: KvRow,
+    },
+    /// 要素を足す
+    Insert {
+        key: String,
+        kv_type: String,
+        row: KvRow,
+    },
+    /// 要素を1件消す
+    Remove {
+        key: String,
+        kv_type: String,
+        row: KvRow,
+    },
+    /// キーごと消す
+    DeleteKey { key: String },
+    /// キー名を変える
+    Rename { key: String, new_key: String },
+    /// TTLを設定する (0以下なら無期限に戻す)
+    Expire { key: String, ttl: i64 },
+    /// 新しいキーを作る
+    CreateKey {
+        key: String,
+        kv_type: String,
+        row: KvRow,
+    },
+}
+
+/// listのindexとして読む
+fn parse_index(s: &str) -> Result<i64, String> {
+    s.trim()
+        .parse::<i64>()
+        .map_err(|_| format!("indexは整数で指定してください: {s}"))
+}
+
+/// zsetのスコアとして読む
+fn parse_score(s: &str) -> Result<f64, String> {
+    s.trim()
+        .parse::<f64>()
+        .map_err(|_| format!("スコアは数値で指定してください: {s}"))
+}
+
+/// キー名が空でないか確認する
+fn check_key(key: &str) -> Result<(), String> {
+    if key.trim().is_empty() {
+        return Err("キー名を入力してください".into());
+    }
+    Ok(())
+}
+
+/// 変更を適用し、実行した内容の要約 (クエリログ用) を返す
+pub async fn apply_change(
+    conn: &mut MultiplexedConnection,
+    change: &KvChange,
+) -> Result<String, String> {
+    match change {
+        KvChange::Update {
+            key,
+            kv_type,
+            before,
+            after,
+        } => {
+            check_key(key)?;
+            update_value(conn, key, kv_type, before, after).await
+        }
+        KvChange::Insert { key, kv_type, row } => {
+            check_key(key)?;
+            insert_value(conn, key, kv_type, row).await
+        }
+        KvChange::Remove { key, kv_type, row } => {
+            check_key(key)?;
+            remove_value(conn, key, kv_type, row).await
+        }
+        KvChange::DeleteKey { key } => {
+            check_key(key)?;
+            let n: i64 = redis::cmd("DEL")
+                .arg(key)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            if n == 0 {
+                return Err("キーが存在しません (すでに消えている可能性があります)".into());
+            }
+            Ok(format!("DEL {key}"))
+        }
+        KvChange::Rename { key, new_key } => {
+            check_key(key)?;
+            check_key(new_key)?;
+            if key == new_key {
+                return Err("キー名が変わっていません".into());
+            }
+            // 既存キーを上書きしないよう RENAMENX を使う
+            let ok: i64 = redis::cmd("RENAMENX")
+                .arg(key)
+                .arg(new_key)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            if ok == 0 {
+                return Err(format!("同じ名前のキーが既にあります: {new_key}"));
+            }
+            Ok(format!("RENAMENX {key} {new_key}"))
+        }
+        KvChange::Expire { key, ttl } => {
+            check_key(key)?;
+            if *ttl > 0 {
+                let ok: i64 = redis::cmd("EXPIRE")
+                    .arg(key)
+                    .arg(*ttl)
+                    .query_async(conn)
+                    .await
+                    .map_err(format_err)?;
+                if ok == 0 {
+                    return Err("キーが存在しません".into());
+                }
+                Ok(format!("EXPIRE {key} {ttl}"))
+            } else {
+                let _: i64 = redis::cmd("PERSIST")
+                    .arg(key)
+                    .query_async(conn)
+                    .await
+                    .map_err(format_err)?;
+                Ok(format!("PERSIST {key}"))
+            }
+        }
+        KvChange::CreateKey { key, kv_type, row } => {
+            check_key(key)?;
+            let exists: i64 = redis::cmd("EXISTS")
+                .arg(key)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            if exists == 1 {
+                return Err(format!("同じ名前のキーが既にあります: {key}"));
+            }
+            insert_value(conn, key, kv_type, row).await
+        }
+    }
+}
+
+/// 既存の要素を書き換える
+async fn update_value(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    kv_type: &str,
+    before: &KvRow,
+    after: &KvRow,
+) -> Result<String, String> {
+    match kv_type {
+        "string" => {
+            // SETはTTLを消してしまうため、KEEPTTLで期限を残す
+            let _: () = redis::cmd("SET")
+                .arg(key)
+                .arg(&after.value)
+                .arg("KEEPTTL")
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            Ok(format!("SET {key} <値> KEEPTTL"))
+        }
+        "hash" => {
+            if before.field == after.field {
+                let _: i64 = redis::cmd("HSET")
+                    .arg(key)
+                    .arg(&after.field)
+                    .arg(&after.value)
+                    .query_async(conn)
+                    .await
+                    .map_err(format_err)?;
+                Ok(format!("HSET {key} {}", after.field))
+            } else {
+                // フィールド名の変更は「消して足す」ので、まとめて実行する
+                let mut pipe = redis::pipe();
+                pipe.atomic();
+                pipe.cmd("HDEL").arg(key).arg(&before.field).ignore();
+                pipe.cmd("HSET")
+                    .arg(key)
+                    .arg(&after.field)
+                    .arg(&after.value)
+                    .ignore();
+                let _: () = pipe.query_async(conn).await.map_err(format_err)?;
+                Ok(format!(
+                    "HDEL {key} {} / HSET {key} {}",
+                    before.field, after.field
+                ))
+            }
+        }
+        "list" => {
+            let idx = parse_index(&before.field)?;
+            // 位置は他の更新でずれるため、書き換える前に中身を確かめる
+            let cur: Option<Vec<u8>> = redis::cmd("LINDEX")
+                .arg(key)
+                .arg(idx)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            match cur {
+                Some(v) if bytes_to_display(&v) == before.value => {}
+                Some(_) => {
+                    return Err(
+                        "この要素は他で更新されています。再読み込みしてからやり直してください"
+                            .into(),
+                    )
+                }
+                None => return Err("対象の要素が見つかりません".into()),
+            }
+            let _: () = redis::cmd("LSET")
+                .arg(key)
+                .arg(idx)
+                .arg(&after.value)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            Ok(format!("LSET {key} {idx}"))
+        }
+        "set" => {
+            if before.value == after.value {
+                return Err("値が変わっていません".into());
+            }
+            let mut pipe = redis::pipe();
+            pipe.atomic();
+            pipe.cmd("SREM").arg(key).arg(&before.value).ignore();
+            pipe.cmd("SADD").arg(key).arg(&after.value).ignore();
+            let _: () = pipe.query_async(conn).await.map_err(format_err)?;
+            Ok(format!("SREM {key} <旧> / SADD {key} <新>"))
+        }
+        "zset" => {
+            let score = parse_score(&after.field)?;
+            if before.value == after.value {
+                // スコアだけの変更はZADDで上書きできる
+                let _: i64 = redis::cmd("ZADD")
+                    .arg(key)
+                    .arg(score)
+                    .arg(&after.value)
+                    .query_async(conn)
+                    .await
+                    .map_err(format_err)?;
+                Ok(format!("ZADD {key} {score} <メンバー>"))
+            } else {
+                let mut pipe = redis::pipe();
+                pipe.atomic();
+                pipe.cmd("ZREM").arg(key).arg(&before.value).ignore();
+                pipe.cmd("ZADD")
+                    .arg(key)
+                    .arg(score)
+                    .arg(&after.value)
+                    .ignore();
+                let _: () = pipe.query_async(conn).await.map_err(format_err)?;
+                Ok(format!("ZREM {key} <旧> / ZADD {key} {score} <新>"))
+            }
+        }
+        "stream" => {
+            Err("streamの既存エントリは仕様上変更できません (追加と削除のみ可能です)".into())
+        }
+        other => Err(format!("{other} 型の編集には対応していません")),
+    }
+}
+
+/// 要素を足す (新規キー作成でも使う)
+async fn insert_value(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    kv_type: &str,
+    row: &KvRow,
+) -> Result<String, String> {
+    match kv_type {
+        "string" => {
+            let _: () = redis::cmd("SET")
+                .arg(key)
+                .arg(&row.value)
+                .arg("KEEPTTL")
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            Ok(format!("SET {key} <値> KEEPTTL"))
+        }
+        "hash" => {
+            if row.field.trim().is_empty() {
+                return Err("フィールド名を入力してください".into());
+            }
+            let _: i64 = redis::cmd("HSET")
+                .arg(key)
+                .arg(&row.field)
+                .arg(&row.value)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            Ok(format!("HSET {key} {}", row.field))
+        }
+        "list" => {
+            let _: i64 = redis::cmd("RPUSH")
+                .arg(key)
+                .arg(&row.value)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            Ok(format!("RPUSH {key} <値>"))
+        }
+        "set" => {
+            let n: i64 = redis::cmd("SADD")
+                .arg(key)
+                .arg(&row.value)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            if n == 0 {
+                return Err("同じメンバーが既にあります".into());
+            }
+            Ok(format!("SADD {key} <メンバー>"))
+        }
+        "zset" => {
+            let score = parse_score(&row.field)?;
+            let _: i64 = redis::cmd("ZADD")
+                .arg(key)
+                .arg(score)
+                .arg(&row.value)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            Ok(format!("ZADD {key} {score} <メンバー>"))
+        }
+        "stream" => {
+            if row.field.trim().is_empty() {
+                return Err("フィールド名を入力してください".into());
+            }
+            let id: String = redis::cmd("XADD")
+                .arg(key)
+                .arg("*")
+                .arg(&row.field)
+                .arg(&row.value)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            Ok(format!("XADD {key} * {} (ID: {id})", row.field))
+        }
+        other => Err(format!("{other} 型の追加には対応していません")),
+    }
+}
+
+/// 要素を1件消す
+async fn remove_value(
+    conn: &mut MultiplexedConnection,
+    key: &str,
+    kv_type: &str,
+    row: &KvRow,
+) -> Result<String, String> {
+    match kv_type {
+        "string" => Err("string型は値だけを消せません。キーごと削除してください".into()),
+        "hash" => {
+            let n: i64 = redis::cmd("HDEL")
+                .arg(key)
+                .arg(&row.field)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            if n == 0 {
+                return Err("対象のフィールドが見つかりません".into());
+            }
+            Ok(format!("HDEL {key} {}", row.field))
+        }
+        "list" => {
+            // indexではなく値で消す (同じ値が複数あれば先頭の1件)
+            let n: i64 = redis::cmd("LREM")
+                .arg(key)
+                .arg(1)
+                .arg(&row.value)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            if n == 0 {
+                return Err("対象の要素が見つかりません".into());
+            }
+            Ok(format!("LREM {key} 1 <値>"))
+        }
+        "set" => {
+            let n: i64 = redis::cmd("SREM")
+                .arg(key)
+                .arg(&row.value)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            if n == 0 {
+                return Err("対象のメンバーが見つかりません".into());
+            }
+            Ok(format!("SREM {key} <メンバー>"))
+        }
+        "zset" => {
+            let n: i64 = redis::cmd("ZREM")
+                .arg(key)
+                .arg(&row.value)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            if n == 0 {
+                return Err("対象のメンバーが見つかりません".into());
+            }
+            Ok(format!("ZREM {key} <メンバー>"))
+        }
+        "stream" => {
+            let n: i64 = redis::cmd("XDEL")
+                .arg(key)
+                .arg(&row.field)
+                .query_async(conn)
+                .await
+                .map_err(format_err)?;
+            if n == 0 {
+                return Err("対象のエントリが見つかりません".into());
+            }
+            Ok(format!("XDEL {key} {}", row.field))
+        }
+        other => Err(format!("{other} 型の削除には対応していません")),
+    }
 }
 
 // ---------- コマンド実行 (コンソール) ----------

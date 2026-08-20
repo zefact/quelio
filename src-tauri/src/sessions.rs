@@ -1421,6 +1421,28 @@ pub async fn kv_exec(
     }
 }
 
+/// Valkey: キーの値を変更する (追加・削除・TTL変更も含む)
+pub async fn kv_apply(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: &str,
+    change: kv::KvChange,
+) -> Result<(), String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    ensure_kv_db(session, database, qlog).await?;
+    let label = conn_label(&session.profile);
+    let done = match &mut session.conn {
+        DbConn::Kv(c) => kv::apply_change(c, &change).await,
+        _ => Err("Valkey接続ではありません".into()),
+    }?;
+    qlog.add(&label, database, &done);
+    Ok(())
+}
+
 /// セッションを破棄する。DB・SSHとも終了通知を送ってから閉じる
 pub async fn disconnect(sessions: &Sessions, qlog: &QueryLog, session_id: &str) {
     let removed = sessions.0.lock().await.remove(session_id);

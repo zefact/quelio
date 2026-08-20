@@ -153,6 +153,18 @@ pub async fn kv_key_detail(
     sessions::kv_key_detail(&state, &qlog, &session_id, &database, &key).await
 }
 
+/// Valkey: キーの値を変更する (追加・削除・改名・TTL変更・新規作成)
+#[tauri::command]
+pub async fn kv_apply(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+    change: crate::kv::KvChange,
+) -> Result<(), String> {
+    sessions::kv_apply(&state, &qlog, &session_id, &database, change).await
+}
+
 /// Valkey: コマンド (複数行) を逐次実行する
 #[tauri::command]
 pub async fn kv_exec(

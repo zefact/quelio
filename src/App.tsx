@@ -705,6 +705,9 @@ function App() {
             onKvOutput={(kvResults, kvExecError) =>
               updateTab(activeTab.key, { kvResults, kvExecError })
             }
+            onKvBrowse={(kvBrowse) =>
+              updateTab(activeTab.key, { kvBrowse })
+            }
           />
         ) : activeTab.connected ? (
           <SessionView

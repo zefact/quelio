@@ -14,6 +14,7 @@ import type {
   FolderInfo,
   ImportCounts,
   JobStatus,
+  KvChange,
   KvKeyDetail,
   KvRunOutput,
   KvScanResult,
@@ -465,6 +466,15 @@ export function kvKeyDetail(
   key: string
 ): Promise<KvKeyDetail> {
   return invoke("kv_key_detail", { sessionId, database, key });
+}
+
+/** Valkey: キーの値を変更する (追加・削除・改名・TTL変更・新規作成) */
+export function kvApply(
+  sessionId: string,
+  database: string,
+  change: KvChange
+): Promise<void> {
+  return invoke("kv_apply", { sessionId, database, change });
 }
 
 /** コマンド (複数行) を逐次実行する */

@@ -102,6 +102,23 @@ export type IndexChange =
   | { kind: "drop"; name: string }
   | { kind: "modify"; before: string; index: IndexSpec };
 
+/** Valkeyの値ビュー1行 (1列目=field / 2列目=value) */
+export interface KvRow {
+  field: string;
+  value: string;
+}
+
+/** Valkeyのキーに対する変更内容 */
+export type KvChange =
+  | { kind: "update"; key: string; kvType: string; before: KvRow; after: KvRow }
+  | { kind: "insert"; key: string; kvType: string; row: KvRow }
+  | { kind: "remove"; key: string; kvType: string; row: KvRow }
+  | { kind: "deleteKey"; key: string }
+  | { kind: "rename"; key: string; newKey: string }
+  /** ttlは秒。0以下で無期限に戻す */
+  | { kind: "expire"; key: string; ttl: number }
+  | { kind: "createKey"; key: string; kvType: string; row: KvRow };
+
 /** SQLエディタの補完に使うカラム (名前と型) */
 export interface SchemaColumn {
   name: string;
@@ -246,6 +263,19 @@ export type RowChange =
 export type TableTab = "definition" | "data";
 
 /** 1タブの状態。未接続なら接続選択画面、接続後はDBブラウザになる */
+/** Valkeyキーブラウザの状態 (タブを切り替えても復元できるように保持する) */
+export interface KvBrowseState {
+  /** この内容がどのDB番号のものか (DB切替時に誤って復元しないため) */
+  db: string;
+  pattern: string;
+  keys: KvKeyInfo[];
+  /** SCANの続きを読むためのカーソル */
+  cursor: string;
+  done: boolean;
+  dbsize: number;
+  selectedKey: string | null;
+}
+
 export interface WorkTab {
   /** タブ固有キー (バックエンドのセッションIDと同一) */
   key: string;
@@ -290,6 +320,8 @@ export interface WorkTab {
   kvResults?: KvStatementResult[];
   /** Valkeyコンソールのエラー表示 */
   kvExecError?: string | null;
+  /** Valkeyキーブラウザの状態 (タブ切替後もそのまま戻せるように持つ) */
+  kvBrowse?: KvBrowseState;
 }
 
 export function emptyTab(key: string): WorkTab {

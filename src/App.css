@@ -5940,13 +5940,18 @@ html[data-theme="light"] .brand-name {
 
 .kv-type {
   flex-shrink: 0;
-  width: 34px;
+  /* いちばん長い STREAM / STRING (約52px) より広い最小幅にして、
+   * どの型でもバッジ幅を揃える = キー名の開始位置が縦にそろう。
+   * width:auto なので想定外に長い型名でも切れずに広がる */
+  min-width: 56px;
+  width: auto;
+  padding: 2px 6px;
   text-align: center;
+  white-space: nowrap;
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 2px 0;
   border-radius: 5px;
   color: var(--text-dim);
   background: rgba(var(--ink), 0.08);
@@ -6130,6 +6135,138 @@ html[data-theme="light"] .brand-name {
   flex-shrink: 0;
   font-size: 11.5px;
   color: var(--text-faint);
+}
+
+/* ---- Valkeyの値編集 ---- */
+
+/* 値ビューの操作バー (追加ボタン・キー操作のヒント) */
+.kv-value-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-height: 26px;
+}
+
+.kv-value-bar .ddl-bar-text {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.kv-edit-error {
+  flex-shrink: 0;
+}
+
+/* ダブルクリックで編集できる箇所 (キー名・TTL) */
+.kv-editable {
+  border-bottom: 1px dashed var(--border-strong);
+  cursor: text;
+}
+
+.kv-detail-key {
+  cursor: text;
+}
+
+.kv-key-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* TTLの入力は「TTL:」の右に並べる (cell-inputはblockなのでinlineに戻す) */
+.kv-ttl-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+}
+
+/* .cell-input の width:100% / height:32px に負けないよう要素名を付ける */
+input.kv-ttl-input {
+  display: inline-block;
+  width: 92px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.kv-ttl-unit {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* 値の終わりが分かるよう、最後の行の下にも線を引く
+ * (共通の .grid tbody tr:last-child td は線を消しているので上書きする) */
+.kv-value-grid tbody tr:last-child td {
+  border-bottom: 1px solid var(--border);
+}
+
+/* 値ビューの入力欄はセルいっぱいに広げる */
+.kv-value-grid .cell-input {
+  width: 100%;
+}
+
+/* 改行を含む値も編集できるよう、値の入力欄は複数行にする。
+ * .cell-input の height 指定に負けないよう要素名も付ける */
+textarea.cell-textarea {
+  height: auto;
+  min-height: 32px;
+  padding: 6px 11px;
+  line-height: 1.6;
+  font-family: inherit;
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.kv-cell-dim {
+  color: var(--text-faint);
+}
+
+/* キーを削除するボタン (ヘッダの中で赤文字にする) */
+.sql-btn.danger {
+  color: var(--danger);
+}
+
+.sql-btn.danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+/* 新規キーの入力フォーム */
+.kv-new-key {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 10px 8px;
+}
+
+.kv-new-key input,
+.kv-new-key select {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 0;
+  background: var(--input-bg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.kv-new-key-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kv-new-key-foot .ddl-bar-text {
+  font-size: 11px;
+  color: var(--text-dim);
 }
 
 /* ============ テーブルの新規作成 ============ */

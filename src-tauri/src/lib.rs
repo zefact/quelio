@@ -155,6 +155,7 @@ pub fn run() {
             commands::kv_scan,
             commands::kv_key_detail,
             commands::kv_exec,
+            commands::kv_apply,
             commands::export_schema_csv,
             commands::export_query_csv,
             commands::list_collations,
