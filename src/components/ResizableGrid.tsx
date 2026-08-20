@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import { rowsToTsv, writeClipboard } from "../gridCopy";
 import { HoverTip } from "./HoverTip";
 
@@ -120,6 +121,15 @@ export function ResizableGrid({
   const [anchor, setAnchor] = useState<number | null>(null);
   /** 行の右クリックメニューの表示位置 */
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number } | null>(null);
+  // メニューが画面の外へはみ出さないように位置を補正する
+  const [rowMenuRef, rowMenuStyle] = usePopupPosition<HTMLDivElement>(
+    rowMenu?.x ?? 0,
+    rowMenu?.y ?? 0
+  );
+  const [sortMenuRef, sortMenuStyle] = usePopupPosition<HTMLDivElement>(
+    sortMenu?.x ?? 0,
+    sortMenu?.y ?? 0
+  );
   /** コピー結果の一時表示 */
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -612,7 +622,8 @@ export function ResizableGrid({
         createPortal(
           <div
             className="context-menu grid-sort-menu"
-            style={{ left: sortMenu.x, top: sortMenu.y }}
+            ref={sortMenuRef}
+            style={sortMenuStyle}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="grid-sort-head">
@@ -645,7 +656,8 @@ export function ResizableGrid({
         createPortal(
           <div
             className="context-menu grid-row-menu"
-            style={{ left: rowMenu.x, top: rowMenu.y }}
+            ref={rowMenuRef}
+            style={rowMenuStyle}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="grid-sort-head">

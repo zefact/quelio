@@ -405,10 +405,16 @@ select,
   transition: background 0.12s ease, color 0.12s ease;
 }
 
-.console-btn:hover {
+.console-btn:hover:not(:disabled) {
   background: rgba(34, 211, 238, 0.15);
   color: var(--accent-2);
   border-color: rgba(34, 211, 238, 0.45);
+}
+
+/* 使えない状態 (未接続のスキーマ差分など)。理由はツールチップで出す */
+.console-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* macOS: タイトルバー統合(Overlay)時に信号機ボタンぶんの余白を確保 */
@@ -671,6 +677,7 @@ html.macos .diff-toolbar {
 }
 
 .folder-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -785,24 +792,73 @@ html.macos .diff-toolbar {
   padding: 4px 10px 8px;
 }
 
-.drop-before {
-  box-shadow: 0 -2px 0 0 var(--accent) !important;
-}
-
+/* 差し込み位置の線。box-shadowだと項目の角丸に沿って丸まるため、
+ * 疑似要素でまっすぐな横線を引く */
+.drop-before,
 .drop-after {
-  box-shadow: 0 2px 0 0 var(--accent) !important;
+  position: relative;
 }
 
+.drop-before::before,
+.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 0;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.drop-before::before {
+  top: -2px;
+}
+
+.drop-after::after {
+  bottom: -2px;
+}
+
+/* 一番下の受け皿。ドラッグ中だけ「ここへ落とすとフォルダの外に出る」と示す */
 .root-drop-area {
   flex: 1;
   min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.root-drop-area.active {
+  margin: 4px 10px 0;
+  border-radius: 10px;
+  outline: 1px dashed rgba(var(--ink), 0.18);
+  outline-offset: -1px;
 }
 
 .root-drop-area.drop-into {
   background: rgba(99, 102, 241, 0.08);
-  border-radius: 10px;
-  margin: 0 10px;
-  outline: 1px dashed rgba(99, 102, 241, 0.5);
+  outline-color: rgba(99, 102, 241, 0.5);
+}
+
+.root-drop-hint {
+  padding: 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  text-align: center;
+  pointer-events: none;
+}
+
+/* ここには置けない、と示す (フォルダをフォルダの中へ入れようとしたとき) */
+.drop-denied {
+  outline: 1px dashed rgba(248, 113, 113, 0.6);
+  outline-offset: -1px;
+  opacity: 0.6;
+}
+
+/* フォルダ全体 (見出し＋中の接続)。差し込み線をこの外側に出す */
+.folder-group {
+  position: relative;
 }
 
 .hint {
@@ -2963,6 +3019,12 @@ html[data-theme="light"] .result-banner.ng {
   color: var(--text-faint);
 }
 
+/* 下に入りきらないときは上へ出す (.up はSelectMenu側で判定して付ける) */
+.select-menu-pop.up {
+  top: auto;
+  bottom: calc(100% + 9px);
+}
+
 .select-menu-pop {
   position: absolute;
   top: calc(100% + 9px);
@@ -3034,8 +3096,18 @@ html[data-theme="light"] .result-banner.ng {
   gap: 6px;
   margin-left: 14px;
   min-width: 0;
-  overflow: hidden;
+  /* ウィンドウが狭いときは切り捨てずに横スクロールできるようにする */
+  overflow-x: auto;
+  overflow-y: hidden;
   flex-wrap: nowrap;
+  /* ツールバーの見た目を崩さないよう、スクロールバーは出さない
+   * (トラックパッドの横スワイプ・Shift+ホイールでスクロールできる) */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.server-info::-webkit-scrollbar {
+  display: none;
 }
 
 .server-info .info-chip {
@@ -3391,6 +3463,12 @@ html[data-theme="light"] .result-banner.ng {
   top: calc(100% + 5px);
   left: 0;
   min-width: 220px;
+}
+
+/* 下に入りきらないときはボタンの上へ出す */
+.run-menu.up {
+  top: auto;
+  bottom: calc(100% + 5px);
 }
 
 /* メニューの選択中項目 (DB選択メニューなどと同じ「通常色 + 太字」に揃える) */
@@ -4025,51 +4103,132 @@ html[data-theme="light"] .brand-name {
   color: var(--danger);
 }
 
+/*
+ * 確認結果は説明文の下に出す。
+ * 右側 (ボタンの左) に出すと、文字数でボタンや説明文の位置が動いてしまうため
+ */
+.upd-result-line {
+  margin-top: 6px;
+}
+
+.upd-result {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.upd-result.ok {
+  color: var(--success);
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+}
+
+.upd-result.info {
+  color: var(--accent-2);
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.35);
+}
+
+.upd-result.ng {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  font-weight: 600;
+  text-align: left;
+  white-space: normal;
+}
+
+/* ボタンの幅が変わっても説明文の折り返しが動かないよう、幅を確保しておく */
+.upd-control {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 176px;
+}
+
+.link-btn {
+  gap: 6px;
+}
+
 /* ============ 設定モーダル (サイドバー + 設定行レイアウト) ============ */
 
 /* .modal の既定 (幅680px・padding) より後勝ちにするためセレクタを重ねる */
 .modal.settings-modal {
-  width: min(860px, calc(100vw - 60px));
-  height: min(580px, calc(100vh - 80px));
+  width: min(880px, calc(100vw - 60px));
+  height: min(620px, calc(100vh - 80px));
   padding: 0;
   display: flex;
   overflow: hidden;
+  border-radius: 16px;
 }
 
+/* --- 左: ナビゲーション --- */
+
 .settings-nav {
-  width: 176px;
+  width: 212px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 14px 10px 12px;
-  background: rgba(var(--ink), 0.03);
+  padding: 16px 10px 14px;
+  background: rgba(var(--ink), 0.025);
   border-right: 1px solid var(--border);
+  overflow-y: auto;
 }
 
 .settings-nav-title {
-  font-size: 11px;
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  color: var(--text);
+  padding: 2px 10px 14px;
+}
+
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav-group + .settings-nav-group {
+  margin-top: 18px;
+}
+
+.settings-nav-group-title {
+  font-size: 11px;
+  font-weight: 600;
   color: var(--text-faint);
-  padding: 0 10px 8px;
+  padding: 0 10px 6px;
 }
 
 .settings-nav-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
   padding: 8px 10px;
-  border: none;
-  border-radius: 8px;
+  border: 1px solid transparent;
+  border-radius: 10px;
   background: transparent;
   color: var(--text-dim);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   text-align: left;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
+}
+
+.settings-nav-item svg {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.settings-nav-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settings-nav-item:hover {
@@ -4078,16 +4237,26 @@ html[data-theme="light"] .brand-name {
 }
 
 .settings-nav-item.active {
-  background: rgba(99, 102, 241, 0.16);
+  background: rgba(var(--ink), 0.07);
+  border-color: var(--border);
   color: var(--text);
+  font-weight: 600;
 }
 
 .settings-nav-item.active svg {
   color: var(--accent-2);
+  opacity: 1;
+}
+
+.settings-nav-item:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35);
 }
 
 .settings-nav-spacer {
   flex: 1;
+  min-height: 12px;
 }
 
 .settings-nav-version {
@@ -4096,37 +4265,62 @@ html[data-theme="light"] .brand-name {
   padding: 0 10px;
 }
 
-.settings-body {
+/* --- 右: 固定ヘッダ + スクロールする本文 --- */
+
+.settings-main {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  /* 右上の☓ボタンと重ならないよう、上と右を少し空ける */
-  padding: 16px 52px 24px 28px;
+  display: flex;
+  flex-direction: column;
 }
 
-/* 本文がスクロールしても読めるよう、背景と枠を持たせる */
-.settings-close {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  z-index: 5;
+/*
+ * ☓を置く列。本文とは別の要素なので、スクロールしても位置は動かず、
+ * 設定の内容がこの列に重なることもない
+ */
+.settings-topbar {
+  position: relative;
+  flex-shrink: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 12px;
+  background: var(--modal-bg);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.12s ease;
+}
+
+/* 下にまだ続きがあることが分かるよう、スクロール中だけ区切り線を出す */
+.settings-topbar.scrolled {
+  border-bottom-color: var(--border);
+}
+
+.modal-close.settings-close {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--modal-bg);
+  border: none;
+  border-radius: 9px;
+  background: transparent;
   color: var(--text-dim);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
 }
 
 .modal-close.settings-close:hover {
-  background: rgba(var(--ink), 0.12);
+  background: rgba(var(--ink), 0.08);
   color: var(--text);
+}
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 32px 32px;
+  scrollbar-gutter: stable;
 }
 
 .set-section {
@@ -4134,15 +4328,22 @@ html[data-theme="light"] .brand-name {
 }
 
 .set-section-title {
-  font-size: 13.5px;
-  font-weight: 800;
-  margin: 20px 0 2px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  margin: 30px 0 2px;
+}
+
+/* 先頭の見出しはヘッダのすぐ下なので、上の余白は付けない */
+.settings-body > .set-section:first-child .set-section-title,
+.settings-body > .set-section:first-child .set-section-head {
+  margin-top: 0;
 }
 
 .set-section-note {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-dim);
-  line-height: 1.7;
+  line-height: 1.65;
   margin: 6px 0 0;
 }
 
@@ -4150,7 +4351,7 @@ html[data-theme="light"] .brand-name {
   display: flex;
   align-items: center;
   gap: 28px;
-  padding: 14px 0;
+  padding: 15px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -4164,16 +4365,16 @@ html[data-theme="light"] .brand-name {
 }
 
 .set-row-title {
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--text);
 }
 
 .set-row-desc {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--text-dim);
-  line-height: 1.7;
-  margin-top: 3px;
+  line-height: 1.65;
+  margin-top: 4px;
   /* 長いパス等の折り返せないトークンでもはみ出させない */
   overflow-wrap: anywhere;
 }
@@ -4185,12 +4386,36 @@ html[data-theme="light"] .brand-name {
   gap: 8px;
 }
 
+/* コントロールが横に収まらない行は、説明文の下に横幅いっぱいで置く */
+.set-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.set-row-stack .set-row-control {
+  width: 100%;
+}
+
+.set-row-stack .download-dir-field {
+  width: 100%;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+}
+
+.set-row-stack .download-dir-path {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+}
+
 /* セクション見出し + 付随ボタン (再検出など。タイトルのすぐ横に置く) */
 .set-section-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  margin: 20px 0 2px;
+  margin: 30px 0 2px;
 }
 
 .set-section-head .set-section-title {
@@ -4238,17 +4463,66 @@ html[data-theme="light"] .brand-name {
   }
 }
 
-/* 外部ツール行: 入力欄は余白に応じて伸縮させ、はみ出させない */
-.set-tools .set-row-control {
-  flex: 1 1 300px;
-  min-width: 200px;
-  max-width: 440px;
-  justify-content: flex-end;
+/* 外部ツール: 1コマンド = 見出し行 + パス入力 + 検出結果 の3段 */
+.tool-list {
+  margin-top: 10px;
 }
 
-.set-tools .set-row-control .tool-path {
+.tool-item {
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+}
+
+.tool-item-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.tool-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.tool-role {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.tool-ver {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  background: rgba(var(--ink), 0.06);
+  border-radius: 5px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.tool-item-gap {
   flex: 1;
-  min-width: 0;
+}
+
+.tool-item .tool-path {
+  display: block;
+  width: 100%;
+}
+
+/* 検出されたパス (長いので1行に省略) */
+.tool-meta {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-meta.ng {
+  color: var(--danger);
+  opacity: 0.85;
 }
 
 /* 検出状態のステータスピル */
@@ -4294,8 +4568,9 @@ html[data-theme="light"] .brand-name {
 
 .save-toast {
   position: absolute;
-  top: 16px;
+  top: 50%;
   right: 52px;
+  transform: translateY(-50%);
   z-index: 10;
   font-size: 11.5px;
   font-weight: 700;
@@ -4304,8 +4579,20 @@ html[data-theme="light"] .brand-name {
   border: 1px solid rgba(52, 211, 153, 0.4);
   border-radius: 7px;
   padding: 4px 12px;
-  animation: slide-in 0.15s ease;
+  animation: save-toast-in 0.15s ease;
   pointer-events: none;
+}
+
+/* 上下中央に置いたまま出したいので、専用のアニメーションにする */
+@keyframes save-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%);
+  }
 }
 
 /* コメント区切り文字の設定 */
@@ -4923,6 +5210,64 @@ html[data-theme="light"] .brand-name {
   flex-shrink: 0;
   z-index: 5;
   border-top: 1px solid var(--border);
+}
+
+/* スプリッタ右端の開閉ボタン (SQLエディタを画面いっぱいに広げる) */
+.row-splitter {
+  position: relative;
+}
+
+.splitter-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+/* 開閉でアイコンを反転させる (下向き=エディタを広げる / 上向き=結果欄を戻す) */
+.splitter-btn svg {
+  transition: transform 0.16s ease;
+}
+
+.splitter-btn.on svg {
+  transform: rotate(180deg);
+}
+
+.splitter-btn:hover {
+  background: rgba(34, 211, 238, 0.15);
+  color: var(--accent-2);
+}
+
+/* エディタ最大化中は結果欄を隠し、エディタが残りを埋める */
+.query-panel.editor-full .sql-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.query-panel.editor-full .result-bar,
+.query-panel.editor-full .query-result {
+  display: none;
+}
+
+.query-panel.editor-full .row-splitter {
+  cursor: default;
+}
+
+.query-panel.editor-full .row-splitter .grip {
+  visibility: hidden;
 }
 
 .row-splitter .grip {

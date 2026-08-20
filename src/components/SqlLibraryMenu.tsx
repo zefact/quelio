@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import type { ReactNode } from "react";
 import {
   deleteSavedSql,
@@ -80,7 +81,13 @@ export function SqlLibraryMenu({
   contentLabel = "SQL",
 }: Props) {
   const [open, setOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 });
+  const [menuPos, setMenuPos] = useState({ x: 0, y: 0, flipY: 0 });
+  // 画面の下や右で切れないよう位置を補正する
+  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
+    menuPos.x,
+    menuPos.y,
+    menuPos.flipY
+  );
   const btnRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<"history" | "saved">("history");
@@ -153,6 +160,8 @@ export function SqlLibraryMenu({
         setMenuPos({
           x: Math.max(8, Math.min(r.left, window.innerWidth - menuW - 8)),
           y: r.bottom + 5,
+          // 下に入らないときはボタンの上へ出す
+          flipY: r.top - 5,
         });
       }
     }
@@ -286,7 +295,8 @@ export function SqlLibraryMenu({
       {open && (
         <div
           className="context-menu lib-menu"
-          style={{ left: menuPos.x, top: menuPos.y }}
+          ref={menuRef}
+          style={menuStyle}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="lib-tabs">

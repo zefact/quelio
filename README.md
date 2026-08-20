@@ -4,6 +4,7 @@ MySQL / PostgreSQL / SQLite / Valkey 対応の無料デスクトップDBクラ�
 macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です。
 
 **紹介ページ**: https://zefact.github.io/quelio/
+**機能詳細（対応バージョン・機能一覧）**: https://zefact.github.io/quelio/support.html
 
 > **ベータ版について**
 > Quelioは現在ベータ版 (v0.x) です。不具合が含まれる可能性があり、

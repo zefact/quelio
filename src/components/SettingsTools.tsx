@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { detectTools, getToolSettings, saveToolSettings } from "../api";
 import type { ToolSettings, ToolStatus } from "../types";
-import { SettingRow } from "./SettingRow";
 
 interface Props {
   notify: (msg: string) => void;
@@ -14,10 +13,34 @@ const TOOL_KEYS: { tool: string; key: keyof ToolSettings; desc: string }[] = [
   { tool: "psql", key: "psql", desc: "PostgreSQLインポート" },
 ];
 
-/** バージョン文字列を短く整える (先頭のパスと " for " 以降を落とす) */
+/**
+ * バージョン文字列からバージョン番号だけを取り出す。
+ * 例: "mysqldump  Ver 9.6.0 for macos14 on arm64" → "9.6.0"
+ */
 function shortVersion(v: string | null | undefined): string {
   if (!v) return "";
-  return v.replace(/^\/\S*\//, "").split(" for ")[0].trim();
+  const m = v.match(/\d+(?:\.\d+)+/);
+  return m ? m[0] : v.split(/\r?\n/)[0].trim();
+}
+
+function RefreshIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M20 12a8 8 0 1 1-2.34-5.66"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M20 3v4.5h-4.5"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 /** 設定 > 外部ツールページ (mysqldump等のパス設定。変更は自動保存) */
@@ -74,21 +97,7 @@ export function SettingsTools({ notify }: Props) {
           disabled={loading}
           title="パスを再検出する"
         >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path
-              d="M20 12a8 8 0 1 1-2.34-5.66"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-            />
-            <path
-              d="M20 3v4.5h-4.5"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <RefreshIcon />
           再検出
         </button>
       </div>
@@ -102,41 +111,49 @@ export function SettingsTools({ notify }: Props) {
           <span className="spinner accent" /> 検出中...
         </div>
       ) : (
-        TOOL_KEYS.map(({ tool, key, desc }) => {
-          const st = status.find((s) => s.tool === tool);
-          const ver = shortVersion(st?.version);
-          return (
-            <SettingRow
-              key={tool}
-              title={<span className="mono">{tool}</span>}
-              desc={desc + (ver ? ` — ${ver}` : "")}
-            >
-              <input
-                className="tool-path mono"
-                placeholder={
-                  st?.path
-                    ? `自動検出: ${st.path}`
-                    : "未検出 — パスを入力してください"
-                }
-                value={settings[key]}
-                onChange={(e) =>
-                  setSettings({ ...settings, [key]: e.target.value })
-                }
-                onBlur={save}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                }}
-              />
-              <span
-                className={"tool-chip " + (st?.path ? "ok" : "ng")}
-                title={st?.version ?? ""}
-              >
-                <span className="dot" aria-hidden />
-                {st?.path ? "検出済み" : "未検出"}
-              </span>
-            </SettingRow>
-          );
-        })
+        <div className="tool-list">
+          {TOOL_KEYS.map(({ tool, key, desc }) => {
+            const st = status.find((s) => s.tool === tool);
+            const ver = shortVersion(st?.version);
+            const found = Boolean(st?.path);
+            return (
+              <div className="tool-item" key={tool}>
+                <div className="tool-item-head">
+                  <span className="tool-name mono">{tool}</span>
+                  <span className="tool-role">{desc}</span>
+                  {ver && <span className="tool-ver mono">v{ver}</span>}
+                  <span className="tool-item-gap" aria-hidden />
+                  <span
+                    className={"tool-chip " + (found ? "ok" : "ng")}
+                    title={st?.version ?? ""}
+                  >
+                    <span className="dot" aria-hidden />
+                    {found ? "検出済み" : "未検出"}
+                  </span>
+                </div>
+                <input
+                  className="tool-path mono"
+                  placeholder={
+                    found
+                      ? "自動検出したパスを使います"
+                      : "パスを入力してください"
+                  }
+                  value={settings[key]}
+                  onChange={(e) =>
+                    setSettings({ ...settings, [key]: e.target.value })
+                  }
+                  onBlur={save}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                />
+                <div className={"tool-meta mono" + (found ? "" : " ng")}>
+                  {found ? st?.path : "自動検出できませんでした"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       )}
     </section>
   );

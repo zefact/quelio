@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import { kvApply } from "../api";
 import { tryFormatValue } from "../kvFormat";
 import type { KvChange, KvKeyDetail, KvRow } from "../types";
@@ -90,6 +91,11 @@ export function KvValueGrid({
   /** 行の右クリックメニュー */
   const [menu, setMenu] = useState<{ x: number; y: number; index: number } | null>(
     null
+  );
+  // メニューが画面の外へはみ出さないように位置を補正する
+  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
+    menu?.x ?? 0,
+    menu?.y ?? 0
   );
 
   const type = detail.type;
@@ -353,7 +359,8 @@ export function KvValueGrid({
         createPortal(
           <div
             className="context-menu"
-            style={{ left: menu.x, top: menu.y }}
+            ref={menuRef}
+            style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <button

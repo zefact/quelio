@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>機能詳細 | Quelio（クエリオ）</title>
+  <meta name="description" content="Quelioが対応するMySQL / PostgreSQL / SQLite / Valkeyのバージョンと、DBごとにできること・できないことの一覧。" />
+  <meta property="og:title" content="機能詳細 | Quelio（クエリオ）" />
+  <meta property="og:description" content="MySQL / PostgreSQL / SQLite / Valkey の対応バージョンと機能対応表。" />
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="https://zefact.github.io/quelio/support.html" />
+  <style>
+    :root {
+      --ink: #0f1222;
+      --ink-2: #3d4257;
+      --ink-3: #7a7f96;
+      --line: #e8e9ef;
+      --bg: #ffffff;
+      --bg-soft: #f7f7fa;
+      --indigo: #4f46e5;
+      --cyan: #0891b2;
+      --ok: #0c9e6e;
+      --partial: #b45309;
+      --no: #b0b4c4;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.75;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    .container { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+    .mono { font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace; font-size: 0.92em; }
+
+    /* ===== Nav ===== */
+    nav {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(255, 255, 255, 0.86);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--line);
+    }
+    .nav-inner { display: flex; align-items: center; height: 64px; gap: 28px; }
+    .nav-logo { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; }
+    .nav-logo svg { width: 26px; height: 26px; }
+    .nav-logo-ja { font-size: 12px; font-weight: 600; color: var(--ink-3); margin-left: -4px; }
+    .nav-gh {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 13.5px; font-weight: 600;
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: 7px 14px; color: var(--ink-2);
+      transition: border-color .15s, color .15s;
+    }
+    .nav-gh:hover { border-color: #c9cbd6; color: var(--ink); }
+    .nav-links { display: flex; gap: 24px; margin-left: auto; font-size: 14px; color: var(--ink-2); }
+    .nav-links a:hover { color: var(--ink); }
+    .nav-links a.current { color: var(--indigo); font-weight: 700; }
+
+    /* ===== Head ===== */
+    .page-head { padding: 56px 0 34px; border-bottom: 1px solid var(--line); }
+    .crumb { font-size: 13px; color: var(--ink-3); margin-bottom: 10px; }
+    .crumb a:hover { color: var(--ink); }
+    h1 { font-size: clamp(26px, 4vw, 34px); font-weight: 800; letter-spacing: -0.01em; }
+    .lead { margin-top: 12px; color: var(--ink-2); font-size: 15px; max-width: 780px; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .chip {
+      font-size: 12.5px; color: var(--ink-2);
+      border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px;
+      background: var(--bg-soft);
+    }
+
+    /* ===== Section ===== */
+    section { padding: 44px 0; border-bottom: 1px solid var(--line); }
+    section:last-of-type { border-bottom: none; }
+    h2 { font-size: 21px; font-weight: 800; letter-spacing: -0.01em; }
+    h2 .num { color: var(--indigo); margin-right: 10px; font-size: 15px; font-weight: 700; }
+    .sec-lead { margin-top: 8px; color: var(--ink-2); font-size: 14px; }
+    h3 { font-size: 15.5px; font-weight: 750; margin-top: 22px; }
+
+    /* ===== Table ===== */
+    .table-wrap { margin-top: 20px; overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    th, td { padding: 10px 14px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    thead th {
+      background: var(--bg-soft); font-weight: 700; font-size: 12.5px;
+      color: var(--ink-2); white-space: nowrap;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #fbfbfd; }
+    td.c, th.c { text-align: center; white-space: nowrap; }
+    .grp td {
+      background: var(--bg-soft); font-weight: 700; font-size: 12.5px; color: var(--ink-2);
+      letter-spacing: 0.02em;
+    }
+    .note { font-size: 12px; color: var(--ink-3); display: block; margin-top: 2px; line-height: 1.6; }
+
+    .mark { font-weight: 800; font-size: 14px; }
+    .mark.y { color: var(--ok); }
+    .mark.p { color: var(--partial); }
+    .mark.n { color: var(--no); }
+
+    /* ===== Legend ===== */
+    .legend { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 16px; font-size: 13px; color: var(--ink-2); }
+    .legend span b { margin-right: 6px; }
+
+    /* ===== Cards ===== */
+    .db-card {
+      margin-top: 22px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden;
+    }
+    .db-card-head {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 14px 20px; background: var(--bg-soft); border-bottom: 1px solid var(--line);
+    }
+    .db-card-head h3 { margin: 0; font-size: 16.5px; font-weight: 800; }
+    .ver { font-size: 12.5px; color: var(--ink-2); }
+    .db-card-body { padding: 6px 20px 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; }
+    .col h4 { font-size: 13px; font-weight: 800; margin-top: 16px; color: var(--ink-2); letter-spacing: 0.02em; }
+    .col ul { margin: 8px 0 0; padding-left: 18px; }
+    .col li { font-size: 13.5px; color: var(--ink-2); margin-bottom: 5px; }
+    .col li b { color: var(--ink); font-weight: 700; }
+    .col.can h4 { color: var(--ok); }
+    .col.cannot h4 { color: var(--partial); }
+
+    /* ===== Footer ===== */
+    footer { padding: 40px 0; }
+    .foot-inner { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--ink-3); flex-wrap: wrap; }
+    .foot-inner svg { width: 20px; height: 20px; }
+    .foot-right { margin-left: auto; }
+    .foot-right a:hover { color: var(--ink); }
+
+    @media (max-width: 900px) {
+      .container { padding: 0 20px; }
+      .nav-links { gap: 16px; font-size: 13px; }
+      .db-card-body { grid-template-columns: 1fr; gap: 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <clipPath id="sq"><rect x="0" y="0" width="1024" height="1024" rx="230" ry="230"/></clipPath>
+      <linearGradient id="wv" gradientUnits="userSpaceOnUse" x1="80" y1="360" x2="980" y2="140">
+        <stop offset="0" stop-color="#6A0ABE"/><stop offset="0.55" stop-color="#2E7DE8"/><stop offset="1" stop-color="#4FFFFF"/>
+      </linearGradient>
+      <linearGradient id="bl" gradientUnits="userSpaceOnUse" x1="230" y1="820" x2="40" y2="1010">
+        <stop offset="0" stop-color="#4621AA"/><stop offset="1" stop-color="#958FFF"/>
+      </linearGradient>
+      <linearGradient id="bs" gradientUnits="userSpaceOnUse" x1="200" y1="200" x2="900" y2="1000">
+        <stop offset="0" stop-color="#221E5E"/><stop offset="1" stop-color="#1B1842"/>
+      </linearGradient>
+      <g id="quelio-mark">
+        <g clip-path="url(#sq)">
+          <rect width="1024" height="1024" fill="url(#bs)"/>
+          <path fill="url(#wv)" d="M 0 0 L 1024 0 L 1024 600 C 920 650 830 640 750 590 C 660 532 590 470 500 420 C 400 365 300 340 210 368 C 130 392 60 440 0 490 Z"/>
+          <path fill="url(#bl)" d="M 0 770 C 110 752 210 800 245 890 C 268 950 258 1010 225 1024 L 0 1024 Z"/>
+          <circle cx="489" cy="488" r="205" fill="none" stroke="#FFFFFF" stroke-width="110"/>
+          <g stroke="#1E1B4B" stroke-width="28" fill="#1E1B4B" stroke-linejoin="round">
+            <path d="M 557 548 A 112 40 0 0 1 781 548 L 781 743 A 112 40 0 0 1 557 743 Z"/>
+          </g>
+          <path fill="#FFFFFF" d="M 557 548 A 112 40 0 0 1 781 548 L 781 743 A 112 40 0 0 1 557 743 Z"/>
+          <ellipse cx="669" cy="548" rx="112" ry="40" fill="#FFFFFF" stroke="#1E1B4B" stroke-width="15"/>
+          <g fill="none" stroke="#1E1B4B" stroke-width="15" stroke-linecap="round">
+            <path d="M 557 613 A 112 40 0 0 0 781 613"/>
+            <path d="M 557 678 A 112 40 0 0 0 781 678"/>
+          </g>
+        </g>
+      </g>
+    </defs>
+  </svg>
+
+  <nav>
+    <div class="container nav-inner">
+      <a class="nav-logo" href="./index.html">
+        <svg viewBox="0 0 1024 1024"><use href="#quelio-mark"/></svg>
+        Quelio<span class="nav-logo-ja">クエリオ</span>
+      </a>
+      <div class="nav-links">
+        <a href="./index.html#workflow">使い方</a>
+        <a href="./index.html#deep">主要機能</a>
+        <a href="./index.html#features">機能一覧</a>
+        <a class="current" href="./support.html">機能詳細</a>
+        <a href="./index.html#roadmap">今後の予定</a>
+        <a href="./index.html#faq">FAQ</a>
+        <a href="./index.html#download">ダウンロード</a>
+      </div>
+      <a class="nav-gh" href="https://github.com/zefact/quelio" target="_blank" rel="noopener">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.5 7.5 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <header class="page-head">
+    <div class="container">
+      <div class="crumb"><a href="./index.html">Quelio</a> ／ 機能詳細</div>
+      <h1>機能詳細</h1>
+      <p class="lead">
+        Quelio が対応するデータベースのバージョンと、データベースごとに「できること」「できないこと」をまとめています。
+        できないことの多くは、そのデータベース自体の仕様によるもの（SQLiteのALTER TABLEの制約など）と、
+        Quelio が未実装のものの2種類があります。理由も併記しています。
+      </p>
+      <div class="meta-row">
+        <span class="chip">対象バージョン: Quelio v0.5.3</span>
+        <span class="chip">最終更新: 2026-08-20</span>
+        <span class="chip">ベータ版のため今後変更されることがあります</span>
+      </div>
+    </div>
+  </header>
+
+  <section id="versions">
+    <div class="container">
+      <h2><span class="num">01</span>対応バージョン</h2>
+      <p class="sec-lead">
+        「対応バージョン」は、Quelio が使っているクエリ・コマンドが動作する範囲です。
+        ベータ版のため、記載したすべてのバージョンでの網羅的な検証は行っていません。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>データベース</th>
+              <th>対応バージョン</th>
+              <th>接続方法</th>
+              <th>根拠・補足</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><b>MySQL</b></td>
+              <td>5.7 / 8.0 / 8.4 / 9.x</td>
+              <td>TCP（SSHトンネル可）</td>
+              <td>
+                定義の取得に <span class="mono">information_schema</span> を使用。
+                <span class="note">EXPLAIN ANALYZE は MySQL 8.0.18 以降でのみ利用できます。MariaDB (10.x / 11.x) も接続・参照は可能ですが、動作確認は限定的です。</span>
+              </td>
+            </tr>
+            <tr>
+              <td><b>PostgreSQL</b></td>
+              <td>10 以降（12 以降を推奨）</td>
+              <td>TCP（SSHトンネル可）</td>
+              <td>
+                カラム情報の取得に <span class="mono">pg_attribute.attidentity</span>（10で追加）を使用。
+                <span class="note">パーティションテーブルの表示も10以降です。スキーマ（search_path）に対応しています。</span>
+              </td>
+            </tr>
+            <tr>
+              <td><b>SQLite</b></td>
+              <td>SQLite 3 系のデータベースファイル</td>
+              <td>ファイルを直接開く</td>
+              <td>
+                エンジン（SQLite 3.51）をアプリに同梱しています。
+                <span class="note">環境に SQLite をインストールする必要はありません。存在しないファイルを指定しても新規作成はしません（打ち間違い防止）。暗号化DB（SQLCipher）は開けません。</span>
+              </td>
+            </tr>
+            <tr>
+              <td><b>Valkey</b><br /><span class="ver">（Redis互換）</span></td>
+              <td>Valkey 7.2 以降 / Redis 6.0 以降</td>
+              <td>TCP・TLS（SSHトンネル可）</td>
+              <td>
+                値の更新に <span class="mono">SET … KEEPTTL</span>（6.0で追加）、stream の操作に <span class="mono">XADD</span> 系（5.0で追加）を使用。
+                <span class="note">動作確認は Valkey 8.1 で行っています。クラスタ構成・Sentinel は未対応です。</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="matrix">
+    <div class="container">
+      <h2><span class="num">02</span>機能対応表</h2>
+      <div class="legend">
+        <span><b class="mark y">✓</b>対応</span>
+        <span><b class="mark p">△</b>一部のみ・制限あり</span>
+        <span><b class="mark n">—</b>非対応</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>機能</th>
+              <th class="c">MySQL</th>
+              <th class="c">PostgreSQL</th>
+              <th class="c">SQLite</th>
+              <th class="c">Valkey</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="grp"><td colspan="5">接続</td></tr>
+            <tr>
+              <td>SSHトンネル（鍵認証・パスフレーズ）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">ローカルファイル</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+            </tr>
+            <tr>
+              <td>TLS接続</td>
+              <td class="c"><span class="mark p">△</span></td>
+              <td class="c"><span class="mark p">△</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">SNI指定に対応</span></td>
+            </tr>
+            <tr>
+              <td>データベースの切り替え</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">スキーマも表示</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">1ファイル＝1DB</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">DB番号</span></td>
+            </tr>
+
+            <tr class="grp"><td colspan="5">閲覧</td></tr>
+            <tr>
+              <td>テーブル構造（カラム／インデックス／外部キー）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>日本語の論理名（コメントの分割表示）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">コメントの仕組みが無い</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>概算行数の表示</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">統計情報が無い</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>ER図（リバース・編集・PNG出力）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>スキーマ比較・定義書CSV出力</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+
+            <tr class="grp"><td colspan="5">SQL・コマンド</td></tr>
+            <tr>
+              <td>SQL実行（複数文・選択実行・ページング）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">コマンドコンソール</span></td>
+            </tr>
+            <tr>
+              <td>入力補完（テーブル名・カラム名）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>EXPLAIN</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">QUERY PLAN</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>EXPLAIN ANALYZE（実測値つき実行計画）</td>
+              <td class="c"><span class="mark p">△</span><span class="note">8.0.18以降</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">SQLiteに無い</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>トランザクションモード（自動ROLLBACK）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>結果のCSV出力</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>結果の自動キャプチャ（PNG）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">コンソール結果のみ</span></td>
+            </tr>
+
+            <tr class="grp"><td colspan="5">編集</td></tr>
+            <tr>
+              <td>データの編集（UPDATE / INSERT / DELETE）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">キーと値</span></td>
+            </tr>
+            <tr>
+              <td>テーブルの作成・改名・削除</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>テーブルの日本語名（テーブルコメント）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>カラムの追加・削除・改名</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>型・NOT NULL・デフォルトの変更</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">ALTER TABLEの制約</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>照合順序（COLLATE）の変更</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">型指定とまとめて実行</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>カラムの並べ替え（ドラッグ）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">PostgreSQLに無い</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>インデックスの追加・変更・削除</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>インデックス種別の指定</td>
+              <td class="c"><span class="mark y">✓</span><span class="note">BTREE / HASH / FULLTEXT / SPATIAL</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">btree / hash / gist / gin / spgist / brin</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">種別の概念が無い</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>エクスポート／インポート（外部ツール連携）</td>
+              <td class="c"><span class="mark y">✓</span><span class="note">mysqldump / mysql</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">pg_dump / psql</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="details">
+    <div class="container">
+      <h2><span class="num">03</span>データベース別の詳細</h2>
+      <p class="sec-lead">できないことは、理由を「DBの仕様」と「Quelio 未実装」に分けて記載しています。</p>
+
+      <div class="db-card">
+        <div class="db-card-head">
+          <h3>MySQL</h3>
+          <span class="ver">5.7 / 8.0 / 8.4 / 9.x</span>
+        </div>
+        <div class="db-card-body">
+          <div class="col can">
+            <h4>できること</h4>
+            <ul>
+              <li>テーブル定義の<b>その場編集</b>（カラム・インデックスの追加／変更／削除）</li>
+              <li>カラムの<b>ドラッグでの並べ替え</b>（<span class="mono">CHANGE COLUMN … FIRST / AFTER</span>）</li>
+              <li><b>属性の変更</b>（AUTO_INCREMENT / ON UPDATE CURRENT_TIMESTAMP）</li>
+              <li>照合順序の変更、テーブル／カラムのコメント編集</li>
+              <li>インデックス種別の指定（BTREE / HASH / FULLTEXT / SPATIAL）</li>
+              <li>mysqldump / mysql を使ったエクスポート・インポート</li>
+            </ul>
+          </div>
+          <div class="col cannot">
+            <h4>できないこと</h4>
+            <ul>
+              <li><b>ビュー・ストアドプロシージャ・関数・トリガ・イベント</b>の表示と編集（未実装）</li>
+              <li><b>外部キー制約の追加・削除</b>（表示のみ。未実装）</li>
+              <li><b>ユーザー・権限管理</b>、パーティション操作（未実装）</li>
+              <li>生成カラム（GENERATED）の変更 — 式が失われるため受け付けません</li>
+              <li>主キー・UNIQUE制約に紐づくインデックスの変更 — 制約側の操作が必要なため</li>
+              <li>EXPLAIN ANALYZE は 8.0.18 未満では使えません（DBの仕様）</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="db-card">
+        <div class="db-card-head">
+          <h3>PostgreSQL</h3>
+          <span class="ver">10 以降（12 以降を推奨）</span>
+        </div>
+        <div class="db-card-body">
+          <div class="col can">
+            <h4>できること</h4>
+            <ul>
+              <li>スキーマ付きのテーブル操作（<span class="mono">スキーマ名.テーブル名</span>）</li>
+              <li>テーブル定義のその場編集、<span class="mono">COMMENT ON</span> によるコメント編集</li>
+              <li>接続先の <span class="mono">pg_type</span> から取得した型を選択（enum・ドメイン・PostGISの型も候補に出ます）</li>
+              <li>インデックス種別の指定（btree / hash / gist / gin / spgist / brin）</li>
+              <li>EXPLAIN / EXPLAIN ANALYZE、pg_dump / psql 連携</li>
+            </ul>
+          </div>
+          <div class="col cannot">
+            <h4>できないこと</h4>
+            <ul>
+              <li><b>カラムの並べ替え</b> — PostgreSQL 自体が対応していません（DBの仕様）</li>
+              <li>照合順序だけを変える構文が無いため、<b>型の指定とまとめて実行</b>します（DBの仕様）</li>
+              <li><b>ビュー・マテリアライズドビューの定義編集</b>、REFRESH（未実装。一覧表示と削除は可能）</li>
+              <li><b>関数・トリガ・拡張機能・ロール／権限</b>の管理（未実装）</li>
+              <li>外部キー制約の追加・削除（表示のみ。未実装）</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="db-card">
+        <div class="db-card-head">
+          <h3>SQLite</h3>
+          <span class="ver">SQLite 3 系のファイル（エンジン同梱: 3.51）</span>
+        </div>
+        <div class="db-card-body">
+          <div class="col can">
+            <h4>できること</h4>
+            <ul>
+              <li>ファイルを選ぶだけで接続（サーバー・追加インストール不要）</li>
+              <li>テーブルの作成・改名・削除、<b>カラムの追加・削除・改名</b></li>
+              <li>インデックスの追加・変更・削除、データの編集</li>
+              <li>ER図・スキーマ比較・定義書CSV・EXPLAIN QUERY PLAN</li>
+              <li>主キーが無いテーブルでも、rowid による主キーがあれば編集できます</li>
+            </ul>
+          </div>
+          <div class="col cannot">
+            <h4>できないこと</h4>
+            <ul>
+              <li><b>型・NOT NULL・デフォルトの変更</b> — SQLite の ALTER TABLE ではできず、テーブルの作り直しが必要（DBの仕様。将来対応を検討）</li>
+              <li><b>コメント（日本語の論理名）</b> — 仕組みがありません（DBの仕様）</li>
+              <li><b>照合順序の変更・インデックス種別の指定</b>（DBの仕様）</li>
+              <li><b>概算行数</b>の表示 — 統計情報がありません（DBの仕様）</li>
+              <li><b>エクスポート／インポート</b>（外部ツール連携）（未実装）</li>
+              <li>暗号化DB（SQLCipher）、<span class="mono">ATTACH</span> した複数DBの表示（未実装）</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="db-card">
+        <div class="db-card-head">
+          <h3>Valkey（Redis互換）</h3>
+          <span class="ver">Valkey 7.2 以降 / Redis 6.0 以降</span>
+        </div>
+        <div class="db-card-body">
+          <div class="col can">
+            <h4>できること</h4>
+            <ul>
+              <li>キーの一覧（<span class="mono">SCAN</span> によるパターン絞り込み）と、型・TTL・メモリ使用量の表示</li>
+              <li>値の表示（string / hash / list / set / zset / stream）と、JSON・PHPシリアライズの整形表示</li>
+              <li><b>値の編集</b>・要素の追加・削除、<b>キーの作成・改名・削除</b>、<b>TTLの変更</b></li>
+              <li>コマンドコンソール（redis-cli 風の出力・複数行実行・結果のキャプチャ）</li>
+              <li>TLS接続（SNI指定つき）と SSHトンネル</li>
+            </ul>
+          </div>
+          <div class="col cannot">
+            <h4>できないこと</h4>
+            <ul>
+              <li><b>クラスタ構成・Sentinel</b> — 単一ノードへの接続のみ（未実装）</li>
+              <li>値ビューは<b>先頭200件まで</b>、string は<b>先頭4096バイトまで</b>（それ以降はコンソールから）</li>
+              <li><b>バイナリの値・長すぎる値の編集</b> — 壊さないよう禁止しています</li>
+              <li><b>stream の既存エントリの変更</b> — 仕様上できません（追加・削除は可能）</li>
+              <li>Pub/Sub・MONITOR — 接続を占有するためブロックしています</li>
+              <li>キーの一括削除、値での検索、<span class="mono">COPY</span> / <span class="mono">DUMP</span> / <span class="mono">RESTORE</span>、ACL・ユーザー管理（未実装）</li>
+              <li>フィールド単位のTTL（<span class="mono">HEXPIRE</span> 系）、JSON など<b>モジュール型</b>の値表示（未実装）</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="common">
+    <div class="container">
+      <h2><span class="num">04</span>すべての接続に共通する制限</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>項目</th><th>内容</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>読み取り専用モード</td>
+              <td>接続ごとに書き込みを禁止するモードはまだありません。<span class="note">接続の色分けとトランザクションモードで事故を防ぐ設計です。</span></td>
+            </tr>
+            <tr>
+              <td>画面に出す件数・文字数</td>
+              <td>結果は1000行ずつ、1セルあたり1000文字までの表示です。<span class="note">CSV出力はそのSQLの全行、EXPLAIN は全文を表示します。</span></td>
+            </tr>
+            <tr>
+              <td>TLSの検証</td>
+              <td>MySQL / PostgreSQL はサーバーが対応していればTLSで接続しますが、証明書の厳密な検証やクライアント証明書の指定には未対応です。<span class="note">検証が必要な場合は SSHトンネルの利用をおすすめします。</span></td>
+            </tr>
+            <tr>
+              <td>対応OS・言語</td>
+              <td>macOS（Apple Silicon）／ Windows（x64）。UIは日本語のみです。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="sec-lead" style="margin-top: 18px;">
+        ここに無い機能のご要望や、記載と実際の動作が違う場合は
+        <a href="https://github.com/zefact/quelio/issues" target="_blank" rel="noopener" style="color: var(--indigo); font-weight: 700;">GitHub Issues</a>
+        までお知らせください。
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container foot-inner">
+      <svg viewBox="0 0 1024 1024"><use href="#quelio-mark"/></svg>
+      <span>Quelio（クエリオ）— MySQL / PostgreSQL / SQLite / Valkeyクライアント</span>
+      <span class="foot-right">
+        <a href="https://github.com/zefact/quelio/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
+        &nbsp;·&nbsp; © <span id="copy-year">2026</span> <a href="https://zefact.co.jp" target="_blank" rel="noopener">Zefact</a>
+      </span>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById("copy-year").textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>

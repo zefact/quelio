@@ -1,8 +1,11 @@
-import { ReactElement, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { SettingsBackup } from "./SettingsBackup";
+import { SettingsEditor } from "./SettingsEditor";
 import { SettingsGeneral } from "./SettingsGeneral";
+import { SettingsNav, SettingsPage } from "./SettingsNav";
 import { SettingsTools } from "./SettingsTools";
+import { SettingsUpdate } from "./SettingsUpdate";
 
 interface Props {
   onClose: () => void;
@@ -10,72 +13,27 @@ interface Props {
   onImported: () => void;
 }
 
-type Page = "general" | "tools" | "backup";
-
-function GearIcon() {
+function CloseIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="1.8" />
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
-        d="M19.4 13.5a7.6 7.6 0 000-3l2-1.2-2-3.4-2.3 1a7.6 7.6 0 00-2.6-1.5L14.2 3h-4l-.4 2.4a7.6 7.6 0 00-2.6 1.5l-2.3-1-2 3.4 2 1.2a7.6 7.6 0 000 3l-2 1.2 2 3.4 2.3-1a7.6 7.6 0 002.6 1.5l.4 2.4h4l.3-2.4a7.6 7.6 0 002.6-1.5l2.3 1 2-3.4z"
+        d="M6 6l12 12M18 6L6 18"
         stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function ToolIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect
-        x="3"
-        y="4"
-        width="18"
-        height="16"
-        rx="2.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      <path
-        d="M7 9.5l3 2.5-3 2.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="1.7"
         strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M12.5 15h4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function PortIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M8 3v10m0 0 3-3m-3 3-3-3M16 21V11m0 0 3 3m-3-3-3 3"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
       />
     </svg>
   );
 }
 
-const NAV: { page: Page; label: string; icon: () => ReactElement }[] = [
-  { page: "general", label: "一般", icon: GearIcon },
-  { page: "tools", label: "外部ツール", icon: ToolIcon },
-  { page: "backup", label: "エクスポート/インポート", icon: PortIcon },
-];
-
-/** 設定モーダル (左: ナビゲーション / 右: 設定行) */
+/** 設定モーダル (左: ナビゲーション / 右: 固定ヘッダ + 設定行) */
 export function SettingsModal({ onClose, onImported }: Props) {
-  const [page, setPage] = useState<Page>("general");
+  const [page, setPage] = useState<SettingsPage>("general");
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const [version, setVersion] = useState("");
+  /** 本文をスクロールしたか (ヘッダに区切り線を出すため) */
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     getVersion()
@@ -93,6 +51,9 @@ export function SettingsModal({ onClose, onImported }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  // ページを切り替えたらスクロール位置は先頭に戻る
+  useEffect(() => setScrolled(false), [page]);
+
   /** 保存トーストの表示 (各ページから呼ばれる) */
   const notify = (msg: string) => {
     setToast(msg);
@@ -106,45 +67,38 @@ export function SettingsModal({ onClose, onImported }: Props) {
         className="modal settings-modal"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <aside className="settings-nav">
-          <div className="settings-nav-title">設定</div>
-          {NAV.map(({ page: p, label, icon: Icon }) => (
+        <SettingsNav page={page} onSelect={setPage} version={version} />
+
+        <div className="settings-main">
+          <div className={"settings-topbar" + (scrolled ? " scrolled" : "")}>
+            {toast && <div className="save-toast">{toast}</div>}
             <button
-              key={p}
-              className={"settings-nav-item" + (page === p ? " active" : "")}
-              onClick={() => setPage(p)}
+              className="modal-close settings-close"
+              onClick={onClose}
+              title="閉じる (Esc)"
             >
-              <Icon />
-              {label}
+              <CloseIcon />
             </button>
-          ))}
-          <span className="settings-nav-spacer" aria-hidden />
-          {version && (
-            <div className="settings-nav-version mono">
-              Quelio v{version}
-              {version.startsWith("0.") && " (β)"}
-            </div>
-          )}
-        </aside>
+          </div>
 
-        <div className="settings-body">
-          {page === "general" ? (
-            <SettingsGeneral notify={notify} />
-          ) : page === "tools" ? (
-            <SettingsTools notify={notify} />
-          ) : (
-            <SettingsBackup notify={notify} onImported={onImported} />
-          )}
+          <div
+            className="settings-body"
+            key={page}
+            onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
+          >
+            {page === "general" ? (
+              <SettingsGeneral notify={notify} />
+            ) : page === "editor" ? (
+              <SettingsEditor notify={notify} />
+            ) : page === "tools" ? (
+              <SettingsTools notify={notify} />
+            ) : page === "update" ? (
+              <SettingsUpdate />
+            ) : (
+              <SettingsBackup notify={notify} onImported={onImported} />
+            )}
+          </div>
         </div>
-
-        <button
-          className="modal-close settings-close"
-          onClick={onClose}
-          title="閉じる"
-        >
-          ×
-        </button>
-        {toast && <div className="save-toast">{toast}</div>}
       </div>
     </div>
   );

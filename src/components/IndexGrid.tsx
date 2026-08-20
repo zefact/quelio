@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import type {
   ColumnInfo,
   DbType,
@@ -196,6 +197,11 @@ export function IndexGrid({
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; key: string } | null>(
     null
+  );
+  // メニューが画面の外へはみ出さないように位置を補正する
+  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
+    menu?.x ?? 0,
+    menu?.y ?? 0
   );
   /** 対象カラムを選ぶダイアログを開いているか */
   const [picking, setPicking] = useState(false);
@@ -679,7 +685,8 @@ export function IndexGrid({
         createPortal(
           <div
             className="context-menu"
-            style={{ left: menu.x, top: menu.y }}
+            ref={menuRef}
+            style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="grid-sort-head mono">{menuIndex.name}</div>

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 
 export interface SelectOption {
   value: string;
@@ -42,9 +43,17 @@ export function SelectMenu({
   /** キーボード操作でハイライト中のindex (-1 = なし) */
   const [hover, setHover] = useState(-1);
   /** popFixed時のドロップダウン座標 (開いたときのトリガー位置から計算) */
-  const [popPos, setPopPos] = useState({ x: 0, y: 0, w: 0 });
+  const [popPos, setPopPos] = useState({ x: 0, y: 0, w: 0, flipY: 0 });
   const wrapRef = useRef<HTMLDivElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
+  /** 通常配置 (popFixedでない) のとき、下に入りきらないので上へ出すか */
+  const [openUp, setOpenUp] = useState(false);
+  // fixed配置のときは、画面の下や右で切れないよう位置を補正する
+  const [fixedRef, fixedStyle] = usePopupPosition<HTMLDivElement>(
+    popPos.x,
+    popPos.y,
+    popPos.flipY
+  );
 
   const toggleOpen = () => {
     if (!open && popFixed) {
@@ -54,11 +63,24 @@ export function SelectMenu({
           x: Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8)),
           y: r.bottom + 6,
           w: r.width,
+          // 下に入らないときは入力欄の上へ出す
+          flipY: r.top - 6,
         });
       }
     }
     setOpen((o) => !o);
   };
+
+  useLayoutEffect(() => {
+    if (!open || popFixed) return;
+    const wrap = wrapRef.current;
+    const pop = popRef.current;
+    if (!wrap || !pop) return;
+    const r = wrap.getBoundingClientRect();
+    const h = pop.offsetHeight;
+    // 下に入らず、上には入るときだけ上向きにする
+    setOpenUp(r.bottom + 9 + h > window.innerHeight - 8 && r.top - 9 - h > 8);
+  }, [open, popFixed, options.length]);
 
   const selected = options.find((o) => o.value === value);
   const label = selected?.label ?? (value || placeholder);
@@ -135,17 +157,19 @@ export function SelectMenu({
       </button>
       {open && (
         <div
-          className="select-menu-pop"
-          ref={popRef}
+          className={"select-menu-pop" + (!popFixed && openUp ? " up" : "")}
+          ref={(el) => {
+            popRef.current = el;
+            if (popFixed) fixedRef.current = el;
+          }}
           role="listbox"
           style={
             popFixed
               ? {
                   position: "fixed",
-                  left: popPos.x,
-                  top: popPos.y,
                   minWidth: popPos.w,
                   zIndex: 300,
+                  ...fixedStyle,
                 }
               : undefined
           }

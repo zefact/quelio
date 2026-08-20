@@ -1,5 +1,6 @@
 import { ReactNode, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 
 interface Props {
   /** ツールチップ本文 (未指定なら普通のspanとして描画) */
@@ -19,7 +20,15 @@ const TIP_WIDTH = 340;
  */
 export function HoverTip({ text, children, className, disabled }: Props) {
   const ref = useRef<HTMLSpanElement>(null);
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [pos, setPos] = useState<{ x: number; y: number; flipY: number } | null>(
+    null
+  );
+  // 画面の下や右で切れないよう位置を補正する
+  const [tipRef, tipStyle] = usePopupPosition<HTMLDivElement>(
+    pos?.x ?? 0,
+    pos?.y ?? 0,
+    pos?.flipY
+  );
 
   if (!text) {
     return <span className={className}>{children}</span>;
@@ -37,6 +46,8 @@ export function HoverTip({ text, children, className, disabled }: Props) {
             // 画面右端で切れないよう左へ寄せる
             x: Math.max(8, Math.min(r.left, window.innerWidth - TIP_WIDTH)),
             y: r.bottom + 8,
+            // 下に入らないときは対象の上へ出す
+            flipY: r.top - 8,
           });
         }}
         onMouseLeave={() => setPos(null)}
@@ -46,7 +57,7 @@ export function HoverTip({ text, children, className, disabled }: Props) {
       {pos &&
         !disabled &&
         createPortal(
-          <div className="hover-tip" style={{ left: pos.x, top: pos.y }}>
+          <div className="hover-tip" ref={tipRef} style={tipStyle}>
             {text}
           </div>,
           document.body

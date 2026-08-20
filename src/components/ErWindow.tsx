@@ -17,6 +17,7 @@ import {
   saveErDiagram,
   schemaSnapshot,
 } from "../api";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import { parseComment } from "../comment";
 import { layoutEr } from "../erLayout";
 import type {
@@ -835,6 +836,15 @@ export function ErWindow() {
     | { x: number; y: number; kind: "canvas"; worldX: number; worldY: number }
     | null
   >(null);
+  // メニューが画面の外へはみ出さないように位置を補正する
+  const [ctxMenuRef, ctxMenuStyle] = usePopupPosition<HTMLDivElement>(
+    ctxMenu?.x ?? 0,
+    ctxMenu?.y ?? 0
+  );
+  const [edgePanelRef, edgePanelStyle] = usePopupPosition<HTMLDivElement>(
+    edgePanel?.x ?? 0,
+    edgePanel?.y ?? 0
+  );
 
   /** 現在の状態を自動保存する */
   const persist = useCallback(
@@ -3396,7 +3406,8 @@ export function ErWindow() {
       {ctxMenu && (
         <div
           className="context-menu"
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          ref={ctxMenuRef}
+          style={ctxMenuStyle}
           onMouseDown={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
@@ -3841,7 +3852,8 @@ export function ErWindow() {
           return (
             <div
               className="er-edge-panel"
-              style={{ left: edgePanel.x, top: edgePanel.y }}
+              ref={edgePanelRef}
+              style={edgePanelStyle}
               onMouseDown={(ev) => ev.stopPropagation()}
             >
               <div className="er-edge-panel-head">

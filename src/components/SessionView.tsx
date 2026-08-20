@@ -11,6 +11,7 @@ import {
 } from "../api";
 import { badgeStyle, dbBadgeLabel } from "../colors";
 import { parseComment } from "../comment";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { tableKey } from "../tableSql";
 import type { AppSettings, TableInfo, TableTab, WorkTab } from "../types";
@@ -130,6 +131,11 @@ export function SessionView({
     y: number;
     table: TableInfo;
   } | null>(null);
+  // メニューが画面の外へはみ出さないように位置を補正する
+  const [tableMenuRef, tableMenuStyle] = usePopupPosition<HTMLDivElement>(
+    tableMenu?.x ?? 0,
+    tableMenu?.y ?? 0
+  );
   const { profile, databases, selectedDb, tables, loadingTables } = tab;
 
   // DB切替やテーブル一覧の更新で複数選択をリセット
@@ -801,7 +807,8 @@ export function SessionView({
         createPortal(
           <div
             className="context-menu"
-            style={{ left: tableMenu.x, top: tableMenu.y }}
+            ref={tableMenuRef}
+            style={tableMenuStyle}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="grid-sort-head mono">{tableMenu.table.name}</div>

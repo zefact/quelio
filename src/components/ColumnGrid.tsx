@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import { parseComment } from "../comment";
 import type { ColumnChange, ColumnInfo, DbType } from "../types";
 import {
@@ -156,6 +157,11 @@ export function ColumnGrid({
   /** 行の右クリックメニュー */
   const [menu, setMenu] = useState<{ x: number; y: number; key: string } | null>(
     null
+  );
+  // メニューが画面の外へはみ出さないように位置を補正する
+  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
+    menu?.x ?? 0,
+    menu?.y ?? 0
   );
   /**
    * ドラッグ中のカラムと差し込み位置。
@@ -891,7 +897,8 @@ export function ColumnGrid({
         createPortal(
           <div
             className="context-menu"
-            style={{ left: menu.x, top: menu.y }}
+            ref={menuRef}
+            style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="grid-sort-head mono">{menuColumn.name}</div>

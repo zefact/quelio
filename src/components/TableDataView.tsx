@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import type { ColumnInfo, QueryResult, RowCell, RowChange } from "../types";
 import { QUERY_PAGE_SIZE } from "../types";
 import {
@@ -100,6 +101,11 @@ export function TableDataView({
   const [deleting, setDeleting] = useState<number | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; row: number } | null>(
     null
+  );
+  // メニューが画面の外へはみ出さないように位置を補正する
+  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
+    menu?.x ?? 0,
+    menu?.y ?? 0
   );
 
   /** 主キーのカラム名 (これが無いと行を特定できないので編集させない) */
@@ -602,7 +608,8 @@ export function TableDataView({
         createPortal(
           <div
             className="context-menu"
-            style={{ left: menu.x, top: menu.y }}
+            ref={menuRef}
+            style={menuStyle}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <button

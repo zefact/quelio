@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { badgeStyle, dbBadgeLabel, PRESET_COLORS } from "../colors";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import type {
   ConnectionProfile,
@@ -37,6 +38,8 @@ type DropTarget =
   | { type: "before"; id: string }
   | { type: "after"; id: string }
   | { type: "into-folder"; id: string }
+  /** 置けない場所 (フォルダをフォルダの中へ 等)。線は出さず、置けないことを示す */
+  | { type: "denied"; id: string }
   | { type: "root-end" };
 
 /** ルート階層に並ぶ項目 (フォルダ or フォルダ未所属の接続) */
@@ -90,9 +93,16 @@ export function ConnectionPicker({
   const [sideWidth, startResize] = useResizableWidth(272, 200, 480);
 
   const [menu, setMenu] = useState<MenuState | null>(null);
+  // メニューが画面の外へはみ出さないように位置を補正する
+  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
+    menu?.x ?? 0,
+    menu?.y ?? 0
+  );
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameText, setRenameText] = useState("");
   const dragItem = useRef<DragItem | null>(null);
+  /** ドラッグ中か (「一番下へ移動」エリアの案内を出すために使う) */
+  const [dragging, setDragging] = useState(false);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
   const { folders, connections } = store;
@@ -320,22 +330,26 @@ export function ConnectionPicker({
   /** WebKitではsetDataを呼ばないとドラッグが開始されない */
   const handleDragStart = (e: React.DragEvent, item: DragItem) => {
     dragItem.current = item;
+    setDragging(true);
     e.dataTransfer.setData("text/plain", item.id);
     e.dataTransfer.effectAllowed = "move";
   };
 
   const handleDragEnd = () => {
     dragItem.current = null;
+    setDragging(false);
     setDropTarget(null);
   };
 
-  const handleDrop = (e: React.DragEvent, target: DropTarget) => {
+  const handleDrop = (e: React.DragEvent, target: DropTarget | null) => {
     e.preventDefault();
     e.stopPropagation();
     const item = dragItem.current;
     dragItem.current = null;
+    setDragging(false);
     setDropTarget(null);
-    if (!item) return;
+    // 置けない場所 (フォルダをフォルダの中へ 等) は何もしない
+    if (!item || !target || target.type === "denied") return;
     // 自分自身の上に落とした場合は何もしない
     if ("id" in target && target.id === item.id) return;
 
@@ -360,17 +374,29 @@ export function ConnectionPicker({
     }
   };
 
-  const dragOver = (e: React.DragEvent, target: DropTarget) => {
+  const dragOver = (e: React.DragEvent, target: DropTarget | null) => {
     e.preventDefault();
     e.stopPropagation();
-    e.dataTransfer.dropEffect = "move";
+    // 置けない場所では「不可」のカーソルにする
+    e.dataTransfer.dropEffect =
+      target && target.type !== "denied" ? "move" : "none";
     setDropTarget((cur) =>
       JSON.stringify(cur) === JSON.stringify(target) ? cur : target
     );
   };
 
-  /** 接続項目上のドロップ位置: 上半分なら前へ、下半分なら後ろへ挿入 */
+  /**
+   * 接続項目上のドロップ位置: 上半分なら前へ、下半分なら後ろへ挿入。
+   * フォルダをドラッグ中にフォルダ内の接続へ重ねたときは、
+   * 入れ子は作れないので、そのフォルダ自体の前後を対象にする
+   * (フォルダの中に入るような線を出さないため)
+   */
   const connDropTarget = (e: React.DragEvent, id: string): DropTarget => {
+    if (dragItem.current?.type === "folder") {
+      const anchor = rootAnchorOf(id);
+      // フォルダ内の接続に重ねている: 入れ子は作れないので置けない
+      if (anchor && anchor !== id) return { type: "denied", id };
+    }
     const r = e.currentTarget.getBoundingClientRect();
     return e.clientY > r.top + r.height / 2
       ? { type: "after", id }
@@ -414,6 +440,9 @@ export function ConnectionPicker({
             : "") +
           (dropTarget?.type === "after" && dropTarget.id === c.id
             ? " drop-after"
+            : "") +
+          (dropTarget?.type === "denied" && dropTarget.id === c.id
+            ? " drop-denied"
             : "")
         }
         draggable
@@ -450,16 +479,23 @@ export function ConnectionPicker({
   const renderFolderItem = (f: FolderInfo) => {
     const children = childrenOf.get(f.id) ?? [];
     return (
-      <li key={f.id}>
+      <li
+        key={f.id}
+        /* 前後の線はフォルダ全体 (見出し＋中の接続) の外側に出す。
+           見出しの下に出すと「フォルダの中に入る」ように見えてしまうため */
+        className={
+          "folder-group" +
+          (dropTarget?.type === "before" && dropTarget.id === f.id
+            ? " drop-before"
+            : "") +
+          (dropTarget?.type === "after" && dropTarget.id === f.id
+            ? " drop-after"
+            : "")
+        }
+      >
         <button
           className={
             "folder-item" +
-            (dropTarget?.type === "before" && dropTarget.id === f.id
-              ? " drop-before"
-              : "") +
-            (dropTarget?.type === "after" && dropTarget.id === f.id
-              ? " drop-after"
-              : "") +
             (dropTarget?.type === "into-folder" && dropTarget.id === f.id
               ? " drop-into"
               : "")
@@ -533,7 +569,12 @@ export function ConnectionPicker({
         <div
           className="connection-tree"
           onContextMenu={(e) => openMenu(e, { kind: "blank" })}
-          onDragOver={(e) => dragOver(e, { type: "root-end" })}
+          /* 項目の隙間に落ちたときの受け皿。どこに入るか示せないので線は出さない */
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+            setDropTarget(null);
+          }}
           onDrop={(e) => handleDrop(e, { type: "root-end" })}
         >
           <ul className="connection-list">
@@ -552,12 +593,22 @@ export function ConnectionPicker({
               </li>
             )}
           </ul>
+          {/* 一番下の受け皿。フォルダの外 (ルート階層の末尾) へ移動できる */}
           <div
             className={
               "root-drop-area" +
+              (dragging ? " active" : "") +
               (dropTarget?.type === "root-end" ? " drop-into" : "")
             }
-          />
+            onDragOver={(e) => dragOver(e, { type: "root-end" })}
+            onDrop={(e) => handleDrop(e, { type: "root-end" })}
+          >
+            {dragging && (
+              <span className="root-drop-hint">
+                ここへドロップでフォルダの外 (一番下) へ移動
+              </span>
+            )}
+          </div>
         </div>
 
       </aside>
@@ -609,7 +660,8 @@ export function ConnectionPicker({
       {menu && (
         <div
           className="context-menu"
-          style={{ left: menu.x, top: menu.y }}
+          ref={menuRef}
+          style={menuStyle}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <button

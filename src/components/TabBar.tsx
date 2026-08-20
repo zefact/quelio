@@ -39,6 +39,14 @@ export function TabBar({
 }: Props) {
   const version = useAppVersion();
   const isBeta = version.startsWith("0.");
+  /**
+   * スキーマ差分は接続中のセッションから選ぶため、
+   * どこにも接続していないときは押せないようにする
+   * (Valkeyはスキーマの概念が無いので対象外)
+   */
+  const canDiff = tabs.some(
+    (t) => t.connected && t.profile.dbType !== "valkey"
+  );
   // macOSはネイティブメニューバーがあるため︙メニューは出さない
   const isMac = document.documentElement.classList.contains("macos");
   return (
@@ -94,8 +102,13 @@ export function TabBar({
 
       <button
         className="console-btn has-tooltip"
-        data-tooltip="スキーマ差分 (2つのDBを比較)"
+        data-tooltip={
+          canDiff
+            ? "スキーマ差分 (2つのDBを比較)"
+            : "スキーマ差分 — DBに接続すると使えます"
+        }
         onClick={onOpenDiff}
+        disabled={!canDiff}
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
           <path

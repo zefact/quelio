@@ -1,11 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { Update } from "@tauri-apps/plugin-updater";
-import { getAppSettings, saveAppSettings } from "../api";
-import { isMac } from "../platform";
+import { useAppSettings } from "../hooks/useAppSettings";
 import { ColorMode, getColorMode, setColorMode } from "../theme";
-import type { AppSettings } from "../types";
-import { checkForUpdate, installUpdate } from "../updater";
 import { SettingRow } from "./SettingRow";
 
 interface Props {
@@ -18,54 +14,19 @@ const COLOR_MODES: [ColorMode, string][] = [
   ["system", "システム"],
 ];
 
-/**
- * 入力補完の操作キー (設定画面に出す一覧)。
- * 候補を出すキーは、macOSは⌃SpaceがIME切り替えに取られるため⌥Space、
- * WindowsやLinuxは一般的なCtrl+Spaceを案内する
- */
-const KEY_HINTS: [string[], string][] = [
-  [isMac ? ["⌥", "Space"] : ["Ctrl", "Space"], "候補を出す"],
-  [["Tab"], "確定"],
-  [["Enter"], "確定"],
-  [["↑", "↓"], "選ぶ"],
-  [["Esc"], "閉じる"],
-];
-
 /** 区切り文字に対応する閉じ括弧 (例の表示用) */
 function closing(delim: string): string {
   return { "（": "）", "(": ")", "【": "】", "[": "]" }[delim] ?? "";
 }
 
-/** 設定 > 一般ページ */
+/** 設定 > 一般 (外観・SQL結果・テーブル構造・保存先) */
 export function SettingsGeneral({ notify }: Props) {
   const [mode, setMode] = useState<ColorMode>(getColorMode());
-  const [app, setApp] = useState<AppSettings>({
-    commentDelimiter: "（",
-    structureCommentMode: "comment",
-    showRowNumbers: true,
-    queryTimeoutSecs: 60,
-    downloadDir: "",
-    autocompleteEnabled: true,
-    autocompleteDelayMs: 100,
-  });
-
-  useEffect(() => {
-    getAppSettings().then(setApp).catch(() => {});
-  }, []);
+  const { app, setApp, saveApp } = useAppSettings(notify);
 
   const handleColorMode = (m: ColorMode) => {
     setMode(m);
     setColorMode(m); // 即時反映・保存
-  };
-
-  /** 変更は即保存 (成功時は何も出さない) */
-  const saveApp = async (next: AppSettings) => {
-    setApp(next);
-    try {
-      await saveAppSettings(next);
-    } catch (e) {
-      notify(String(e));
-    }
   };
 
   const delim = app.commentDelimiter;
@@ -87,50 +48,13 @@ export function SettingsGeneral({ notify }: Props) {
     }
   };
 
-  // アップデート確認の状態
-  type UpdState = "idle" | "checking" | "latest" | "available" | "installing";
-  const [updState, setUpdState] = useState<UpdState>("idle");
-  const [updVersion, setUpdVersion] = useState("");
-  const [updError, setUpdError] = useState<string | null>(null);
-  const updateRef = useRef<Update | null>(null);
-
-  const handleCheckUpdate = async () => {
-    setUpdState("checking");
-    setUpdError(null);
-    try {
-      const u = await checkForUpdate();
-      if (u) {
-        updateRef.current = u;
-        setUpdVersion(u.version);
-        setUpdState("available");
-      } else {
-        setUpdState("latest");
-      }
-    } catch (e) {
-      setUpdState("idle");
-      setUpdError(String(e));
-    }
-  };
-
-  const handleInstallUpdate = async () => {
-    if (!updateRef.current) return;
-    setUpdState("installing");
-    setUpdError(null);
-    try {
-      await installUpdate(updateRef.current, () => {});
-    } catch (e) {
-      setUpdState("available");
-      setUpdError(String(e));
-    }
-  };
-
   return (
     <>
       <section className="set-section">
         <h3 className="set-section-title">外観</h3>
         <SettingRow
           title="カラーモード"
-          desc="アプリ全体の配色。「システム」はmacOSの外観設定に合わせます。"
+          desc="アプリ全体の配色。「システム」はOSの外観設定に合わせます。"
         >
           <div className="segmented">
             {COLOR_MODES.map(([m, label]) => (
@@ -194,72 +118,6 @@ export function SettingsGeneral({ notify }: Props) {
       </section>
 
       <section className="set-section">
-        <h3 className="set-section-title">SQLエディタ</h3>
-        <SettingRow
-          title="入力補完"
-          desc="SQLを書いている場所に合わせて、テーブル名・カラム名の候補を表示します。"
-        >
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={app.autocompleteEnabled}
-              onChange={(e) =>
-                saveApp({ ...app, autocompleteEnabled: e.target.checked })
-              }
-            />
-            <span className="track" aria-hidden />
-          </label>
-        </SettingRow>
-        <SettingRow
-          title="自動表示までの待ち時間"
-          desc="入力が止まってから候補を出すまでの時間です。0にすると自動では表示せず、ショートカットのときだけ出します。"
-        >
-          <div className="timeout-field">
-            <input
-              className="delim-input mono"
-              type="number"
-              min={0}
-              max={5000}
-              step={50}
-              disabled={!app.autocompleteEnabled}
-              value={app.autocompleteDelayMs}
-              onChange={(e) => {
-                const n = Number.parseInt(e.target.value, 10);
-                setApp({
-                  ...app,
-                  autocompleteDelayMs: Number.isNaN(n)
-                    ? 0
-                    : Math.min(Math.max(n, 0), 5000),
-                });
-              }}
-              onBlur={() => saveApp({ ...app })}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") saveApp({ ...app });
-              }}
-            />
-            <span>ミリ秒</span>
-          </div>
-        </SettingRow>
-        <SettingRow
-          title="ショートカット"
-          desc="待ち時間が0でも、このキーで候補を出せます。"
-        >
-          <div className="key-hints">
-            {KEY_HINTS.map(([keys, label]) => (
-              <div className="key-hint" key={label}>
-                <span className="key-hint-keys">
-                  {keys.map((k) => (
-                    <kbd key={k}>{k}</kbd>
-                  ))}
-                </span>
-                <span className="key-hint-label">{label}</span>
-              </div>
-            ))}
-          </div>
-        </SettingRow>
-      </section>
-
-      <section className="set-section">
         <h3 className="set-section-title">テーブル構造</h3>
         <SettingRow
           title="コメントの表示方法"
@@ -312,6 +170,7 @@ export function SettingsGeneral({ notify }: Props) {
       <section className="set-section">
         <h3 className="set-section-title">ファイルの保存先</h3>
         <SettingRow
+          stack
           title="保存先フォルダ"
           desc="キャプチャPNG・スキーマCSV・SQLエクスポートなどの保存先です。未設定の場合はOSのダウンロードフォルダに保存します。"
         >
@@ -334,46 +193,6 @@ export function SettingsGeneral({ notify }: Props) {
               </button>
             )}
           </div>
-        </SettingRow>
-      </section>
-
-      <section className="set-section">
-        <h3 className="set-section-title">アップデート</h3>
-        <SettingRow
-          title="アップデートの確認"
-          desc={
-            updError ? (
-              <span className="upd-error">{updError}</span>
-            ) : (
-              "新しいバージョンが公開されているか確認します。更新後は自動で再起動します。"
-            )
-          }
-        >
-          {updState === "checking" ? (
-            <span className="upd-status mono">
-              <span className="spinner accent" /> 確認中...
-            </span>
-          ) : updState === "installing" ? (
-            <span className="upd-status mono">
-              <span className="spinner accent" /> 更新中...
-            </span>
-          ) : updState === "available" ? (
-            <>
-              <span className="upd-status mono">v{updVersion} が利用可能</span>
-              <button className="btn-primary" onClick={handleInstallUpdate}>
-                更新して再起動
-              </button>
-            </>
-          ) : (
-            <>
-              {updState === "latest" && (
-                <span className="upd-status">最新版です</span>
-              )}
-              <button className="btn-secondary" onClick={handleCheckUpdate}>
-                アップデートを確認
-              </button>
-            </>
-          )}
         </SettingRow>
       </section>
     </>

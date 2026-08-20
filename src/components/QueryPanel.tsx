@@ -7,6 +7,7 @@ import {
   getAppSettings,
 } from "../api";
 import { captureResults } from "../capture";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableHeight } from "../hooks/useResizableHeight";
 import type { DbType, QueryResult, StatementResult } from "../types";
 import { QUERY_PAGE_SIZE } from "../types";
@@ -151,6 +152,8 @@ export function QueryPanel({
   onServerSort,
 }: Props) {
   const [editorHeight, startResize] = useResizableHeight(220, 72, 4000);
+  /** SQLエディタを画面いっぱいに広げているか (結果欄を隠す) */
+  const [editorFull, setEditorFull] = useState(false);
   const [sort, setSort] = useState<SortState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
   const [hasSelection, setHasSelection] = useState(false);
@@ -168,6 +171,20 @@ export function QueryPanel({
   const [txnOn, setTxnOn] = useState(false);
   const [captureMsg, setCaptureMsg] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  // エディタの右クリックメニューは画面外へ出ないよう位置を補正する
+  const [ctxPosRef, ctxStyle] = usePopupPosition<HTMLDivElement>(
+    ctxMenu?.x ?? 0,
+    ctxMenu?.y ?? 0
+  );
+  /** 実行▾・EXPLAIN▾のメニューを上向きに出すか (下に入りきらないとき) */
+  const [runMenuUp, setRunMenuUp] = useState(false);
+  const [explainMenuUp, setExplainMenuUp] = useState(false);
+  const runCaretRef = useRef<HTMLButtonElement>(null);
+  const explainCaretRef = useRef<HTMLButtonElement>(null);
+
+  /** ボタンの下にメニュー (約110px) が入るか */
+  const opensUp = (el: HTMLElement | null) =>
+    !!el && window.innerHeight - el.getBoundingClientRect().bottom < 120;
   /** 直前の実行でキャプチャを要求されたか */
   const captureReq = useRef(false);
   const editorRef = useRef<SqlEditorHandle>(null);
@@ -466,9 +483,12 @@ export function QueryPanel({
   }, [result, sort]);
 
   return (
-    <div className="query-panel">
-      {/* エディタ */}
-      <div className="sql-editor" style={{ height: editorHeight }}>
+    <div className={"query-panel" + (editorFull ? " editor-full" : "")}>
+      {/* エディタ (最大化中は残りの高さいっぱいに広げる) */}
+      <div
+        className="sql-editor"
+        style={editorFull ? undefined : { height: editorHeight }}
+      >
         <SqlEditor
           ref={editorRef}
           value={sql}
@@ -488,8 +508,11 @@ export function QueryPanel({
       {ctxMenu && (
         <div
           className="context-menu"
-          ref={ctxMenuRef}
-          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          ref={(el) => {
+            ctxMenuRef.current = el;
+            ctxPosRef.current = el;
+          }}
+          style={ctxStyle}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <button
@@ -533,7 +556,11 @@ export function QueryPanel({
           </button>
           <button
             className="btn-primary run-caret"
-            onClick={() => setRunMenuOpen((o) => !o)}
+            ref={runCaretRef}
+            onClick={() => {
+              setRunMenuUp(opensUp(runCaretRef.current));
+              setRunMenuOpen((o) => !o);
+            }}
             onMouseDown={(e) => e.stopPropagation()}
             disabled={running}
             title="実行モードを切り替え"
@@ -542,7 +569,7 @@ export function QueryPanel({
           </button>
           {runMenuOpen && (
             <div
-              className="context-menu run-menu"
+              className={"context-menu run-menu" + (runMenuUp ? " up" : "")}
               onMouseDown={(e) => e.stopPropagation()}
             >
               {(
@@ -598,7 +625,11 @@ export function QueryPanel({
           {hasExplainModes && (
           <button
             className="btn-secondary explain-btn run-caret"
-            onClick={() => setExplainMenuOpen((o) => !o)}
+            ref={explainCaretRef}
+            onClick={() => {
+              setExplainMenuUp(opensUp(explainCaretRef.current));
+              setExplainMenuOpen((o) => !o);
+            }}
             onMouseDown={(e) => e.stopPropagation()}
             disabled={running}
             title="EXPLAINの種類を切り替え"
@@ -608,7 +639,7 @@ export function QueryPanel({
           )}
           {hasExplainModes && explainMenuOpen && (
             <div
-              className="context-menu run-menu"
+              className={"context-menu run-menu" + (explainMenuUp ? " up" : "")}
               onMouseDown={(e) => e.stopPropagation()}
             >
               {(
@@ -691,10 +722,43 @@ export function QueryPanel({
 
       <div
         className="row-splitter"
-        title="ドラッグで高さを変更"
-        onMouseDown={startResize}
+        title={editorFull ? "" : "ドラッグで高さを変更"}
+        onMouseDown={editorFull ? undefined : startResize}
       >
         <span className="grip" aria-hidden />
+        {/* エディタを画面いっぱいに広げる / 元に戻す (アイコンは開閉で反転) */}
+        <button
+          className={"splitter-btn" + (editorFull ? " on" : "")}
+          title={
+            editorFull
+              ? "結果欄を表示する"
+              : "SQLエディタを画面いっぱいに広げる"
+          }
+          aria-label={
+            editorFull
+              ? "結果欄を表示する"
+              : "SQLエディタを画面いっぱいに広げる"
+          }
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => setEditorFull((v) => !v)}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path
+              d="M7 10.5 12 15.5l5-5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M6 19.5h12"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              opacity="0.55"
+            />
+          </svg>
+        </button>
       </div>
 
       {/* 結果ヘッダ: 文ごとのタブ + その文の件数・ページ送り
