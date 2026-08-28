@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { badgeStyle, dbBadgeLabel, PRESET_COLORS } from "../colors";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableWidth } from "../hooks/useResizableWidth";
@@ -9,13 +9,16 @@ import type {
   LayoutEntry,
   WorkTab,
 } from "../types";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { ConnectionForm } from "./ConnectionForm";
+import { useDismiss } from "../hooks/useDismiss";
 
 interface Props {
   tab: WorkTab;
   store: ConnectionStore;
   onCreateFolder: () => Promise<FolderInfo | null>;
-  onDeleteFolder: (id: string) => void;
+  /** フォルダを削除する (確認はこのコンポーネントで出す。失敗したら例外を投げること) */
+  onDeleteFolder: (id: string) => void | Promise<void>;
   onLayout: (
     folders: FolderInfo[],
     order: LayoutEntry[],
@@ -27,7 +30,8 @@ interface Props {
   onSelectFavorite: (profile: ConnectionProfile) => void;
   onNewFavorite: () => void;
   onSave: () => void;
-  onDelete: () => void;
+  /** 接続先を削除する (確認はConnectionForm側で出す。失敗したら例外を投げること) */
+  onDelete: () => void | Promise<void>;
   onTest: () => void;
   onConnect: (profile: ConnectionProfile) => void;
 }
@@ -106,6 +110,8 @@ export function ConnectionPicker({
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
   const { folders, connections } = store;
+  /** 削除の確認中のフォルダ (中の接続がどうなるかを見せてから消す) */
+  const [deletingFolder, setDeletingFolder] = useState<FolderInfo | null>(null);
 
   const childrenOf = useMemo(() => {
     const map = new Map<string, ConnectionProfile[]>();
@@ -167,12 +173,7 @@ export function ConnectionPicker({
   };
 
   // メニューは画面のどこかをクリックしたら閉じる
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [menu]);
+  useDismiss(!!menu, () => setMenu(null));
 
   // ---------- 並び順の保存 ----------
 
@@ -523,6 +524,8 @@ export function ConnectionPicker({
               onChange={(e) => setRenameText(e.target.value)}
               onBlur={commitRename}
               onKeyDown={(e) => {
+                // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                if (e.nativeEvent.isComposing) return;
                 if (e.key === "Enter") commitRename();
                 if (e.key === "Escape") setRenamingId(null);
               }}
@@ -717,7 +720,8 @@ export function ConnectionPicker({
                 className="context-item danger"
                 onClick={() => {
                   if (menu.target.kind === "folder") {
-                    onDeleteFolder(menu.target.id);
+                    const id = menu.target.id;
+                    setDeletingFolder(folders.find((f) => f.id === id) ?? null);
                   }
                   setMenu(null);
                 }}
@@ -741,6 +745,27 @@ export function ConnectionPicker({
             </button>
           )}
         </div>
+      )}
+
+      {deletingFolder && (
+        <ConfirmDialog
+          title="フォルダを削除します"
+          target={deletingFolder.name}
+          onCancel={() => setDeletingFolder(null)}
+          onConfirm={async () => {
+            await onDeleteFolder(deletingFolder.id);
+            setDeletingFolder(null);
+          }}
+        >
+          {(() => {
+            const n = connections.filter(
+              (c) => c.folderId === deletingFolder.id
+            ).length;
+            return n > 0
+              ? `中の接続 ${n} 件は削除されず、一覧の一番下 (フォルダの外) へ移動します。`
+              : "このフォルダには接続がありません。";
+          })()}
+        </ConfirmDialog>
       )}
     </div>
   );

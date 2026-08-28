@@ -1,7 +1,7 @@
 {
   "name": "quelio",
   "private": true,
-  "version": "0.5.3",
+  "version": "0.6.0",
   "description": "MySQL / PostgreSQL / SQLite / Valkey 対応の無料デスクトップDBクライアント (Tauri 2 + React + Rust)",
   "license": "MIT",
   "author": "ZEFACT Co., Ltd.",
@@ -32,6 +32,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -57,6 +59,7 @@
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.11"
   }
 }

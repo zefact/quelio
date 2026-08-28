@@ -73,33 +73,49 @@ pub fn load(app: &AppHandle) -> Result<ConnectionStore, String> {
         save(app, &store)?;
     }
 
-    // 復号して返す
-    let key = crypto::master_key(app)?;
+    // 復号して返す。
+    // 復号できなかった値は暗号文のまま残し、目印を立てる
+    // (空文字にすると、次の保存でそのまま上書きされ保存済みパスワードが消えるため)
+    let keys = crypto::master_keys(app)?;
     for c in &mut store.connections {
-        c.password = crypto::decrypt(&key, &c.password);
+        let mut locked = false;
+        match keys.decrypt(&c.password) {
+            Some(plain) => c.password = plain,
+            None => locked = true,
+        }
         if let Some(ssh) = &mut c.ssh {
             if let Some(p) = &ssh.passphrase {
-                ssh.passphrase = Some(crypto::decrypt(&key, p));
+                match keys.decrypt(p) {
+                    Some(plain) => ssh.passphrase = Some(plain),
+                    None => locked = true,
+                }
             }
         }
+        c.password_locked = locked;
     }
     Ok(store)
 }
 
 /// 接続先一式を保存する (パスワード・SSHパスフレーズは暗号化して書き込む)
 pub fn save(app: &AppHandle, store: &ConnectionStore) -> Result<(), String> {
-    let key = crypto::master_key(app)?;
+    let keys = crypto::master_keys(app)?;
+    let key = keys.primary();
     let mut enc = store.clone();
     for c in &mut enc.connections {
-        c.password = crypto::encrypt(&key, &c.password);
+        // 復号できなかった値は暗号文のまま渡ってくる。
+        // encryptは暗号文をそのまま返すので、元の値が保たれる
+        c.password = crypto::encrypt(key, &c.password)?;
         if let Some(ssh) = &mut c.ssh {
             if let Some(p) = &ssh.passphrase {
-                ssh.passphrase = Some(crypto::encrypt(&key, p));
+                ssh.passphrase = Some(crypto::encrypt(key, p)?);
             }
         }
+        // 実行時の目印なので保存はしない
+        c.password_locked = false;
     }
     let path = store_path(app)?;
     let text = serde_json::to_string_pretty(&enc)
         .map_err(|e| format!("設定のシリアライズに失敗: {e}"))?;
-    fs::write(&path, text).map_err(|e| format!("設定ファイルを書き込めません: {e}"))
+    // 直前の内容を .bak に残しつつ、一時ファイル経由で置き換える
+    crate::json_store::write_with_backup(&path, &text, "設定ファイル")
 }

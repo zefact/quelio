@@ -1,9 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { kvApply } from "../api";
 import { tryFormatValue } from "../kvFormat";
 import type { KvChange, KvKeyDetail, KvRow } from "../types";
+import { useDismiss } from "../hooks/useDismiss";
+import {
+  useAsyncApply,
+  useEscapeCancel,
+} from "../hooks/useEditableGrid";
 
 interface Props {
   sessionId: string;
@@ -13,6 +18,8 @@ interface Props {
   pretty: boolean;
   /** 変更後に詳細を取り直す */
   onReload: () => void;
+  /** 読み取り専用の接続か (値の追加・変更・削除を出さない) */
+  readOnly?: boolean;
 }
 
 /** 1列目 (フィールド名・スコア) を書き換えられる型 */
@@ -77,6 +84,7 @@ export function KvValueGrid({
   detail,
   pretty,
   onReload,
+  readOnly,
 }: Props) {
   /** 編集中の行 (indexは表示中の行番号) */
   const [edit, setEdit] = useState<{
@@ -86,8 +94,9 @@ export function KvValueGrid({
   } | null>(null);
   /** 追加中の入力 (nullなら追加していない) */
   const [adding, setAdding] = useState<KvRow | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useAsyncApply<KvChange>((change) =>
+    kvApply(sessionId, database, change)
+  );
   /** 行の右クリックメニュー */
   const [menu, setMenu] = useState<{ x: number; y: number; index: number } | null>(
     null
@@ -101,8 +110,8 @@ export function KvValueGrid({
   const type = detail.type;
   // stringは値ひとつなので、1列目 (項目) は出さない
   const showField = type !== "string";
-  const canAdd = ELEMENT_TYPES.includes(type);
-  const canRemove = ELEMENT_TYPES.includes(type);
+  const canAdd = !readOnly && ELEMENT_TYPES.includes(type);
+  const canRemove = !readOnly && ELEMENT_TYPES.includes(type);
   const needField = type === "hash" || type === "zset" || type === "stream";
 
   // キーが変わったら編集状態を捨てる
@@ -113,45 +122,27 @@ export function KvValueGrid({
   }, [detail.key, detail.type]);
 
   // 入力欄からフォーカスが外れていてもEscで取り消せるようにする
-  useEffect(() => {
-    if (!edit && !adding) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
+  useEscapeCancel(
+    !!edit || !!adding,
+    () => {
       setEdit(null);
       setAdding(null);
       setError(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [edit, adding]);
+    },
+    // 同じEscでキー名の編集まで取り消さない
+    { preventDefault: true }
+  );
 
-  // メニューは外側クリック・スクロールで閉じる
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("mousedown", close);
-    window.addEventListener("resize", close);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("resize", close);
-    };
-  }, [menu]);
+  // メニューは外側クリック・リサイズで閉じる
+  useDismiss(!!menu, () => setMenu(null), { resize: true });
 
   /** 変更を実行する。成功したら詳細を取り直す */
   const apply = async (change: KvChange) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await kvApply(sessionId, database, change);
-      setEdit(null);
-      setAdding(null);
-      onReload();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
+    // 失敗したら直せるよう、入力はそのまま残す
+    if (!(await run(change))) return;
+    setEdit(null);
+    setAdding(null);
+    onReload();
   };
 
   /** 編集中の行を確定する */
@@ -200,7 +191,9 @@ export function KvValueGrid({
     if (busy || edit) return;
     const row = detail.rows[index];
     if (!row) return;
-    const reason = editableReason(type, row, detail.truncated);
+    const reason = readOnly
+      ? "読み取り専用の接続のため変更できません"
+      : editableReason(type, row, detail.truncated);
     if (reason) {
       setError(reason);
       return;
@@ -212,6 +205,8 @@ export function KvValueGrid({
   /** 編集入力の共通キー操作 (Enterで確定 / Escで取消) */
   const editKeys = (commit: () => void, cancel: () => void) => ({
     onKeyDown: (e: React.KeyboardEvent) => {
+      // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+      if (e.nativeEvent.isComposing) return;
       if (e.key === "Enter") {
         // 値の入力欄では Shift+Enter を改行に使うため、そのときは確定しない
         if (e.shiftKey) return;
@@ -223,6 +218,15 @@ export function KvValueGrid({
       }
     },
   });
+
+  /*
+   * 整形した値。JSONの解析と整形は重いので、
+   * 行と「整形して表示」の指定が変わったときだけ作り直す
+   */
+  const formatted = useMemo(
+    () => (pretty ? detail.rows.map(([, b]) => tryFormatValue(b)) : []),
+    [detail.rows, pretty]
+  );
 
   /** 値の入力欄の行数 (改行を含む値は広げる) */
   const valueRows = (text: string) =>
@@ -311,7 +315,7 @@ export function KvValueGrid({
                 >
                   {showField && <td className="kv-cell-a">{a}</td>}
                   <td className="kv-cell-b">
-                    {pretty ? (tryFormatValue(b) ?? b) : b}
+                    {pretty ? (formatted[i] ?? b) : b}
                   </td>
                 </tr>
               )

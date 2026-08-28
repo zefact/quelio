@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
@@ -37,29 +37,19 @@ pub struct ToolStatus {
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("設定ディレクトリを取得できません: {e}"))?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("設定ディレクトリを作成できません: {e}"))?;
-    Ok(dir.join("tools.json"))
+    crate::json_store::config_path(app, "tools.json")
 }
 
 pub fn load_settings(app: &AppHandle) -> Result<ToolSettings, String> {
     let path = settings_path(app)?;
-    if !path.exists() {
-        return Ok(ToolSettings::default());
-    }
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| format!("設定を読み込めません: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("設定の形式が不正です: {e}"))
+    Ok(crate::json_store::read(&path, "設定")?.unwrap_or_default())
 }
 
 pub fn save_settings(app: &AppHandle, settings: &ToolSettings) -> Result<(), String> {
     let path = settings_path(app)?;
     let text = serde_json::to_string_pretty(settings)
         .map_err(|e| format!("設定のシリアライズに失敗: {e}"))?;
-    std::fs::write(&path, text).map_err(|e| format!("設定を書き込めません: {e}"))
+    crate::json_store::write(&path, &text, "設定")
 }
 
 /// 自動検出の探索ディレクトリ (Homebrew / MacPorts / Postgres.app / システム標準)
@@ -183,6 +173,8 @@ pub struct Endpoint {
     pub port: u16,
     pub user: String,
     pub password: String,
+    /// 読み取り専用の接続か (インポートを止めるために見る)
+    pub read_only: bool,
 }
 
 /// エクスポート/インポートの共通スポーン処理。
@@ -219,6 +211,8 @@ async fn spawn_watched(
         let mut map = jobs.0.lock().await;
         if let Some(j) = map.get_mut(&job_id) {
             j.done = true;
+            // 終わったプロセスのハンドルは持ち続けない
+            j.child = None;
             if j.cancelled {
                 j.error = Some("キャンセルされました".to_string());
                 return;
@@ -250,6 +244,19 @@ async fn spawn_watched(
     });
 }
 
+/// 終わったジョブを片付ける (新しいジョブを始めるときに呼ぶ)。
+/// 実行中のジョブは残す。完了したジョブの結果は画面側が保持している
+fn drop_finished(map: &mut HashMap<String, Job>) {
+    let finished: Vec<String> = map
+        .iter()
+        .filter(|(_, j)| j.done)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for id in finished {
+        map.remove(&id);
+    }
+}
+
 fn new_job(kind: &str, total: Option<u64>, out_path: Option<PathBuf>) -> (String, Job) {
     let id = uuid::Uuid::new_v4().to_string();
     let job = Job {
@@ -271,19 +278,21 @@ pub async fn start_export(
     jobs: &Jobs,
     ep: Endpoint,
     database: String,
-    tables: Vec<String>,
+    tables: Vec<crate::models::ExportTable>,
     mode: String, // full | schema | data
 ) -> Result<StartedJob, String> {
+    // 使えない接続は、空のファイルを残さないよう先に断る
+    if matches!(ep.db_type, DbType::Valkey | DbType::Sqlite) {
+        return Err("この接続ではSQLダンプの出力・実行は使えません".into());
+    }
     // 設定の「保存先フォルダ」に従う (未設定ならOSのダウンロードフォルダ)
     let dir = crate::app_settings::download_dir(app)?;
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let out_path = dir.join(format!("{database}_{ts}.sql"));
+    // DB名はユーザーが決めるものなので、そのままファイル名にしない
+    let stem = crate::filename::safe_stem(&database);
+    let out_path = dir.join(format!("{stem}_{ts}.sql"));
     let out_file = std::fs::File::create(&out_path)
         .map_err(|e| format!("出力ファイルを作成できません: {e}"))?;
-
-    if matches!(ep.db_type, DbType::Valkey | DbType::Sqlite) {
-        return Err("この接続ではエクスポート/インポートは使用できません".into());
-    }
     let mut cmd = match ep.db_type {
         DbType::Valkey | DbType::Sqlite => unreachable!(),
         DbType::Mysql => {
@@ -308,9 +317,12 @@ pub async fn start_export(
                     c.arg("--triggers").arg("--routines");
                 }
             }
+            // ここから先はオプションではなく名前として渡す
+            // (`-` で始まるDB名・テーブル名をオプションと誤解させない)
+            c.arg("--");
             c.arg(&database);
             for t in &tables {
-                c.arg(t);
+                c.arg(&t.name);
             }
             c.env("MYSQL_PWD", &ep.password);
             c
@@ -337,7 +349,9 @@ pub async fn start_export(
                 _ => {}
             }
             for t in &tables {
-                c.arg("-t").arg(t);
+                // -t はワイルドカードのパターンなので、名前として扱わせる
+                c.arg("-t")
+                    .arg(crate::filename::pg_table_pattern(t.schema.as_deref(), &t.name));
             }
             c.env("PGPASSWORD", &ep.password);
             c
@@ -353,7 +367,11 @@ pub async fn start_export(
         .map_err(|e| format!("プロセスを起動できません: {e}"))?;
 
     let (job_id, job) = new_job("export", None, Some(out_path.clone()));
-    jobs.0.lock().await.insert(job_id.clone(), job);
+    {
+        let mut map = jobs.0.lock().await;
+        drop_finished(&mut map);
+        map.insert(job_id.clone(), job);
+    }
     spawn_watched(jobs.clone(), job_id.clone(), child, None).await;
 
     Ok(StartedJob {
@@ -370,17 +388,37 @@ pub async fn start_import(
     database: String,
     file_path: String,
 ) -> Result<StartedJob, String> {
+    // D&Dで受け取った一時ファイルなら、取り込みが終わった時点で消す
+    // (ユーザーが自分で選んだファイルは消さない)
+    let temp_file = crate::uploads::dir(app)
+        .ok()
+        .is_some_and(|d| crate::uploads::is_inside(&d, std::path::Path::new(&file_path)));
+    // 途中で失敗したときも一時ファイルを残さないためのヘルパー
+    let fail = |msg: String| -> String {
+        if temp_file {
+            let _ = std::fs::remove_file(&file_path);
+        }
+        msg
+    };
+
+    if ep.read_only {
+        return Err(fail(
+            "この接続は読み取り専用です。SQLファイルの取り込みはできません。".to_string(),
+        ));
+    }
     let total = std::fs::metadata(&file_path)
-        .map_err(|e| format!("ファイルを読み込めません: {e}"))?
+        .map_err(|e| fail(format!("ファイルを読み込めません: {e}")))?
         .len();
 
     if matches!(ep.db_type, DbType::Valkey | DbType::Sqlite) {
-        return Err("この接続ではエクスポート/インポートは使用できません".into());
+        return Err(fail(
+            "この接続ではSQLダンプの出力・実行は使えません".to_string(),
+        ));
     }
     let mut cmd = match ep.db_type {
         DbType::Valkey | DbType::Sqlite => unreachable!(),
         DbType::Mysql => {
-            let tool = require_tool(app, "mysql")?;
+            let tool = require_tool(app, "mysql").map_err(&fail)?;
             let mut c = Command::new(tool);
             c.arg("-h")
                 .arg(&ep.host)
@@ -388,12 +426,13 @@ pub async fn start_import(
                 .arg(ep.port.to_string())
                 .arg("-u")
                 .arg(&ep.user)
+                .arg("--")
                 .arg(&database);
             c.env("MYSQL_PWD", &ep.password);
             c
         }
         DbType::Postgresql => {
-            let tool = require_tool(app, "psql")?;
+            let tool = require_tool(app, "psql").map_err(&fail)?;
             let mut c = Command::new(tool);
             c.arg("-h")
                 .arg(&ep.host)
@@ -418,39 +457,51 @@ pub async fn start_import(
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|e| format!("プロセスを起動できません: {e}"))?;
+        .map_err(|e| fail(format!("プロセスを起動できません: {e}")))?;
 
     let mut stdin = child
         .stdin
         .take()
-        .ok_or("標準入力を取得できません")?;
+        .ok_or_else(|| fail("標準入力を取得できません".to_string()))?;
 
     let (job_id, job) = new_job("import", Some(total), None);
     let bytes = job.bytes.clone();
-    jobs.0.lock().await.insert(job_id.clone(), job);
+    {
+        let mut map = jobs.0.lock().await;
+        drop_finished(&mut map);
+        map.insert(job_id.clone(), job);
+    }
 
     // ファイルをチャンクで流し込みつつ進捗を更新する
     let feeder = tokio::spawn(async move {
-        let mut f = tokio::fs::File::open(&file_path)
-            .await
-            .map_err(|e| format!("ファイルを開けません: {e}"))?;
-        let mut buf = vec![0u8; 256 * 1024];
-        loop {
-            let n = f
-                .read(&mut buf)
+        let path = file_path.clone();
+        let result = async move {
+            let mut f = tokio::fs::File::open(&file_path)
                 .await
-                .map_err(|e| format!("ファイルの読み込みに失敗: {e}"))?;
-            if n == 0 {
-                break;
+                .map_err(|e| format!("ファイルを開けません: {e}"))?;
+            let mut buf = vec![0u8; 256 * 1024];
+            loop {
+                let n = f
+                    .read(&mut buf)
+                    .await
+                    .map_err(|e| format!("ファイルの読み込みに失敗: {e}"))?;
+                if n == 0 {
+                    break;
+                }
+                if stdin.write_all(&buf[..n]).await.is_err() {
+                    // プロセス側が終了した (エラーはstderr側で報告される)
+                    return Ok(());
+                }
+                bytes.fetch_add(n as u64, Ordering::Relaxed);
             }
-            if stdin.write_all(&buf[..n]).await.is_err() {
-                // プロセス側が終了した (エラーはstderr側で報告される)
-                return Ok(());
-            }
-            bytes.fetch_add(n as u64, Ordering::Relaxed);
+            let _ = stdin.shutdown().await;
+            Ok(())
         }
-        let _ = stdin.shutdown().await;
-        Ok(())
+        .await;
+        if temp_file {
+            let _ = tokio::fs::remove_file(&path).await;
+        }
+        result
     });
 
     spawn_watched(jobs.clone(), job_id.clone(), child, Some(feeder)).await;
@@ -461,24 +512,37 @@ pub async fn start_import(
 }
 
 pub async fn job_status(jobs: &Jobs, job_id: &str) -> Result<JobStatus, String> {
-    let map = jobs.0.lock().await;
-    let j = map.get(job_id).ok_or("ジョブが見つかりません")?;
-    let bytes = if j.kind == "export" {
-        j.out_path
+    // 必要な値を写し取ってからロックを手放す
+    // (ファイルサイズの取得は同期処理なので、ロックを持ったまま行わない)
+    let (kind, done, error, counted, total, out_path, cancelled) = {
+        let map = jobs.0.lock().await;
+        let j = map.get(job_id).ok_or("ジョブが見つかりません")?;
+        (
+            j.kind.clone(),
+            j.done,
+            j.error.clone(),
+            j.bytes.load(Ordering::Relaxed),
+            j.total,
+            j.out_path.clone(),
+            j.cancelled,
+        )
+    };
+    let bytes = if kind == "export" {
+        out_path
             .as_ref()
             .and_then(|p| std::fs::metadata(p).ok())
             .map(|m| m.len())
             .unwrap_or(0)
     } else {
-        j.bytes.load(Ordering::Relaxed)
+        counted
     };
     Ok(JobStatus {
-        running: !j.done,
-        error: j.error.clone(),
+        running: !done,
+        error,
         bytes,
-        total: j.total,
-        out_path: j.out_path.as_ref().map(|p| p.to_string_lossy().to_string()),
-        cancelled: j.cancelled,
+        total,
+        out_path: out_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+        cancelled,
     })
 }
 

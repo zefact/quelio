@@ -10,6 +10,18 @@ export interface SshConfig {
   passphrase?: string;
 }
 
+/** MySQL / PostgreSQL のTLSの使い方 */
+export type SslMode = "" | "disable" | "require" | "verify-ca" | "verify-full";
+
+/** TLSの選択肢 (値 → 画面に出す説明) */
+export const SSL_MODES: [SslMode, string][] = [
+  ["", "既定 (使えれば使う。証明書は検証しない)"],
+  ["disable", "使わない"],
+  ["require", "必須 (検証なし)"],
+  ["verify-ca", "必須 + CA証明書を検証"],
+  ["verify-full", "必須 + CA証明書とホスト名を検証"],
+];
+
 export interface ConnectionProfile {
   id: string;
   name: string;
@@ -21,11 +33,29 @@ export interface ConnectionProfile {
   database?: string;
   /** TLSで接続する (Valkey用。AWS ElastiCache等のin-transit暗号化) */
   tls?: boolean;
+  /**
+   * MySQL / PostgreSQL のTLSの使い方。
+   * 未設定はドライバの既定 (使えれば使う・証明書は検証しない)
+   */
+  sslMode?: SslMode;
+  /** サーバー証明書の検証に使うCA証明書 (PEM) のパス */
+  caCertPath?: string;
+  /** クライアント証明書 (PEM) のパス */
+  clientCertPath?: string;
+  /** クライアント証明書の秘密鍵 (PEM) のパス */
+  clientKeyPath?: string;
+  /** 読み取り専用で接続する (更新系の操作をすべて拒否する) */
+  readOnly?: boolean;
   ssh?: SshConfig;
   /** 所属フォルダID (未設定ならルート直下) */
   folderId?: string;
   /** アイコン色 (#rrggbb。未設定ならDB種別ごとの既定色) */
   color?: string;
+  /**
+   * 保存されたパスワード・パスフレーズを復号できなかった。
+   * (マスターキーが変わった等) この場合は接続できないため、入力し直してもらう
+   */
+  passwordLocked?: boolean;
 }
 
 export interface FolderInfo {
@@ -63,6 +93,10 @@ export interface TableInfo {
   name: string;
   tableType: string;
   rowEstimate?: number;
+  /** PostgreSQL: このテーブル自身の分け方 (`RANGE (at)` など) */
+  partitionBy?: string | null;
+  /** PostgreSQL: パーティションの子なら [親テーブル名 (引用済み), 範囲の指定] */
+  partitionOf?: [string, string] | null;
 }
 
 export interface ColumnInfo {
@@ -80,6 +114,8 @@ export interface IndexInfo {
   name: string;
   unique: boolean;
   columns: string;
+  /** MySQLの接頭辞インデックスの長さ (columns の並びと対応。無ければnull) */
+  subParts?: (number | null)[];
   indexType?: string;
   cardinality?: number;
   /** 主キー・UNIQUE制約に紐づくインデックス (画面からは変更できない) */
@@ -139,12 +175,32 @@ export interface SchemaTable {
 export interface TableDetail {
   columns: ColumnInfo[];
   indexes: IndexInfo[];
+  /** このテーブルから出ている外部キー */
+  foreignKeys: ForeignKeyInfo[];
   info: [string, string][];
+}
+
+/** 長すぎて切り詰められたセルの位置 (バックエンドの ClippedCell と対) */
+export interface ClippedCell {
+  /** このページの中での行番号 (0始まり) */
+  row: number;
+  /** 列番号 (0始まり) */
+  col: number;
+  /** 注記を除いた、実際に入っている先頭の文字数 */
+  head: number;
+  /** 切り詰める前の全体の文字数 */
+  total: number;
 }
 
 export interface QueryResult {
   columns: string[];
   rows: (string | null)[][];
+  /**
+   * 切り詰められたセルの位置。
+   * 値そのものにも「… (全N文字)」が付いているが、
+   * 判定は必ずこちらで行う (文言に依存させない)
+   */
+  clipped?: ClippedCell[];
   /** このページの先頭行のオフセット */
   offset: number;
   /** 次のページが存在するか */
@@ -168,6 +224,21 @@ export interface StatementResult {
   result: QueryResult;
 }
 
+/**
+ * 時間のかかる処理の局面 (バックエンドの JobPhase と対)。
+ *
+ * 件数だけを見せていると、COMMIT / ROLLBACK の間は数字が止まったまま
+ * 「取り込み中」と出続けてしまう
+ */
+export type JobPhase = "working" | "committing" | "rollingBack";
+
+/** 時間のかかる処理の進捗 */
+export interface JobProgress {
+  /** ここまでに処理した件数 */
+  rows: number;
+  phase: JobPhase;
+}
+
 /** SQL実行結果のCSV出力結果 */
 export interface CsvExportResult {
   /** 保存したファイルのフルパス (キャンセル時は空) */
@@ -185,7 +256,7 @@ export interface RunOutput {
   failedIndex?: number;
 }
 
-/** 設定のエクスポート/インポートの取り込み結果 */
+/** 設定のバックアップ/復元の取り込み結果 */
 export interface ImportCounts {
   added: number;
   updated: number;
@@ -216,6 +287,30 @@ export interface QueryLogEntry {
   query: string;
 }
 
+/** SQLログを書き出す形式 */
+export type LogFormat = "csv" | "text";
+
+/** SQLログを書き出した結果 */
+export interface ExportedLog {
+  /** 保存したファイルのフルパス */
+  path: string;
+  /** 書き出した件数 */
+  rows: number;
+}
+
+/** 設定フォルダのファイル1件の状態 (バックエンドの ConfigFile と対) */
+export interface ConfigFile {
+  /** ファイル名 (退避のときに指定する) */
+  name: string;
+  /** 画面に出す名前 */
+  label: string;
+  /** 実際のパス */
+  path: string;
+  exists: boolean;
+  /** 読めない理由 (読めるなら null) */
+  error: string | null;
+}
+
 export interface TestResult {
   success: boolean;
   message: string;
@@ -241,6 +336,22 @@ export interface ColumnSpec {
   extra?: string;
 }
 
+/** 新しく作るテーブルの指定 (バックエンドでCREATE TABLEに変換する) */
+export interface NewTableSpec {
+  /** スキーマ (PostgreSQLのみ。空なら検索パス任せ) */
+  schema?: string;
+  name: string;
+  columns: ColumnSpec[];
+  /** 主キーにするカラム名 (並べた順のまま複合キーになる) */
+  primaryKey: string[];
+  /** 既定の文字コード (MySQLのみ) */
+  charset?: string;
+  /** 既定の照合順序 (MySQLのみ) */
+  collation?: string;
+  /** テーブルコメント (MySQL / PostgreSQLのみ) */
+  comment?: string;
+}
+
 /** カラムに対する変更内容 (バックエンドでSQLに変換する) */
 export type ColumnChange =
   | { kind: "add"; column: ColumnSpec }
@@ -254,6 +365,14 @@ export interface RowCell {
 }
 
 /** データの1行に対する変更内容 (バックエンドでSQLに変換する) */
+/** セル1つの取得結果 (行が無い場合と値がNULLの場合を区別する) */
+export interface CellValue {
+  /** 対象の行が見つかったか */
+  found: boolean;
+  /** 値 (NULLならnull) */
+  value: string | null;
+}
+
 export type RowChange =
   | { kind: "update"; key: RowCell[]; set: RowCell[] }
   | { kind: "insert"; values: RowCell[] }
@@ -276,6 +395,132 @@ export interface KvBrowseState {
   selectedKey: string | null;
 }
 
+/** SQLエディタの実行設定 (タブ切替で失わないようタブ側で保持する) */
+export interface EditorOptions {
+  /** トランザクション (BEGIN 〜 COMMIT/ROLLBACK) で実行する */
+  txn: boolean;
+  /** 実行後にSQLと結果のPNGを保存する */
+  capture: boolean;
+  /** 実行ボタンの対象 (全体 / 選択部分) */
+  runMode: "all" | "selection";
+  /** EXPLAINボタンのモード */
+  explainMode: "explain" | "analyze";
+  /** エディタを画面いっぱいに広げているか */
+  editorFull: boolean;
+}
+
+export function defaultEditorOptions(): EditorOptions {
+  return {
+    txn: false,
+    capture: false,
+    runMode: "all",
+    explainMode: "explain",
+    editorFull: false,
+  };
+}
+
+/** 接続し直したあとに戻す先 (作業状態の復元に使う) */
+export interface RestoreTarget {
+  /** この接続先のときだけ復元する (別の接続に変えたら捨てる) */
+  profileId: string;
+  db: string | null;
+  table: string | null;
+}
+
+/**
+ * SQLエディタの1シート (書きかけのSQLと、その実行結果)。
+ *
+ * 1つの接続で「検証用のSELECT」と「本命のUPDATE」を並べて持てるようにする。
+ * 接続は1本なので同時には実行できず、実行中はシートを切り替えない
+ */
+export interface QuerySheet {
+  id: string;
+  /** 見出し (空ならSQLの先頭から作る) */
+  title: string;
+  sql: string;
+  queryResults: StatementResult[] | null;
+  queryError: string | null;
+  queryExplain: "explain" | "analyze" | null;
+  editorOpts: EditorOptions;
+}
+
+/** 空のシートを作る */
+export function emptySheet(id: string): QuerySheet {
+  return {
+    id,
+    title: "",
+    sql: "",
+    queryResults: null,
+    queryError: null,
+    queryExplain: null,
+    editorOpts: defaultEditorOptions(),
+  };
+}
+
+/**
+ * SQLエディタまわりの状態 (WorkTab の中でひとまとまりにして持つ)。
+ *
+ * 表示中のシートの内容は sql / queryResults などの側にあり、
+ * `sheets` の同じIDの要素は切り替えるまで古いままになる
+ */
+export interface TabEditorState {
+  sql: string;
+  queryResults: StatementResult[] | null;
+  queryError: string | null;
+  /** 直前の実行がEXPLAIN系だったか (結果ヘッダの説明表示に使う) */
+  queryExplain: "explain" | "analyze" | null;
+  /** 実行設定 (トランザクション等)。タブ単位で保持する */
+  editorOpts: EditorOptions;
+  running: boolean;
+  /** 実行開始時刻 (epoch ms)。タブ切替で再マウントされても経過表示を続けるために持つ */
+  startedAt: number | null;
+  /** 全シート (表示中のものも含む) */
+  sheets: QuerySheet[];
+  /** 表示中のシートのID */
+  activeSheet: string;
+}
+
+/** 空のエディタ状態を作る (シート1枚から始める) */
+export function emptyEditorState(): TabEditorState {
+  // 「表示中のシートは必ず一覧にいる」を最初から満たしておく
+  const first = emptySheet(newSheetId());
+  return {
+    sql: "",
+    queryResults: null,
+    queryError: null,
+    queryExplain: null,
+    editorOpts: defaultEditorOptions(),
+    running: false,
+    startedAt: null,
+    sheets: [first],
+    activeSheet: first.id,
+  };
+}
+
+/** Valkey画面の状態 (WorkTab の中でひとまとまりにして持つ) */
+export interface TabKvState {
+  /** コンソールの実行結果 */
+  results?: KvStatementResult[];
+  /** コンソールのエラー表示 */
+  execError?: string | null;
+  /** キーブラウザの状態 (タブ切替後もそのまま戻せるように持つ) */
+  browse?: KvBrowseState;
+}
+
+/** データタブの状態 (WorkTab の中でひとまとまりにして持つ) */
+export interface TabTableData {
+  /** 取得済みの1ページぶん (未取得はnull) */
+  data: QueryResult | null;
+  loading: boolean;
+  error: string | null;
+  /** 絞り込み条件 (WHERE句。空なら全件) */
+  where: string;
+}
+
+export function emptyTableData(): TabTableData {
+  return { data: null, loading: false, error: null, where: "" };
+}
+
 export interface WorkTab {
   /** タブ固有キー (バックエンドのセッションIDと同一) */
   key: string;
@@ -293,35 +538,28 @@ export interface WorkTab {
   loadingDetail: boolean;
   /** テーブル画面で表示中のタブ (定義 / データ)。テーブルを切り替えても維持する */
   tableTab: TableTab;
-  /** データタブの1ページぶんの結果 */
-  tableData: QueryResult | null;
-  loadingData: boolean;
-  dataError: string | null;
-  /** データタブの絞り込み条件 (WHERE句) */
-  dataWhere: string;
+  /** データタブの状態 (まとめて画面へ渡す) */
+  tableData: TabTableData;
   /** SQL結果ヘッダ用のカラム説明 (カラム名(小文字) → 論理名・補足・型) */
   columnTips: Record<string, string>;
   /** columnTipsを読み込み済みのDB名 (未読込はnull) */
   columnTipsDb: string | null;
   /** 接続後の右ペイン表示 (構造 or SQLエディタ) */
   view: "structure" | "query";
-  sql: string;
-  queryResults: StatementResult[] | null;
-  queryError: string | null;
-  /** 直前の実行がEXPLAIN系だったか (結果ヘッダの説明表示に使う) */
-  queryExplain: "explain" | "analyze" | null;
-  runningQuery: boolean;
-  /** 実行開始時刻 (epoch ms)。タブ切替で再マウントされても経過表示を継続するために保持 */
-  runStartedAt: number | null;
+  /** SQLエディタまわり (まとめて画面へ渡す) */
+  editor: TabEditorState;
   error: string | null;
   testResult: TestResult | null;
   busy: "test" | "save" | "connect" | null;
-  /** Valkeyコンソールの実行結果 (タブを切り替えても保持する) */
-  kvResults?: KvStatementResult[];
-  /** Valkeyコンソールのエラー表示 */
-  kvExecError?: string | null;
-  /** Valkeyキーブラウザの状態 (タブ切替後もそのまま戻せるように持つ) */
-  kvBrowse?: KvBrowseState;
+  /** Valkey画面の状態 (タブを切り替えても保持する) */
+  kv: TabKvState;
+  /** 前回終了時に開いていたDB・テーブル (接続できたら戻す。復元後に消す) */
+  restore?: RestoreTarget;
+}
+
+/** シートのIDを作る (タブをまたいでも衝突しない程度でよい) */
+export function newSheetId(): string {
+  return `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export function emptyTab(key: string): WorkTab {
@@ -338,19 +576,12 @@ export function emptyTab(key: string): WorkTab {
     tableDetail: null,
     loadingDetail: false,
     tableTab: "definition",
-    tableData: null,
-    loadingData: false,
-    dataError: null,
-    dataWhere: "",
+    tableData: emptyTableData(),
+    kv: {},
     columnTips: {},
     columnTipsDb: null,
     view: "structure",
-    sql: "",
-    queryResults: null,
-    queryError: null,
-    queryExplain: null,
-    runningQuery: false,
-    runStartedAt: null,
+    editor: emptyEditorState(),
     error: null,
     testResult: null,
     busy: null,
@@ -407,7 +638,7 @@ export interface ToolStatus {
   fromSettings: boolean;
 }
 
-/** エクスポート/インポートジョブの進捗 */
+/** SQLダンプ出力・SQLファイル実行の進捗 */
 export interface JobStatus {
   running: boolean;
   error: string | null;
@@ -423,7 +654,7 @@ export interface StartedJob {
   outPath: string | null;
 }
 
-/** エクスポート範囲 */
+/** SQLダンプに含める範囲 */
 export type ExportMode = "full" | "schema" | "data";
 
 /** テーブル構造ビューのコメント表示方法 */
@@ -439,13 +670,27 @@ export interface AppSettings {
   showRowNumbers: boolean;
   /** SQL実行のタイムアウト (秒)。0で無制限 */
   queryTimeoutSecs: number;
-  /** 各種ファイル (キャプチャ・CSV・エクスポート等) の保存先フォルダ。
+  /** 各種ファイル (キャプチャ・CSV・SQLダンプ等) の保存先フォルダ。
    * 空文字ならOSのダウンロードフォルダ */
   downloadDir: string;
   /** SQLエディタの入力補完を使うか */
   autocompleteEnabled: boolean;
   /** 入力補完が自動で開くまでの待ち時間 (ミリ秒)。0なら自動では開かない */
   autocompleteDelayMs: number;
+  /** ALTER・RENAME (定義の変更) も実行前に確認するか */
+  confirmAlter: boolean;
+  /** 起動時に前回のタブ (接続先と書きかけのSQL) を復元するか */
+  restoreTabs: boolean;
+}
+
+/** 実行前に確認したいSQL (DROP・WHERE無しのUPDATE等) */
+export interface DangerousStatement {
+  /** 定義を変えるだけの種類か (ALTER / RENAME)。設定で確認を省ける対象 */
+  definitionChange: boolean;
+  /** 種類の説明 (画面にそのまま出す) */
+  kind: string;
+  /** 対象のSQL (長い場合は先頭のみ) */
+  sql: string;
 }
 
 /** SQL実行履歴の1件 */
@@ -632,3 +877,221 @@ export interface SavedSqlEntry {
   /** 更新日時 (UNIXエポックms) */
   updatedAtMs: number;
 }
+
+/** SQLダンプ出力の対象テーブル (PostgreSQLはスキーマ付き) */
+export interface ExportTable {
+  schema?: string;
+  name: string;
+}
+
+/** 関数・プロシージャ・トリガ1件 (定義の表示用) */
+export interface RoutineInfo {
+  /** 種別 (関数 / プロシージャ / トリガ など) */
+  kind: string;
+  /** スキーマ (MySQL・SQLiteは空) */
+  schema: string;
+  name: string;
+  /** 引数や対象テーブルなどの補足 */
+  detail: string;
+  /** CREATE文 */
+  definition: string;
+}
+
+/** CSV取り込みの読み取り設定 */
+export interface CsvOptions {
+  /** "," / "\t" など。未指定なら中身から推測する */
+  delimiter?: string;
+  /** "utf-8" / "shift_jis"。未指定なら中身から推測する */
+  encoding?: string;
+  /** 1行目を見出しとして扱うか */
+  hasHeader: boolean;
+}
+
+/** 取り込み方法 */
+export type ImportMode = "append" | "skip" | "replace";
+
+/** CSVの先頭だけ読んだ内容 */
+export interface CsvPreview {
+  /** 列の見出し (見出し行が無ければ「1列目」のような仮の名前) */
+  columns: string[];
+  /** 先頭の数行 */
+  rows: string[][];
+  /** 実際に使った区切り文字 */
+  delimiter: string;
+  /** 実際に使った文字コード */
+  encoding: string;
+  /** 読み取り中に見つかった問題 */
+  warning: string | null;
+}
+
+/** 取り込みの結果 */
+export interface ImportResult {
+  rows: number;
+  /** 中止したか (中止した場合は何も入っていない) */
+  cancelled: boolean;
+}
+
+/** 名前で探した結果の1件 */
+/** 文字コード1件と、そこで使える照合順序 (バックエンドの CharsetInfo と対) */
+export interface CharsetInfo {
+  name: string;
+  /** 読みやすい説明 (PostgreSQLでは空) */
+  description: string;
+  /** 何も選ばなかったときに使われる照合順序 (PostgreSQLでは空) */
+  defaultCollation: string;
+  /** この文字コードで使える照合順序 (PostgreSQLでは空) */
+  collations: string[];
+}
+
+/** 名前検索の結果 (バックエンドの ObjectSearchResult と対) */
+export interface ObjectSearchResult {
+  hits: ObjectHit[];
+  /** 上限に達して打ち切った */
+  truncated: boolean;
+}
+
+export interface ObjectHit {
+  /** MySQLはデータベース名、PostgreSQLは接続中のDB名 */
+  database: string;
+  /** PostgreSQLのスキーマ (他は空) */
+  schema: string;
+  table: string;
+  /** カラム名 (テーブル自体が一致したときは空) */
+  column: string;
+  dataType: string;
+  comment: string;
+}
+
+/** 値で探した結果の1件 */
+export interface ValueHit {
+  schema: string;
+  table: string;
+  column: string;
+  /** 見つかった値の先頭 */
+  value: string;
+  /**
+   * DB側の照合順序のほうが広くて当たった行 (全角と半角を同じとみなす等)。
+   * どの列で当たったのかまでは分からない
+   */
+  approximate: boolean;
+}
+
+/** 値検索の結果 */
+export interface ValueSearchResult {
+  hits: ValueHit[];
+  /** 見に行ったテーブル数 */
+  scanned: number;
+  cancelled: boolean;
+  /** 上限に達して打ち切った */
+  truncated: boolean;
+  /** 読めなかったテーブル (権限が無いなど) */
+  skipped: string[];
+}
+
+/** 値検索の条件 */
+export interface ValueSearchOptions {
+  needle: string;
+  /** 大文字小文字を区別しない */
+  ignoreCase: boolean;
+}
+
+/** パターンに一致するキーを数えた結果 */
+export interface KvCountResult {
+  /** 一致したキーの数 */
+  total: number;
+  /** 先頭いくつかのキー名 */
+  sample: string[];
+  cancelled: boolean;
+  /** 上限まで読んだので、まだ先がある */
+  truncated: boolean;
+}
+
+/** キーの一括削除の結果 */
+export interface KvDeleteResult {
+  deleted: number;
+  cancelled: boolean;
+  truncated: boolean;
+}
+
+/** 値検索の当たり */
+export interface KvSearchHit {
+  key: string;
+  type: string;
+  /** 当たった場所 (hashのフィールド名・listの位置など) */
+  field: string;
+  /** 当たった値の先頭 */
+  preview: string;
+}
+
+/** 値検索の結果 */
+export interface KvSearchResult {
+  hits: KvSearchHit[];
+  /** 見に行ったキーの数 */
+  scanned: number;
+  cancelled: boolean;
+  /** 上限に達して打ち切った */
+  truncated: boolean;
+}
+
+/** 値検索の条件 */
+export interface KvSearchOptions {
+  /** 探す文字列 */
+  needle: string;
+  /** 大文字小文字を区別しない */
+  ignoreCase: boolean;
+  /** キー名も探す対象にする */
+  includeKeys: boolean;
+}
+
+/** サーバー側で動いている接続1本ぶんの情報 */
+export interface ProcessInfo {
+  /** 接続ID (MySQL) / プロセスID (PostgreSQL)。中止・切断に使う */
+  id: number;
+  user: string;
+  /** 接続元 (host:port など) */
+  host: string;
+  database: string;
+  /** 状態 (Sleep / Query / active / idle in transaction など) */
+  state: string;
+  /** その状態になってからの秒数 */
+  seconds: number;
+  /** 実行中のSQL (空なら何も走っていない) */
+  query: string;
+  /** この画面自身の接続か */
+  isSelf: boolean;
+}
+
+/** 実行中クエリへの操作 */
+export type ProcessAction = "cancel" | "terminate";
+
+/** テーブルに付いている外部キー1件 */
+export interface ForeignKeyInfo {
+  name: string;
+  columns: string[];
+  /** 参照先のスキーマ (MySQL・SQLiteは空) */
+  refSchema: string;
+  refTable: string;
+  refColumns: string[];
+  /** ON DELETE の動作 (空ならDBの既定) */
+  onDelete: string;
+  /** ON UPDATE の動作 (空ならDBの既定) */
+  onUpdate: string;
+}
+
+/** 追加する外部キーの内容 */
+export interface ForeignKeySpec {
+  /** 制約名 (空ならDBに任せる) */
+  name?: string;
+  columns: string[];
+  /** 参照先のスキーマ (空なら同じスキーマ) */
+  refSchema?: string;
+  refTable: string;
+  refColumns: string[];
+  onDelete?: string;
+  onUpdate?: string;
+}
+
+/** 外部キーに対する変更内容 */
+export type ForeignKeyChange =
+  | { kind: "add"; fk: ForeignKeySpec }
+  | { kind: "drop"; name: string };

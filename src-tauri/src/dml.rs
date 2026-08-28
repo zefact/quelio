@@ -30,6 +30,16 @@ pub enum RowChange {
     Delete { key: Vec<Cell> },
 }
 
+impl RowChange {
+    /// 行を特定するキー (追加のときは無い)
+    pub fn key(&self) -> Option<&[Cell]> {
+        match self {
+            RowChange::Update { key, .. } | RowChange::Delete { key } => Some(key),
+            RowChange::Insert { .. } => None,
+        }
+    }
+}
+
 /// 識別子をDB種別に応じてクォートする
 fn quote(db: DbType, ident: &str) -> String {
     if db == DbType::Mysql {
@@ -142,6 +152,86 @@ pub fn build(
             format!("DELETE FROM {t} WHERE {}", where_key(db, &mut b, key)?)
         }
     };
+    Ok((sql, b.params))
+}
+
+/// テーブル全体の行数を数えるSELECTを組み立てる。
+/// 一覧に出している概算行数ではなく、正確な件数が要るときに使う
+pub fn build_table_count(
+    db: DbType,
+    schema: Option<&str>,
+    table: &str,
+) -> Result<String, String> {
+    if table.trim().is_empty() {
+        return Err("テーブルが選択されていません".into());
+    }
+    if db == DbType::Valkey {
+        return Err("Valkey接続ではこの操作はできません".into());
+    }
+    let t = quote_table(db, schema, table.trim());
+    // MySQLのCOUNT(*)はBIGINT UNSIGNEDで、そのままでは符号付き整数として読めない
+    let count = if db == DbType::Mysql {
+        "CAST(COUNT(*) AS SIGNED)"
+    } else {
+        "COUNT(*)"
+    };
+    Ok(format!("SELECT {count} FROM {t}"))
+}
+
+/// キーに当たる行数を数えるSELECTを組み立てる。
+/// 変更を実行する前に「ちょうど1行か」を確かめるために使う
+pub fn build_key_count(
+    db: DbType,
+    schema: Option<&str>,
+    table: &str,
+    key: &[Cell],
+    types: &HashMap<String, String>,
+) -> Result<(String, Vec<Option<String>>), String> {
+    if table.trim().is_empty() {
+        return Err("テーブルが選択されていません".into());
+    }
+    let t = quote_table(db, schema, table.trim());
+    let mut b = Binder::new(db, types);
+    // MySQLのCOUNT(*)はBIGINT UNSIGNEDで、そのままでは符号付き整数として読めない
+    let count = if db == DbType::Mysql {
+        "CAST(COUNT(*) AS SIGNED)"
+    } else {
+        "COUNT(*)"
+    };
+    let sql = format!("SELECT {count} FROM {t} WHERE {}", where_key(db, &mut b, key)?);
+    Ok((sql, b.params))
+}
+
+/// 1セルだけを読み直すSELECTを組み立てる (画面で切り詰めた長い値の全文取得用)。
+/// 主キーで1行に絞り、値はすべてプレースホルダで渡す
+pub fn build_cell_select(
+    db: DbType,
+    schema: Option<&str>,
+    table: &str,
+    column: &str,
+    key: &[Cell],
+    types: &HashMap<String, String>,
+) -> Result<(String, Vec<Option<String>>), String> {
+    if table.trim().is_empty() {
+        return Err("テーブルが選択されていません".into());
+    }
+    if column.trim().is_empty() {
+        return Err("カラムが指定されていません".into());
+    }
+    if db == DbType::Valkey {
+        return Err("Valkey接続ではこの操作はできません".into());
+    }
+    // 主キーの値が欠けていると WHERE が IS NULL になり、別の行に当たりうる
+    if key.iter().any(|c| c.value.is_none()) {
+        return Err("主キーの値が取得できないため、この行を特定できません".into());
+    }
+    let t = quote_table(db, schema, table.trim());
+    let mut b = Binder::new(db, types);
+    let sql = format!(
+        "SELECT {} FROM {t} WHERE {} LIMIT 1",
+        quote(db, column),
+        where_key(db, &mut b, key)?
+    );
     Ok((sql, b.params))
 }
 

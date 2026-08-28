@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { useModal } from "../hooks/useModal";
+import type { Notify, NotifyLevel } from "../notify";
 import { getVersion } from "@tauri-apps/api/app";
 import { SettingsBackup } from "./SettingsBackup";
 import { SettingsEditor } from "./SettingsEditor";
@@ -9,7 +11,7 @@ import { SettingsUpdate } from "./SettingsUpdate";
 
 interface Props {
   onClose: () => void;
-  /** 接続一覧のインポート後に一覧を再読込させる */
+  /** 接続一覧を復元したあと一覧を再読込させる */
   onImported: () => void;
 }
 
@@ -29,7 +31,9 @@ function CloseIcon() {
 /** 設定モーダル (左: ナビゲーション / 右: 固定ヘッダ + 設定行) */
 export function SettingsModal({ onClose, onImported }: Props) {
   const [page, setPage] = useState<SettingsPage>("general");
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; level: NotifyLevel } | null>(
+    null
+  );
   const timer = useRef<number | undefined>(undefined);
   const [version, setVersion] = useState("");
   /** 本文をスクロールしたか (ヘッダに区切り線を出すため) */
@@ -42,23 +46,23 @@ export function SettingsModal({ onClose, onImported }: Props) {
     return () => window.clearTimeout(timer.current);
   }, []);
 
-  // Escでも閉じられるようにする (☓を探さなくて済むように)
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // Escで閉じる・初期フォーカスは共通の作法にそろえる
+  // (上に確認ダイアログが出ているときは、そちらが先に閉じる)
+  const boxRef = useModal<HTMLDivElement>(onClose);
 
   // ページを切り替えたらスクロール位置は先頭に戻る
   useEffect(() => setScrolled(false), [page]);
 
-  /** 保存トーストの表示 (各ページから呼ばれる) */
-  const notify = (msg: string) => {
-    setToast(msg);
+  /**
+   * 通知の表示 (各ページから呼ばれる)。
+   * 成功は2秒で消し、失敗は読み終えるまで残す (押して消す)
+   */
+  const notify: Notify = (msg, level = "success") => {
+    setToast({ msg, level });
     window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setToast(null), 2000);
+    if (level === "success") {
+      timer.current = window.setTimeout(() => setToast(null), 2000);
+    }
   };
 
   return (
@@ -66,12 +70,23 @@ export function SettingsModal({ onClose, onImported }: Props) {
       <div
         className="modal settings-modal"
         onMouseDown={(e) => e.stopPropagation()}
+        tabIndex={-1}
+        ref={boxRef}
       >
         <SettingsNav page={page} onSelect={setPage} version={version} />
 
         <div className="settings-main">
           <div className={"settings-topbar" + (scrolled ? " scrolled" : "")}>
-            {toast && <div className="save-toast">{toast}</div>}
+            {toast && (
+              <button
+                className={"save-toast " + toast.level}
+                title={toast.level === "error" ? "押すと閉じます" : undefined}
+                onClick={() => setToast(null)}
+              >
+                {toast.level === "error" ? "! " : "✓ "}
+                {toast.msg}
+              </button>
+            )}
             <button
               className="modal-close settings-close"
               onClick={onClose}

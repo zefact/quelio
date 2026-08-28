@@ -123,7 +123,7 @@ const GROUPS: { title?: string; items: NavItem[] }[] = [
   {
     title: "データ",
     items: [
-      { page: "backup", label: "エクスポート/インポート", icon: PortIcon },
+      { page: "backup", label: "バックアップ", icon: PortIcon },
     ],
   },
 ];

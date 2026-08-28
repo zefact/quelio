@@ -205,8 +205,8 @@
         Quelio が未実装のものの2種類があります。理由も併記しています。
       </p>
       <div class="meta-row">
-        <span class="chip">対象バージョン: Quelio v0.5.3</span>
-        <span class="chip">最終更新: 2026-08-20</span>
+        <span class="chip">対象バージョン: Quelio v0.6.0</span>
+        <span class="chip">最終更新: 2026-08-28</span>
         <span class="chip">ベータ版のため今後変更されることがあります</span>
       </div>
     </div>
@@ -302,8 +302,8 @@
             </tr>
             <tr>
               <td>TLS接続</td>
-              <td class="c"><span class="mark p">△</span></td>
-              <td class="c"><span class="mark p">△</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">検証あり/なしを選択</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">検証あり/なしを選択</span></td>
               <td class="c"><span class="mark n">—</span></td>
               <td class="c"><span class="mark y">✓</span><span class="note">SNI指定に対応</span></td>
             </tr>
@@ -338,7 +338,42 @@
               <td class="c"><span class="mark n">—</span></td>
             </tr>
             <tr>
+              <td>名前で探す（テーブル名・カラム名・コメント）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">全スキーマ</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">キー名で検索</span></td>
+            </tr>
+            <tr>
+              <td>値で探す（データの中身から検索）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">値・キー名</span></td>
+            </tr>
+            <tr>
+              <td>実行中の接続・SQLの一覧（中止・切断）</td>
+              <td class="c"><span class="mark y">✓</span><span class="note">要 PROCESS 権限</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">要 pg_read_all_stats 等</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">サーバーが無い</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
               <td>ER図（リバース・編集・PNG出力）</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>関数・プロシージャ・トリガの定義表示</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">トリガのみ</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>CREATE 文の表示</td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
@@ -413,10 +448,17 @@
             </tr>
             <tr>
               <td>テーブルの作成・改名・削除</td>
-              <td class="c"><span class="mark y">✓</span></td>
-              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">文字コード・照合順序も指定</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">スキーマを指定</span></td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>データベース・スキーマの作成・削除</td>
+              <td class="c"><span class="mark y">✓</span><span class="note">システムDBは削除不可</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">スキーマも対応</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">1ファイル＝1DB</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">DB番号は固定</span></td>
             </tr>
             <tr>
               <td>テーブルの日本語名（テーブルコメント）</td>
@@ -454,6 +496,13 @@
               <td class="c"><span class="mark n">—</span></td>
             </tr>
             <tr>
+              <td>外部キーの追加・削除</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">後から付け外しできない</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
               <td>インデックスの追加・変更・削除</td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
@@ -465,6 +514,13 @@
               <td class="c"><span class="mark y">✓</span><span class="note">BTREE / HASH / FULLTEXT / SPATIAL</span></td>
               <td class="c"><span class="mark y">✓</span><span class="note">btree / hash / gist / gin / spgist / brin</span></td>
               <td class="c"><span class="mark n">—</span><span class="note">種別の概念が無い</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>CSV / TSVファイルの取り込み</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark n">—</span></td>
             </tr>
             <tr>
@@ -499,14 +555,15 @@
               <li><b>属性の変更</b>（AUTO_INCREMENT / ON UPDATE CURRENT_TIMESTAMP）</li>
               <li>照合順序の変更、テーブル／カラムのコメント編集</li>
               <li>インデックス種別の指定（BTREE / HASH / FULLTEXT / SPATIAL）</li>
-              <li>mysqldump / mysql を使ったエクスポート・インポート</li>
+              <li><b>外部キーの追加・削除</b>（ON DELETE / ON UPDATE の指定つき）</li>
+              <li><b>テーブル・データベースの作成</b>（文字コードと照合順序を選択）</li>
+              <li>CSV / TSVファイルの取り込み、mysqldump / mysql を使ったエクスポート・インポート</li>
             </ul>
           </div>
           <div class="col cannot">
             <h4>できないこと</h4>
             <ul>
-              <li><b>ビュー・ストアドプロシージャ・関数・トリガ・イベント</b>の表示と編集（未実装）</li>
-              <li><b>外部キー制約の追加・削除</b>（表示のみ。未実装）</li>
+              <li><b>ビュー・ストアドプロシージャ・関数・トリガ</b>の編集（定義の表示はできます。未実装）</li>
               <li><b>ユーザー・権限管理</b>、パーティション操作（未実装）</li>
               <li>生成カラム（GENERATED）の変更 — 式が失われるため受け付けません</li>
               <li>主キー・UNIQUE制約に紐づくインデックスの変更 — 制約側の操作が必要なため</li>
@@ -529,7 +586,9 @@
               <li>テーブル定義のその場編集、<span class="mono">COMMENT ON</span> によるコメント編集</li>
               <li>接続先の <span class="mono">pg_type</span> から取得した型を選択（enum・ドメイン・PostGISの型も候補に出ます）</li>
               <li>インデックス種別の指定（btree / hash / gist / gin / spgist / brin）</li>
-              <li>EXPLAIN / EXPLAIN ANALYZE、pg_dump / psql 連携</li>
+              <li><b>外部キーの追加・削除</b>、<b>スキーマ・データベースの作成／削除</b></li>
+              <li>パーティションの表示（CREATE 文・ALTER 文の生成にも <span class="mono">PARTITION BY / PARTITION OF</span> を反映）</li>
+              <li>EXPLAIN / EXPLAIN ANALYZE、CSV取り込み、pg_dump / psql 連携</li>
             </ul>
           </div>
           <div class="col cannot">
@@ -538,8 +597,8 @@
               <li><b>カラムの並べ替え</b> — PostgreSQL 自体が対応していません（DBの仕様）</li>
               <li>照合順序だけを変える構文が無いため、<b>型の指定とまとめて実行</b>します（DBの仕様）</li>
               <li><b>ビュー・マテリアライズドビューの定義編集</b>、REFRESH（未実装。一覧表示と削除は可能）</li>
-              <li><b>関数・トリガ・拡張機能・ロール／権限</b>の管理（未実装）</li>
-              <li>外部キー制約の追加・削除（表示のみ。未実装）</li>
+              <li><b>関数・トリガの編集</b>（定義の表示はできます。未実装）</li>
+              <li><b>拡張機能・ロール／権限</b>の管理（未実装）</li>
             </ul>
           </div>
         </div>
@@ -556,7 +615,8 @@
             <ul>
               <li>ファイルを選ぶだけで接続（サーバー・追加インストール不要）</li>
               <li>テーブルの作成・改名・削除、<b>カラムの追加・削除・改名</b></li>
-              <li>インデックスの追加・変更・削除、データの編集</li>
+              <li>インデックスの追加・変更・削除、データの編集、CSV / TSVの取り込み</li>
+              <li>名前・値からの検索、トリガの定義表示、CREATE 文の表示</li>
               <li>ER図・スキーマ比較・定義書CSV・EXPLAIN QUERY PLAN</li>
               <li>主キーが無いテーブルでも、rowid による主キーがあれば編集できます</li>
             </ul>
@@ -567,6 +627,7 @@
               <li><b>型・NOT NULL・デフォルトの変更</b> — SQLite の ALTER TABLE ではできず、テーブルの作り直しが必要（DBの仕様。将来対応を検討）</li>
               <li><b>コメント（日本語の論理名）</b> — 仕組みがありません（DBの仕様）</li>
               <li><b>照合順序の変更・インデックス種別の指定</b>（DBの仕様）</li>
+              <li><b>外部キーの追加・削除</b> — 作成後に付け外しできません（DBの仕様。表示は可能）</li>
               <li><b>概算行数</b>の表示 — 統計情報がありません（DBの仕様）</li>
               <li><b>エクスポート／インポート</b>（外部ツール連携）（未実装）</li>
               <li>暗号化DB（SQLCipher）、<span class="mono">ATTACH</span> した複数DBの表示（未実装）</li>
@@ -587,6 +648,7 @@
               <li>キーの一覧（<span class="mono">SCAN</span> によるパターン絞り込み）と、型・TTL・メモリ使用量の表示</li>
               <li>値の表示（string / hash / list / set / zset / stream）と、JSON・PHPシリアライズの整形表示</li>
               <li><b>値の編集</b>・要素の追加・削除、<b>キーの作成・改名・削除</b>、<b>TTLの変更</b></li>
+              <li><b>キーの検索</b>（値の中身・キー名）と、パターンに一致するキーの<b>一括削除</b></li>
               <li>コマンドコンソール（redis-cli 風の出力・複数行実行・結果のキャプチャ）</li>
               <li>TLS接続（SNI指定つき）と SSHトンネル</li>
             </ul>
@@ -599,7 +661,7 @@
               <li><b>バイナリの値・長すぎる値の編集</b> — 壊さないよう禁止しています</li>
               <li><b>stream の既存エントリの変更</b> — 仕様上できません（追加・削除は可能）</li>
               <li>Pub/Sub・MONITOR — 接続を占有するためブロックしています</li>
-              <li>キーの一括削除、値での検索、<span class="mono">COPY</span> / <span class="mono">DUMP</span> / <span class="mono">RESTORE</span>、ACL・ユーザー管理（未実装）</li>
+              <li><span class="mono">COPY</span> / <span class="mono">DUMP</span> / <span class="mono">RESTORE</span>、ACL・ユーザー管理（未実装）</li>
               <li>フィールド単位のTTL（<span class="mono">HEXPIRE</span> 系）、JSON など<b>モジュール型</b>の値表示（未実装）</li>
             </ul>
           </div>
@@ -619,7 +681,11 @@
           <tbody>
             <tr>
               <td>読み取り専用モード</td>
-              <td>接続ごとに書き込みを禁止するモードはまだありません。<span class="note">接続の色分けとトランザクションモードで事故を防ぐ設計です。</span></td>
+              <td>接続ごとに「読み取り専用」を指定できます。指定すると、SQLの更新系・DDL・行編集・Valkeyの書き込みコマンド・SQLファイルの取り込みをすべて拒否します。<span class="note">画面側でも変更操作を出さず、タブに R/O バッジを表示します。</span></td>
+            </tr>
+            <tr>
+              <td>取り返しのつかないSQLの確認</td>
+              <td>DROP / TRUNCATE や WHERE の無い UPDATE / DELETE は、実行前に接続先とSQLを出して確認します。<span class="note">ALTER / RENAME の確認は 設定 &gt; 一般 で外せます（マイグレーション用のSQLをまとめて流すとき向け）。</span></td>
             </tr>
             <tr>
               <td>画面に出す件数・文字数</td>
@@ -627,7 +693,7 @@
             </tr>
             <tr>
               <td>TLSの検証</td>
-              <td>MySQL / PostgreSQL はサーバーが対応していればTLSで接続しますが、証明書の厳密な検証やクライアント証明書の指定には未対応です。<span class="note">検証が必要な場合は SSHトンネルの利用をおすすめします。</span></td>
+              <td>MySQL / PostgreSQL は接続ごとにTLSの使い方を選べます（既定 / 使わない / 必須 / CA検証 / CA+ホスト名検証）。CA証明書とクライアント証明書のファイルも指定できます。<span class="note">SSH踏み台を経由する場合は接続先が 127.0.0.1 になるため、ホスト名の検証はできません（CA証明書の検証までを行います）。</span></td>
             </tr>
             <tr>
               <td>対応OS・言語</td>

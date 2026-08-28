@@ -27,6 +27,19 @@ pub struct AppSettings {
     /// 入力補完が自動で開くまでの待ち時間 (ミリ秒)。0なら自動では開かない
     #[serde(default = "default_autocomplete_delay_ms")]
     pub autocomplete_delay_ms: u64,
+    /// ALTER・RENAME (定義の変更) も実行前に確認するか。
+    ///
+    /// マイグレーションSQLを流す使い方では毎回止まってしまうため、外せるようにする。
+    /// DROP・TRUNCATE や WHERE の無い UPDATE / DELETE は、
+    /// 戻せない・影響範囲が読めないので、この設定に関わらず常に確認する
+    #[serde(default = "default_true")]
+    pub confirm_alter: bool,
+    /// 起動時に前回のタブ (接続先と書きかけのSQL) を復元するか。
+    ///
+    /// 既定は復元しない。前回の接続先が入ったまま立ち上がると、
+    /// 意図しない環境へ繋いでしまうため、空のタブ1つで始める
+    #[serde(default)]
+    pub restore_tabs: bool,
 }
 
 fn default_autocomplete_delay_ms() -> u64 {
@@ -59,6 +72,8 @@ impl Default for AppSettings {
             download_dir: String::new(),
             autocomplete_enabled: true,
             autocomplete_delay_ms: default_autocomplete_delay_ms(),
+            confirm_alter: true,
+            restore_tabs: false,
         }
     }
 }
@@ -81,27 +96,17 @@ pub fn download_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 }
 
 fn settings_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("設定ディレクトリを取得できません: {e}"))?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("設定ディレクトリを作成できません: {e}"))?;
-    Ok(dir.join("app_settings.json"))
+    crate::json_store::config_path(app, "app_settings.json")
 }
 
 pub fn load(app: &AppHandle) -> Result<AppSettings, String> {
     let path = settings_path(app)?;
-    if !path.exists() {
-        return Ok(AppSettings::default());
-    }
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| format!("設定を読み込めません: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("設定の形式が不正です: {e}"))
+    Ok(crate::json_store::read(&path, "設定")?.unwrap_or_default())
 }
 
 pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     let path = settings_path(app)?;
     let text = serde_json::to_string_pretty(settings)
         .map_err(|e| format!("設定のシリアライズに失敗: {e}"))?;
-    std::fs::write(&path, text).map_err(|e| format!("設定を書き込めません: {e}"))
+    crate::json_store::write(&path, &text, "設定")
 }

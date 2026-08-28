@@ -1,5 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { listSessions, schemaSnapshot } from "../api";
+import { buildMigration } from "../schemaAlter";
+import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
+import { SqlTextDialog } from "./SqlTextDialog";
+import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { SelectMenu } from "./SelectMenu";
 import type {
@@ -141,7 +145,9 @@ function computeDiff(left: SchemaEntry[], right: SchemaEntry[]): TableDiff[] {
 
     const status =
       attrs.length + columns.length + indexes.length > 0 ? "changed" : "same";
-    return { key, status, attrs, columns, indexes } as TableDiff;
+    // asではなく型注釈で受ける (asだと中身の型チェックが効かない)
+    const diff: TableDiff = { key, status, attrs, columns, indexes };
+    return diff;
   });
 }
 
@@ -224,6 +230,13 @@ export function DiffWindow() {
   );
   const [onlyDiff, setOnlyDiff] = useState(true);
   const [loading, setLoading] = useState(false);
+  /** 比較に使った定義そのもの (ALTER文の組み立て用) */
+  const [snapshots, setSnapshots] = useState<{
+    left: SchemaEntry[];
+    right: SchemaEntry[];
+  } | null>(null);
+  /** 組み立てたALTER文 (nullなら出していない) */
+  const [migration, setMigration] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 項目カラムの幅 (ヘッダのハンドルでドラッグ変更)
   const [labelWidth, startLabelResize] = useResizableWidth(220, 120, 600);
@@ -239,17 +252,25 @@ export function DiffWindow() {
     }
   };
 
-  useEffect(() => {
-    refreshSessions();
-    const timer = setInterval(refreshSessions, 3000);
-    return () => clearInterval(timer);
-  }, []);
+  // ウィンドウが隠れている間は止める
+  usePolling(refreshSessions, 3000);
+
+  /**
+   * 選択を変えたら、前回の比較で取った定義は捨てる。
+   * 古い定義に新しい方言を当ててALTER文を作ってしまわないようにする
+   */
+  const changeSide = (setSide: (s: SideSel) => void) => (sel: SideSel) => {
+    setSnapshots(null);
+    setMigration(null);
+    setSide(sel);
+  };
 
   const sideSelector = (
     side: SideSel,
-    setSide: (s: SideSel) => void,
+    setSideRaw: (s: SideSel) => void,
     placeholder: string
   ) => {
+    const setSide = changeSide(setSideRaw);
     const session = sessions.find((s) => s.sessionId === side.sessionId);
     return (
       <div className="diff-side-sel">
@@ -290,12 +311,16 @@ export function DiffWindow() {
     setLoading(true);
     setError(null);
     setDiff(null);
+    setSnapshots(null);
+    setMigration(null);
     try {
       const [l, r] = await Promise.all([
         schemaSnapshot(left.sessionId, left.database),
         schemaSnapshot(right.sessionId, right.database),
       ]);
       setDiff(computeDiff(l, r));
+      // ALTER文の組み立てには、差分ではなく元の定義そのものが要る
+      setSnapshots({ left: l, right: r });
       setActiveView("tables");
     } catch (e) {
       setError(String(e));
@@ -397,6 +422,33 @@ export function DiffWindow() {
             "比較"
           )}
         </button>
+
+        <button
+          className="btn-secondary"
+          title="左を右に合わせるSQLを組み立てます (実行はしません)"
+          disabled={!snapshots}
+          onClick={() => {
+            if (!snapshots) return;
+            const dbType = sessions.find(
+              (s) => s.sessionId === left.sessionId
+            )?.dbType;
+            if (!dbType) {
+              setError(
+                "左の接続が見つかりません (閉じられた可能性があります)。比較し直してください"
+              );
+              return;
+            }
+            const rightDbType = sessions.find(
+              (s) => s.sessionId === right.sessionId
+            )?.dbType;
+            setMigration(
+              buildMigration(dbType, snapshots.left, snapshots.right, rightDbType)
+            );
+          }}
+        >
+          ALTER文を作る
+        </button>
+
         <label className="switch diff-only">
           <input
             type="checkbox"
@@ -415,10 +467,37 @@ export function DiffWindow() {
       )}
 
       {error && (
-        <div className="result-banner ng diff-error">
+        <div
+          className={`result-banner ${isCancelled(error) ? "ok" : "ng"} diff-error`}
+        >
           <span className="dot" aria-hidden />
-          <strong>エラー</strong>
+          <strong>{isCancelled(error) ? "中止" : "エラー"}</strong>
           <span className="result-detail">{error}</span>
+        </div>
+      )}
+
+      {migration !== null && (
+        <SqlTextDialog
+          title="ALTER文"
+          target={`${left.database} ← ${right.database}`}
+          text={migration}
+          onClose={() => setMigration(null)}
+        />
+      )}
+
+      {loading && (
+        <LoadingWithCancel
+          label="スキーマを読み込み中..."
+          sessionIds={[left.sessionId, right.sessionId]}
+          dbTypes={[left.sessionId, right.sessionId].map(
+            (id) => sessions.find((s) => s.sessionId === id)?.dbType
+          )}
+        />
+      )}
+
+      {!diff && !loading && !error && (
+        <div className="content-placeholder dim-center">
+          左右に接続とデータベースを選んで「比較」を押してください
         </div>
       )}
 

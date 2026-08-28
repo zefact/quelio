@@ -21,7 +21,9 @@ import {
   syntaxHighlighting,
 } from "@codemirror/language";
 import { Compartment, Prec } from "@codemirror/state";
+import { setEditorFinder } from "../editorSearch";
 import {
+  drawSelection,
   EditorView,
   highlightActiveLine,
   highlightActiveLineGutter,
@@ -49,8 +51,12 @@ interface Props {
   dbType: DbType;
   placeholder: string;
   onChange: (value: string) => void;
-  /** ⌘/Ctrl+Enter */
+  /** ⌘/Ctrl+Enter (実行ボタンと同じ動き) */
   onRun: () => void;
+  /** ⌘/Ctrl+Shift+Enter (選択部分だけを実行) */
+  onRunSelection: () => void;
+  /** ⌘/Ctrl+Shift+F (SQLを整形) */
+  onFormat: () => void;
   onSelectionChange: (hasSelection: boolean) => void;
   onContextMenu: (x: number, y: number) => void;
   /**
@@ -135,6 +141,8 @@ export const editorTheme = EditorView.theme({
     lineHeight: "1.65",
   },
   ".cm-content": {
+    // drawSelectionを使うとOS標準のキャレットは隠れるため、
+    // 実際の色は下の .cm-cursor が決める (ここは使わない場合の保険)
     caretColor: "var(--accent-2)",
     padding: "10px 0",
   },
@@ -171,6 +179,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     placeholder,
     onChange,
     onRun,
+    onRunSelection,
+    onFormat,
     onSelectionChange,
     onContextMenu,
     schema,
@@ -187,8 +197,22 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   /** 設定変更で入れ替えられるよう、補完の拡張は入れ替え可能にしておく */
   const acRef = useRef(new Compartment());
   // コールバックはrefで持ち、エディタの再生成を避ける
-  const cbRef = useRef({ onChange, onRun, onSelectionChange, onContextMenu });
-  cbRef.current = { onChange, onRun, onSelectionChange, onContextMenu };
+  const cbRef = useRef({
+    onChange,
+    onRun,
+    onRunSelection,
+    onFormat,
+    onSelectionChange,
+    onContextMenu,
+  });
+  cbRef.current = {
+    onChange,
+    onRun,
+    onRunSelection,
+    onFormat,
+    onSelectionChange,
+    onContextMenu,
+  };
 
   useImperativeHandle(ref, () => ({
     getSelectedText() {
@@ -209,6 +233,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       parent: host,
       extensions: [
         lineNumbers(),
+        // 選択の描画を自前で行う。ブラウザ任せだとフォーカスが無いときに
+        // 描かれず、検索でヒットした位置が分からなくなる
+        drawSelection(),
         highlightActiveLine(),
         highlightActiveLineGutter(),
         history(),
@@ -234,6 +261,22 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
               key: "Mod-Enter",
               run: () => {
                 cbRef.current.onRun();
+                return true;
+              },
+            },
+            {
+              // 実行対象の設定にかかわらず、選択部分だけを実行する
+              key: "Mod-Shift-Enter",
+              run: () => {
+                cbRef.current.onRunSelection();
+                return true;
+              },
+            },
+            {
+              // 整形は右クリックメニューだけだと気づきにくいので、キーでも出す
+              key: "Mod-Shift-f",
+              run: () => {
+                cbRef.current.onFormat();
                 return true;
               },
             },
@@ -283,6 +326,34 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     });
     viewRef.current = view;
 
+    /*
+     * ページ内検索から呼ばれる本文検索。
+     * 画面外の行も対象にし、見つかったら選択してその位置まで送る
+     */
+    setEditorFinder((query, forward) => {
+      const v = viewRef.current;
+      if (!v || !query) return false;
+      const text = v.state.doc.toString().toLowerCase();
+      const q = query.toLowerCase();
+      const head = v.state.selection.main;
+      let at: number;
+      if (forward) {
+        at = text.indexOf(q, head.to);
+        if (at === -1) at = text.indexOf(q);
+      } else {
+        at = text.lastIndexOf(q, Math.max(0, head.from - 1));
+        if (at === -1) at = text.lastIndexOf(q);
+      }
+      if (at === -1) return false;
+      v.dispatch({
+        selection: { anchor: at, head: at + query.length },
+        scrollIntoView: true,
+      });
+      // ここでフォーカスを移すと検索欄から入力が奪われ、
+      // 次のEnterがSQLの改行になってしまうので移さない
+      return true;
+    });
+
     const handleCtx = (e: MouseEvent) => {
       e.preventDefault();
       cbRef.current.onContextMenu(e.clientX, e.clientY);
@@ -291,6 +362,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
 
     return () => {
       view.dom.removeEventListener("contextmenu", handleCtx);
+      setEditorFinder(null);
       view.destroy();
       viewRef.current = null;
     };

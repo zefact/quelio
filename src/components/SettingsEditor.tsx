@@ -1,9 +1,10 @@
 import { useAppSettings } from "../hooks/useAppSettings";
+import type { Notify } from "../notify";
 import { isMac } from "../platform";
 import { SettingRow } from "./SettingRow";
 
 interface Props {
-  notify: (msg: string) => void;
+  notify: Notify;
 }
 
 /**
@@ -68,6 +69,8 @@ export function SettingsEditor({ notify }: Props) {
             }}
             onBlur={() => saveApp({ ...app })}
             onKeyDown={(e) => {
+              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+              if (e.nativeEvent.isComposing) return;
               if (e.key === "Enter") saveApp({ ...app });
             }}
           />

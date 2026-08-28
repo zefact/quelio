@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { Prec } from "@codemirror/state";
 import {
+  drawSelection,
   EditorView,
   highlightActiveLine,
   highlightActiveLineGutter,
@@ -36,6 +37,8 @@ export function KvCommandEditor({ value, placeholder, onChange, onRun }: Props) 
       parent: host,
       extensions: [
         lineNumbers(),
+        // 選択の描画はSQLエディタと同じ方式にそろえる
+        drawSelection(),
         highlightActiveLine(),
         highlightActiveLineGutter(),
         history(),

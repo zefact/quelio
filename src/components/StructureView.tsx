@@ -2,10 +2,12 @@ import type {
   ColumnChange,
   ColumnInfo,
   DbType,
+  ForeignKeyChange,
   IndexChange,
   TableDetail,
 } from "../types";
 import { ColumnGrid } from "./ColumnGrid";
+import { ForeignKeyGrid } from "./ForeignKeyGrid";
 import { IndexGrid } from "./IndexGrid";
 
 interface Props {
@@ -22,10 +24,14 @@ interface Props {
   resetKey: string | number;
   /** カラムの変更を実行する (失敗したら例外を投げる) */
   onApplyDdl: (change: ColumnChange) => Promise<void>;
+  /** 実行せずに、生成されるSQLだけを取得する (並べ替えの確認用) */
+  onPreviewDdl: (change: ColumnChange) => Promise<string[]>;
   /** カラム削除の確認を出す */
   onRequestDrop: (column: ColumnInfo) => void;
   /** インデックスの変更を実行する (失敗したら例外を投げる) */
   onApplyIndexDdl: (change: IndexChange) => Promise<void>;
+  /** 外部キーの変更を実行する (失敗したら例外を投げる) */
+  onApplyForeignKeyDdl: (change: ForeignKeyChange) => Promise<void>;
   /** 型の選択肢 */
   types: string[];
   /** 照合順序の選択肢 */
@@ -42,8 +48,10 @@ export function StructureView({
   dbType,
   resetKey,
   onApplyDdl,
+  onPreviewDdl,
   onRequestDrop,
   onApplyIndexDdl,
+  onApplyForeignKeyDdl,
   types,
   collations,
 }: Props) {
@@ -53,7 +61,11 @@ export function StructureView({
         <div className="structure-loading">
           <span className="spinner accent" /> 構造を読み込み中...
         </div>
-      ) : !detail ? null : (
+      ) : !detail ? (
+        <div className="structure-loading">
+          定義を取得できませんでした (再読込を試してください)
+        </div>
+      ) : (
         <>
           {detail.info.length > 0 && (
             <div className="info-chips">
@@ -74,6 +86,7 @@ export function StructureView({
             dbType={dbType}
             resetKey={resetKey}
             onApply={onApplyDdl}
+            onPreview={onPreviewDdl}
             onRequestDrop={onRequestDrop}
             types={types}
             collations={collations}
@@ -89,6 +102,15 @@ export function StructureView({
             dbType={dbType}
             resetKey={resetKey}
             onApply={onApplyIndexDdl}
+          />
+
+          <ForeignKeyGrid
+            foreignKeys={detail.foreignKeys ?? []}
+            tableColumns={detail.columns}
+            canEdit={canEdit}
+            dbType={dbType}
+            resetKey={resetKey}
+            onApply={onApplyForeignKeyDdl}
           />
         </>
       )}

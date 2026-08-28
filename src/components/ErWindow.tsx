@@ -1,29 +1,17 @@
 import {
-  Fragment,
-  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import {
-  deleteErDiagram,
-  foreignKeys,
-  getAppSettings,
-  getErDiagram,
-  listErDiagrams,
-  listSessions,
-  saveCapture,
-  saveErDiagram,
-  schemaSnapshot,
-} from "../api";
+import { listSessions, saveCapture, schemaWithForeignKeys } from "../api";
 import { usePopupPosition } from "../hooks/usePopupPosition";
+import { useWatchedSettings } from "../hooks/useWatchedSettings";
 import { parseComment } from "../comment";
 import { layoutEr } from "../erLayout";
 import type {
   ErAnchorPoint,
   ErCustomEdge,
-  ErDiagramData,
   ErEdgeStyle,
   ErFrame,
   ErPageData,
@@ -31,633 +19,52 @@ import type {
   SchemaEntry,
   SessionSummary,
 } from "../types";
-import { SelectMenu } from "./SelectMenu";
+import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
+import { rafThrottle } from "../rafThrottle";
+import { usePolling } from "../hooks/usePolling";
+import { useDismiss } from "../hooks/useDismiss";
+import { useErPersistence } from "../hooks/useErPersistence";
+import {
+  ErDialogs,
+  type ErConfirm,
+  type ErNameDialog,
+} from "./ErDialogs";
+import { CanvasMenu } from "./erMenu/CanvasMenu";
+import { ColumnMenu } from "./erMenu/ColumnMenu";
+import { EdgeMenu } from "./erMenu/EdgeMenu";
+import { FrameMenu } from "./erMenu/FrameMenu";
+import { NodeMenu } from "./erMenu/NodeMenu";
+import type { ErCtxMenu } from "./erMenu/types";
+import { ErEdgeLayer } from "./ErEdgeLayer";
+import { ErToolbar } from "./ErToolbar";
+import { ErNodeView } from "./ErNodeView";
 
-/** ER図のノードに表示するカラム */
-interface ErColumn {
-  name: string;
-  isPk: boolean;
-  /** NOT NULL制約があるか */
-  notNull: boolean;
-  /** 型・サイズ (表示オプションOFFなら空) */
-  type: string;
-  /** 日本語名 (コメントの論理名。表示オプションOFFなら空) */
-  logical: string;
-}
-
-/** カラム先頭のマーク (● = NOT NULL / ○ = NULL許容。PKは色で区別) */
-function colMarker(c: ErColumn): string {
-  return c.isPk || c.notNull ? "● " : "○ ";
-}
-
-/** ER図のノード (テーブル) */
-interface ErNode {
-  name: string;
-  /** テーブルの日本語名 (コメントの論理名。表示オプションOFFなら空) */
-  logical: string;
-  /** 表示するカラム (PKのみ or 全カラム) */
-  columns: ErColumn[];
-  w: number;
-  h: number;
-}
-
-/** ER図のエッジ (リレーション)。from(参照元/子) → to(参照先/親) */
-interface ErEdge {
-  from: string;
-  to: string;
-  /** 参照元テーブル側の代表カラム (線の出発位置) */
-  fromColumn: string;
-  /** 参照先テーブル側の代表カラム (線の到達位置) */
-  toColumn: string;
-  label: string;
-  /** FK制約ではなく命名からの推測か */
-  guessed: boolean;
-  /** 手動で追加した線か */
-  manual?: boolean;
-}
-
-/** 枠線の色プリセット (先頭の空文字は既定のグレー) */
-const FRAME_COLORS = [
-  "",
-  "#6366f1",
-  "#22d3ee",
-  "#34d399",
-  "#fbbf24",
-  "#f87171",
-  "#f472b6",
-] as const;
-
-/** 背景塗りの透明度 */
-const FILL_ALPHA = 0.25;
-
-/** #rrggbb をアルファ付きrgba()にする */
-function hexAlpha(hex: string, alpha: number): string {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-/** エッジの識別キー (削除の記憶に使う) */
-function edgeKey(e: {
-  from: string;
-  fromColumn: string;
-  to: string;
-  toColumn: string;
-}): string {
-  return `${e.from}.${e.fromColumn}->${e.to}.${e.toColumn}`;
-}
-
-/** スキーマ+表示オプションからノード一覧を組み立てる */
-function buildNodes(
-  entries: SchemaEntry[],
-  allCols: boolean,
-  showTypes: boolean,
-  showLogical: boolean,
-  delim: string
-): ErNode[] {
-  return entries.map((e) => {
-    const all: ErColumn[] = e.detail.columns.map((c) => ({
-      name: c.name,
-      isPk: c.key === "PRI",
-      notNull: !c.nullable,
-      type: showTypes ? c.colType : "",
-      logical: showLogical ? parseComment(c.comment ?? "", delim)[0] : "",
-    }));
-    const columns = allCols ? all : all.filter((c) => c.isPk);
-    // テーブルの日本語名 (テーブルコメントの論理名)
-    const tableComment =
-      e.detail.info.find(([label]) => label === "コメント")?.[1] ?? "";
-    const logical = showLogical ? parseComment(tableComment, delim)[0] : "";
-    return {
-      name: e.table.name,
-      logical,
-      columns,
-      w: nodeWidth(e.table.name, logical, columns),
-      h: NODE_HEAD_H + columns.length * ROW_H + NODE_PAD_B,
-    };
-  });
-}
-
-/** カラム行の中心Y座標 (表示中でなければヘッダ中心) */
-function anchorY(n: ErNode, topY: number, col: string): number {
-  const i = n.columns.findIndex((c) => c.name === col);
-  return i >= 0
-    ? topY + NODE_HEAD_H + i * ROW_H + ROW_H / 2
-    : topY + NODE_HEAD_H / 2;
-}
-
-/** 鍵線 (直角折れ線) の経路を計算する。座標はノード左上+アンカーYで渡す */
-function edgePoints(
-  a: { x: number; w: number },
-  ay: number,
-  b: { x: number; w: number },
-  by: number
-): [number, number][] {
-  const MIN_GAP = 28;
-  const aL = a.x;
-  const aR = a.x + a.w;
-  const bL = b.x;
-  const bR = b.x + b.w;
-  // 参照元が左・参照先が右
-  if (aR + MIN_GAP <= bL) {
-    const midX = (aR + bL) / 2;
-    return [
-      [aR, ay],
-      [midX, ay],
-      [midX, by],
-      [bL, by],
-    ];
-  }
-  // 参照元が右・参照先が左
-  if (bR + MIN_GAP <= aL) {
-    const midX = (bR + aL) / 2;
-    return [
-      [aL, ay],
-      [midX, ay],
-      [midX, by],
-      [bR, by],
-    ];
-  }
-  // 横方向に重なっている場合は右側を回り込む
-  const outerX = Math.max(aR, bR) + 34;
-  return [
-    [aR, ay],
-    [outerX, ay],
-    [outerX, by],
-    [bR, by],
-  ];
-}
-
-const NODE_HEAD_H = 26;
-const ROW_H = 17;
-const NODE_PAD_B = 6;
-
-/** 線の交差を飛び越える半円の半径 */
-const HOP_R = 6;
-
-/** 折れ線から垂直区間を抜き出す */
-function verticalSegments(
-  pts: [number, number][]
-): { x: number; y1: number; y2: number }[] {
-  const segs: { x: number; y1: number; y2: number }[] = [];
-  for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1];
-    const [x1, y1] = pts[i];
-    if (x0 === x1 && y0 !== y1) segs.push({ x: x0, y1: y0, y2: y1 });
-  }
-  return segs;
-}
-
-/** 折れ線をSVGパスにする。水平区間が他の線の垂直区間と交差する位置には
- * 半円 (飛び越え) を入れる。近接する交差はまとめて1つの山にする */
-function edgePath(
-  pts: [number, number][],
-  verticals: { x: number; y1: number; y2: number }[]
-): string {
-  let d = `M ${pts[0][0]} ${pts[0][1]}`;
-  for (let i = 1; i < pts.length; i++) {
-    const [x0, y0] = pts[i - 1];
-    const [x1, y1] = pts[i];
-    if (y0 === y1 && x0 !== x1) {
-      const minX = Math.min(x0, x1);
-      const maxX = Math.max(x0, x1);
-      const dir = x1 > x0 ? 1 : -1;
-      // この水平区間と交差する垂直線のX座標 (端に近すぎるものは除く)
-      const xs = verticals
-        .filter(
-          (v) =>
-            v.x > minX + HOP_R &&
-            v.x < maxX - HOP_R &&
-            y0 > Math.min(v.y1, v.y2) + 1 &&
-            y0 < Math.max(v.y1, v.y2) - 1
-        )
-        .map((v) => v.x)
-        .sort((a, b) => (a - b) * dir);
-      // 近接する交差をグループ化して1つの山で飛び越える
-      const groups: [number, number][] = [];
-      for (const cx of xs) {
-        const g = groups[groups.length - 1];
-        if (g && Math.abs(cx - g[1]) < HOP_R * 2.5) g[1] = cx;
-        else groups.push([cx, cx]);
-      }
-      for (const [gs, ge] of groups) {
-        const a = gs - HOP_R * dir;
-        const b = ge + HOP_R * dir;
-        const rx = Math.abs(b - a) / 2;
-        d += ` L ${a} ${y0} A ${rx} ${HOP_R} 0 0 ${dir > 0 ? 1 : 0} ${b} ${y0}`;
-      }
-      d += ` L ${x1} ${y1}`;
-    } else {
-      d += ` L ${x1} ${y1}`;
-    }
-  }
-  return d;
-}
-
-/** 接続点付きの座標 (どの辺から出るかを持つ) */
-interface AnchoredPt {
-  x: number;
-  y: number;
-  side: ErAnchorPoint["side"];
-}
-
-/** アンカー指定 (辺+割合) をテーブル境界上の座標にする */
-function anchorPointPos(
-  n: ErNode,
-  p: { x: number; y: number },
-  a: ErAnchorPoint
-): AnchoredPt {
-  switch (a.side) {
-    case "top":
-      return { x: p.x + a.t * n.w, y: p.y, side: "top" };
-    case "bottom":
-      return { x: p.x + a.t * n.w, y: p.y + n.h, side: "bottom" };
-    case "left":
-      return { x: p.x, y: p.y + a.t * n.h, side: "left" };
-    default:
-      return { x: p.x + n.w, y: p.y + a.t * n.h, side: "right" };
-  }
-}
-
-/** カラム行から出る既定の接続点 (相手のX位置に近い側の辺を選ぶ) */
-function colSideAnchor(
-  n: ErNode,
-  p: { x: number; y: number },
-  col: string,
-  refX: number
-): AnchoredPt {
-  const y = anchorY(n, p.y, col);
-  return refX >= p.x + n.w / 2
-    ? { x: p.x + n.w, y, side: "right" }
-    : { x: p.x, y, side: "left" };
-}
-
-/** カーソル位置に最も近いテーブル境界上のアンカーを求める。
- * 左右の辺ではカラム行の中心に吸着する */
-function nearestBorderAnchor(
-  n: ErNode,
-  p: { x: number; y: number },
-  wx: number,
-  wy: number
-): ErAnchorPoint {
-  const cx = Math.min(Math.max(wx, p.x), p.x + n.w);
-  const cy = Math.min(Math.max(wy, p.y), p.y + n.h);
-  const dL = Math.abs(wx - p.x);
-  const dR = Math.abs(wx - (p.x + n.w));
-  const dT = Math.abs(wy - p.y);
-  const dB = Math.abs(wy - (p.y + n.h));
-  const m = Math.min(dL, dR, dT, dB);
-  let side: ErAnchorPoint["side"];
-  let t: number;
-  if (m === dT) {
-    side = "top";
-    t = (cx - p.x) / n.w;
-  } else if (m === dB) {
-    side = "bottom";
-    t = (cx - p.x) / n.w;
-  } else if (m === dL) {
-    side = "left";
-    t = (cy - p.y) / n.h;
-  } else {
-    side = "right";
-    t = (cy - p.y) / n.h;
-  }
-  // 左右の辺ではカラム行の中心に吸着する
-  if (side === "left" || side === "right") {
-    const y = p.y + t * n.h;
-    for (let i = 0; i < n.columns.length; i++) {
-      const ry = p.y + NODE_HEAD_H + i * ROW_H + ROW_H / 2;
-      if (Math.abs(y - ry) < 7) {
-        t = (ry - p.y) / n.h;
-        break;
-      }
-    }
-  }
-  return { side, t: Math.min(1, Math.max(0, t)) };
-}
-
-/** アンカーから外へ出る垂線の長さ */
-const STUB = 24;
-
-/** 辺の外向き単位ベクトル */
-function sideDir(s: ErAnchorPoint["side"]): [number, number] {
-  return s === "left"
-    ? [-1, 0]
-    : s === "right"
-      ? [1, 0]
-      : s === "top"
-        ? [0, -1]
-        : [0, 1];
-}
-
-interface Rect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-/** 直交線分が矩形の内部を通るか (境界上をなぞるだけなら通らない扱い) */
-function segHitsRect(
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  r: Rect
-): boolean {
-  if (x0 === x1) {
-    if (x0 <= r.x || x0 >= r.x + r.w) return false;
-    const lo = Math.min(y0, y1);
-    const hi = Math.max(y0, y1);
-    return hi > r.y && lo < r.y + r.h;
-  }
-  if (y0 === y1) {
-    if (y0 <= r.y || y0 >= r.y + r.h) return false;
-    const lo = Math.min(x0, x1);
-    const hi = Math.max(x0, x1);
-    return hi > r.x && lo < r.x + r.w;
-  }
-  return false;
-}
-
-/** 経路がどの矩形の内部も通らないか */
-function pathClear(pts: [number, number][], rects: Rect[]): boolean {
-  for (let i = 1; i < pts.length; i++) {
-    for (const r of rects) {
-      if (segHitsRect(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1], r)) {
-        return false;
-      }
-    }
-  }
-  return true;
-}
-
-/** 連続する同一点と一直線上の中間点を取り除く */
-function simplifyPath(pts: [number, number][]): [number, number][] {
-  const out: [number, number][] = [];
-  for (const p of pts) {
-    const l = out[out.length - 1];
-    if (l && l[0] === p[0] && l[1] === p[1]) continue;
-    out.push(p);
-  }
-  for (let i = out.length - 2; i >= 1; i--) {
-    const [ax, ay] = out[i - 1];
-    const [bx, by] = out[i];
-    const [cx, cy] = out[i + 1];
-    if ((ax === bx && bx === cx) || (ay === by && by === cy)) {
-      out.splice(i, 1);
-    }
-  }
-  return out;
-}
-
-/** アンカー指定の線の単純な鍵線経路 (障害物は考慮しない) */
-function routeAnchored(a: AnchoredPt, b: AnchoredPt): [number, number][] {
-  const [adx, ady] = sideDir(a.side);
-  const [bdx, bdy] = sideDir(b.side);
-  const s1: [number, number] = [a.x + adx * STUB, a.y + ady * STUB];
-  const s2: [number, number] = [b.x + bdx * STUB, b.y + bdy * STUB];
-  const pts: [number, number][] = [[a.x, a.y], s1];
-  const aH = adx !== 0;
-  const bH = bdx !== 0;
-  if (aH && bH) {
-    const midX = (s1[0] + s2[0]) / 2;
-    pts.push([midX, s1[1]], [midX, s2[1]]);
-  } else if (!aH && !bH) {
-    const midY = (s1[1] + s2[1]) / 2;
-    pts.push([s1[0], midY], [s2[0], midY]);
-  } else if (aH) {
-    pts.push([s2[0], s1[1]]);
-  } else {
-    pts.push([s1[0], s2[1]]);
-  }
-  pts.push(s2, [b.x, b.y]);
-  return simplifyPath(pts);
-}
-
-/** 両端のテーブル矩形を避けて直交経路を探す (小さな格子上のダイクストラ)。
- * 線がテーブルの後ろに隠れないようにするための迂回ルート。
- * 見つからなければnull (呼び出し側で単純経路にフォールバック) */
-function routeAvoid(
-  a: AnchoredPt,
-  b: AnchoredPt,
-  rects: Rect[]
-): [number, number][] | null {
-  const M = 14; // テーブルから離す余白
-  const BEND = 60; // 折れ曲がりのコスト (少ない曲がりを優先)
-  const [adx, ady] = sideDir(a.side);
-  const [bdx, bdy] = sideDir(b.side);
-  const s1x = a.x + adx * STUB;
-  const s1y = a.y + ady * STUB;
-  const s2x = b.x + bdx * STUB;
-  const s2y = b.y + bdy * STUB;
-  const infl = rects.map((r) => ({
-    x: r.x - M,
-    y: r.y - M,
-    w: r.w + M * 2,
-    h: r.h + M * 2,
-  }));
-  const xs = [
-    ...new Set([s1x, s2x, ...infl.flatMap((r) => [r.x, r.x + r.w])]),
-  ].sort((p, q) => p - q);
-  const ys = [
-    ...new Set([s1y, s2y, ...infl.flatMap((r) => [r.y, r.y + r.h])]),
-  ].sort((p, q) => p - q);
-  const nx = xs.length;
-  const ny = ys.length;
-  const x1i = xs.indexOf(s1x);
-  const y1i = ys.indexOf(s1y);
-  const x2i = xs.indexOf(s2x);
-  const y2i = ys.indexOf(s2y);
-  const DIRS: [number, number][] = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ];
-  const sid = (xi: number, yi: number, d: number) => (yi * nx + xi) * 4 + d;
-  const N = nx * ny * 4;
-  const dist = new Array<number>(N).fill(Infinity);
-  const prev = new Array<number>(N).fill(-1);
-  const visited = new Array<boolean>(N).fill(false);
-  const startDir = DIRS.findIndex(([dx, dy]) => dx === adx && dy === ady);
-  dist[sid(x1i, y1i, startDir)] = 0;
-  // ノード数が高々数百なので線形探索のダイクストラで十分
-  for (;;) {
-    let u = -1;
-    let best = Infinity;
-    for (let i = 0; i < N; i++) {
-      if (!visited[i] && dist[i] < best) {
-        best = dist[i];
-        u = i;
-      }
-    }
-    if (u < 0) break;
-    visited[u] = true;
-    const d = u % 4;
-    const cell = (u - d) / 4;
-    const xi = cell % nx;
-    const yi = (cell - xi) / nx;
-    for (let nd = 0; nd < 4; nd++) {
-      const [dx, dy] = DIRS[nd];
-      const xj = xi + dx;
-      const yj = yi + dy;
-      if (xj < 0 || xj >= nx || yj < 0 || yj >= ny) continue;
-      let blocked = false;
-      for (const r of infl) {
-        if (segHitsRect(xs[xi], ys[yi], xs[xj], ys[yj], r)) {
-          blocked = true;
-          break;
-        }
-      }
-      if (blocked) continue;
-      const len = Math.abs(xs[xj] - xs[xi]) + Math.abs(ys[yj] - ys[yi]);
-      const cost = dist[u] + len + (nd === d ? 0 : BEND);
-      const v = sid(xj, yj, nd);
-      if (cost < dist[v] - 1e-9) {
-        dist[v] = cost;
-        prev[v] = u;
-      }
-    }
-  }
-  // 到着は相手アンカーの外向きと逆方向で入るのが自然 (違えば曲がり1回ぶん加算)
-  const endDir = DIRS.findIndex(([dx, dy]) => dx === -bdx && dy === -bdy);
-  let bestEnd = -1;
-  let bestCost = Infinity;
-  for (let d = 0; d < 4; d++) {
-    const v = sid(x2i, y2i, d);
-    if (dist[v] === Infinity) continue;
-    const c = dist[v] + (d === endDir ? 0 : BEND);
-    if (c < bestCost) {
-      bestCost = c;
-      bestEnd = v;
-    }
-  }
-  if (bestEnd < 0) return null;
-  const rev: [number, number][] = [];
-  for (let v = bestEnd; v >= 0; v = prev[v]) {
-    const d = v % 4;
-    const cell = (v - d) / 4;
-    const xi = cell % nx;
-    const yi = (cell - xi) / nx;
-    rev.push([xs[xi], ys[yi]]);
-  }
-  rev.reverse();
-  return simplifyPath([[a.x, a.y], ...rev, [b.x, b.y]]);
-}
-
-/** 全角文字を2文字ぶんとして数える概算幅 */
-function charUnits(text: string): number {
-  let units = 0;
-  for (const ch of text) {
-    units += ch.charCodeAt(0) > 0xff ? 2 : 1;
-  }
-  return units;
-}
-
-/** カラム表示内容の概算幅からノード幅を決める (等幅11px想定)。
- * 名前・型・日本語名は縦列で揃えるため、それぞれの最大幅の合計で見積もる */
-function nodeWidth(name: string, logical: string, cols: ErColumn[]): number {
-  const maxName = Math.max(
-    charUnits(name) + (logical ? charUnits(logical) + 2 : 0) + 2,
-    ...cols.map((c) => charUnits(c.name) + 3)
-  );
-  const maxType = Math.max(0, ...cols.map((c) => charUnits(c.type)));
-  const maxLogical = Math.max(0, ...cols.map((c) => charUnits(c.logical)));
-  const units =
-    maxName + (maxType > 0 ? maxType + 2 : 0) + (maxLogical > 0 ? maxLogical + 2 : 0);
-  // 日本語名が「...」で切れないよう上限は広めに取る
-  return Math.min(760, Math.max(140, 18 + units * 7.2));
-}
-
-/** FK + 命名推測からエッジ一覧を作る */
-function buildEdges(entries: SchemaEntry[], fks: FkInfo[]): ErEdge[] {
-  const tableNames = new Set(entries.map((e) => e.table.name));
-  const edges: ErEdge[] = [];
-  const seen = new Set<string>();
-  const pairHasFk = new Set<string>();
-
-  const push = (e: ErEdge) => {
-    const key = `${e.from}->${e.to}:${e.label}`;
-    if (e.from === e.to || seen.has(key)) return;
-    seen.add(key);
-    edges.push(e);
-  };
-
-  // FK制約
-  for (const fk of fks) {
-    if (!tableNames.has(fk.table) || !tableNames.has(fk.refTable)) continue;
-    push({
-      from: fk.table,
-      to: fk.refTable,
-      fromColumn: fk.column,
-      toColumn: fk.refColumn,
-      label: `${fk.column} → ${fk.refColumn}`,
-      guessed: false,
-    });
-    pairHasFk.add(`${fk.table}->${fk.refTable}`);
-  }
-
-  // 命名からの推測
-  const colsOf = new Map<string, Set<string>>();
-  const pkOf = new Map<string, string[]>();
-  for (const e of entries) {
-    colsOf.set(e.table.name, new Set(e.detail.columns.map((c) => c.name)));
-    pkOf.set(
-      e.table.name,
-      e.detail.columns.filter((c) => c.key === "PRI").map((c) => c.name)
-    );
-  }
-
-  for (const target of entries) {
-    const t = target.table.name;
-    const pk = pkOf.get(t) ?? [];
-    // ルール1: 参照先のPKカラム一式(1〜3個・"id"単独は除く)を全て持つテーブルを子とみなす
-    const pkDistinctive =
-      pk.length >= 1 && pk.length <= 3 && !(pk.length === 1 && pk[0] === "id");
-    if (pkDistinctive) {
-      for (const src of entries) {
-        const u = src.table.name;
-        if (u === t || pairHasFk.has(`${u}->${t}`)) continue;
-        const cols = colsOf.get(u)!;
-        if (pk.every((p) => cols.has(p))) {
-          push({
-            from: u,
-            to: t,
-            fromColumn: pk[pk.length - 1],
-            toColumn: pk[pk.length - 1],
-            label: pk.join(", "),
-            guessed: true,
-          });
-        }
-      }
-    }
-    // ルール2: 「xxx_id」カラム → PKが(id)のテーブル xxx / m_xxx / t_xxx / xxxs
-    if (pk.length === 1 && pk[0] === "id") {
-      const bases = [t, t.replace(/^m_/, ""), t.replace(/^t_/, ""), t.replace(/s$/, "")];
-      for (const src of entries) {
-        const u = src.table.name;
-        if (u === t || pairHasFk.has(`${u}->${t}`)) continue;
-        for (const col of colsOf.get(u)!) {
-          if (!col.endsWith("_id")) continue;
-          const base = col.slice(0, -3);
-          if (bases.includes(base)) {
-            push({
-              from: u,
-              to: t,
-              fromColumn: col,
-              toColumn: "id",
-              label: `${col} → id`,
-              guessed: true,
-            });
-          }
-        }
-      }
-    }
-  }
-  return edges;
-}
+import {
+  buildEdges,
+  buildNodes,
+  charUnits,
+  colMarker,
+  edgeKey,
+  ErEdge,
+  ErNode,
+  NODE_HEAD_H,
+  ROW_H,
+} from "../er/model";
+import {
+  anchorPointPos,
+  anchorY,
+  AnchoredPt,
+  colSideAnchor,
+  edgePath,
+  edgePoints,
+  nearestBorderAnchor,
+  pathClear,
+  Rect,
+  routeAnchored,
+  routeAvoid,
+  verticalSegments,
+} from "../er/geometry";
+import { FILL_ALPHA, hexAlpha } from "../er/style";
 
 /** ER図ウィンドウ (DB全体のテーブルとリレーションを描画・PNG出力) */
 export function ErWindow() {
@@ -673,11 +80,7 @@ export function ErWindow() {
   const [allCols, setAllCols] = useState(true);
   const [showLogical, setShowLogical] = useState(true);
   const [showTypes, setShowTypes] = useState(true);
-  /** 表示設定プルダウンの開閉 */
-  const [optsOpen, setOptsOpen] = useState(false);
-  const optsRef = useRef<HTMLDivElement>(null);
   /** 論理名の区切り文字 (設定から読み込む) */
-  const [delim, setDelim] = useState("（");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -690,63 +93,29 @@ export function ErWindow() {
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const session = sessions.find((s) => s.sessionId === sel.sessionId);
+  // コメントの区切り文字は設定で変わる (別ウィンドウでの変更にも追従する)
+  const delim = useWatchedSettings().commentDelimiter;
 
-  useEffect(() => {
-    getAppSettings()
-      .then((s) => setDelim(s.commentDelimiter))
-      .catch(() => {});
-  }, []);
+
 
   // 接続一覧は定期的に再取得する。
   // スキーマ読み込み中のセッションは一覧から一時的に外れるため、
   // 開いた直後の1回だけだと空のまま固まってしまう
-  useEffect(() => {
-    const refresh = () => listSessions().then(setSessions).catch(() => {});
-    refresh();
-    const timer = setInterval(refresh, 3000);
-    return () => clearInterval(timer);
-  }, []);
+  usePolling(() => {
+    listSessions().then(setSessions).catch(() => {});
+  }, 3000);
 
   // 開いている図の名前 (=保存キー)。プロファイルに縛られず自由に付けられ、
   // どの接続からでも同じ図を開ける
-  const [diagName, setDiagName] = useState<string | null>(null);
-  const diagNameRef = useRef<string | null>(null);
-  diagNameRef.current = diagName;
-  /** 保存済みの図の名前一覧 */
-  const [diagList, setDiagList] = useState<string[]>([]);
-  const refreshDiagList = () =>
-    listErDiagrams().then(setDiagList).catch(() => {});
-  /** 図メニューの開閉 */
-  const [diagMenuOpen, setDiagMenuOpen] = useState(false);
-  const diagMenuRef = useRef<HTMLDivElement>(null);
   /** 図の名前入力ダイアログ (名前を付けて保存 / 名前変更) */
-  const [nameDialog, setNameDialog] = useState<{
-    mode: "saveAs" | "rename";
-    value: string;
-  } | null>(null);
+  const [nameDialog, setNameDialog] = useState<ErNameDialog | null>(null);
   /** リバース時の確認ダイアログ (既存の図がある場合のみ表示) */
   const [reverseDialog, setReverseDialog] = useState(false);
   /** リバース時に削除済みテーブルも復活させるか (ダイアログのチェック) */
   const [reviveTables, setReviveTables] = useState(false);
   /** 削除確認ダイアログ (タブ・テーブル・線・枠などの削除前に出す)。
    * subを指定するとサブテキストを差し替えられる (既定は「元に戻せません」) */
-  const [confirm, setConfirm] = useState<{
-    title: string;
-    message: string;
-    sub?: string;
-    action: () => void;
-  } | null>(null);
-  // ---- ページ (タブ)。1つの保存ファイルに複数のER図を持てる ----
-  const [pages, setPages] = useState<{ id: string; name: string }[]>([
-    { id: "p1", name: "ER図1" },
-  ]);
-  const pagesRef = useRef(pages);
-  pagesRef.current = pages;
-  const [pageId, setPageId] = useState("p1");
-  const pageIdRef = useRef(pageId);
-  pageIdRef.current = pageId;
-  /** 非アクティブページの内容 (アクティブページは各stateが持つ) */
-  const pagesDataRef = useRef<Map<string, ErPageData>>(new Map());
+  const [confirm, setConfirm] = useState<ErConfirm | null>(null);
   /** タブ名のインライン編集 */
   const [tabEditingId, setTabEditingId] = useState<string | null>(null);
   const [tabEditText, setTabEditText] = useState("");
@@ -803,12 +172,9 @@ export function ErWindow() {
     table: string;
     column: string;
   } | null>(null);
-  /** ホバー中のカラム行 (両端に線をつなぐ●ハンドルを出す) */
-  const [hoverCol, setHoverCol] = useState<{
-    table: string;
-    column: string;
-    idx: number;
-  } | null>(null);
+  /** マウスが乗っているテーブル (そのテーブルの行にだけ●ハンドルを描く)。
+   *  どの行に出すかはCSSの:hoverが決めるので、テーブルを出入りしたときしか更新しない */
+  const [hoverNode, setHoverNode] = useState<string | null>(null);
   /** ●ハンドルからのドラッグ接続 (プレビュー線と接続先ハイライト) */
   const [linkDrag, setLinkDrag] = useState<{
     from: { table: string; column: string };
@@ -828,14 +194,7 @@ export function ErWindow() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   /** 右クリックメニュー */
-  const [ctxMenu, setCtxMenu] = useState<
-    | { x: number; y: number; kind: "edge"; edge: number }
-    | { x: number; y: number; kind: "column"; table: string; column: string }
-    | { x: number; y: number; kind: "frame"; frameId: string }
-    | { x: number; y: number; kind: "node"; table: string }
-    | { x: number; y: number; kind: "canvas"; worldX: number; worldY: number }
-    | null
-  >(null);
+  const [ctxMenu, setCtxMenu] = useState<ErCtxMenu | null>(null);
   // メニューが画面の外へはみ出さないように位置を補正する
   const [ctxMenuRef, ctxMenuStyle] = usePopupPosition<HTMLDivElement>(
     ctxMenu?.x ?? 0,
@@ -845,124 +204,6 @@ export function ErWindow() {
     edgePanel?.x ?? 0,
     edgePanel?.y ?? 0
   );
-
-  /** 現在の状態を自動保存する */
-  const persist = useCallback(
-    (
-      ents: SchemaEntry[],
-      fkList: FkInfo[],
-      positions: Map<string, { x: number; y: number }>,
-      opts?: { allCols: boolean; showLogical: boolean; showTypes: boolean },
-      edgeOverride?: {
-        removed?: Set<string>;
-        removedTables?: Set<string>;
-        tableWidths?: Record<string, number>;
-        custom?: ErCustomEdge[];
-        frames?: ErFrame[];
-        anchors?: Record<string, { from?: ErAnchorPoint; to?: ErAnchorPoint }>;
-        edgeCols?: Record<string, { from: string[]; to: string[] }>;
-        edgeStyles?: Record<string, ErEdgeStyle>;
-      }
-    ) => {
-      const key = diagNameRef.current;
-      if (!key) return;
-      // アクティブページの内容を組み立ててページ一覧へ反映し、全ページを保存する
-      const pageName =
-        pagesRef.current.find((p) => p.id === pageIdRef.current)?.name ??
-        "ER図1";
-      const active: ErPageData = {
-        id: pageIdRef.current,
-        name: pageName,
-        entries: ents,
-        fks: fkList,
-        positions: Object.fromEntries(positions),
-        options: opts ?? { allCols, showLogical, showTypes },
-        removedEdges: [...(edgeOverride?.removed ?? removedEdges)],
-        removedTables: [...(edgeOverride?.removedTables ?? removedTables)],
-        tableWidths: edgeOverride?.tableWidths ?? tableWidths,
-        customEdges: edgeOverride?.custom ?? customEdges,
-        anchors: edgeOverride?.anchors ?? anchors,
-        edgeColumns: edgeOverride?.edgeCols ?? edgeCols,
-        edgeStyles: edgeOverride?.edgeStyles ?? edgeStyles,
-        frames: edgeOverride?.frames ?? frames,
-      };
-      pagesDataRef.current.set(active.id, active);
-      saveErDiagram(key, assembleFileData()).catch(() => {});
-    },
-    [
-      allCols,
-      showLogical,
-      showTypes,
-      removedEdges,
-      removedTables,
-      tableWidths,
-      customEdges,
-      anchors,
-      edgeCols,
-      edgeStyles,
-      frames,
-    ]
-  );
-
-  /** 空ページの内容 */
-  const emptyPageData = (id: string, name: string): ErPageData => ({
-    id,
-    name,
-    entries: [],
-    fks: [],
-    positions: {},
-  });
-
-  /** 現在の状態からアクティブページの保存内容を組み立てる */
-  const buildPageData = (): ErPageData => ({
-    id: pageIdRef.current,
-    name:
-      pagesRef.current.find((p) => p.id === pageIdRef.current)?.name ??
-      "ER図1",
-    entries: entriesRef.current ?? [],
-    fks: fksRef.current,
-    positions: Object.fromEntries(posRef.current),
-    options: { allCols, showLogical, showTypes },
-    removedEdges: [...removedEdges],
-    removedTables: [...removedTables],
-    tableWidths,
-    customEdges,
-    anchors,
-    edgeColumns: edgeCols,
-    edgeStyles,
-    frames,
-  });
-
-  /** pagesDataRefとページ一覧からファイル全体の保存データを組み立てる。
-   * 呼び出し前にアクティブページをpagesDataRefへ反映しておくこと */
-  function assembleFileData(): ErDiagramData {
-    const metas = pagesRef.current;
-    const list = metas.map((p) => {
-      const d = pagesDataRef.current.get(p.id) ?? emptyPageData(p.id, p.name);
-      return { ...d, id: p.id, name: p.name };
-    });
-    return {
-      savedAtMs: Date.now(),
-      pages: list,
-      activePage: Math.max(
-        0,
-        metas.findIndex((p) => p.id === pageIdRef.current)
-      ),
-    };
-  }
-
-  /** ファイル全体を保存する (ページ操作後に使う。アクティブページはpagesDataRefから) */
-  const saveFile = () => {
-    const key = diagNameRef.current;
-    if (!key) return;
-    saveErDiagram(key, assembleFileData()).catch(() => {});
-  };
-
-  /** 現在の状態から保存データを組み立てる (名前を付けて保存などに使う) */
-  const buildData = (): ErDiagramData => {
-    pagesDataRef.current.set(pageIdRef.current, buildPageData());
-    return assembleFileData();
-  };
 
   /** ページの内容を各stateへ反映する */
   const applyPageData = (d: ErPageData) => {
@@ -993,154 +234,57 @@ export function ErWindow() {
     setRev((r) => r + 1);
   };
 
-  /** キャンバスを空の未保存状態に戻す (表示オプションも既定に戻す) */
-  const clearDiagram = () => {
-    const pid = `p${Date.now()}`;
-    const meta = [{ id: pid, name: "ER図1" }];
-    pagesDataRef.current = new Map();
-    setPages(meta);
-    pagesRef.current = meta;
-    setPageId(pid);
-    pageIdRef.current = pid;
-    applyPageData(emptyPageData(pid, "ER図1"));
-    setDiagName(null);
-  };
+  /*
+   * 保存・読み込みとページ (タブ) の管理はフックへ出してある。
+   * 表示中のページの内容はここのstateにあるので、
+   * 保存の直前に snapshot() で集めてもらい、読み込んだら apply() で戻す
+   */
+  const store = useErPersistence({
+    snapshot: () => ({
+      entries: entriesRef.current ?? [],
+      fks: fksRef.current,
+      positions: posRef.current,
+      options: { allCols, showLogical, showTypes },
+      removedEdges,
+      removedTables,
+      tableWidths,
+      customEdges,
+      anchors,
+      edgeColumns: edgeCols,
+      edgeStyles,
+      frames,
+    }),
+    apply: applyPageData,
+    onNotice: setNotice,
+    onFit: () => setFitTick((t) => t + 1),
+  });
+  const { persist, diagName, diagList, pages, pageId } = store;
 
-  /** 保存済みの図を名前で開く (どの接続からでも開ける) */
+  /** 保存済みの図を開く (前の読み込みエラーと通知は消してから) */
   const openDiagram = (name: string) => {
     setError(null);
-    getErDiagram(name)
-      .then((data) => {
-        if (!data) return;
-        // 旧形式 (単一ページ) は1ページに移行して読み込む
-        const pageList: ErPageData[] =
-          data.pages && data.pages.length > 0
-            ? data.pages
-            : [
-                {
-                  id: "p1",
-                  name: "ER図1",
-                  entries: data.entries ?? [],
-                  fks: data.fks ?? [],
-                  positions: data.positions ?? {},
-                  options: data.options,
-                  removedEdges: data.removedEdges,
-                  removedTables: data.removedTables,
-                  tableWidths: data.tableWidths,
-                  customEdges: data.customEdges,
-                  anchors: data.anchors,
-                  edgeColumns: data.edgeColumns,
-                  edgeStyles: data.edgeStyles,
-                  frames: data.frames,
-                },
-              ];
-        pagesDataRef.current = new Map(pageList.map((p) => [p.id, p]));
-        const metas = pageList.map((p) => ({ id: p.id, name: p.name }));
-        setPages(metas);
-        pagesRef.current = metas;
-        const idx = Math.min(data.activePage ?? 0, pageList.length - 1);
-        const act = pageList[idx];
-        setPageId(act.id);
-        pageIdRef.current = act.id;
-        applyPageData(act);
-        setDiagName(name);
-        setNotice(null);
-        setFitTick((t) => t + 1);
-      })
-      .catch(() => {});
+    store.openDiagram(name);
   };
 
-  // ---- ページ (タブ) の操作 ----
-
-  /** タブを切り替える (現在ページの内容は退避して保存) */
-  const switchPage = (id: string) => {
-    if (id === pageIdRef.current) return;
-    pagesDataRef.current.set(pageIdRef.current, buildPageData());
-    const meta = pagesRef.current.find((p) => p.id === id);
-    const target =
-      pagesDataRef.current.get(id) ?? emptyPageData(id, meta?.name ?? "ER図");
-    setPageId(id);
-    pageIdRef.current = id;
-    applyPageData(target);
-    setFitTick((t) => t + 1);
-    saveFile();
-  };
-
-  /** タブを追加して切り替える */
-  const addPage = () => {
-    pagesDataRef.current.set(pageIdRef.current, buildPageData());
-    const id = `p${Date.now()}_${Math.floor(Math.random() * 1e5)}`;
-    const name = `ER図${pagesRef.current.length + 1}`;
-    const meta = [...pagesRef.current, { id, name }];
-    setPages(meta);
-    pagesRef.current = meta;
-    pagesDataRef.current.set(id, emptyPageData(id, name));
-    setPageId(id);
-    pageIdRef.current = id;
-    applyPageData(emptyPageData(id, name));
-    saveFile();
-  };
-
-  /** タブの削除を確認してから実行する */
-  const deletePage = (id: string) => {
-    if (pagesRef.current.length <= 1) return;
-    const name = pagesRef.current.find((p) => p.id === id)?.name ?? id;
+  /** タブの削除は確認してから (フック側は確認しない) */
+  const askDeletePage = (id: string) => {
+    if (pages.length <= 1) return;
+    const name = pages.find((p) => p.id === id)?.name ?? id;
     setConfirm({
       title: "タブを削除",
       message: `タブ「${name}」とその内容を削除しますか？この操作は元に戻せません。`,
-      action: () => doDeletePage(id),
+      action: () => store.deletePage(id),
     });
   };
 
-  /** タブを削除する (最後の1つは削除不可) */
-  const doDeletePage = (id: string) => {
-    if (pagesRef.current.length <= 1) return;
-    const target = pagesRef.current.find((p) => p.id === id);
-    const next = pagesRef.current.filter((p) => p.id !== id);
-    pagesDataRef.current.delete(id);
-    setPages(next);
-    pagesRef.current = next;
-    if (pageIdRef.current === id) {
-      const act = next[0];
-      setPageId(act.id);
-      pageIdRef.current = act.id;
-      applyPageData(
-        pagesDataRef.current.get(act.id) ?? emptyPageData(act.id, act.name)
-      );
-    }
-    saveFile();
-    setNotice(`タブ「${target?.name ?? id}」を削除しました`);
-  };
-
-  /** タブの並べ替え (ドラッグ中にindexを入れ替える) */
-  const reorderPages = (from: number, to: number) => {
-    const next = [...pagesRef.current];
-    const [moved] = next.splice(from, 1);
-    next.splice(to, 0, moved);
-    setPages(next);
-    pagesRef.current = next;
-  };
 
   /** タブ名の変更を確定する */
   const commitTabRename = () => {
     if (tabEditingId === null) return;
     const name = tabEditText.trim();
-    if (name) {
-      const next = pagesRef.current.map((p) =>
-        p.id === tabEditingId ? { ...p, name } : p
-      );
-      setPages(next);
-      pagesRef.current = next;
-      pagesDataRef.current.set(pageIdRef.current, buildPageData());
-      saveFile();
-    }
+    if (name) store.renamePage(tabEditingId, name);
     setTabEditingId(null);
   };
-
-  // 起動時に図の一覧を読み込む
-  useEffect(() => {
-    refreshDiagList();
-  }, []);
 
   // 通知は右上のトーストとして表示し、5秒で自動的に消す
   useEffect(() => {
@@ -1168,10 +312,7 @@ export function ErWindow() {
 
   // タブの並べ替えドラッグ終了時に保存する
   const saveAfterTabDragRef = useRef(() => {});
-  saveAfterTabDragRef.current = () => {
-    pagesDataRef.current.set(pageIdRef.current, buildPageData());
-    saveFile();
-  };
+  saveAfterTabDragRef.current = store.saveAfterReorder;
   useEffect(() => {
     const up = () => {
       if (dragTabIdxRef.current !== null) {
@@ -1206,36 +347,17 @@ export function ErWindow() {
     if (!nameDialog) return;
     const name = nameDialog.value.trim();
     if (!name) return;
-    const old = diagNameRef.current;
-    const mode = nameDialog.mode;
     setNameDialog(null);
-    saveErDiagram(name, buildData())
-      .then(async () => {
-        if (mode === "rename" && old && old !== name) {
-          await deleteErDiagram(old).catch(() => {});
-        }
-        diagNameRef.current = name;
-        setDiagName(name);
-        refreshDiagList();
-        setNotice(`「${name}」として保存しました`);
-      })
-      .catch((e) => setNotice(`保存に失敗: ${e}`));
+    store.saveAs(name, nameDialog.mode);
   };
 
   /** 現在の図の削除を確認してから実行する */
   const deleteCurrentDiagram = () => {
-    const name = diagNameRef.current;
-    if (!name) return;
+    if (!diagName) return;
     setConfirm({
       title: "図を削除",
-      message: `「${name}」を全てのタブごと削除しますか？この操作は元に戻せません。`,
-      action: () => {
-        deleteErDiagram(name)
-          .then(() => refreshDiagList())
-          .catch(() => {});
-        clearDiagram();
-        setNotice(`「${name}」を削除しました`);
-      },
+      message: `「${diagName}」を全てのタブごと削除しますか？この操作は元に戻せません。`,
+      action: () => store.deleteDiagram(),
     });
   };
 
@@ -1258,10 +380,11 @@ export function ErWindow() {
     setLoading(true);
     setError(null);
     try {
-      const [snapAll, fk] = await Promise.all([
-        schemaSnapshot(sel.sessionId, sel.database),
-        foreignKeys(sel.sessionId, sel.database),
-      ]);
+      // スキーマと外部キーは1回の呼び出しで取る (収集用の接続を1本にするため)
+      const { entries: snapAll, foreignKeys: fk } = await schemaWithForeignKeys(
+        sel.sessionId,
+        sel.database
+      );
       // 図から削除したテーブルはリバースしても再追加しない
       // (reviveチェック時は削除の記憶を解除して復活させる)
       const removedNow = revive ? new Set<string>() : removedTables;
@@ -1308,23 +431,16 @@ export function ErWindow() {
       setRev((r) => r + 1);
       if (!isUpdate) setFitTick((t) => t + 1);
       // 図の名前が未設定なら「接続名/DB名」で自動命名する (重複時は連番)
-      let name = diagNameRef.current;
-      if (!name) {
-        const base = `${session?.name ?? "ER図"}/${sel.database}`;
-        name = base;
-        let n = 2;
-        while (diagList.includes(name)) name = `${base} (${n++})`;
-        diagNameRef.current = name;
-        setDiagName(name);
-      }
-      persist(
-        snap,
-        fk,
-        positions,
-        undefined,
-        revive ? { removedTables: removedNow } : undefined
+      const savedName = store.ensureName(
+        `${session?.name ?? "ER図"}/${sel.database}`
       );
-      refreshDiagList();
+      persist({
+        entries: snap,
+        fks: fk,
+        positions,
+        ...(revive ? { removedTables: removedNow } : {}),
+      });
+      store.refreshDiagList();
       // 追加されたテーブル名を通知する (多い場合は先頭数件+件数)
       const shown = addedNames.slice(0, 6).join(", ");
       const more =
@@ -1334,7 +450,7 @@ export function ErWindow() {
           ? addedNames.length > 0
             ? `更新しました — 新規${addedNames.length}テーブル: ${shown}${more}`
             : "更新しました"
-          : `「${name}」として保存しました`
+          : `「${savedName}」として保存しました`
       );
     } catch (e) {
       setError(String(e));
@@ -1443,7 +559,7 @@ export function ErWindow() {
     setRemovedTables(new Set());
     setNotice("削除したテーブルを戻しました。リバースすると再表示されます");
     if (entriesRef.current) {
-      persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
+      persist({
         removedTables: new Set(),
       });
     }
@@ -1474,19 +590,23 @@ export function ErWindow() {
       selected.has(name) && selected.size > 1 ? [...selected] : [name];
     const start = { x: e.clientX, y: e.clientY };
     const origs = new Map(moveNames.map((nm) => [nm, posOf(nm)]));
+    // 位置はrefに毎回入れ、再描画だけ1フレーム1回に間引く
+    const redraw = rafThrottle<void>(() => setRev((r) => r + 1));
     const move = (ev: MouseEvent) => {
       const dx = (ev.clientX - start.x) / view.scale;
       const dy = (ev.clientY - start.y) / view.scale;
       for (const [nm, o] of origs) {
         posRef.current.set(nm, { x: o.x + dx, y: o.y + dy });
       }
-      setRev((r) => r + 1);
+      redraw.run(undefined);
     };
     const up = () => {
+      redraw.cancel();
+      setRev((r) => r + 1);
       document.removeEventListener("mousemove", move);
       // 配置の変更を自動保存する
       if (entriesRef.current) {
-        persist(entriesRef.current, fksRef.current, posRef.current);
+        persist();
       }
     };
     document.addEventListener("mousemove", move);
@@ -1541,8 +661,8 @@ export function ErWindow() {
     setCustomEdges(custom);
     setNotice(`${fromT}.${fromC} → ${toT}.${toC} を追加しました`);
     if (entriesRef.current) {
-      persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
-        custom,
+      persist({
+        customEdges: custom,
       });
     }
   };
@@ -1578,7 +698,6 @@ export function ErWindow() {
       const q = toWorld(ev.clientX, ev.clientY);
       const target = hitColumn(q.x, q.y, table);
       setLinkDrag(null);
-      setHoverCol(null);
       if (target) addCustomEdge(table, column, target.table, target.column);
     };
     document.addEventListener("mousemove", move);
@@ -1594,17 +713,31 @@ export function ErWindow() {
     const startX = e.clientX;
     const orig = node.w;
     let latest = tableWidths;
-    const move = (ev: MouseEvent) => {
+    const applyWidth = (x: number) => {
       const w = Math.round(
-        Math.min(1200, Math.max(120, orig + (ev.clientX - startX) / view.scale))
+        Math.min(1200, Math.max(120, orig + (x - startX) / view.scale))
       );
+      if (latest[name] === w) return;
       latest = { ...tableWidths, [name]: w };
       setTableWidths(latest);
     };
-    const up = () => {
+    // 更新は1フレーム1回に間引く
+    const apply = rafThrottle<number>(applyWidth);
+    let moved = false;
+    const move = (ev: MouseEvent) => {
+      // 数pxのぶれはクリック扱いにする (押しただけで幅が固定されないように)
+      if (Math.abs(ev.clientX - startX) > 2) moved = true;
+      if (moved) apply.run(ev.clientX);
+    };
+    const up = (ev: MouseEvent) => {
+      apply.cancel();
       document.removeEventListener("mousemove", move);
+      // 動かしていなければ何もしない (クリックしただけで幅が固定されるのを防ぐ)
+      if (!moved) return;
+      // 間引きで取りこぼした最後の位置を、保存の前に確定させる
+      applyWidth(ev.clientX);
       if (entriesRef.current) {
-        persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
+        persist({
           tableWidths: latest,
         });
       }
@@ -1620,7 +753,7 @@ export function ErWindow() {
     delete next[name];
     setTableWidths(next);
     if (entriesRef.current) {
-      persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
+      persist({
         tableWidths: next,
       });
     }
@@ -1690,11 +823,12 @@ export function ErWindow() {
       parts.push(`${objs.length}本の線`);
     }
     setNotice(`${parts.join("と")}を削除しました`);
-    persist(ents, fksRef.current, posRef.current, undefined, {
-      removed,
-      custom,
+    persist({
+      entries: ents,
+      removedEdges: removed,
+      customEdges: custom,
       anchors: nextAnchors,
-      edgeCols: nextEdgeCols,
+      edgeColumns: nextEdgeCols,
       edgeStyles: nextEdgeStyles,
       removedTables: removedT,
     });
@@ -1850,7 +984,9 @@ export function ErWindow() {
     setSelEdges(new Set());
     setRev((r) => r + 1);
     setNotice(`${add.length}テーブルを貼り付けました`);
-    persist(ents, fkList, posRef.current, undefined, {
+    persist({
+      entries: ents,
+      fks: fkList,
       removedTables: removed,
       tableWidths: widths,
     });
@@ -1883,34 +1019,6 @@ export function ErWindow() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 表示設定プルダウンは外側をクリックしたら閉じる。
-  // テーブル等はmousedownでstopPropagationするため、キャプチャ段階で検知する
-  useEffect(() => {
-    if (!optsOpen) return;
-    const close = (e: MouseEvent) => {
-      if (optsRef.current && !optsRef.current.contains(e.target as Node)) {
-        setOptsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [optsOpen]);
-
-  // 図メニューも外側をクリックしたら閉じる
-  useEffect(() => {
-    if (!diagMenuOpen) return;
-    const close = (e: MouseEvent) => {
-      if (
-        diagMenuRef.current &&
-        !diagMenuRef.current.contains(e.target as Node)
-      ) {
-        setDiagMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [diagMenuOpen]);
-
   /** 表示オプションを切り替えて自動保存する */
   const toggleOpt = (k: "allCols" | "showLogical" | "showTypes") => {
     const cur = { allCols, showLogical, showTypes };
@@ -1919,34 +1027,22 @@ export function ErWindow() {
     setShowLogical(next.showLogical);
     setShowTypes(next.showTypes);
     if (entriesRef.current) {
-      persist(entriesRef.current, fksRef.current, posRef.current, next);
+      persist({ options: next });
     }
   };
 
   // 右クリックメニューは画面のどこかをクリックしたら閉じる
   // (メニュー内のクリックは除く。stopPropagation対策でキャプチャ段階で検知)
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const close = (e: MouseEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && t.closest(".context-menu")) return;
-      setCtxMenu(null);
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [ctxMenu]);
+  useDismiss(!!ctxMenu, () => setCtxMenu(null), {
+    capture: true,
+    inside: ".context-menu",
+  });
 
   // 線の編集パネルは外側をクリックしたら閉じる
-  useEffect(() => {
-    if (!edgePanel) return;
-    const close = (e: MouseEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && t.closest(".er-edge-panel")) return;
-      setEdgePanel(null);
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [edgePanel]);
+  useDismiss(!!edgePanel, () => setEdgePanel(null), {
+    capture: true,
+    inside: ".er-edge-panel",
+  });
 
   /** 線の編集パネルを開く (画面外にはみ出さない位置に調整) */
   const openEdgePanel = (edgeIdx: number, cx: number, cy: number) => {
@@ -1992,8 +1088,8 @@ export function ErWindow() {
     setLinkSrc(null);
     setNotice(`${c.from}.${c.fromColumn} → ${c.to}.${c.toColumn} を追加しました`);
     if (entriesRef.current) {
-      persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
-        custom,
+      persist({
+        customEdges: custom,
       });
     }
   };
@@ -2002,7 +1098,7 @@ export function ErWindow() {
   const updateFrames = (next: ErFrame[]) => {
     setFrames(next);
     if (entriesRef.current) {
-      persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
+      persist({
         frames: next,
       });
     }
@@ -2027,16 +1123,10 @@ export function ErWindow() {
 
   // 編集中に入力欄の外をクリックしたら編集を確定して終了する。
   // (キャンバス側はmousedownでpreventDefaultするためblurが飛ばないケースがある)
-  useEffect(() => {
-    if (editingId === null) return;
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && t.closest(".er-text-edit, .er-inline-input")) return;
-      commitEditRef.current();
-    };
-    document.addEventListener("mousedown", onDown, true);
-    return () => document.removeEventListener("mousedown", onDown, true);
-  }, [editingId]);
+  useDismiss(editingId !== null, () => commitEditRef.current(), {
+    capture: true,
+    inside: ".er-text-edit, .er-inline-input",
+  });
 
   /** 枠を追加してテキスト編集ダイアログを開く */
   const addFrame = (worldX: number, worldY: number) => {
@@ -2095,7 +1185,7 @@ export function ErWindow() {
     const up = () => {
       document.removeEventListener("mousemove", move);
       if (entriesRef.current) {
-        persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
+        persist({
           frames: latest,
         });
       }
@@ -2128,7 +1218,7 @@ export function ErWindow() {
     const up = () => {
       document.removeEventListener("mousemove", move);
       if (entriesRef.current) {
-        persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
+        persist({
           frames: latest,
         });
       }
@@ -2165,7 +1255,7 @@ export function ErWindow() {
     const up = () => {
       document.removeEventListener("mousemove", move);
       if (entriesRef.current) {
-        persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
+        persist({
           anchors: latest,
         });
       }
@@ -2187,7 +1277,7 @@ export function ErWindow() {
     else next[key] = entry;
     setEdgeStyles(next);
     if (entriesRef.current) {
-      persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
+      persist({
         edgeStyles: next,
       });
     }
@@ -2216,10 +1306,37 @@ export function ErWindow() {
     else next[key] = entry;
     setEdgeCols(next);
     if (entriesRef.current) {
-      persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
-        edgeCols: next,
+      persist({
+        edgeColumns: next,
       });
     }
+  };
+
+  /**
+   * 右クリックしたカラムを「選択中の線の対応カラム」に足せるか調べる。
+   * 線を選んでいない・その線と関係ないテーブル・代表カラム自身なら null
+   */
+  const edgeColumnAction = (table: string, column: string) => {
+    if (selEdge === null) return null;
+    const se = edges[selEdge];
+    if (!se) return null;
+    const side =
+      se.from === table
+        ? ("from" as const)
+        : se.to === table
+          ? ("to" as const)
+          : null;
+    if (!side) return null;
+    const primary = side === "from" ? se.fromColumn : se.toColumn;
+    if (column === primary) return null;
+    const idx = selEdge;
+    return {
+      has: (edgeCols[edgeKey(se)]?.[side] ?? []).includes(column),
+      onToggle: () => {
+        toggleEdgeColumn(idx, side, column);
+        setCtxMenu(null);
+      },
+    };
   };
 
   /** 線の接続位置指定を解除して自動 (カラム横) に戻す */
@@ -2232,7 +1349,7 @@ export function ErWindow() {
     delete next[key];
     setAnchors(next);
     if (entriesRef.current) {
-      persist(entriesRef.current, fksRef.current, posRef.current, undefined, {
+      persist({
         anchors: next,
       });
     }
@@ -2336,14 +1453,27 @@ export function ErWindow() {
     }
     const start = { x: e.clientX, y: e.clientY };
     const orig = { ...view };
+    // 表示位置の更新も1フレーム1回に間引く
+    const apply = rafThrottle<[number, number]>(([x, y]) =>
+      setView({ ...orig, x: orig.x + x, y: orig.y + y })
+    );
+    let moved = false;
     const move = (ev: MouseEvent) => {
+      moved = true;
+      apply.run([ev.clientX - start.x, ev.clientY - start.y]);
+    };
+    const up = (ev: MouseEvent) => {
+      apply.cancel();
+      document.removeEventListener("mousemove", move);
+      // 動かしていなければ何もしない (押しただけで再描画しない)
+      if (!moved) return;
+      // 間引きで取りこぼした最後の位置をここで確定させる
       setView({
         ...orig,
         x: orig.x + (ev.clientX - start.x),
         y: orig.y + (ev.clientY - start.y),
       });
     };
-    const up = () => document.removeEventListener("mousemove", move);
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up, { once: true });
   };
@@ -2371,51 +1501,74 @@ export function ErWindow() {
   );
 
   /** 各エッジの折れ線経路 (画面描画・PNG出力・交差判定で共用)。
-   * 位置はrefで持っているためメモ化せず毎レンダー計算する */
-  const edgeGeoms: ([number, number][] | null)[] = edges.map((e) => {
-    const a = nodeByName.get(e.from);
-    const b = nodeByName.get(e.to);
-    if (!a || !b) return null;
-    const pa = posOf(e.from);
-    const pb = posOf(e.to);
-    // 両端のテーブル矩形 (線がこの後ろに隠れないように迂回する)
-    const rects: Rect[] = [
-      { x: pa.x, y: pa.y, w: a.w, h: a.h },
-      { x: pb.x, y: pb.y, w: b.w, h: b.h },
-    ];
-    const ov = anchors[edgeKey(e)];
-    let fromPt: AnchoredPt;
-    let toPt: AnchoredPt;
-    if (ov?.from || ov?.to) {
-      // 接続位置が手動指定されている線: 指定の辺から出す
-      const toPre = ov.to ? anchorPointPos(b, pb, ov.to) : null;
-      fromPt = ov.from
-        ? anchorPointPos(a, pa, ov.from)
-        : colSideAnchor(a, pa, e.fromColumn, toPre?.x ?? pb.x + b.w / 2);
-      toPt = toPre ?? colSideAnchor(b, pb, e.toColumn, fromPt.x);
-    } else {
-      // 既定 (カラム横)。従来の経路がテーブルに隠れなければそのまま使う
-      const ay = anchorY(a, pa.y, e.fromColumn);
-      const by = anchorY(b, pb.y, e.toColumn);
-      const pts = edgePoints(
-        { x: pa.x, w: a.w },
-        ay,
-        { x: pb.x, w: b.w },
-        by
-      );
-      if (pathClear(pts, rects)) return pts;
-      fromPt = colSideAnchor(a, pa, e.fromColumn, pb.x + b.w / 2);
-      toPt = colSideAnchor(b, pb, e.toColumn, pa.x + a.w / 2);
-    }
-    // 単純経路がテーブルにかからなければ採用、かかるなら迂回経路を探す
-    const simple = routeAnchored(fromPt, toPt);
-    if (pathClear(simple, rects)) return simple;
-    return routeAvoid(fromPt, toPt, rects) ?? simple;
-  });
+   * 迂回経路の探索が重いので、配置(rev)・線・接続位置が変わったときだけ計算する。
+   * (位置はrefで持っているため、revを目印にする) */
+  const edgeGeoms: ([number, number][] | null)[] = useMemo(
+    () =>
+      edges.map((e) => {
+        const a = nodeByName.get(e.from);
+        const b = nodeByName.get(e.to);
+        if (!a || !b) return null;
+        const pa = posOf(e.from);
+        const pb = posOf(e.to);
+        // 両端のテーブル矩形 (線がこの後ろに隠れないように迂回する)
+        const rects: Rect[] = [
+          { x: pa.x, y: pa.y, w: a.w, h: a.h },
+          { x: pb.x, y: pb.y, w: b.w, h: b.h },
+        ];
+        const ov = anchors[edgeKey(e)];
+        let fromPt: AnchoredPt;
+        let toPt: AnchoredPt;
+        if (ov?.from || ov?.to) {
+          // 接続位置が手動指定されている線: 指定の辺から出す
+          const toPre = ov.to ? anchorPointPos(b, pb, ov.to) : null;
+          fromPt = ov.from
+            ? anchorPointPos(a, pa, ov.from)
+            : colSideAnchor(a, pa, e.fromColumn, toPre?.x ?? pb.x + b.w / 2);
+          toPt = toPre ?? colSideAnchor(b, pb, e.toColumn, fromPt.x);
+        } else {
+          // 既定 (カラム横)。従来の経路がテーブルに隠れなければそのまま使う
+          const ay = anchorY(a, pa.y, e.fromColumn);
+          const by = anchorY(b, pb.y, e.toColumn);
+          const pts = edgePoints(
+            { x: pa.x, w: a.w },
+            ay,
+            { x: pb.x, w: b.w },
+            by
+          );
+          if (pathClear(pts, rects)) return pts;
+          fromPt = colSideAnchor(a, pa, e.fromColumn, pb.x + b.w / 2);
+          toPt = colSideAnchor(b, pb, e.toColumn, pa.x + a.w / 2);
+        }
+        // 単純経路がテーブルにかからなければ採用、かかるなら迂回経路を探す
+        const simple = routeAnchored(fromPt, toPt);
+        if (pathClear(simple, rects)) return simple;
+        return routeAvoid(fromPt, toPt, rects) ?? simple;
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [edges, nodeByName, anchors, rev]
+  );
   /** 全エッジの垂直区間 (エッジごと)。自分以外との交差判定に使う */
-  const allVerticals = edgeGeoms.map((p) => (p ? verticalSegments(p) : []));
+  const allVerticals = useMemo(
+    () => edgeGeoms.map((p) => (p ? verticalSegments(p) : [])),
+    [edgeGeoms]
+  );
   const verticalsExcept = (i: number) =>
     allVerticals.flatMap((segs, j) => (j === i ? [] : segs));
+
+  /** ドラッグで接続中のプレビュー線 (接続元のカラムからカーソルまで) */
+  const linkPreview = (() => {
+    if (!linkDrag) return null;
+    const n = nodeByName.get(linkDrag.from.table);
+    if (!n) return null;
+    const src = colSideAnchor(
+      n,
+      posOf(linkDrag.from.table),
+      linkDrag.from.column,
+      linkDrag.x
+    );
+    return { x1: src.x, y1: src.y, x2: linkDrag.x, y2: linkDrag.y };
+  })();
 
   /** PNG出力 (現在の配置をcanvasに描き直して保存) */
   const exportPng = async () => {
@@ -2658,6 +1811,8 @@ export function ErWindow() {
             onChange={(e) => setEditText(e.target.value)}
             onMouseDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
+              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+              if (e.nativeEvent.isComposing) return;
               if (e.key === "Enter") commitEdit();
               else if (e.key === "Escape") setEditingId(null);
             }}
@@ -2695,6 +1850,8 @@ export function ErWindow() {
           onChange={(e) => setEditText(e.target.value)}
           onMouseDown={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
+            // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+            if (e.nativeEvent.isComposing) return;
             if (e.key === "Enter") commitEdit();
             else if (e.key === "Escape") setEditingId(null);
           }}
@@ -2737,173 +1894,50 @@ export function ErWindow() {
 
   return (
     <div className="er-window">
-      <div className="diff-toolbar" data-tauri-drag-region>
-        <div className="er-opts" ref={diagMenuRef}>
-          <button
-            className="btn-secondary er-diag-btn"
-            title={diagName ?? "未保存の図"}
-            onClick={() => setDiagMenuOpen((o) => !o)}
-          >
-            <span className="er-diag-name">{diagName ?? "(未保存の図)"}</span>{" "}
-            <span className="er-opts-caret">▾</span>
-          </button>
-          {diagMenuOpen && (
-            <div className="er-opts-pop er-diag-pop">
-              {diagList.length > 0 ? (
-                diagList.map((name) => (
-                  <button
-                    key={name}
-                    className={
-                      "context-item" + (name === diagName ? " checked" : "")
-                    }
-                    onClick={() => {
-                      openDiagram(name);
-                      setDiagMenuOpen(false);
-                    }}
-                  >
-                    {name === diagName ? "✓ " : "　 "}
-                    {name}
-                  </button>
-                ))
-              ) : (
-                <div className="context-caption">保存済みの図はありません</div>
-              )}
-              <div className="context-sep" />
-              <button
-                className="context-item"
-                onClick={() => {
-                  clearDiagram();
-                  setNotice(
-                    "新しい図です。「リバース」でDBから読み込んでください"
-                  );
-                  setDiagMenuOpen(false);
-                }}
-              >
-                新しい図
-              </button>
-              <button
-                className="context-item"
-                disabled={!entries}
-                onClick={() => {
-                  setNameDialog({
-                    mode: "saveAs",
-                    value:
-                      diagName ??
-                      `${session?.name ?? "ER図"}/${sel.database}`,
-                  });
-                  setDiagMenuOpen(false);
-                }}
-              >
-                名前を付けて保存...
-              </button>
-              {diagName && (
-                <button
-                  className="context-item"
-                  onClick={() => {
-                    setNameDialog({ mode: "rename", value: diagName });
-                    setDiagMenuOpen(false);
-                  }}
-                >
-                  名前を変更...
-                </button>
-              )}
-              {diagName && (
-                <button
-                  className="context-item danger"
-                  onClick={() => {
-                    deleteCurrentDiagram();
-                    setDiagMenuOpen(false);
-                  }}
-                >
-                  この図を削除
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="diff-side-sel">
-          <SelectMenu
-            className="mono"
-            value={sel.sessionId}
-            placeholder="接続を選択"
-            options={sessions.map((s) => ({
-              value: s.sessionId,
-              label: s.name,
-            }))}
-            onChange={(v) => {
-              const s = sessions.find((x) => x.sessionId === v);
-              const db = s?.currentDb ?? s?.databases[0] ?? "";
-              setSel({ sessionId: v, database: db });
-            }}
-          />
-          <SelectMenu
-            className="mono"
-            value={sel.database}
-            disabled={!session}
-            options={(session?.databases ?? [sel.database]).map((d) => ({
-              value: d,
-              label: d,
-            }))}
-            onChange={(v) => setSel({ ...sel, database: v })}
-          />
-        </div>
-        <button
-          className="btn-primary has-tooltip tooltip-left tooltip-wrap"
-          data-tooltip={
-            "DBからスキーマを読み込んでER図を作成/更新します\n(既存の配置は維持されます)"
-          }
-          disabled={loading || !sel.sessionId}
-          onClick={() => doReverse()}
-        >
-          {loading ? (
-            <>
-              <span className="spinner light" /> リバース中...
-            </>
-          ) : (
-            "リバース"
-          )}
-        </button>
-        <div className="er-opts" ref={optsRef}>
-          <button
-            className="btn-secondary"
-            onClick={() => setOptsOpen((o) => !o)}
-          >
-            表示設定 <span className="er-opts-caret">▾</span>
-          </button>
-          {optsOpen && (
-            <div className="er-opts-pop">
-              {(
-                [
-                  ["allCols", "全カラム", allCols],
-                  ["showLogical", "日本語名", showLogical],
-                  ["showTypes", "型・サイズ", showTypes],
-                ] as const
-              ).map(([key, label, on]) => (
-                <button
-                  key={key}
-                  className={"context-item" + (on ? " checked" : "")}
-                  onClick={() => toggleOpt(key)}
-                >
-                  {on ? "✓ " : "　 "}
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <button
-          className="btn-secondary"
-          disabled={nodes.length === 0}
-          onClick={exportPng}
-        >
-          PNG保存
-        </button>
-        <span className="er-meta mono">
-          {entries
+      <ErToolbar
+        diagName={diagName}
+        diagList={diagList}
+        onOpenDiagram={openDiagram}
+        onNewDiagram={() => {
+          store.clearDiagram();
+          setNotice("新しい図です。「リバース」でDBから読み込んでください");
+        }}
+        onSaveAs={() =>
+          setNameDialog({
+            mode: "saveAs",
+            value: diagName ?? `${session?.name ?? "ER図"}/${sel.database}`,
+          })
+        }
+        onRename={() =>
+          diagName && setNameDialog({ mode: "rename", value: diagName })
+        }
+        onDelete={deleteCurrentDiagram}
+        canSaveAs={!!entries}
+        sessions={sessions}
+        sessionId={sel.sessionId}
+        database={sel.database}
+        session={session}
+        onChangeSession={(v) => {
+          const s = sessions.find((x) => x.sessionId === v);
+          setSel({
+            sessionId: v,
+            database: s?.currentDb ?? s?.databases[0] ?? "",
+          });
+        }}
+        onChangeDatabase={(v) => setSel({ ...sel, database: v })}
+        loading={loading}
+        onReverse={() => doReverse()}
+        options={{ allCols, showLogical, showTypes }}
+        onToggleOption={toggleOpt}
+        onExportPng={exportPng}
+        canExportPng={nodes.length > 0}
+        meta={
+          entries
             ? `${nodes.length}テーブル / ${edges.length}リレーション`
-            : ""}
-        </span>
-      </div>
+            : ""
+        }
+      />
+
 
       {/* ページ (タブ) バー: 1つの保存ファイルに複数のER図を持てる */}
       <div className="er-tabs">
@@ -2915,12 +1949,12 @@ export function ErWindow() {
             onMouseDown={(e) => {
               if (e.button !== 0 || tabEditingId === p.id) return;
               dragTabIdxRef.current = i;
-              if (p.id !== pageId) switchPage(p.id);
+              if (p.id !== pageId) store.switchPage(p.id);
             }}
             onMouseEnter={() => {
               const from = dragTabIdxRef.current;
               if (from === null || from === i) return;
-              reorderPages(from, i);
+              store.reorderPages(from, i);
               dragTabIdxRef.current = i;
             }}
             onDoubleClick={() => {
@@ -2936,6 +1970,8 @@ export function ErWindow() {
                 onChange={(e) => setTabEditText(e.target.value)}
                 onMouseDown={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
+                  // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                  if (e.nativeEvent.isComposing) return;
                   if (e.key === "Enter") commitTabRename();
                   else if (e.key === "Escape") setTabEditingId(null);
                 }}
@@ -2949,7 +1985,7 @@ export function ErWindow() {
                     className="er-tab-close"
                     title="タブを削除"
                     onMouseDown={(e) => e.stopPropagation()}
-                    onClick={() => deletePage(p.id)}
+                    onClick={() => askDeletePage(p.id)}
                   >
                     ×
                   </span>
@@ -2958,7 +1994,7 @@ export function ErWindow() {
             )}
           </div>
         ))}
-        <button className="er-tab-add" title="タブを追加" onClick={addPage}>
+        <button className="er-tab-add" title="タブを追加" onClick={store.addPage}>
           ＋
         </button>
       </div>
@@ -2971,11 +2007,19 @@ export function ErWindow() {
         </div>
       )}
 
-      {error && <div className="result-banner ng er-error">{error}</div>}
-      {loading && (
-        <div className="content-placeholder dim-center">
-          <span className="spinner accent" /> スキーマを読み込み中...
+      {error && (
+        <div
+          className={`result-banner ${isCancelled(error) ? "ok" : "ng"} er-error`}
+        >
+          {error}
         </div>
+      )}
+      {loading && (
+        <LoadingWithCancel
+          label="スキーマを読み込み中..."
+          sessionIds={[sel.sessionId]}
+          dbTypes={[sessions.find((s) => s.sessionId === sel.sessionId)?.dbType]}
+        />
       )}
       {!loading && !error && !entries && (
         <div className="content-placeholder dim-center">
@@ -3018,149 +2062,34 @@ export function ErWindow() {
           >
             {/* 注釈枠 (背面) */}
             {backBoxes.map(renderBox)}
-            <svg
-              className={
-                "er-edges" +
-                (selEdge !== null || selEdges.size > 0 ? " has-sel" : "")
-              }
+            <ErEdgeLayer
+              edges={edges}
+              geoms={edgeGeoms}
+              styles={edgeStyles}
+              selected={selEdge}
+              selectedSet={selEdges}
               width={bounds.w}
               height={bounds.h}
-              data-rev={rev}
-            >
-              {[...edges.keys()]
-                // 選択中のエッジを最後に描いて最前面に出す
-                .sort(
-                  (x, y) => (x === selEdge ? 1 : 0) - (y === selEdge ? 1 : 0)
-                )
-                .map((i) => {
-                  const e = edges[i];
-                  const pts = edgeGeoms[i];
-                  if (!pts) return null;
-                  const ptsStr = pts.map((p) => p.join(",")).join(" ");
-                  const first = pts[0];
-                  const last = pts[pts.length - 1];
-                  // 線種・色の上書き (選択中の色はハイライトを優先)
-                  const isSel = i === selEdge || selEdges.has(i);
-                  const es = edgeStyles[edgeKey(e)];
-                  const dash =
-                    es?.style === "solid"
-                      ? "none"
-                      : es?.style === "dotted"
-                        ? "2 4"
-                        : undefined;
-                  const strokeColor = isSel
-                    ? undefined
-                    : es?.color || undefined;
-                  return (
-                    <g
-                      key={i}
-                      className={
-                        "er-edge" +
-                        (e.guessed ? " guessed" : "") +
-                        (e.manual ? " manual" : "") +
-                        (isSel ? " selected" : "")
-                      }
-                    >
-                      <path
-                        d={edgePath(pts, verticalsExcept(i))}
-                        style={{
-                          stroke: strokeColor,
-                          strokeDasharray: dash,
-                        }}
-                      />
-                      <circle
-                        cx={first[0]}
-                        cy={first[1]}
-                        r={2.5}
-                        style={{ fill: strokeColor }}
-                      />
-                      <circle
-                        cx={last[0]}
-                        cy={last[1]}
-                        r={2.5}
-                        style={{ fill: strokeColor }}
-                      />
-                      {/* クリック判定用の透明な太線 */}
-                      <polyline
-                        className="er-edge-hit"
-                        points={ptsStr}
-                        onMouseDown={(ev) => ev.stopPropagation()}
-                        onClick={(ev) => {
-                          ev.stopPropagation();
-                          const next = i === selEdge ? null : i;
-                          setSelEdge(next);
-                          setSelEdges(
-                            next === null ? new Set() : new Set([next])
-                          );
-                          setSelNodes(new Set());
-                        }}
-                        onDoubleClick={(ev) => {
-                          ev.stopPropagation();
-                          openEdgePanel(i, ev.clientX, ev.clientY);
-                        }}
-                        onContextMenu={(ev) => {
-                          ev.preventDefault();
-                          ev.stopPropagation();
-                          setSelEdge(i);
-                          setSelEdges(new Set([i]));
-                          setCtxMenu({
-                            x: ev.clientX,
-                            y: ev.clientY,
-                            kind: "edge",
-                            edge: i,
-                          });
-                        }}
-                      />
-                      {i === selEdge && (
-                        <>
-                          <circle
-                            className="er-edge-handle"
-                            cx={first[0]}
-                            cy={first[1]}
-                            r={5.5}
-                            onMouseDown={(ev) => startAnchorDrag(ev, i, "from")}
-                          >
-                            <title>ドラッグで接続位置を変更 ({e.from})</title>
-                          </circle>
-                          <circle
-                            className="er-edge-handle"
-                            cx={last[0]}
-                            cy={last[1]}
-                            r={5.5}
-                            onMouseDown={(ev) => startAnchorDrag(ev, i, "to")}
-                          >
-                            <title>ドラッグで接続位置を変更 ({e.to})</title>
-                          </circle>
-                        </>
-                      )}
-                      <title>{`${e.from} → ${e.to} (${e.label})${e.guessed ? " [推測]" : ""}`}</title>
-                    </g>
-                  );
-                })}
-              {/* ドラッグ接続中のプレビュー線 */}
-              {linkDrag &&
-                (() => {
-                  const n = nodeByName.get(linkDrag.from.table);
-                  if (!n) return null;
-                  const src = colSideAnchor(
-                    n,
-                    posOf(linkDrag.from.table),
-                    linkDrag.from.column,
-                    linkDrag.x
-                  );
-                  return (
-                    <path
-                      className="er-link-preview"
-                      d={`M ${src.x} ${src.y} L ${linkDrag.x} ${linkDrag.y}`}
-                    />
-                  );
-                })()}
-            </svg>
+              rev={rev}
+              verticalsExcept={verticalsExcept}
+              preview={linkPreview}
+              onSelect={(i) => {
+                const next = i === selEdge ? null : i;
+                setSelEdge(next);
+                setSelEdges(next === null ? new Set() : new Set([next]));
+                setSelNodes(new Set());
+              }}
+              onOpenPanel={openEdgePanel}
+              onContextMenu={(i, x, y) => {
+                setSelEdge(i);
+                setSelEdges(new Set([i]));
+                setCtxMenu({ x, y, kind: "edge", edge: i });
+              }}
+              onAnchorMouseDown={startAnchorDrag}
+            />
             {nodes.map((n) => {
               const p = posOf(n.name);
               const sel = selEdge !== null ? edges[selEdge] : null;
-              const related =
-                sel !== null && (sel.from === n.name || sel.to === n.name);
               /** 選択中リレーションの接続カラム名 (このノードに関係するもの)。
                * 代表カラムに加えて、手動追加した対応カラムもハイライトする */
               const hlCols = new Set<string>();
@@ -3182,173 +2111,59 @@ export function ErWindow() {
               if (linkDrag?.target && linkDrag.target.table === n.name) {
                 hlCols.add(linkDrag.target.column);
               }
-              /** クリックで選択中のカラム行 (このノード内のもの) */
-              const rowSel =
-                selCol && selCol.table === n.name ? selCol.column : null;
-              const rowSelIdx = rowSel
-                ? n.columns.findIndex((c) => c.name === rowSel)
-                : -1;
               return (
-                <div
+                <ErNodeView
                   key={n.name}
-                  className={
-                    "er-node" +
-                    (related ? " related" : "") +
-                    (selNodes.has(n.name) ? " selected" : "")
+                  node={n}
+                  x={p.x}
+                  y={p.y}
+                  related={
+                    sel !== null && (sel.from === n.name || sel.to === n.name)
                   }
-                  style={{ left: p.x, top: p.y, width: n.w, height: n.h }}
-                  onMouseDown={(e) => startNodeDrag(e, n.name)}
-                  onMouseLeave={() =>
-                    setHoverCol((h) => (h?.table === n.name ? null : h))
+                  selected={selNodes.has(n.name)}
+                  highlighted={hlCols}
+                  selectedColumn={
+                    selCol && selCol.table === n.name ? selCol.column : null
                   }
-                >
-                  <div
-                    className="er-node-head mono"
-                    title={n.logical ? `${n.name} (${n.logical})` : n.name}
-                    onMouseDown={(e) => startNodeDrag(e, n.name)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setSelNodes((prev) =>
-                        prev.has(n.name) ? prev : new Set([n.name])
-                      );
-                      setCtxMenu({
-                        x: e.clientX,
-                        y: e.clientY,
-                        kind: "node",
-                        table: n.name,
-                      });
-                    }}
-                  >
-                    {n.name}
-                    {n.logical && (
-                      <span className="er-node-head-logical">{n.logical}</span>
-                    )}
-                  </div>
-                  {rowSelIdx >= 0 && (
-                    <div
-                      className="er-row-sel"
-                      style={{ top: NODE_HEAD_H + rowSelIdx * ROW_H }}
-                    />
-                  )}
-                  <div
-                    className="er-node-cols mono"
-                    style={{
-                      gridTemplateColumns:
-                        "max-content" +
-                        (showTypes ? " max-content" : "") +
-                        (showLogical ? " max-content" : ""),
-                    }}
-                  >
-                    {n.columns.map((c, i) => (
-                      <Fragment key={i}>
-                        <span
-                          className={
-                            "er-col-name" +
-                            (c.isPk ? " pk" : "") +
-                            (hlCols.has(c.name) ? " hl" : "") +
-                            (rowSel === c.name ? " sel" : "")
-                          }
-                          title={
-                            c.name +
-                            (c.isPk
-                              ? " (主キー)"
-                              : c.notNull
-                                ? " (NOT NULL)"
-                                : " (NULL可)")
-                          }
-                          onClick={() => handleColumnClick(n.name, c.name)}
-                          onMouseEnter={() =>
-                            setHoverCol({
-                              table: n.name,
-                              column: c.name,
-                              idx: i,
-                            })
-                          }
-                          onContextMenu={(ev) => {
-                            ev.preventDefault();
-                            ev.stopPropagation();
-                            setCtxMenu({
-                              x: ev.clientX,
-                              y: ev.clientY,
-                              kind: "column",
-                              table: n.name,
-                              column: c.name,
-                            });
-                          }}
-                        >
-                          {colMarker(c)}
-                          {c.name}
-                        </span>
-                        {showTypes && (
-                          <span
-                            className={
-                              "er-col-type" +
-                              (rowSel === c.name ? " sel" : "")
-                            }
-                            title={c.type}
-                            onClick={() => handleColumnClick(n.name, c.name)}
-                            onMouseEnter={() =>
-                              setHoverCol({
-                                table: n.name,
-                                column: c.name,
-                                idx: i,
-                              })
-                            }
-                          >
-                            {c.type}
-                          </span>
-                        )}
-                        {showLogical && (
-                          <span
-                            className={
-                              "er-col-logical" +
-                              (rowSel === c.name ? " sel" : "")
-                            }
-                            title={c.logical}
-                            onClick={() => handleColumnClick(n.name, c.name)}
-                            onMouseEnter={() =>
-                              setHoverCol({
-                                table: n.name,
-                                column: c.name,
-                                idx: i,
-                              })
-                            }
-                          >
-                            {c.logical}
-                          </span>
-                        )}
-                      </Fragment>
-                    ))}
-                  </div>
-                  <div
-                    className="er-node-resize"
-                    title="ドラッグで幅を調整 (右クリックメニューで自動に戻せます)"
-                    onMouseDown={(e) => startNodeResize(e, n.name)}
-                  />
-                  {/* ホバー中のカラム行の両端に出る接続ハンドル */}
-                  {hoverCol?.table === n.name && !linkDrag && (
-                    <>
-                      {(["left", "right"] as const).map((side) => (
-                        <div
-                          key={side}
-                          className={`er-link-handle ${side}`}
-                          style={{
-                            top:
-                              NODE_HEAD_H +
-                              hoverCol.idx * ROW_H +
-                              ROW_H / 2 -
-                              5.5,
-                          }}
-                          title="ドラッグして相手のカラムへ線をつなぐ"
-                          onMouseDown={(e) =>
-                            startLinkDrag(e, n.name, hoverCol.column)
-                          }
-                        />
-                      ))}
-                    </>
-                  )}
-                </div>
+                  showTypes={showTypes}
+                  showLogical={showLogical}
+                  showHandles={hoverNode === n.name && !linkDrag}
+                  onNodeMouseDown={(e) => startNodeDrag(e, n.name)}
+                  onHoverChange={(hovered) =>
+                    setHoverNode((h) =>
+                      hovered ? n.name : h === n.name ? null : h
+                    )
+                  }
+                  onHeadContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setSelNodes((prev) =>
+                      prev.has(n.name) ? prev : new Set([n.name])
+                    );
+                    setCtxMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      kind: "node",
+                      table: n.name,
+                    });
+                  }}
+                  onColumnClick={(column) => handleColumnClick(n.name, column)}
+                  onColumnContextMenu={(ev, column) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    setCtxMenu({
+                      x: ev.clientX,
+                      y: ev.clientY,
+                      kind: "column",
+                      table: n.name,
+                      column,
+                    });
+                  }}
+                  onHandleMouseDown={(e, column) =>
+                    startLinkDrag(e, n.name, column)
+                  }
+                  onResizeMouseDown={(e) => startNodeResize(e, n.name)}
+                />
               );
             })}
             {/* 注釈枠 (前面) とテキスト見出し */}
@@ -3402,7 +2217,7 @@ export function ErWindow() {
         </div>
       )}
 
-      {/* 右クリックメニュー (線の削除 / 線の追加) */}
+      {/* 右クリックメニュー (対象ごとに中身を出し分ける) */}
       {ctxMenu && (
         <div
           className="context-menu"
@@ -3411,432 +2226,129 @@ export function ErWindow() {
           onMouseDown={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >
-          {ctxMenu.kind === "edge" ? (
-            (() => {
-              const edge = edges[ctxMenu.edge];
-              if (!edge) return null;
-              const ek = edgeKey(edge);
-              const es = edgeStyles[ek];
-              const curStyle = es?.style ?? "dashed";
-              return (
-                <>
-                  <button
-                    className="context-item"
-                    onClick={() => {
-                      openEdgePanel(ctxMenu.edge, ctxMenu.x, ctxMenu.y);
-                      setCtxMenu(null);
-                    }}
-                  >
-                    カラムの対応を編集... (ダブルクリックでも可)
-                  </button>
-                  <div className="context-sep" />
-                  <div className="context-caption">線種</div>
-                  {(
-                    [
-                      ["solid", "実線"],
-                      ["dashed", "破線"],
-                      ["dotted", "点線"],
-                    ] as const
-                  ).map(([style, label]) => {
-                    const checked = curStyle === style;
-                    return (
-                      <button
-                        key={style}
-                        className={"context-item" + (checked ? " checked" : "")}
-                        onClick={() => {
-                          setEdgeStyle(ctxMenu.edge, { style });
-                          setCtxMenu(null);
-                        }}
-                      >
-                        {checked ? "✓ " : ""}
-                        {label}
-                      </button>
-                    );
-                  })}
-                  <div className="er-frame-colors">
-                    {FRAME_COLORS.map((color) => {
-                      const checked = (es?.color ?? "") === color;
-                      return (
-                        <button
-                          key={color || "default"}
-                          className={
-                            "er-frame-color" + (checked ? " checked" : "")
-                          }
-                          style={{ background: color || "#6366f1" }}
-                          title={color || "既定 (インディゴ)"}
-                          onClick={() => {
-                            setEdgeStyle(ctxMenu.edge, {
-                              color: color || undefined,
-                            });
-                            setCtxMenu(null);
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="context-sep" />
-                  {anchors[ek] && (
-                    <button
-                      className="context-item"
-                      onClick={() => {
-                        resetAnchors(ctxMenu.edge);
-                        setCtxMenu(null);
-                      }}
-                    >
-                      接続位置を自動に戻す
-                    </button>
-                  )}
-                  <button
-                    className="context-item danger"
-                    onClick={() => {
-                      askDeleteEdges([ctxMenu.edge]);
-                      setCtxMenu(null);
-                    }}
-                  >
-                    線を削除
-                  </button>
-                </>
-              );
-            })()
-          ) : ctxMenu.kind === "node" ? (
-            <>
-              {tableWidths[ctxMenu.table] !== undefined && (
-                <button
-                  className="context-item"
-                  onClick={() => {
-                    resetTableWidth(ctxMenu.table);
-                    setCtxMenu(null);
-                  }}
-                >
-                  幅を自動 (Fit) に戻す
-                </button>
-              )}
-              {selNodes.size > 1 && selNodes.has(ctxMenu.table) ? (
-                <button
-                  className="context-item danger"
-                  onClick={() => {
-                    askDeleteTables([...selNodes]);
-                    setCtxMenu(null);
-                  }}
-                >
-                  選択中の{selNodes.size}テーブルを図から削除
-                </button>
-              ) : (
-                <button
-                  className="context-item danger"
-                  onClick={() => {
-                    askDeleteTables([ctxMenu.table]);
-                    setCtxMenu(null);
-                  }}
-                >
-                  テーブルを図から削除
-                </button>
-              )}
-            </>
-          ) : ctxMenu.kind === "canvas" ? (
-            <>
-              <button
-                className="context-item"
-                onClick={() => {
-                  addFrame(ctxMenu.worldX, ctxMenu.worldY);
-                  setCtxMenu(null);
-                }}
-              >
-                ここに枠を追加
-              </button>
-              <button
-                className="context-item"
-                onClick={() => {
-                  addText(ctxMenu.worldX, ctxMenu.worldY);
-                  setCtxMenu(null);
-                }}
-              >
-                ここにテキストを追加
-              </button>
-              {removedTables.size > 0 && (
-                <>
-                  <div className="context-sep" />
-                  <button
-                    className="context-item"
-                    onClick={() => {
-                      restoreRemovedTables();
-                      setCtxMenu(null);
-                    }}
-                  >
-                    削除したテーブルを戻す ({removedTables.size})
-                  </button>
-                </>
-              )}
-            </>
-          ) : ctxMenu.kind === "frame" ? (
+          {ctxMenu.kind === "edge" && edges[ctxMenu.edge] && (
+            <EdgeMenu
+              style={edgeStyles[edgeKey(edges[ctxMenu.edge])]}
+              hasAnchors={!!anchors[edgeKey(edges[ctxMenu.edge])]}
+              onOpenPanel={() => {
+                openEdgePanel(ctxMenu.edge, ctxMenu.x, ctxMenu.y);
+                setCtxMenu(null);
+              }}
+              onChangeStyle={(patch) => {
+                setEdgeStyle(ctxMenu.edge, patch);
+                setCtxMenu(null);
+              }}
+              onResetAnchors={() => {
+                resetAnchors(ctxMenu.edge);
+                setCtxMenu(null);
+              }}
+              onDelete={() => {
+                askDeleteEdges([ctxMenu.edge]);
+                setCtxMenu(null);
+              }}
+            />
+          )}
+
+          {ctxMenu.kind === "node" && (
+            <NodeMenu
+              table={ctxMenu.table}
+              hasWidth={tableWidths[ctxMenu.table] !== undefined}
+              selectedCount={
+                selNodes.has(ctxMenu.table) ? selNodes.size : 1
+              }
+              onResetWidth={() => {
+                resetTableWidth(ctxMenu.table);
+                setCtxMenu(null);
+              }}
+              onDelete={() => {
+                // 複数選んでいるときはまとめて消す
+                const targets =
+                  selNodes.size > 1 && selNodes.has(ctxMenu.table)
+                    ? [...selNodes]
+                    : [ctxMenu.table];
+                askDeleteTables(targets);
+                setCtxMenu(null);
+              }}
+            />
+          )}
+
+          {ctxMenu.kind === "canvas" && (
+            <CanvasMenu
+              removedCount={removedTables.size}
+              onAddFrame={() => {
+                addFrame(ctxMenu.worldX, ctxMenu.worldY);
+                setCtxMenu(null);
+              }}
+              onAddText={() => {
+                addText(ctxMenu.worldX, ctxMenu.worldY);
+                setCtxMenu(null);
+              }}
+              onRestoreRemoved={() => {
+                restoreRemovedTables();
+                setCtxMenu(null);
+              }}
+            />
+          )}
+
+          {ctxMenu.kind === "frame" &&
             (() => {
               const f = frames.find((x) => x.id === ctxMenu.frameId);
               if (!f) return null;
-              /** 対象の枠だけ書き換えて保存し、メニューを閉じる */
-              const upd = (patch: Partial<ErFrame>) => {
-                updateFrames(
-                  frames.map((x) => (x.id === f.id ? { ...x, ...patch } : x))
-                );
-                setCtxMenu(null);
-              };
-              const remove = () => {
-                setCtxMenu(null);
-                setConfirm({
-                  title: f.kind === "text" ? "テキストを削除" : "枠を削除",
-                  message: `「${f.label}」を削除しますか？`,
-                  action: () =>
-                    updateFrames(frames.filter((x) => x.id !== f.id)),
-                });
-              };
-              const editBtn = (
-                <button
-                  className="context-item"
-                  onClick={() => {
+              return (
+                <FrameMenu
+                  frame={f}
+                  onPatch={(patch) => {
+                    updateFrames(
+                      frames.map((x) => (x.id === f.id ? { ...x, ...patch } : x))
+                    );
+                    setCtxMenu(null);
+                  }}
+                  onEdit={() => {
                     startEditing(f);
                     setCtxMenu(null);
                   }}
-                >
-                  テキストを編集...
-                </button>
+                  onDelete={() => {
+                    setCtxMenu(null);
+                    setConfirm({
+                      title: f.kind === "text" ? "テキストを削除" : "枠を削除",
+                      message: `「${f.label}」を削除しますか？`,
+                      action: () =>
+                        updateFrames(frames.filter((x) => x.id !== f.id)),
+                    });
+                  }}
+                />
               );
-              if (f.kind === "text") {
-                // テキスト見出しのメニュー
-                return (
-                  <>
-                    {editBtn}
-                    <div className="context-sep" />
-                    <div className="context-caption">文字サイズ (px)</div>
-                    <div
-                      className="er-size-row"
-                      onMouseDown={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        className="er-size-input"
-                        type="number"
-                        min={8}
-                        max={200}
-                        defaultValue={f.fontSize ?? 18}
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key !== "Enter") return;
-                          const v = Math.round(
-                            Number((e.target as HTMLInputElement).value)
-                          );
-                          if (Number.isFinite(v) && v >= 8 && v <= 200) {
-                            upd({ fontSize: v });
-                          }
-                        }}
-                      />
-                      <span className="er-size-hint">Enterで適用</span>
-                    </div>
-                    <div className="er-size-chips">
-                      {[14, 18, 24, 32, 48].map((size) => (
-                        <button
-                          key={size}
-                          className={
-                            "er-size-chip" +
-                            ((f.fontSize ?? 18) === size ? " checked" : "")
-                          }
-                          onClick={() => upd({ fontSize: size })}
-                        >
-                          {size}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="context-sep" />
-                    <div className="context-caption">文字色</div>
-                    <div className="er-frame-colors">
-                      {FRAME_COLORS.map((color) => {
-                        const checked = (f.textColor ?? "") === color;
-                        return (
-                          <button
-                            key={color || "default"}
-                            className={
-                              "er-frame-color" + (checked ? " checked" : "")
-                            }
-                            style={{ background: color || "#8b93a8" }}
-                            title={color || "グレー (既定)"}
-                            onClick={() =>
-                              upd({ textColor: color || undefined })
-                            }
-                          />
-                        );
-                      })}
-                    </div>
-                    <div className="context-sep" />
-                    <button className="context-item danger" onClick={remove}>
-                      テキストを削除
-                    </button>
-                  </>
+            })()}
+
+          {ctxMenu.kind === "column" && (
+            <ColumnMenu
+              table={ctxMenu.table}
+              column={ctxMenu.column}
+              edgeColumn={edgeColumnAction(ctxMenu.table, ctxMenu.column)}
+              linkSrc={linkSrc}
+              onConnectHere={() => {
+                handleColumnClick(ctxMenu.table, ctxMenu.column);
+                setCtxMenu(null);
+              }}
+              onStartLink={() => {
+                setLinkMode(true);
+                setLinkSrc({ table: ctxMenu.table, column: ctxMenu.column });
+                setNotice(
+                  `接続元: ${ctxMenu.table}.${ctxMenu.column} — 接続先のカラムをクリック (右クリックでも可)`
                 );
-              }
-              // 枠 (box) のメニュー
-              return (
-                <>
-                  {editBtn}
-                  <div className="context-sep" />
-                  <div className="context-caption">枠線</div>
-                  {(
-                    [
-                      ["solid", "実線"],
-                      ["dashed", "破線"],
-                      ["dotted", "点線"],
-                      ["none", "枠線なし"],
-                    ] as const
-                  ).map(([style, label]) => {
-                    const checked = f.style === style;
-                    return (
-                      <button
-                        key={style}
-                        className={"context-item" + (checked ? " checked" : "")}
-                        onClick={() => upd({ style })}
-                      >
-                        {checked ? "✓ " : ""}
-                        {label}
-                      </button>
-                    );
-                  })}
-                  <div className="er-frame-colors">
-                    {FRAME_COLORS.map((color) => {
-                      const checked = (f.color ?? "") === color;
-                      return (
-                        <button
-                          key={color || "default"}
-                          className={
-                            "er-frame-color" + (checked ? " checked" : "")
-                          }
-                          style={{ background: color || "#8b93a8" }}
-                          title={color || "グレー (既定)"}
-                          onClick={() => upd({ color: color || undefined })}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="context-sep" />
-                  <div className="context-caption">背景色</div>
-                  <div className="er-frame-colors">
-                    <button
-                      className={
-                        "er-frame-color transparent" +
-                        (!f.fill ? " checked" : "")
-                      }
-                      title="透明"
-                      onClick={() => upd({ fill: undefined })}
-                    />
-                    {FRAME_COLORS.slice(1).map((color) => {
-                      const checked = f.fill === color;
-                      return (
-                        <button
-                          key={color}
-                          className={
-                            "er-frame-color" + (checked ? " checked" : "")
-                          }
-                          style={{ background: color }}
-                          title={color}
-                          onClick={() => upd({ fill: color })}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="context-sep" />
-                  <button
-                    className="context-item"
-                    onClick={() => upd({ rounded: f.rounded === false })}
-                  >
-                    {f.rounded === false ? "角丸にする" : "四角にする"}
-                  </button>
-                  <button
-                    className="context-item"
-                    onClick={() => upd({ front: !f.front })}
-                  >
-                    {f.front ? "テーブルの背面に表示" : "テーブルの前面に表示"}
-                  </button>
-                  <div className="context-sep" />
-                  <button className="context-item danger" onClick={remove}>
-                    枠を削除
-                  </button>
-                </>
-              );
-            })()
-          ) : (
-            <>
-              {selEdge !== null &&
-                (() => {
-                  // 線を選択した状態でカラムを右クリック → 対応カラムの追加/解除
-                  const se = edges[selEdge];
-                  if (!se) return null;
-                  const side =
-                    se.from === ctxMenu.table
-                      ? ("from" as const)
-                      : se.to === ctxMenu.table
-                        ? ("to" as const)
-                        : null;
-                  if (!side) return null;
-                  const primary =
-                    side === "from" ? se.fromColumn : se.toColumn;
-                  if (ctxMenu.column === primary) return null;
-                  const has = (
-                    edgeCols[edgeKey(se)]?.[side] ?? []
-                  ).includes(ctxMenu.column);
-                  const idx = selEdge;
-                  return (
-                    <>
-                      <button
-                        className="context-item"
-                        onClick={() => {
-                          toggleEdgeColumn(idx, side, ctxMenu.column);
-                          setCtxMenu(null);
-                        }}
-                      >
-                        {has
-                          ? "選択中の線の対応から外す"
-                          : "選択中の線の対応に追加"}
-                      </button>
-                      <div className="context-sep" />
-                    </>
-                  );
-                })()}
-              {linkSrc && linkSrc.table !== ctxMenu.table && (
-                <button
-                  className="context-item"
-                  onClick={() => {
-                    handleColumnClick(ctxMenu.table, ctxMenu.column);
-                    setCtxMenu(null);
-                  }}
-                >
-                  {`${linkSrc.table}.${linkSrc.column} からここへ線を接続`}
-                </button>
-              )}
-              <button
-                className="context-item"
-                onClick={() => {
-                  setLinkMode(true);
-                  setLinkSrc({ table: ctxMenu.table, column: ctxMenu.column });
-                  setNotice(
-                    `接続元: ${ctxMenu.table}.${ctxMenu.column} — 接続先のカラムをクリック (右クリックでも可)`
-                  );
-                  setCtxMenu(null);
-                }}
-              >
-                この列から線を追加
-              </button>
-              {linkSrc && (
-                <button
-                  className="context-item"
-                  onClick={() => {
-                    setLinkMode(false);
-                    setLinkSrc(null);
-                    setNotice(null);
-                    setCtxMenu(null);
-                  }}
-                >
-                  線の追加をキャンセル
-                </button>
-              )}
-            </>
+                setCtxMenu(null);
+              }}
+              onCancelLink={() => {
+                setLinkMode(false);
+                setLinkSrc(null);
+                setNotice(null);
+                setCtxMenu(null);
+              }}
+            />
           )}
         </div>
       )}
+
 
       {/* 線の編集パネル (カラムの対応をチェックで設定) */}
       {edgePanel &&
@@ -3915,155 +2427,23 @@ export function ErWindow() {
           );
         })()}
 
-      {/* 削除確認ダイアログ */}
-      {confirm && (
-        <div className="er-modal-overlay" onMouseDown={() => setConfirm(null)}>
-          <div className="er-modal" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="er-modal-head">
-              <div className="er-modal-icon danger">✕</div>
-              <div>
-                <div className="er-modal-title">{confirm.title}</div>
-                <div className="er-modal-sub">
-                  {confirm.sub ?? "この操作は元に戻せません"}
-                </div>
-              </div>
-            </div>
-            <p className="er-modal-body">{confirm.message}</p>
-            <div className="er-modal-actions">
-              <button
-                className="btn-ghost er-modal-cancel"
-                onClick={() => setConfirm(null)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="btn-primary btn-delete"
-                autoFocus
-                onClick={() => {
-                  const a = confirm.action;
-                  setConfirm(null);
-                  a();
-                }}
-              >
-                削除する
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* リバース時の確認ダイアログ */}
-      {reverseDialog && (
-        <div
-          className="er-modal-overlay"
-          onMouseDown={() => setReverseDialog(false)}
-        >
-          <div className="er-modal" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="er-modal-head">
-              <div className="er-modal-icon">⟳</div>
-              <div>
-                <div className="er-modal-title">リバース</div>
-                <div className="er-modal-sub mono">
-                  {session?.name} / {sel.database}
-                </div>
-              </div>
-            </div>
-            <p className="er-modal-body">
-              図に無い新規のテーブルも読み込みますか？
-              <br />
-              「読み込まない」でも既存テーブルのカラムの増減は反映されます。
-            </p>
-            {removedTables.size > 0 && (
-              <label className="er-modal-check">
-                <input
-                  type="checkbox"
-                  checked={reviveTables}
-                  onChange={(e) => setReviveTables(e.target.checked)}
-                />
-                図から削除したテーブル ({removedTables.size}件) も復活させる
-              </label>
-            )}
-            <div className="er-modal-actions">
-              <button
-                className="btn-ghost er-modal-cancel"
-                onClick={() => setReverseDialog(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  setReverseDialog(false);
-                  doReverse(false, reviveTables);
-                }}
-              >
-                読み込まない
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  setReverseDialog(false);
-                  doReverse(true, reviveTables);
-                }}
-              >
-                読み込む
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 図の名前入力ダイアログ */}
-      {nameDialog && (
-        <div
-          className="er-modal-overlay"
-          onMouseDown={() => setNameDialog(null)}
-        >
-          <div className="er-modal" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="er-modal-head">
-              <div className="er-modal-icon">✎</div>
-              <div>
-                <div className="er-modal-title">
-                  {nameDialog.mode === "saveAs"
-                    ? "名前を付けて保存"
-                    : "名前を変更"}
-                </div>
-                <div className="er-modal-sub">
-                  どの接続からでもこの名前で開けます
-                </div>
-              </div>
-            </div>
-            <input
-              className="er-modal-input"
-              value={nameDialog.value}
-              autoFocus
-              placeholder="例: 受注まわり"
-              onChange={(e) =>
-                setNameDialog({ ...nameDialog, value: e.target.value })
-              }
-              onKeyDown={(e) => {
-                if (e.key === "Enter") commitNameDialog();
-                else if (e.key === "Escape") setNameDialog(null);
-              }}
-            />
-            <div className="er-modal-actions">
-              <button
-                className="btn-ghost er-modal-cancel"
-                onClick={() => setNameDialog(null)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="btn-primary"
-                disabled={!nameDialog.value.trim()}
-                onClick={commitNameDialog}
-              >
-                保存
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ErDialogs
+        confirm={confirm}
+        onCloseConfirm={() => setConfirm(null)}
+        reverseOpen={reverseDialog}
+        onCloseReverse={() => setReverseDialog(false)}
+        reverseTarget={`${session?.name ?? ""} / ${sel.database}`}
+        removedCount={removedTables.size}
+        reviveTables={reviveTables}
+        onChangeRevive={setReviveTables}
+        onReverse={doReverse}
+        nameDialog={nameDialog}
+        onChangeName={(value) =>
+          setNameDialog((d) => (d ? { ...d, value } : d))
+        }
+        onCloseName={() => setNameDialog(null)}
+        onCommitName={commitNameDialog}
+      />
     </div>
   );
 }

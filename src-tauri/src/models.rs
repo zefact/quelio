@@ -51,6 +51,23 @@ pub struct ConnectionProfile {
     /// TLSで接続する (Valkey用。AWS ElastiCache等のin-transit暗号化)
     #[serde(default)]
     pub tls: bool,
+    /// MySQL / PostgreSQL のTLSの使い方。
+    /// "disable" | "require" | "verify-ca" | "verify-full"。
+    /// 未設定(None)はドライバの既定 (使えれば使う・検証なし)
+    #[serde(default)]
+    pub ssl_mode: Option<String>,
+    /// サーバー証明書の検証に使うCA証明書 (PEM) のパス
+    #[serde(default)]
+    pub ca_cert_path: Option<String>,
+    /// クライアント証明書 (PEM) のパス
+    #[serde(default)]
+    pub client_cert_path: Option<String>,
+    /// クライアント証明書の秘密鍵 (PEM) のパス
+    #[serde(default)]
+    pub client_key_path: Option<String>,
+    /// 読み取り専用で接続する (更新系の操作を全て拒否する)
+    #[serde(default)]
+    pub read_only: bool,
     /// SSHトンネル設定(任意)
     #[serde(default)]
     pub ssh: Option<SshConfig>,
@@ -60,6 +77,11 @@ pub struct ConnectionProfile {
     /// アイコン色 (#rrggbb。NoneならDB種別ごとの既定色)
     #[serde(default)]
     pub color: Option<String>,
+    /// 保存されたパスワード・パスフレーズを復号できなかった
+    /// (マスターキーが変わった等)。画面に注意を出すための実行時の目印で、
+    /// 保存時は常にfalseで書き出す
+    #[serde(default)]
+    pub password_locked: bool,
 }
 
 /// 接続先を整理するフォルダ
@@ -123,6 +145,14 @@ pub struct TableInfo {
     pub table_type: String,
     /// 概算行数 (取得できない場合はNone)
     pub row_estimate: Option<i64>,
+    /// PostgreSQL: このテーブル自身の分け方 (`RANGE (at)` など)。
+    /// 分かれていなければ None
+    #[serde(default)]
+    pub partition_by: Option<String>,
+    /// PostgreSQL: パーティションの子なら、親テーブル名と範囲の指定。
+    /// (`"public"."sales"`, `FOR VALUES FROM (…) TO (…)`)
+    #[serde(default)]
+    pub partition_of: Option<(String, String)>,
 }
 
 /// カラム定義の1件
@@ -150,6 +180,10 @@ pub struct IndexInfo {
     pub unique: bool,
     /// 対象カラム (PostgreSQLは定義式)
     pub columns: String,
+    /// MySQLの接頭辞インデックスの長さ (columns の並びと対応。無ければNone)。
+    /// columns 側は編集にそのまま使うため、長さはここへ分けて持つ
+    #[serde(default)]
+    pub sub_parts: Vec<Option<i64>>,
     pub index_type: Option<String>,
     pub cardinality: Option<i64>,
     /// 主キーやUNIQUE制約に紐づくインデックスか。
@@ -167,12 +201,32 @@ pub struct FkInfo {
     pub ref_column: String,
 }
 
+/// テーブルに付いている外部キー1件 (定義の表示・編集用)
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignKeyInfo {
+    /// 制約名
+    pub name: String,
+    /// このテーブル側のカラム (複合キーは複数)
+    pub columns: Vec<String>,
+    /// 参照先のスキーマ (MySQL/SQLiteは空)
+    pub ref_schema: String,
+    pub ref_table: String,
+    pub ref_columns: Vec<String>,
+    /// ON DELETE の動作 (指定が無ければ空)
+    pub on_delete: String,
+    /// ON UPDATE の動作 (指定が無ければ空)
+    pub on_update: String,
+}
+
 /// テーブル構造の詳細
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TableDetail {
     pub columns: Vec<ColumnInfo>,
     pub indexes: Vec<IndexInfo>,
+    /// このテーブルから出ている外部キー
+    pub foreign_keys: Vec<ForeignKeyInfo>,
     /// テーブル情報 (ラベル, 値) の組
     pub info: Vec<(String, String)>,
 }
@@ -184,6 +238,13 @@ pub struct QueryResult {
     pub columns: Vec<String>,
     /// セル値 (Noneは NULL)
     pub rows: Vec<Vec<Option<String>>>,
+    /// 長すぎて切り詰めたセルの位置。
+    ///
+    /// 値そのものにも「… (全N文字)」を付けたままにしてあるが、
+    /// 画面側がその文言を読み戻して判定すると、文言を変えただけで壊れる。
+    /// 位置と長さはここから取る
+    #[serde(default)]
+    pub clipped: Vec<crate::query::ClippedCell>,
     /// このページの先頭行のオフセット
     pub offset: usize,
     /// 次のページが存在するか
@@ -260,4 +321,15 @@ pub struct TestResult {
     pub message: String,
     pub server_version: Option<String>,
     pub elapsed_ms: u64,
+}
+
+/// エクスポート対象のテーブル (PostgreSQLはスキーマで修飾する)。
+/// 名前を文字列で連結せずに持つことで、外部コマンドへ渡すときに
+/// スキーマとテーブルを取り違えたり、区切りの `.` を誤解釈したりしない
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportTable {
+    #[serde(default)]
+    pub schema: Option<String>,
+    pub name: String,
 }

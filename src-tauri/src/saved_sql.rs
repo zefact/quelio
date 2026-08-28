@@ -1,7 +1,9 @@
 //! 保存SQL (スニペット) の管理 (アプリ設定フォルダの saved_sql.json)
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use crate::json_store;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,30 +18,19 @@ pub struct SavedSql {
 }
 
 fn store_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("設定ディレクトリを取得できません: {e}"))?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("設定ディレクトリを作成できません: {e}"))?;
-    Ok(dir.join("saved_sql.json"))
+    json_store::config_path(app, "saved_sql.json")
 }
 
 pub fn load(app: &AppHandle) -> Result<Vec<SavedSql>, String> {
     let path = store_path(app)?;
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| format!("保存SQLを読み込めません: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("保存SQLの形式が不正です: {e}"))
+    Ok(json_store::read(&path, "保存SQL")?.unwrap_or_default())
 }
 
 fn save_all(app: &AppHandle, list: &[SavedSql]) -> Result<(), String> {
     let path = store_path(app)?;
     let text = serde_json::to_string_pretty(list)
         .map_err(|e| format!("保存SQLのシリアライズに失敗: {e}"))?;
-    std::fs::write(&path, text).map_err(|e| format!("保存SQLを書き込めません: {e}"))
+    json_store::write(&path, &text, "保存SQL")
 }
 
 /// フォルダパスを正規化する (前後空白と空セグメントを除去)
@@ -75,7 +66,7 @@ pub fn upsert(
         return Err("保存するSQLがありません".into());
     }
     let folder = normalize_folder(&folder);
-    let mut list = load(app).unwrap_or_default();
+    let mut list = load(app)?;
 
     match id.filter(|s| !s.is_empty()) {
         Some(id) => {
@@ -107,7 +98,7 @@ pub fn upsert(
 
 /// 削除して全件を返す
 pub fn delete(app: &AppHandle, id: &str) -> Result<Vec<SavedSql>, String> {
-    let mut list = load(app).unwrap_or_default();
+    let mut list = load(app)?;
     list.retain(|e| e.id != id);
     save_all(app, &list)?;
     Ok(list)

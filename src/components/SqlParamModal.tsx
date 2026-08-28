@@ -1,5 +1,11 @@
-import { useState } from "react";
-import { PARAM_KINDS, ParamKind, ParamValue } from "../sqlParams";
+import { useEffect, useState } from "react";
+import {
+  PARAM_KINDS,
+  ParamKind,
+  ParamValue,
+} from "../sqlParams";
+import { previewSql } from "../api";
+import type { DbType } from "../types";
 import { SelectMenu } from "./SelectMenu";
 
 interface Props {
@@ -7,12 +13,25 @@ interface Props {
   params: string[];
   /** 前回使用した値・スキーマから推測した型などの初期値 */
   initial: Record<string, ParamValue>;
+  /** 実行するSQL (置換後のプレビューに使う) */
+  sql: string;
+  /** プレビューを組み立てる接続 */
+  sessionId: string;
+  dbType: DbType;
   onCancel: () => void;
   onSubmit: (values: Record<string, ParamValue>) => void;
 }
 
 /** SQL実行前のパラメータ入力モーダル */
-export function SqlParamModal({ params, initial, onCancel, onSubmit }: Props) {
+export function SqlParamModal({
+  params,
+  initial,
+  sql,
+  sessionId,
+  dbType,
+  onCancel,
+  onSubmit,
+}: Props) {
   const [values, setValues] = useState<Record<string, ParamValue>>(() => ({
     ...initial,
   }));
@@ -25,12 +44,37 @@ export function SqlParamModal({ params, initial, onCancel, onSubmit }: Props) {
 
   const submit = () => onSubmit(values);
 
+  /**
+   * 実際に実行されるSQL。
+   *
+   * 埋め込みはバックエンドで行うため、プレビューも同じ処理に組み立てさせる
+   * (画面側で作り直すと、見えている内容と実際に走る内容がずれる)
+   */
+  const [preview, setPreview] = useState(sql);
+  useEffect(() => {
+    let alive = true;
+    // 入力のたびに投げないよう少し待つ
+    const timer = window.setTimeout(() => {
+      previewSql(sessionId, sql, dbType, values)
+        .then((s) => {
+          if (alive) setPreview(s);
+        })
+        .catch(() => {});
+    }, 120);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [sessionId, sql, dbType, values]);
+
   return (
     <div className="modal-overlay" onMouseDown={onCancel}>
       <div
         className="modal sqlp-modal"
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
+          // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+          if (e.nativeEvent.isComposing) return;
           if (e.key === "Escape") onCancel();
           if (e.key === "Enter") {
             e.preventDefault();
@@ -72,6 +116,11 @@ export function SqlParamModal({ params, initial, onCancel, onSubmit }: Props) {
               </div>
             );
           })}
+        </div>
+        {/* 埋め込みは文字列置換なので、実行前に必ず結果を見せる */}
+        <div className="sqlp-preview">
+          <div className="sqlp-preview-head">実行されるSQL</div>
+          <pre className="mono sqlp-preview-body">{preview}</pre>
         </div>
         <div className="sqlp-hint">
           型はカラム定義から自動判定されます (右のプルダウンで変更可能)。

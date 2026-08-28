@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
+import { RevealButton } from "./RevealButton";
 import { exportSchemaCsv, getAppSettings, listSessions, schemaSnapshot } from "../api";
 import { parseComment } from "../comment";
+import { usePolling } from "../hooks/usePolling";
 import type { SchemaEntry, SessionSummary, TableInfo } from "../types";
 import { GridColumn, ResizableGrid } from "./ResizableGrid";
 
@@ -83,11 +86,8 @@ export function SchemaWindow() {
     }
   };
 
-  useEffect(() => {
-    refreshSessions();
-    const timer = setInterval(refreshSessions, 3000);
-    return () => clearInterval(timer);
-  }, []);
+  // ウィンドウが隠れている間は止める
+  usePolling(refreshSessions, 3000);
 
   const load = async (sessionId: string, database: string) => {
     if (!sessionId || !database) return;
@@ -112,6 +112,9 @@ export function SchemaWindow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** 直近に保存したファイル (「フォルダを開く」の対象) */
+  const [savedPath, setSavedPath] = useState<string | null>(null);
+
   const handleExport = async () => {
     if (!sel.sessionId || !sel.database || exporting) return;
     setExporting(true);
@@ -120,7 +123,8 @@ export function SchemaWindow() {
     try {
       const paths = await exportSchemaCsv(sel.sessionId, sel.database);
       const names = paths.map((p) => p.split("/").pop()).join(" / ");
-      setNotice(`保存先フォルダに保存しました: ${names}`);
+      setNotice(`${names} を保存しました: ${paths[0] ?? ""}`);
+      setSavedPath(paths[0] ?? null);
       setTimeout(() => setNotice(null), 10000);
     } catch (e) {
       setError(String(e));
@@ -300,9 +304,11 @@ export function SchemaWindow() {
       </div>
 
       {error && (
-        <div className="result-banner ng diff-error">
+        <div
+          className={`result-banner ${isCancelled(error) ? "ok" : "ng"} diff-error`}
+        >
           <span className="dot" aria-hidden />
-          <strong>エラー</strong>
+          <strong>{isCancelled(error) ? "中止" : "エラー"}</strong>
           <span className="result-detail">{error}</span>
         </div>
       )}
@@ -311,16 +317,26 @@ export function SchemaWindow() {
           <span className="dot" aria-hidden />
           <strong>CSV出力</strong>
           <span className="result-detail">{notice}</span>
+          {savedPath && (
+            <>
+              <span className="toolbar-spacer" />
+              <RevealButton path={savedPath} />
+            </>
+          )}
         </div>
       )}
 
       {loading ? (
-        <div className="content-placeholder dim-center">
-          <span className="spinner accent" /> スキーマを読み込み中...
-        </div>
+        <LoadingWithCancel
+          label="スキーマを読み込み中..."
+          sessionIds={[sel.sessionId]}
+          dbTypes={[sessions.find((s) => s.sessionId === sel.sessionId)?.dbType]}
+        />
       ) : !entries ? (
         <div className="content-placeholder dim-center">
-          接続とデータベースを選択してください
+          {sessions.length === 0
+            ? "開いている接続がありません (メイン画面でデータベースに接続してください)"
+            : "上の選択欄から接続とデータベースを選ぶと、一覧を読み込みます"}
         </div>
       ) : (
         <div className="schema-body">

@@ -3,12 +3,20 @@ mod backup;
 mod catalog;
 mod commands;
 mod crypto;
+mod csv_import;
+mod dbadmin;
+mod kv_bulk;
+mod search;
 mod csv_job;
 mod db;
 mod ddl;
+mod ddl_table;
+mod dialect;
 mod dml;
 mod er_store;
 mod export;
+mod filename;
+mod json_store;
 mod known_hosts;
 mod kv;
 mod models;
@@ -21,32 +29,28 @@ mod sql_params;
 mod ssh_tunnel;
 mod storage;
 mod tools;
+mod uploads;
+mod workspace;
+
+/// 「Quelioについて」メニューのID (押されたらフロントへ通知する)
+#[cfg(target_os = "macos")]
+const ABOUT_MENU_ID: &str = "about";
 
 /// macOS用の日本語メニューバーを構築する
 #[cfg(target_os = "macos")]
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
-    use tauri::menu::{AboutMetadataBuilder, Menu, PredefinedMenuItem, Submenu};
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
-    // 「Quelioについて」のバージョン表記 (0.x系はベータ版と明記)
-    let version = app.package_info().version.to_string();
-    let version_label = if version.starts_with("0.") {
-        format!("{version} (ベータ版)")
-    } else {
-        version.clone()
-    };
-    // macOSは「Version <short_version> (<version>)」と連結表示するため
-    // short_versionのみ設定して二重表記を避ける
-    let about_meta = AboutMetadataBuilder::new()
-        .name(Some("Quelio".to_string()))
-        .short_version(Some(version_label))
-        .build();
+    // OS標準のAboutパネルではなく、アプリ内の「Quelioについて」を出す
+    // (アイコン・説明・リリース日・サイトのリンクまで同じ見た目で見せるため)
+    let about = MenuItem::with_id(app, ABOUT_MENU_ID, "Quelioについて", true, None::<&str>)?;
 
     let app_menu = Submenu::with_items(
         app,
         "Quelio",
         true,
         &[
-            &PredefinedMenuItem::about(app, Some("Quelioについて"), Some(about_meta))?,
+            &about,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, Some("サービス"))?,
             &PredefinedMenuItem::separator(app)?,
@@ -113,11 +117,32 @@ pub fn run() {
                     known_hosts::init(dir.join("known_hosts.json"));
                 }
             }
+            // 前回の取り込みが中断して残った一時ファイルを片付ける
+            {
+                use tauri::Manager;
+                if let Ok(dir) = _app.path().app_cache_dir() {
+                    uploads::cleanup_old(&dir.join("uploads"));
+                }
+            }
             // メニューバーを日本語化 (macOSのみ)
             #[cfg(target_os = "macos")]
             {
+                use tauri::{Emitter, Manager};
                 let menu = build_menu(_app.handle())?;
                 _app.set_menu(menu)?;
+                _app.on_menu_event(|app, event| {
+                    if event.id() == ABOUT_MENU_ID {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.emit("show-about", ());
+                        }
+                    }
+                });
+            }
+            // コンソール画面へ「SQLを記録した」と知らせるためのハンドルを渡す
+            {
+                use tauri::Manager;
+                _app.state::<query_log::QueryLog>()
+                    .set_app(_app.handle().clone());
             }
             // キープアライブ: 120秒ごとに全セッションへpingを送り、
             // サーバーやファイアウォールのアイドル切断を防ぐ
@@ -128,7 +153,8 @@ pub fn run() {
                     loop {
                         tokio::time::sleep(std::time::Duration::from_secs(120)).await;
                         let sessions = handle.state::<sessions::Sessions>();
-                        sessions::keepalive_all(&sessions).await;
+                        let qlog = handle.state::<query_log::QueryLog>();
+                        sessions::keepalive_all(&sessions, &qlog).await;
                     }
                 });
             }
@@ -147,28 +173,58 @@ pub fn run() {
             commands::delete_folder,
             commands::update_layout,
             commands::test_connection,
+            commands::system_databases,
+            commands::list_charsets,
+            commands::preview_create_database,
+            commands::preview_create_schema,
+            commands::check_config_files,
+            commands::quarantine_config_file,
             commands::connect_session,
             commands::list_tables,
             commands::table_detail,
             commands::run_query,
+            commands::preview_sql,
             commands::cancel_query,
+            commands::cancel_schema_load,
             commands::kv_scan,
             commands::kv_key_detail,
             commands::kv_exec,
+            commands::check_kv_destructive,
             commands::kv_apply,
             commands::export_schema_csv,
             commands::export_query_csv,
+            commands::export_plan_csv,
             commands::list_collations,
             commands::schema_columns,
             commands::list_column_types,
             commands::create_table,
+            commands::preview_create_table,
             commands::rename_table,
             commands::drop_table,
             commands::set_table_comment,
             commands::preview_column_ddl,
             commands::apply_column_ddl,
             commands::apply_index_ddl,
+            commands::apply_foreign_key_ddl,
             commands::apply_row_change,
+            commands::fetch_cell,
+            commands::count_table_rows,
+            commands::list_routines,
+            commands::search_objects,
+            commands::search_values,
+            commands::kv_count_keys,
+            commands::kv_delete_keys,
+            commands::kv_search,
+            commands::create_database,
+            commands::drop_database,
+            commands::list_schemas,
+            commands::change_schema,
+            commands::list_processes,
+            commands::preview_csv,
+            commands::import_csv,
+            commands::kill_process,
+            commands::table_ddl,
+            commands::reveal_path,
             commands::csv_export_status,
             commands::cancel_csv_export,
             commands::export_connections,
@@ -200,14 +256,18 @@ pub fn run() {
             commands::open_diff,
             commands::open_schema,
             commands::open_er,
-            commands::foreign_keys,
+            commands::schema_with_foreign_keys,
+            commands::get_workspace,
+            commands::save_workspace,
             commands::get_er_diagram,
             commands::save_er_diagram,
             commands::list_er_diagrams,
             commands::delete_er_diagram,
             commands::disconnect_session,
+            commands::check_dangerous_sql,
             commands::get_query_log,
             commands::clear_query_log,
+            commands::export_query_log,
             commands::open_console,
         ])
         .run(tauri::generate_context!())

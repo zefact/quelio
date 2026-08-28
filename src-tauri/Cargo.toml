@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.5.3"
+version = "0.6.0"
 description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -24,6 +24,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# パスワードを持つ構造体を捨てるときにメモリを潰すため
+zeroize = { version = "1", features = ["alloc"] }
 tokio = { version = "1.53.1", features = ["full"] }
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "rust_decimal", "uuid", "json"] }
 # 結果セットを1ページ分だけストリームで読み取るために使う (sqlxが返すStreamの操作用)
@@ -44,4 +46,7 @@ aes-gcm = "0.10"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
+csv = "1"
+encoding_rs = "0.8"
+encoding_rs_io = "0.1"
 

@@ -1,11 +1,12 @@
 import { useState } from "react";
+import type { Notify } from "../notify";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppSettings } from "../hooks/useAppSettings";
 import { ColorMode, getColorMode, setColorMode } from "../theme";
 import { SettingRow } from "./SettingRow";
 
 interface Props {
-  notify: (msg: string) => void;
+  notify: Notify;
 }
 
 const COLOR_MODES: [ColorMode, string][] = [
@@ -44,7 +45,7 @@ export function SettingsGeneral({ notify }: Props) {
         saveApp({ ...app, downloadDir: dir });
       }
     } catch (e) {
-      notify(String(e));
+      notify(String(e), "error");
     }
   };
 
@@ -71,10 +72,29 @@ export function SettingsGeneral({ notify }: Props) {
       </section>
 
       <section className="set-section">
+        <h3 className="set-section-title">起動時</h3>
+        <SettingRow
+          title="前回のタブを復元する"
+          desc="前回開いていたタブ (接続先と書きかけのSQL) を起動時に戻します。接続はしません。切っておくと、空のタブ1つで始まります。"
+        >
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={app.restoreTabs}
+              onChange={(e) =>
+                saveApp({ ...app, restoreTabs: e.target.checked })
+              }
+            />
+            <span className="track" aria-hidden />
+          </label>
+        </SettingRow>
+      </section>
+
+      <section className="set-section">
         <h3 className="set-section-title">SQL結果</h3>
         <SettingRow
           title="行番号を表示"
-          desc="SQL実行結果の左端に行番号(#)の列を表示します。"
+          desc="SQL実行結果の左端に「行」の列 (取得結果の通し番号) を表示します。"
         >
           <label className="switch">
             <input
@@ -82,6 +102,21 @@ export function SettingsGeneral({ notify }: Props) {
               checked={app.showRowNumbers}
               onChange={(e) =>
                 saveApp({ ...app, showRowNumbers: e.target.checked })
+              }
+            />
+            <span className="track" aria-hidden />
+          </label>
+        </SettingRow>
+        <SettingRow
+          title="定義の変更も確認する"
+          desc="ALTER・RENAME の実行前に確認を出します。マイグレーション用のSQLをまとめて流すときは外してください。DROP・TRUNCATE や WHERE の無い UPDATE / DELETE は、この設定に関わらず必ず確認します。"
+        >
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={app.confirmAlter}
+              onChange={(e) =>
+                saveApp({ ...app, confirmAlter: e.target.checked })
               }
             />
             <span className="track" aria-hidden />
@@ -109,6 +144,8 @@ export function SettingsGeneral({ notify }: Props) {
               }}
               onBlur={() => saveApp({ ...app })}
               onKeyDown={(e) => {
+                // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                if (e.nativeEvent.isComposing) return;
                 if (e.key === "Enter") saveApp({ ...app });
               }}
             />
@@ -161,6 +198,8 @@ export function SettingsGeneral({ notify }: Props) {
             }
             onBlur={() => saveApp({ ...app, commentDelimiter: delim })}
             onKeyDown={(e) => {
+              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+              if (e.nativeEvent.isComposing) return;
               if (e.key === "Enter") saveApp({ ...app, commentDelimiter: delim });
             }}
           />
@@ -172,7 +211,7 @@ export function SettingsGeneral({ notify }: Props) {
         <SettingRow
           stack
           title="保存先フォルダ"
-          desc="キャプチャPNG・スキーマCSV・SQLエクスポートなどの保存先です。未設定の場合はOSのダウンロードフォルダに保存します。"
+          desc="キャプチャPNG・スキーマCSV・SQLダンプなどの保存先です。未設定の場合はOSのダウンロードフォルダに保存します。"
         >
           <div className="download-dir-field">
             <span

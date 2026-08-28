@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { usePopupPosition } from "../hooks/usePopupPosition";
+import { ConfirmDialog } from "./ConfirmDialog";
 import type {
   ColumnInfo,
   DbType,
@@ -10,6 +10,12 @@ import type {
 } from "../types";
 import { IndexColumnsDialog } from "./IndexColumnsDialog";
 import { GridColumn, GridRow, ResizableGrid } from "./ResizableGrid";
+import { useDismiss } from "../hooks/useDismiss";
+import {
+  useAsyncApply,
+  useEscapeCancel,
+  useGridFocus,
+} from "../hooks/useEditableGrid";
 
 interface Props {
   indexes: IndexInfo[];
@@ -193,18 +199,11 @@ export function IndexGrid({
   onApply,
 }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; key: string } | null>(
-    null
-  );
-  // メニューが画面の外へはみ出さないように位置を補正する
-  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
-    menu?.x ?? 0,
-    menu?.y ?? 0
-  );
+  const { busy, error, setError, run } = useAsyncApply<IndexChange>(onApply);
   /** 対象カラムを選ぶダイアログを開いているか */
   const [picking, setPicking] = useState(false);
+  /** 削除の確認中のインデックス名 (作り直しに時間がかかるため確認を出す) */
+  const [dropping, setDropping] = useState<IndexInfo | null>(null);
   /** 種別の説明ポップアップの位置 (画面外へはみ出さないよう上下を切り替える) */
   const [help, setHelp] = useState<{
     x: number;
@@ -220,63 +219,22 @@ export function IndexGrid({
     setPicking(false);
   }, [resetKey]);
 
-  // フォーカスが外れていてもEscで取り消せるようにする
-  useEffect(() => {
-    if (!editing) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || busy) return;
-      // カラム選択ダイアログを開いているときはそちらを閉じるだけにする
-      if (picking) return;
+  // フォーカスが外れていてもEscで取り消せるようにする。
+  // カラム選択ダイアログを開いているときはそちらを閉じるだけにする
+  useEscapeCancel(
+    !!editing,
+    () => {
       setEditing(null);
       setError(null);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [editing, busy, picking]);
+    },
+    { busy, blocked: picking }
+  );
 
-  // メニューは外側クリックで閉じる
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    document.addEventListener("mousedown", close);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      window.removeEventListener("resize", close);
-    };
-  }, [menu]);
-
-  // 種別の説明も外側クリック・Escで閉じる
-  useEffect(() => {
-    if (!help) return;
-    const close = () => setHelp(null);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setHelp(null);
-      }
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", close);
-    };
-  }, [help]);
+  // 種別の説明も外側クリック・Esc・リサイズで閉じる
+  useDismiss(!!help, () => setHelp(null), { resize: true, escape: true });
 
   // 編集対象のセルが変わったらその入力欄へフォーカスを移す
-  const focusKey = editing ? `${editing.key}:${editing.field}` : "";
-  useEffect(() => {
-    if (!focusKey) return;
-    const field = focusKey.slice(focusKey.lastIndexOf(":") + 1);
-    const el = document.querySelector<HTMLInputElement>(
-      `.grid tr.row-editing [data-ifield="${field}"]`
-    );
-    el?.focus();
-    if (el?.type === "text") el.select();
-  }, [focusKey]);
+  useGridFocus(editing ? `${editing.key}:${editing.field}` : "", "data-ifield");
 
   /** 種別を指定できるのはMySQL / PostgreSQLだけ */
   const canIndexType = INDEX_TYPES[dbType].length > 0;
@@ -363,24 +321,13 @@ export function IndexGrid({
     const change: IndexChange = editing.key
       ? { kind: "modify", before: editing.key, index }
       : { kind: "add", index };
-    await run(change, () => setEditing(null));
-  };
-
-  /** 変更を実行する共通処理 (失敗したらエラーを出して状態は残す) */
-  const run = async (change: IndexChange, onOk?: () => void) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await onApply(change);
-      onOk?.();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
+    // 失敗したら直せるよう、行は編集状態のまま残す
+    if (await run(change)) setEditing(null);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // 日本語入力の変換中のEnter/Escは、確定・取り消しの操作なので拾わない
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter") {
       e.preventDefault();
       commit();
@@ -504,8 +451,6 @@ export function IndexGrid({
     });
   }
 
-  const menuIndex = menu ? indexes.find((ix) => ix.name === menu.key) : undefined;
-
   return (
     <>
       <h3 className="structure-heading">
@@ -615,6 +560,8 @@ export function IndexGrid({
       <ResizableGrid
         autoFit
         animateRows
+        // 行を選んでコピーできるようにする (編集中は選択させない)
+        selectable={!editing}
         columns={INDEX_COLS}
         emptyText="インデックスがありません"
         rows={rows}
@@ -632,15 +579,28 @@ export function IndexGrid({
               }
             : undefined
         }
-        onRowContextMenu={
-          canEdit
-            ? (key, e) => {
-                if (key === NEW_ROW || busy || editing) return;
-                e.preventDefault();
-                setMenu({ x: e.clientX, y: e.clientY, key });
-              }
-            : undefined
-        }
+        rowMenuHead={(key) => (key === NEW_ROW ? undefined : key)}
+        rowMenuItems={(key) => {
+          if (!canEdit || key === NEW_ROW || busy || editing) return [];
+          const ix = indexes.find((x) => x.name === key);
+          if (!ix) return [];
+          const reason = ix.constrained ? constrainedReason() : undefined;
+          return [
+            {
+              label: "このインデックスを編集",
+              disabled: ix.constrained,
+              title: reason,
+              onSelect: () => startEdit(ix, "name"),
+            },
+            {
+              label: "このインデックスを削除",
+              danger: true,
+              disabled: ix.constrained,
+              title: reason,
+              onSelect: () => setDropping(ix),
+            },
+          ];
+        }}
       />
 
       {picking && editing && (
@@ -680,41 +640,20 @@ export function IndexGrid({
           document.body
         )}
 
-      {menu &&
-        menuIndex &&
-        createPortal(
-          <div
-            className="context-menu"
-            ref={menuRef}
-            style={menuStyle}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="grid-sort-head mono">{menuIndex.name}</div>
-            <button
-              className="context-item"
-              disabled={menuIndex.constrained}
-              title={menuIndex.constrained ? constrainedReason() : undefined}
-              onClick={() => {
-                setMenu(null);
-                startEdit(menuIndex, "name");
-              }}
-            >
-              このインデックスを編集
-            </button>
-            <button
-              className="context-item danger"
-              disabled={menuIndex.constrained}
-              title={menuIndex.constrained ? constrainedReason() : undefined}
-              onClick={() => {
-                setMenu(null);
-                run({ kind: "drop", name: menuIndex.name });
-              }}
-            >
-              このインデックスを削除
-            </button>
-          </div>,
-          document.body
-        )}
+      {dropping && (
+        <ConfirmDialog
+          title="インデックスを削除します"
+          target={dropping.name}
+          onCancel={() => setDropping(null)}
+          onConfirm={async () => {
+            await onApply({ kind: "drop", name: dropping.name });
+            setDropping(null);
+          }}
+        >
+          データは消えませんが、削除するとこのインデックスを使った検索が遅くなります。
+          作り直しには、テーブルが大きいほど時間がかかります。
+        </ConfirmDialog>
+      )}
     </>
   );
 }

@@ -25,6 +25,7 @@ pub fn export_connections(app: &AppHandle, path: &str) -> Result<usize, String> 
     let mut store = storage::load(app)?;
     for c in &mut store.connections {
         c.password = String::new();
+        c.password_locked = false;
         if let Some(ssh) = &mut c.ssh {
             ssh.passphrase = None;
         }

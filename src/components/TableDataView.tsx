@@ -1,8 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
-import { usePopupPosition } from "../hooks/usePopupPosition";
-import type { ColumnInfo, QueryResult, RowCell, RowChange } from "../types";
+import { memo, useEffect, useMemo, useState } from "react";
+import type {
+  CellValue,
+  ColumnInfo,
+  DbType,
+  RowCell,
+  RowChange,
+} from "../types";
 import { QUERY_PAGE_SIZE } from "../types";
+import type { TableDataPane } from "./panes";
+import { CellDetail } from "./CellDetail";
+import { clipIndex, clippedRowKeys } from "../cellValue";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { CellText } from "./CellText";
 import {
   GridColumn,
   GridRow,
@@ -10,14 +19,15 @@ import {
   SortDir,
   SortState,
 } from "./ResizableGrid";
+import {
+  useAsyncApply,
+  useEscapeCancel,
+  useGridFocus,
+} from "../hooks/useEditableGrid";
 
 interface Props {
-  /** 取得済みの1ページぶんのデータ (未取得はnull) */
-  data: QueryResult | null;
-  loading: boolean;
-  error: string | null;
-  /** 絞り込み条件 (WHERE句。空なら全件) */
-  where: string;
+  /** データタブの状態と操作 (上の画面から素通しで渡ってくる) */
+  pane: TableDataPane;
   /** 行番号列を表示するか (設定値) */
   showRowNumbers: boolean;
   /** カラム名(小文字) → 論理名・補足・型の説明 (ヘッダのツールチップ用) */
@@ -26,15 +36,18 @@ interface Props {
   tableColumns: ColumnInfo[];
   /** データを編集できるか (ビュー・Valkey以外) */
   canEdit: boolean;
+  /** canEditがfalseのときの理由 (画面に出す) */
+  editDisabledReason?: string;
+  /** INSERT文でコピーするときの表名 (クォート済み) */
+  insertTable?: string;
+  /** カラム名をDBの書き方でクォートする (INSERT文のコピー用) */
+  quoteName?: (name: string) => string;
+  /** 接続の種類 (INSERT文の文字列の書き方に使う) */
+  dbType?: DbType;
   /** 1行分の変更を実行する。失敗したら例外を投げること */
   onApplyRow: (change: RowChange) => Promise<void>;
-  onChangeWhere: (where: string) => void;
-  /** 絞り込みを適用して先頭ページから取得し直す */
-  onApplyWhere: () => void;
-  /** 表示中のページを取得し直す */
-  onReload: () => void;
-  onPage: (offset: number) => void;
-  onSort: (orderBy: string | null, orderDir: "asc" | "desc") => void;
+  /** 切り詰められたセルの全文を読み直す (主キーで行を特定する) */
+  onFetchCell?: (column: string, key: RowCell[]) => Promise<CellValue>;
 }
 
 /** 追加行に使う行キー */
@@ -78,35 +91,46 @@ function PlusIcon() {
 }
 
 /** 選択テーブルのデータ表示 (1000件ごとのページング + サーバーサイドソート + 編集) */
-export function TableDataView({
-  data,
-  loading,
-  error,
-  where,
+function TableDataViewInner({
+  pane,
   showRowNumbers,
   columnTips,
   tableColumns,
   canEdit,
+  editDisabledReason,
+  insertTable,
+  quoteName,
+  dbType,
   onApplyRow,
-  onChangeWhere,
-  onApplyWhere,
-  onReload,
-  onPage,
-  onSort,
+  onFetchCell,
 }: Props) {
+  const {
+    data,
+    loading,
+    error,
+    where,
+    onChangeWhere,
+    onApplyWhere,
+    onReload,
+    onPage,
+    onSort,
+  } = pane;
   const [editing, setEditing] = useState<Editing | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
+  const {
+    busy,
+    error: editError,
+    setError: setEditError,
+    run,
+    runOrThrow,
+  } = useAsyncApply<RowChange>(onApplyRow);
   /** 削除の確認中の行 (データ内の位置) */
   const [deleting, setDeleting] = useState<number | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number; row: number } | null>(
-    null
-  );
-  // メニューが画面の外へはみ出さないように位置を補正する
-  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
-    menu?.x ?? 0,
-    menu?.y ?? 0
-  );
+  /** 全文表示中のセル (カラム番号・行・表示中の値) */
+  const [cellView, setCellView] = useState<{
+    column: number;
+    row: number;
+    value: string;
+  } | null>(null);
 
   /** 主キーのカラム名 (これが無いと行を特定できないので編集させない) */
   const pkColumns = useMemo(
@@ -126,55 +150,48 @@ export function TableDataView({
     [data, tableColumns]
   );
 
-  /** 主キーが全て対象カラムに含まれていれば編集できる */
-  const editable =
-    canEdit &&
+  /** 主キーの値が揃っていて、行を1つに特定できるか */
+  const identifiable =
     pkColumns.length > 0 &&
     !!data &&
     pkColumns.every((p) => dataColumns.includes(p));
 
-  // 取得し直したら編集状態を解除する
+  /** 主キーで行を特定できれば編集できる */
+  const editable = canEdit && identifiable;
+
+  /** 編集できないときの理由 (何も出ないと壊れているように見えるため) */
+  const editHint = editable
+    ? null
+    : !canEdit
+      ? // データに関係なく決まる理由なので、読み込み中でも出す
+        (editDisabledReason ?? "この表は編集できません")
+      : // 主キーの有無は読み込めるまで判断できないので出さない
+        loading || !data
+        ? null
+        : pkColumns.length === 0
+          ? "主キーが無いため、この表からは編集できません (SQLエディタのUPDATE/DELETEをお使いください)"
+          : "主キーが表示されていないため編集できません (絞り込みを解除して読み込み直してください)";
+
+  // 取得し直したら編集状態を解除する。
+  // 全文表示も、行の位置がずれて別の行を指してしまうので閉じる
   useEffect(() => {
     setEditing(null);
     setEditError(null);
+    setCellView(null);
   }, [data]);
 
-  // メニューは外側クリックで閉じる
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    document.addEventListener("mousedown", close);
-    window.addEventListener("resize", close);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      window.removeEventListener("resize", close);
-    };
-  }, [menu]);
-
   // フォーカスが外れていてもEscで編集を取り消せるようにする
-  useEffect(() => {
-    if (!editing) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || busy) return;
+  useEscapeCancel(
+    !!editing,
+    () => {
       setEditing(null);
       setEditError(null);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [editing, busy]);
+    },
+    { busy }
+  );
 
   // 編集対象のセルへフォーカスを移す
-  const focusKey = editing ? `${editing.row}:${editing.col}` : "";
-  useEffect(() => {
-    if (!focusKey) return;
-    const col = focusKey.slice(focusKey.lastIndexOf(":") + 1);
-    const el = document.querySelector<HTMLElement>(
-      `.grid tr.row-editing [data-dcol="${col}"]`
-    );
-    el?.focus();
-    // NULL表示のときはspanなのでselectを持たない
-    if (el instanceof HTMLInputElement) el.select();
-  }, [focusKey]);
+  useGridFocus(editing ? `${editing.row}:${editing.col}` : "", "data-dcol");
 
   const columns: GridColumn[] = useMemo(() => {
     const cols: GridColumn[] = dataColumns.map((name, i) => ({
@@ -264,19 +281,6 @@ export function TableDataView({
     setEditError(null);
   };
 
-  /** 実行して、成功したら編集状態を解除する */
-  const run = async (change: RowChange, onOk?: () => void) => {
-    setBusy(true);
-    setEditError(null);
-    try {
-      await onApplyRow(change);
-      onOk?.();
-    } catch (e) {
-      setEditError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
 
   /** 変更があるか (追加は1つでも入力があれば実行できる) */
   const changed = (() => {
@@ -300,7 +304,8 @@ export function TableDataView({
         .map((column, i) => ({ column, text: editing.draft[i] }))
         .filter((c) => c.text !== "")
         .map((c) => ({ column: c.column, value: toValue(c.text) }));
-      await run({ kind: "insert", values }, () => setEditing(null));
+      // 失敗したら直せるよう、行は編集状態のまま残す
+      if (await run({ kind: "insert", values })) setEditing(null);
       return;
     }
     const before = data.rows[editing.row];
@@ -315,20 +320,24 @@ export function TableDataView({
     const set: RowCell[] = dataColumns
       .map((column, i) => ({ column, value: toValue(editing.draft[i]) }))
       .filter((c, i) => c.value !== before[i]);
-    await run({ kind: "update", key, set }, () => setEditing(null));
+    if (await run({ kind: "update", key, set })) setEditing(null);
   };
 
-  /** 行を削除する (確認ダイアログから呼ばれる) */
+  /** 行を削除する (確認ダイアログから呼ばれる。失敗したら例外を投げる) */
   const deleteRow = async (row: number) => {
     if (!data?.rows[row]) return;
     const key: RowCell[] = pkColumns.map((column) => ({
       column,
       value: data.rows[row][dataColumns.indexOf(column)],
     }));
-    await run({ kind: "delete", key }, () => setDeleting(null));
+    // 失敗した理由は確認ダイアログ側が出すので、投げ直す
+    await runOrThrow({ kind: "delete", key });
+    setDeleting(null);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // 日本語入力の変換中のEnter/Escは、確定・取り消しの操作なので拾わない
+    if (e.nativeEvent.isComposing) return;
     if (e.key === "Enter") {
       e.preventDefault();
       commit();
@@ -378,9 +387,12 @@ export function TableDataView({
           NULL
         </span>
       ) : (
-        <span className="mono" title={v} key={i}>
-          {v}
-        </span>
+        <CellText
+          key={i}
+          value={v}
+          clip={clipAt(index, i)}
+          onOpen={(value) => setCellView({ column: i, row: index, value })}
+        />
       )
     );
     if (showRowNumbers) {
@@ -393,20 +405,47 @@ export function TableDataView({
     return nodes;
   };
 
+  /*
+   * 通常表示の行はメモ化しておく。
+   * セルを1文字打つたびに1000行ぶんの要素を作り直すのを避けるため、
+   * 編集中の1行だけを後から差し替える
+   */
+  /** 切り詰められたセルを (行, 列) から引く */
+  const clipAt = useMemo(() => clipIndex(data?.clipped), [data]);
+  /** 切り詰められた値がある行 (コピーの注記に使う) */
+  const clippedRows = useMemo(() => clippedRowKeys(data?.clipped), [data]);
+
+  const viewRows: GridRow[] = useMemo(
+    () =>
+      (data?.rows ?? []).map((cells, index) => ({
+        key: String(index),
+        cells: viewCells(cells, index),
+      })),
+    // viewCellsが見ているのはこの3つ (行の中身・行番号の表示・ページ先頭)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, showRowNumbers, offset]
+  );
+
   const editRowClass =
     "row-editing" + (busy ? " busy" : "") + (editError ? " has-error" : "");
-  const rows: GridRow[] = (data?.rows ?? []).map((cells, index) =>
-    editing && editing.row === index
-      ? { key: String(index), className: editRowClass, cells: editCells(editing) }
-      : { key: String(index), cells: viewCells(cells, index) }
-  );
-  if (editing && editing.row === "new") {
-    rows.push({
-      key: NEW_ROW,
-      className: `${editRowClass} row-new`,
-      cells: editCells(editing),
-    });
-  }
+  const rows: GridRow[] = !editing
+    ? viewRows
+    : typeof editing.row === "number"
+      ? // 編集中の1行だけ差し替える
+        viewRows.map((r, index) =>
+          index === editing.row
+            ? { key: r.key, className: editRowClass, cells: editCells(editing) }
+            : r
+        )
+      : // 追加行は末尾に足す (メモ化した配列は書き換えない)
+        [
+          ...viewRows,
+          {
+            key: NEW_ROW,
+            className: `${editRowClass} row-new`,
+            cells: editCells(editing),
+          },
+        ];
 
   /** 削除確認に出す行の説明 (主キーの値) */
   const deleteLabel =
@@ -429,6 +468,8 @@ export function TableDataView({
           value={where}
           onChange={(e) => onChangeWhere(e.target.value)}
           onKeyDown={(e) => {
+            // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+            if (e.nativeEvent.isComposing) return;
             if (e.key === "Enter") onApplyWhere();
           }}
         />
@@ -466,6 +507,15 @@ export function TableDataView({
             <PlusIcon />
             行を追加
           </button>
+        )}
+
+        {editHint && (
+          <span className="edit-hint" title={editHint}>
+            <span className="edit-hint-icon" aria-hidden>
+              i
+            </span>
+            {editHint}
+          </span>
         )}
 
         {!loading && data && (
@@ -583,6 +633,14 @@ export function TableDataView({
             sort={sort}
             onSortSelect={selectSort}
             rows={rows}
+            clippedRowKeys={clippedRows}
+            // まず200行だけ描き、スクロールに合わせて継ぎ足す
+            maxRenderRows={200}
+            // 追加中の行は末尾にあるので、切り詰めても必ず描く
+            pinLastRow={editing?.row === "new"}
+            insertTable={insertTable}
+            insertColumn={(_, label) => quoteName?.(label) ?? label}
+            insertDbType={dbType}
             onCellDoubleClick={
               editable
                 ? (key, colId) => {
@@ -591,110 +649,63 @@ export function TableDataView({
                   }
                 : undefined
             }
-            onRowContextMenu={
-              editable
-                ? (key, e) => {
-                    if (key === NEW_ROW || busy || editing) return;
-                    e.preventDefault();
-                    setMenu({ x: e.clientX, y: e.clientY, row: Number(key) });
-                  }
-                : undefined
-            }
+            rowMenuItems={(key) => {
+              if (!editable || key === NEW_ROW || busy || editing) return [];
+              const row = Number(key);
+              return [
+                { label: "この行を編集", onSelect: () => startEdit(row, 0) },
+                {
+                  label: "この行を削除",
+                  danger: true,
+                  onSelect: () => setDeleting(row),
+                },
+              ];
+            }}
           />
         )}
       </div>
 
-      {menu &&
-        createPortal(
-          <div
-            className="context-menu"
-            ref={menuRef}
-            style={menuStyle}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <button
-              className="context-item"
-              onClick={() => {
-                const row = menu.row;
-                setMenu(null);
-                startEdit(row, 0);
-              }}
-            >
-              この行を編集
-            </button>
-            <button
-              className="context-item danger"
-              onClick={() => {
-                const row = menu.row;
-                setMenu(null);
-                setDeleting(row);
-              }}
-            >
-              この行を削除
-            </button>
-          </div>,
-          document.body
-        )}
+      {cellView && (
+        <CellDetail
+          key={`${cellView.row}:${cellView.column}`}
+          column={dataColumns[cellView.column] ?? ""}
+          value={cellView.value}
+          clip={clipAt(cellView.row, cellView.column)}
+          // 主キーの値が全て揃っているときだけ、全文を読み直せる
+          onFetchFull={
+            onFetchCell && identifiable && data?.rows[cellView.row]
+              ? () =>
+                  onFetchCell(
+                    dataColumns[cellView.column],
+                    pkColumns.map((column) => ({
+                      column,
+                      value:
+                        data.rows[cellView.row][dataColumns.indexOf(column)],
+                    }))
+                  )
+              : undefined
+          }
+          onClose={() => setCellView(null)}
+        />
+      )}
 
       {deleting !== null && (
-        <div className="modal-overlay" onMouseDown={() => setDeleting(null)}>
-          <div
-            className="modal ddl-confirm"
-            onMouseDown={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.key === "Escape" && setDeleting(null)}
-            tabIndex={-1}
-            ref={(el) => el?.focus()}
-          >
-            <div className="modal-head">
-              <span className="modal-title">1行を削除します</span>
-              <button
-                className="modal-close"
-                onClick={() => setDeleting(null)}
-                title="閉じる"
-              >
-                ×
-              </button>
-            </div>
-            <div className="column-modal-body">
-              <p className="column-warn">
-                この行のデータは失われます。取り消しはできません。
-              </p>
-              <p className="column-note">対象の行</p>
-              <pre className="column-sql mono">{deleteLabel}</pre>
-              {editError && (
-                <div className="result-banner ng column-error">
-                  <span className="dot" aria-hidden />
-                  <strong>エラー</strong>
-                  <span className="result-detail">{editError}</span>
-                </div>
-              )}
-            </div>
-            <div className="modal-actions column-modal-actions">
-              <span className="toolbar-spacer" />
-              <button
-                className="btn-secondary"
-                onClick={() => setDeleting(null)}
-                disabled={busy}
-              >
-                キャンセル
-              </button>
-              <button
-                className="btn-danger"
-                disabled={busy}
-                onClick={() => deleteRow(deleting)}
-              >
-                {busy ? (
-                  <>
-                    <span className="spinner light" /> 実行中...
-                  </>
-                ) : (
-                  "削除する"
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="1行を削除します"
+          target={deleteLabel}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => deleteRow(deleting)}
+        >
+          この行のデータは失われます。取り消しはできません。
+        </ConfirmDialog>
       )}
     </div>
   );
 }
+
+/*
+ * 表の中身は行数×列数ぶんのDOMになるので、
+ * 渡された内容が変わっていないときは描き直さない
+ * (定義タブ側の状態変化や、上の画面の再描画に付き合わせない)
+ */
+export const TableDataView = memo(TableDataViewInner);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useModal } from "../hooks/useModal";
 import { applyColumnDdl, previewColumnDdl } from "../api";
 import type { ColumnChange, ColumnInfo } from "../types";
 
@@ -58,14 +59,17 @@ export function DropColumnConfirm({
     }
   };
 
+
+  // Escで閉じる・初期フォーカスは共通の作法にそろえる
+  const boxRef = useModal(onClose);
+
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div
         className="modal ddl-confirm"
         onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.key === "Escape" && onClose()}
         tabIndex={-1}
-        ref={(el) => el?.focus()}
+        ref={boxRef}
       >
         <div className="modal-head">
           <span className="modal-title">

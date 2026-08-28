@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FIND_EVENT } from "../appEvents";
+import { editorFinder } from "../editorSearch";
 
 /**
  * ページ内の可視テキストから query の一致範囲を列挙する。
@@ -146,6 +148,8 @@ export function FindBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const openRef = useRef(open);
   openRef.current = open;
+  /** SQLエディタから開いたか (エディタ本文の検索へ渡す) */
+  const editorMode = useRef(false);
   /** 現在の一致一覧 (queryと対応。DOM変化時はfindFreshで再収集される) */
   const matchesRef = useRef<Range[]>([]);
   const indexRef = useRef(0);
@@ -185,6 +189,23 @@ export function FindBar() {
   /** 次(前)の一致へ移動。ページ送り等でDOMが変わった場合は集め直す */
   const findNext = useCallback(
     (backwards: boolean) => {
+      /*
+       * SQLエディタから開いたときは、エディタ本文を直接探す。
+       * 画面に出ている行だけを見る方式では、
+       * 画面外の行 (CodeMirrorが描いていない行) が見つからないため
+       */
+      if (editorMode.current) {
+        const find = editorFinder();
+        if (find) {
+          const hit = find(query, !backwards);
+          setTotal(hit ? 1 : 0);
+          setPos(hit ? 1 : 0);
+          // エディタ側にフォーカスが移った場合に備えて戻す
+          keepFocus();
+          requestAnimationFrame(keepFocus);
+          return;
+        }
+      }
       let matches = matchesRef.current;
       // 範囲が壊れている(0幅になった)場合はDOMが変わったとみなして再収集
       if (matches.length === 0 || matches.some((r) => r.collapsed)) {
@@ -227,15 +248,34 @@ export function FindBar() {
     return () => applyHighlights([], 0);
   }, [open]);
 
+  /** 検索を開く (ボタンからも呼ぶ) */
+  const openFind = useCallback(() => {
+    // SQLエディタで開いた場合は、エディタ本文も探せるようにする
+    // (画面に出ている行だけを見る方式だと、折りたたまれた行が見つからない)
+    editorMode.current = !!(
+      document.activeElement as HTMLElement | null
+    )?.closest(".cm-editor");
+    setOpen(true);
+    requestAnimationFrame(() => inputRef.current?.select());
+  }, []);
+
+  // ツールバーの検索ボタンからも開けるようにする
+  useEffect(() => {
+    const onFind = () => openFind();
+    window.addEventListener(FIND_EVENT, onFind);
+    return () => window.removeEventListener(FIND_EVENT, onFind);
+  }, [openFind]);
+
   // グローバルショートカット (Cmd/Ctrl+F で開く、F3 で次へ、Esc で閉じる)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 変換中のEscは変換の取り消しなので、検索バーは閉じない
+      if (e.isComposing) return;
       const ctrl = e.ctrlKey || e.metaKey;
       if (ctrl && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
-        setOpen(true);
-        requestAnimationFrame(() => inputRef.current?.select());
+        openFind();
       } else if (e.key === "F3") {
         e.preventDefault();
         e.stopPropagation();
@@ -249,7 +289,7 @@ export function FindBar() {
     window.addEventListener("keydown", onKey, { capture: true });
     return () =>
       window.removeEventListener("keydown", onKey, { capture: true });
-  }, [findNext, close]);
+  }, [findNext, close, openFind]);
 
   if (!open) return null;
 
@@ -265,6 +305,8 @@ export function FindBar() {
         autoFocus
         onChange={(e) => findFresh(e.target.value)}
         onKeyDown={(e) => {
+          // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+          if (e.nativeEvent.isComposing) return;
           if (e.key === "Enter") {
             e.preventDefault();
             e.stopPropagation();

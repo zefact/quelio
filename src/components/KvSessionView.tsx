@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addSqlHistory, kvApply, kvExec, kvKeyDetail, kvScan } from "../api";
+import {
+  addSqlHistory,
+  checkKvDestructive,
+  kvApply,
+  kvExec,
+  kvKeyDetail,
+  kvScan,
+} from "../api";
 import { captureResults } from "../capture";
 import { badgeStyle } from "../colors";
 import { useResizableHeight } from "../hooks/useResizableHeight";
@@ -14,9 +21,11 @@ import type {
   WorkTab,
 } from "../types";
 import { KvCommandEditor } from "./KvCommandEditor";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { KvValueGrid } from "./KvValueGrid";
 import { SelectMenu } from "./SelectMenu";
 import { SqlLibraryMenu } from "./SqlLibraryMenu";
+import { KvBulkDialog } from "./kvBulk/KvBulkDialog";
 
 interface Props {
   tab: WorkTab;
@@ -32,8 +41,6 @@ interface Props {
 }
 
 /** 破壊的なため実行前に確認するコマンド */
-const DANGEROUS = ["FLUSHALL", "FLUSHDB", "SHUTDOWN", "DEBUG", "KEYS", "DEL"];
-
 /** TTLの表示 (-1: 無期限) */
 function ttlLabel(ttl: number): string {
   if (ttl < 0) return "∞";
@@ -104,13 +111,13 @@ export function KvSessionView({
   const db = selectedDb ?? "0";
   // コンソール関連の状態はタブ側 (WorkTab) に持たせ、タブ切替後も維持する
   const consoleOpen = tab.view === "query";
-  const command = tab.sql;
-  const results = tab.kvResults ?? [];
-  const execError = tab.kvExecError ?? null;
+  const command = tab.editor.sql;
+  const results = tab.kv.results ?? [];
+  const execError = tab.kv.execError ?? null;
 
   // ---------- キーブラウザ ----------
   // タブを離れて戻ってきたときは、前回の一覧・選択をそのまま復元する
-  const saved = tab.kvBrowse;
+  const saved = tab.kv.browse;
   const [pattern, setPattern] = useState(saved?.pattern ?? "*");
   const [keys, setKeys] = useState<KvKeyInfo[]>(saved?.keys ?? []);
   const [cursor, setCursor] = useState(saved?.cursor ?? "0");
@@ -118,6 +125,8 @@ export function KvSessionView({
   const [dbsize, setDbsize] = useState(saved?.dbsize ?? -1);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** キーの検索・一括削除の画面を出すか */
+  const [showBulk, setShowBulk] = useState(false);
 
   // ---------- キー詳細 ----------
   const [selectedKey, setSelectedKey] = useState<string | null>(
@@ -133,6 +142,10 @@ export function KvSessionView({
   const [ttlDraft, setTtlDraft] = useState<string | null>(null);
   /** キー操作 (改名・TTL・削除・作成) のエラー */
   const [keyError, setKeyError] = useState<string | null>(null);
+  /** 直近の失敗理由 (確認ダイアログへその場で渡すため、stateとは別に持つ) */
+  const lastKeyError = useRef<string | null>(null);
+  /** 読み取り専用の接続では、キーの作成・変更・削除を出さない */
+  const readOnly = tab.profile.readOnly ?? false;
   /** 削除の確認中のキー */
   const [deleting, setDeleting] = useState<string | null>(null);
   /** 新規キーの入力 (nullなら作成していない) */
@@ -146,7 +159,8 @@ export function KvSessionView({
 
   // ---------- コンソール ----------
   const [running, setRunning] = useState(false);
-  const [confirmCmd, setConfirmCmd] = useState<string | null>(null);
+  /** 確認待ちの破壊的コマンド (複数行のときは全部出す) */
+  const [confirmCmd, setConfirmCmd] = useState<string[] | null>(null);
   /** 複数コマンド実行時に表示中の結果タブ */
   const [activeIdx, setActiveIdx] = useState(0);
   /** 実行時に結果をPNG保存する */
@@ -191,7 +205,7 @@ export function KvSessionView({
     const id = `${tab.key}\u0000${db}`;
     if (loaded.current === id) return;
     loaded.current = id;
-    const keep = tab.kvBrowse;
+    const keep = tab.kv.browse;
     setDetail(null);
     if (keep && keep.db === db && keep.keys.length > 0) {
       setPattern(keep.pattern);
@@ -236,19 +250,22 @@ export function KvSessionView({
 
   // キー名・TTLの編集や新規キーの入力は、フォーカスが外れていてもEscで取り消す
   useEffect(() => {
-    if (keyDraft === null && ttlDraft === null && !newKey && !deleting) return;
+    if (keyDraft === null && ttlDraft === null && !newKey) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
+      // 確認ダイアログなど手前の画面が処理済みなら何もしない。
+      // 日本語入力の変換を取り消したときのEscも拾わない
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      // 確認ダイアログが出ている間は、裏の編集内容を消さない
+      if (document.querySelector(".modal-overlay")) return;
       e.preventDefault();
       setKeyDraft(null);
       setTtlDraft(null);
       setNewKey(null);
-      setDeleting(null);
       setKeyError(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [keyDraft, ttlDraft, newKey, deleting]);
+  }, [keyDraft, ttlDraft, newKey]);
 
   /** キーへの変更を実行する (失敗したらエラーを表示して何もしない) */
   const applyKey = async (change: KvChange): Promise<boolean> => {
@@ -258,6 +275,7 @@ export function KvSessionView({
       return true;
     } catch (e) {
       setKeyError(String(e));
+      lastKeyError.current = String(e);
       return false;
     }
   };
@@ -297,8 +315,10 @@ export function KvSessionView({
   /** キーを削除する (確認モーダルから呼ばれる) */
   const commitDelete = async (key: string) => {
     const ok = await applyKey({ kind: "deleteKey", key });
+    // 失敗したら閉じない (消えていないのに消えたように見せない)。
+    // 投げた文字列は確認ダイアログがそのまま表示する
+    if (!ok) throw lastKeyError.current ?? "削除できませんでした";
     setDeleting(null);
-    if (!ok) return;
     setSelectedKey(null);
     setDetail(null);
     await scan(true);
@@ -330,12 +350,11 @@ export function KvSessionView({
       .map((l) => l.trim())
       .filter((l) => l.length > 0 && !l.startsWith("#"));
     if (lines.length === 0) return;
-    // 破壊的コマンドは確認してから実行する
+    // 破壊的コマンドは確認してから実行する。
+    // 判定はバックエンドに任せる (実行時のガードと同じ基準にするため)
     if (!confirmed) {
-      const danger = lines.find((l) =>
-        DANGEROUS.includes(l.split(/\s+/)[0].toUpperCase())
-      );
-      if (danger) {
+      const danger = await checkKvDestructive(lines).catch(() => []);
+      if (danger.length > 0) {
         setConfirmCmd(danger);
         return;
       }
@@ -344,7 +363,7 @@ export function KvSessionView({
     setRunning(true);
     setCaptureMsg(null);
     try {
-      const out = await kvExec(tab.key, db, lines);
+      const out = await kvExec(tab.key, db, lines, confirmed);
       onKvOutput(out.statements, out.error ?? null);
       setActiveIdx(0);
       // キャプチャON: SQLと同じcanvas描画で全結果をPNG保存する
@@ -448,7 +467,12 @@ export function KvSessionView({
             {/* テーブル一覧と同じ位置に再読み込みを置く (先頭からSCANし直す) */}
             <button
               className="pane-icon-btn has-tooltip tooltip-left"
-              data-tooltip="キーを新規作成"
+              data-tooltip={
+                readOnly
+                  ? "読み取り専用の接続では作成できません"
+                  : "キーを新規作成"
+              }
+              disabled={readOnly}
               onClick={() => {
                 setKeyError(null);
                 setNewKey({ key: "", type: "string", field: "", value: "" });
@@ -461,6 +485,17 @@ export function KvSessionView({
                   strokeWidth="2"
                   strokeLinecap="round"
                 />
+              </svg>
+            </button>
+            <button
+              className="pane-icon-btn has-tooltip tooltip-left"
+              data-tooltip="値の検索とキーの一括削除"
+              aria-label="キーの検索・一括削除"
+              onClick={() => setShowBulk(true)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <circle cx="11" cy="11" r="6" stroke="currentColor" strokeWidth="2" />
+                <path d="M15.5 15.5L20 20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
             </button>
             <button
@@ -491,6 +526,8 @@ export function KvSessionView({
             value={pattern}
             onChange={(e) => setPattern(e.target.value)}
             onKeyDown={(e) => {
+              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+              if (e.nativeEvent.isComposing) return;
               if (e.key === "Enter") scan(true);
             }}
           />
@@ -503,6 +540,8 @@ export function KvSessionView({
                 value={newKey.key}
                 onChange={(e) => setNewKey({ ...newKey, key: e.target.value })}
                 onKeyDown={(e) => {
+                  // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                  if (e.nativeEvent.isComposing) return;
                   if (e.key === "Escape") {
                     e.preventDefault();
                     setNewKey(null);
@@ -537,6 +576,8 @@ export function KvSessionView({
                 value={newKey.value}
                 onChange={(e) => setNewKey({ ...newKey, value: e.target.value })}
                 onKeyDown={(e) => {
+                  // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                  if (e.nativeEvent.isComposing) return;
                   if (e.key === "Enter") {
                     e.preventDefault();
                     void commitCreate();
@@ -732,6 +773,8 @@ export function KvSessionView({
                     value={keyDraft}
                     onChange={(e) => setKeyDraft(e.target.value)}
                     onKeyDown={(e) => {
+                      // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                      if (e.nativeEvent.isComposing) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
                         void commitRename();
@@ -745,8 +788,13 @@ export function KvSessionView({
                 ) : (
                   <span
                     className="kv-detail-key mono"
-                    title="ダブルクリックでキー名を変更"
+                    title={
+                      readOnly
+                        ? "読み取り専用の接続のため変更できません"
+                        : "ダブルクリックでキー名を変更"
+                    }
                     onDoubleClick={() => {
+                      if (readOnly) return;
                       setKeyError(null);
                       setKeyDraft(detail.key);
                     }}
@@ -763,13 +811,15 @@ export function KvSessionView({
                 >
                   整形
                 </button>
-                <button
-                  className="sql-btn danger"
-                  title="このキーを削除します"
-                  onClick={() => setDeleting(detail.key)}
-                >
-                  キーを削除
-                </button>
+                {!readOnly && (
+                  <button
+                    className="sql-btn danger"
+                    title="このキーを削除します"
+                    onClick={() => setDeleting(detail.key)}
+                  >
+                    キーを削除
+                  </button>
+                )}
               </div>
               <div className="kv-detail-meta mono">
                 <span>
@@ -784,6 +834,8 @@ export function KvSessionView({
                         value={ttlDraft}
                         onChange={(e) => setTtlDraft(e.target.value)}
                         onKeyDown={(e) => {
+                          // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                          if (e.nativeEvent.isComposing) return;
                           if (e.key === "Enter") {
                             e.preventDefault();
                             void commitTtl();
@@ -798,9 +850,14 @@ export function KvSessionView({
                     </span>
                   ) : (
                     <span
-                      className="kv-editable"
-                      title="ダブルクリックで変更 (秒。0で無期限に戻します)"
+                      className={readOnly ? "" : "kv-editable"}
+                      title={
+                        readOnly
+                          ? "読み取り専用の接続のため変更できません"
+                          : "ダブルクリックで変更 (秒。0で無期限に戻します)"
+                      }
                       onDoubleClick={() => {
+                        if (readOnly) return;
                         setKeyError(null);
                         setTtlDraft(detail.ttl < 0 ? "0" : String(detail.ttl));
                       }}
@@ -833,6 +890,7 @@ export function KvSessionView({
                     database={db}
                     detail={detail}
                     pretty={pretty}
+                    readOnly={tab.profile.readOnly ?? false}
                     onReload={() => {
                       void openKey(detail.key);
                       void scan(true);
@@ -864,69 +922,49 @@ export function KvSessionView({
 
       {/* キー削除の確認 (取り消せないため確認する) */}
       {deleting && (
-        <div className="er-modal-overlay" onMouseDown={() => setDeleting(null)}>
-          <div className="er-modal" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="er-modal-head">
-              <div className="er-modal-icon danger">✕</div>
-              <div>
-                <div className="er-modal-title">キーを削除します</div>
-                <div className="er-modal-sub">
-                  値はすべて失われます。取り消しはできません
-                </div>
-              </div>
-            </div>
-            <p className="er-modal-body mono">{deleting}</p>
-            <div className="er-modal-actions">
-              <button
-                className="btn-ghost er-modal-cancel"
-                onClick={() => setDeleting(null)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="btn-primary btn-delete"
-                onClick={() => void commitDelete(deleting)}
-              >
-                削除する
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="キーを削除します"
+          target={deleting}
+          onCancel={() => setDeleting(null)}
+          onConfirm={() => commitDelete(deleting)}
+        >
+          値はすべて失われます。取り消しはできません。
+        </ConfirmDialog>
       )}
 
       {/* 破壊的コマンドの確認ダイアログ */}
       {confirmCmd && (
-        <div className="er-modal-overlay" onMouseDown={() => setConfirmCmd(null)}>
-          <div className="er-modal" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="er-modal-head">
-              <div className="er-modal-icon danger">✕</div>
-              <div>
-                <div className="er-modal-title">コマンドの実行確認</div>
-                <div className="er-modal-sub">
-                  データの削除や高負荷につながる可能性があります
-                </div>
-              </div>
-            </div>
-            <p className="er-modal-body mono">{confirmCmd}</p>
-            <div className="er-modal-actions">
-              <button
-                className="btn-ghost er-modal-cancel"
-                onClick={() => setConfirmCmd(null)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="btn-primary btn-delete"
-                onClick={() => {
-                  setConfirmCmd(null);
-                  runCommands(true);
-                }}
-              >
-                実行する
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="このコマンドを実行します"
+          confirmLabel="実行する"
+          onCancel={() => setConfirmCmd(null)}
+          onConfirm={() => {
+            setConfirmCmd(null);
+            runCommands(true);
+          }}
+        >
+          データの削除や高負荷につながる可能性があります。
+          <ul className="column-warn-list">
+            {confirmCmd.map((c) => (
+              <li key={c} className="mono">
+                {c}
+              </li>
+            ))}
+          </ul>
+        </ConfirmDialog>
+      )}
+
+      {showBulk && (
+        <KvBulkDialog
+          sessionId={tab.key}
+          database={db}
+          /* 一括削除の欄に "*" が入ったまま始まらないようにする */
+          initialPattern={pattern === "*" ? "" : pattern}
+          readOnly={readOnly}
+          onClose={() => setShowBulk(false)}
+          onDeleted={() => scan(true)}
+          onPickKey={(k) => void openKey(k)}
+        />
       )}
     </div>
   );

@@ -927,6 +927,11 @@
           <p>2つの環境を並べてテーブル・カラム・インデックスの差異を検出。差異部分は文字単位でハイライトします。</p>
         </div>
         <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9M4 12h6M4 17h9"/><path d="M17 4v13m0 0 3-3m-3 3-3-3" stroke-width="1.6"/></svg></div>
+          <h3>差分から ALTER 文を生成</h3>
+          <p>スキーマ比較の結果から、左を右に合わせるALTER文を組み立てて表示。消す操作はコメントアウトして出すので、確認してから使えます。</p>
+        </div>
+        <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="5.5" rx="1.2"/><rect x="14" y="9.5" width="7" height="5.5" rx="1.2"/><rect x="3" y="16" width="7" height="5.5" rx="1.2"/><path d="M10 5.8h5.5v3.7M10 18.8h5.5v-3.8"/></svg></div>
           <h3>ER図作成</h3>
           <p>DBからリバースしてER図を自動作成。配置や線をマウスで編集でき、注釈・タブでの複数管理・PNG出力に対応。</p>
@@ -948,18 +953,33 @@
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
-          <h3>SSHトンネル</h3>
-          <p>踏み台サーバー経由の接続をビルトインで対応。鍵認証・パスフレーズも設定できます。</p>
+          <h3>SSHトンネル / TLS</h3>
+          <p>踏み台サーバー経由の接続をビルトインで対応（鍵認証・パスフレーズ可）。TLSは検証レベルと証明書を接続ごとに指定できます。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.7-7 8.5-4.1-.8-7-4.3-7-8.5V6z"/><path d="m9 12 2 2 4-4" stroke-width="1.6"/></svg></div>
+          <h3>読み取り専用の接続</h3>
+          <p>接続ごとに読み取り専用を指定。更新系SQL・DDL・行編集をアプリとサーバーの両方で拒否し、タブに R/O バッジを表示します。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg></div>
           <h3>テーブル構造ビュー</h3>
-          <p>カラム・インデックス・照合順序・コメントまで、定義を1画面で確認。列幅やペインも自由に調整できます。</p>
+          <p>カラム・インデックス・外部キー・照合順序・コメントまで、定義を1画面で確認。列幅やペインも自由に調整できます。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg></div>
+          <h3>名前・値からの検索</h3>
+          <p>テーブル名・カラム名・コメントから探す「名前で探す」と、データの中身から探す「値で探す」。見つけた行をダブルクリックでそのテーブルを開きます。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><rect x="9" y="2.5" width="6" height="3.5" rx="1"/><path d="M8 11h8M8 15h5" stroke-width="1.6"/></svg></div>
+          <h3>関数・トリガの定義表示</h3>
+          <p>関数・プロシージャ・トリガの定義を名前で絞り込んで確認・コピー。テーブルの CREATE 文もその場で表示できます。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 7 5 5-5 5M12 19h7"/></svg></div>
           <h3>クエリエディタ</h3>
-          <p>行番号付きエディタで複数SQLを実行。結果は文ごとのタブに分かれ、整形・キャンセルにも対応。</p>
+          <p>行番号付きエディタで複数SQLを実行。結果は文ごとのタブに分かれ、整形・キャンセルにも対応。1つの接続で書きかけのSQLを何枚も持てます。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6m0 0 2.5-2.5M12 17l-2.5-2.5" stroke-width="1.6"/></svg></div>
@@ -987,14 +1007,29 @@
           <p>複数テーブルをまとめてSQLダンプ出力(スキーマ/データ選択可)。SQLファイルのドロップ実行も。</p>
         </div>
         <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6m0 0-2.5 2.5M12 11l2.5 2.5" stroke-width="1.6"/></svg></div>
+          <h3>CSV / TSVの取り込み</h3>
+          <p>ファイルをドロップして、先頭20行を見ながら列の対応を決めて取り込み。区切り文字と文字コードは自動判定、進捗表示と中止に対応します。</p>
+        </div>
+        <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v12H4zM8 21h8M12 17v4"/><path d="m7 9 2.5 2.5L7 14" stroke-width="1.6"/></svg></div>
           <h3>クエリログ</h3>
-          <p>アプリが発行した全SQLを専用コンソールで時系列表示。挙動の確認やデバッグに役立ちます。</p>
+          <p>アプリが発行した全SQLを専用コンソールで時系列表示。挙動の確認やデバッグに役立ちます。CSV・テキストへの書き出しも可能です。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.2l3.2 2"/></svg></div>
+          <h3>実行中のSQLの一覧</h3>
+          <p>サーバーで動いている接続とSQLを一覧表示（MySQL / PostgreSQL）。長時間のSQLの中止や、接続の切断も行えます。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h9M4 18h9"/><path d="m16.5 19.5 5-5-2-2-5 5v2z"/></svg></div>
           <h3>テーブル定義の編集</h3>
-          <p>カラムとインデックスを一覧上でその場編集。追加・変更・削除、型や照合順序の選択、MySQLはドラッグでの並べ替えにも対応。</p>
+          <p>カラム・インデックス・外部キーを一覧上でその場編集。追加・変更・削除、型や照合順序の選択、MySQLはドラッグでの並べ替えにも対応。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M3 9h18M9 9v7"/><path d="M12 20h8M16 16v8" stroke-width="2"/></svg></div>
+          <h3>テーブル・データベースの作成</h3>
+          <p>カラム・型・主キー・自動採番・文字コードまで決めてからテーブルを作成。データベースやスキーマの作成・削除にも対応し、実行するSQLを確認してから流します。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/><path d="m13 15 2 2 4-4" stroke-width="1.6"/></svg></div>

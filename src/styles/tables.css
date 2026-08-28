@@ -1,0 +1,789 @@
+/* テーブル表示 (定義 / データ)・差分・スキーマ一覧・スクロールバー */
+
+/* ============ 構造表示 ============ */
+
+.structure {
+  min-width: 0;
+}
+
+/* ============ テーブル表示 (定義 / データ タブ) ============ */
+
+.table-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 「定義 / データ」タブ (アプリ上部のタブバーと同じ、はっきりしたタブ表示) */
+.table-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  margin-top: 2px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.table-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 20px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.table-tab:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.04);
+}
+
+.table-tab.active {
+  color: var(--text);
+  background: var(--bg-card);
+  border-color: var(--border);
+  position: relative;
+}
+
+/* アクティブタブの下端をアクセント色で強調する */
+.table-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: 2px;
+}
+
+/* 定義タブは中身に応じてスクロール、データタブは高さいっぱいに広げる */
+.table-view-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 14px;
+}
+
+.table-view-body.fill {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.table-data {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.table-data-actions {
+  padding-top: 0;
+}
+
+/* 絞り込み入力 (filter-inputの下マージンを打ち消して1行に並べる) */
+.table-where {
+  flex: 1;
+  min-width: 160px;
+  max-width: 520px;
+  margin-bottom: 0;
+}
+
+.table-data-grid {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* スクロールはgrid-wrap側で行い、ヘッダのsticky固定を効かせる */
+  overflow: hidden;
+}
+
+.table-data-grid .grid-wrap {
+  max-height: 100%;
+  overflow: auto;
+}
+
+.structure-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 20px 0;
+}
+
+.info-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 4px 0 18px;
+}
+
+.info-chip {
+  display: inline-flex;
+  /* 和文 (Hiragino) と等幅フォントで縦位置の基準が違うため、
+   * 中央揃えではなくベースラインで揃えてズレを防ぐ */
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 11px;
+  background: rgba(var(--ink), 0.04);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px 9px;
+}
+
+.info-chip-label {
+  color: var(--text-faint);
+}
+
+.info-chip-value {
+  color: var(--text-dim);
+}
+
+.structure-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 22px 0 10px;
+}
+
+.structure-heading:first-of-type {
+  margin-top: 0;
+}
+
+.grid-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.grid th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* 枠の角丸に合わせてヘッダ行の角も丸める */
+.grid th:first-child {
+  border-top-left-radius: 12px;
+}
+
+.grid th:last-child {
+  border-top-right-radius: 12px;
+}
+
+.grid th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  /* スクロール時に下の行が透けないよう不透明背景にする */
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 100px rgba(var(--ink), 0.03);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.grid td {
+  padding: 7px 12px;
+  border-bottom: 1px solid rgba(var(--ink), 0.04);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* 列幅固定モード: はみ出しは省略記号、wrap指定列は折り返して全文表示 */
+.grid.resizable td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.grid.resizable td.wrap {
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.grid.resizable th {
+  /* stickyでもabsolute配置のリサイザの基準になるため、relativeは不要 */
+  position: sticky;
+  top: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.grid th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.grid th.sortable:hover {
+  color: var(--text);
+  /* stickyヘッダーの下に行が透けないよう、不透明背景の上に色を重ねる */
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 100px rgba(var(--ink), 0.08);
+}
+
+/* 並び替え中の列に出す方向マーク (見落とさないよう大きめ・アクセント色) */
+.sort-arrow {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.2;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  vertical-align: middle;
+}
+
+/* ヘッダクリックで開くソートメニュー */
+.grid-sort-menu {
+  min-width: 230px;
+}
+
+/* 行の右クリックメニュー */
+.grid-row-menu {
+  min-width: 200px;
+}
+
+/* 対象行数の見出しはカラム名ではないので等幅にしない */
+.grid-row-menu .grid-sort-head {
+  font-family: inherit;
+}
+
+.grid-sort-head {
+  padding: 4px 12px 6px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.col-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.col-resizer:hover,
+.col-resizer:active {
+  background: linear-gradient(
+    to right,
+    transparent 2px,
+    rgba(99, 102, 241, 0.6) 3px,
+    rgba(99, 102, 241, 0.6) 4px,
+    transparent 5px
+  );
+}
+
+.comment-text {
+  color: var(--text-dim);
+}
+
+/* ペインのスプリッタ */
+
+.pane-splitter {
+  flex-shrink: 0;
+  width: 5px;
+  margin-left: -3px;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.pane-splitter:hover,
+.pane-splitter:active {
+  background: linear-gradient(
+    to right,
+    transparent 1px,
+    rgba(99, 102, 241, 0.55) 2px,
+    rgba(99, 102, 241, 0.55) 3px,
+    transparent 4px
+  );
+}
+
+.grid tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* 描画を絞っているときに最終行へ出す案内 (行そのものではないので選択・ホバーの対象外) */
+.grid tbody tr.grid-more td {
+  padding: 8px 12px;
+  text-align: center;
+  font-size: 11.5px;
+  color: rgba(var(--ink), 0.45);
+  background: rgba(var(--ink), 0.02);
+  border-bottom: none;
+  cursor: default;
+}
+
+.grid tbody tr.grid-more:hover td {
+  background: rgba(var(--ink), 0.02);
+}
+
+.grid tbody tr:hover td {
+  background: rgba(var(--ink), 0.03);
+}
+
+/* 選択中の行 (データ・SQL実行結果でクリック選択できるグリッド) */
+.grid tbody tr.selected td {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.grid tbody tr.selected:hover td {
+  background: rgba(99, 102, 241, 0.26);
+}
+
+.grid tbody tr.selected td.rownum-cell {
+  background: rgba(99, 102, 241, 0.32);
+  color: var(--text);
+}
+
+/* 行選択できるグリッドはフォーカス枠を出さない (キー操作の受け皿にしているだけ) */
+.grid-wrap.selectable:focus {
+  outline: none;
+}
+
+/* コピー結果などの一時表示 */
+.grid-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 30px;
+  transform: translateX(-50%);
+  z-index: 600;
+  padding: 8px 16px;
+  border-radius: var(--radius-btn);
+  background: var(--menu-bg);
+  border: 1px solid var(--border-strong);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  pointer-events: none;
+  animation: grid-toast-in 0.12s ease;
+}
+
+/* 中央寄せのtranslateを保ったまま出すため、専用のキーフレームを使う */
+@keyframes grid-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.grid td.strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.grid td.dim,
+.grid .dim {
+  color: var(--text-dim);
+}
+
+.grid td.faint,
+.grid .faint {
+  color: var(--text-faint);
+}
+
+.grid .center,
+.grid td.center {
+  text-align: center;
+}
+
+.grid .right,
+.grid td.right {
+  text-align: right;
+}
+
+.grid td.comment {
+  color: var(--text-dim);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.check {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.key-badge {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+.key-badge.pri {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+/* ============ スキーマ差分ウィンドウ ============ */
+
+.diff-window {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+}
+
+.diff-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.diff-side-sel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 10px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-btn);
+}
+
+.diff-side-sel .db-select {
+  min-width: 140px;
+}
+
+.diff-vs {
+  color: var(--text-faint);
+  font-size: 16px;
+}
+
+.diff-compare {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: none;
+  border-radius: var(--radius-btn);
+  padding: 9px 22px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.diff-compare:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.diff-only {
+  margin-left: auto;
+}
+
+.diff-error {
+  margin: 12px 16px 0;
+}
+
+.diff-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 16px 16px;
+}
+
+.diff-tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-shrink: 0;
+}
+
+.diff-view-tabs {
+  padding: 2px 0 8px;
+}
+
+.diff-summary {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  padding: 2px 2px 8px;
+  flex-shrink: 0;
+}
+
+.diff-inline-counts {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+  margin-right: 12px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+.diff-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid rgba(var(--ink), 0.05);
+}
+
+.diff-label {
+  position: relative;
+  flex: 0 0 var(--diff-label-w, 220px);
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  word-break: break-all;
+}
+
+/* 項目カラムの幅変更ハンドル (ヘッダ行のみ) */
+.diff-label-resizer {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.diff-label-resizer:hover,
+.diff-label-resizer:active {
+  background: rgba(96, 165, 250, 0.35);
+}
+
+.diff-field-owner {
+  color: var(--text);
+  margin-right: 4px;
+}
+
+.diff-cell {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+  border-left: 1px solid rgba(var(--ink), 0.05);
+}
+
+.diff-cell.empty {
+  color: var(--text-faint);
+}
+
+.diff-head {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  background: rgba(var(--ink), 0.03);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.diff-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 0 0 10px 10px;
+}
+
+.diff-table {
+  border-bottom: 1px solid var(--border);
+}
+
+.diff-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(var(--ink), 0.03);
+}
+
+.diff-table-name {
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.diff-status {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  border-radius: 5px;
+  padding: 2px 8px;
+}
+
+.diff-status.added {
+  color: var(--success);
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+}
+
+.diff-status.removed {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+}
+
+.diff-status.changed {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
+.diff-status.same {
+  color: var(--text-faint);
+  background: rgba(var(--ink), 0.05);
+  border: 1px solid var(--border);
+}
+
+.diff-row.added .diff-cell:last-child {
+  background: rgba(52, 211, 153, 0.09);
+}
+
+.diff-row.removed .diff-cell:nth-child(2) {
+  background: rgba(248, 113, 113, 0.09);
+}
+
+.diff-row.changed .diff-cell.left {
+  background: rgba(248, 113, 113, 0.07);
+}
+
+.diff-row.changed .diff-cell.right {
+  background: rgba(52, 211, 153, 0.07);
+}
+
+.char-diff {
+  background: rgba(251, 191, 36, 0.3);
+  outline: 1px solid rgba(251, 191, 36, 0.55);
+  border-radius: 3px;
+  padding: 0 1px;
+  cursor: help;
+}
+
+.char-diff.empty-mark {
+  color: #fbbf24;
+  font-weight: 700;
+}
+
+.diff-subhead {
+  padding: 5px 12px 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* ============ スキーマ一覧ウィンドウ ============ */
+
+.schema-window {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+}
+
+.schema-filter {
+  flex: 1;
+  max-width: 380px;
+  margin-bottom: 0;
+}
+
+.schema-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 10px 16px 16px;
+}
+
+.schema-grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.schema-grid .grid-wrap {
+  max-height: 100%;
+  overflow: auto;
+}
+
+.schema-grid .grid th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+/* ============ スクロールバー ============ */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+/* 縦横スクロールバーの交差部分。既定では白い四角が出てしまうため透明にする */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--ink), 0.1);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--ink), 0.18);
+  background-clip: content-box;
+}

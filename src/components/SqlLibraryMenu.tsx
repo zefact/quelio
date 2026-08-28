@@ -7,7 +7,10 @@ import {
   getSqlHistory,
   upsertSavedSql,
 } from "../api";
+import { SAVE_SQL_EVENT } from "../appEvents";
 import type { SavedSqlEntry, SqlHistoryEntry } from "../types";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { useDismiss } from "../hooks/useDismiss";
 
 interface Props {
   /** 現在エディタにあるSQL (保存ダイアログの初期値) */
@@ -97,8 +100,8 @@ export function SqlLibraryMenu({
   const [entries, setEntries] = useState<SavedSqlEntry[]>([]);
   /** 開いているフォルダパス (既定は全て閉じた状態) */
   const [opened, setOpened] = useState<Set<string>>(new Set());
-  /** 削除確認中の項目id (1回目のクリックで確認、2回目で削除) */
-  const [confirmId, setConfirmId] = useState<string | null>(null);
+  /** 削除の確認中の項目 (他の削除と同じ確認ダイアログを出す) */
+  const [confirmDel, setConfirmDel] = useState<SavedSqlEntry | null>(null);
   // 保存/編集ダイアログ (editing = null なら新規保存、そうでなければ編集)
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<SavedSqlEntry | null>(null);
@@ -132,24 +135,20 @@ export function SqlLibraryMenu({
       .catch(() => setEntries([]));
   };
 
-  // メニュー外クリックで閉じる (メニュー内はmousedownのstopPropagationで防ぐ)
-  useEffect(() => {
-    if (!open) return;
-    // 他のメニューを開いたときにも閉じるよう、キャプチャ段階で
-    // 自分の領域外かどうかを判定する (stopPropagationの影響を受けない)
-    const close = (e: MouseEvent) => {
-      if (wrapRef.current?.contains(e.target as Node)) return;
-      setOpen(false);
-      setConfirmId(null);
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [open]);
+  // メニュー外クリックで閉じる。
+  // 他のメニューを開いたときにも閉じるよう、キャプチャ段階で
+  // 自分の領域外かどうかを判定する (stopPropagationの影響を受けない)。
+  // 確認ダイアログを開いている間は、その操作で閉じない
+  useDismiss(open, () => setOpen(false), {
+    capture: true,
+    ref: wrapRef,
+    skip: !!confirmDel,
+  });
 
   const toggleMenu = () => {
     if (!open) {
       reload();
-      setConfirmId(null);
+      setConfirmDel(null);
       // 開くたびにフォルダは全て閉じた状態から始める
       setOpened(new Set());
       // ボタン位置からfixed配置の座標を決める。
@@ -189,6 +188,17 @@ export function SqlLibraryMenu({
     setDialogOpen(true);
   };
 
+  /** ⌘S から保存ダイアログを開く (SQLエディタを開いている画面だけが反応する) */
+  useEffect(() => {
+    const onSave = () => {
+      if (!currentSql.trim()) return;
+      openSaveDialog();
+    };
+    window.addEventListener(SAVE_SQL_EVENT, onSave);
+    return () => window.removeEventListener(SAVE_SQL_EVENT, onSave);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSql]);
+
   const handleSave = async () => {
     try {
       // 新規: エディタのSQLを保存 / 編集: 上書き指定時のみエディタのSQLに差し替え
@@ -206,17 +216,11 @@ export function SqlLibraryMenu({
     }
   };
 
+  /** 確認ダイアログから呼ばれる削除 (失敗はダイアログに出る) */
   const handleDelete = async (id: string) => {
-    if (confirmId !== id) {
-      setConfirmId(id);
-      return;
-    }
-    setConfirmId(null);
-    try {
-      setEntries(await deleteSavedSql(id));
-    } catch {
-      reload();
-    }
+    const next = await deleteSavedSql(id);
+    setEntries(next);
+    setConfirmDel(null);
   };
 
   /** フォルダとその中身を再帰的に描画する */
@@ -257,7 +261,7 @@ export function SqlLibraryMenu({
           </button>
           <button
             className="saved-edit"
-            title="編集 (リネーム / フォルダ移動 / SQLの上書き)"
+            title="編集 (名前 / フォルダ / SQLの入れ替え)"
             onClick={() => {
               setOpen(false);
               openSaveDialog(it);
@@ -266,11 +270,11 @@ export function SqlLibraryMenu({
             ✎
           </button>
           <button
-            className={"saved-del" + (confirmId === it.id ? " confirm" : "")}
-            title={confirmId === it.id ? "もう一度クリックで削除" : "削除"}
-            onClick={() => handleDelete(it.id)}
+            className="saved-del"
+            title="削除"
+            onClick={() => setConfirmDel(it)}
           >
-            {confirmId === it.id ? "削除?" : "×"}
+            ×
           </button>
         </div>
       );
@@ -290,7 +294,7 @@ export function SqlLibraryMenu({
         onClick={toggleMenu}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        履歴・保存 <span className="menu-caret">▾</span>
+        履歴・お気に入り <span className="menu-caret">▾</span>
       </button>
       {open && (
         <div
@@ -360,12 +364,25 @@ export function SqlLibraryMenu({
         </div>
       )}
 
+      {confirmDel && (
+        <ConfirmDialog
+          title="保存したSQLを削除します"
+          target={confirmDel.name}
+          onCancel={() => setConfirmDel(null)}
+          onConfirm={() => handleDelete(confirmDel.id)}
+        >
+          この保存SQLを削除します。取り消しはできません。
+        </ConfirmDialog>
+      )}
+
       {dialogOpen && (
         <div className="modal-overlay" onMouseDown={() => setDialogOpen(false)}>
           <div
             className="modal save-sql-modal"
             onMouseDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
+              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+              if (e.nativeEvent.isComposing) return;
               if (e.key === "Escape") setDialogOpen(false);
             }}
           >
@@ -392,6 +409,8 @@ export function SqlLibraryMenu({
                   placeholder="例: 受払一覧 (店舗別)"
                   onChange={(e) => setSaveName(e.target.value)}
                   onKeyDown={(e) => {
+                    // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                    if (e.nativeEvent.isComposing) return;
                     if (e.key === "Enter") handleSave();
                   }}
                 />
@@ -405,6 +424,8 @@ export function SqlLibraryMenu({
                   placeholder="例: 集計/月次"
                   onChange={(e) => setSaveFolder(e.target.value)}
                   onKeyDown={(e) => {
+                    // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                    if (e.nativeEvent.isComposing) return;
                     if (e.key === "Enter") handleSave();
                   }}
                 />

@@ -141,46 +141,6 @@ export const PARAM_KINDS: [ParamKind, string][] = [
 ];
 
 /**
- * 入力値をSQLリテラルへ変換する。
- * auto: 数値はそのまま、NULLはNULL、'クォート済み'はそのまま、他は'...'
- * string: 常に'...'で囲む / number・raw: そのまま埋め込む
- */
-export function formatParamValue(v: ParamValue): string {
-  const t = v.value.trim();
-  switch (v.kind) {
-    case "string":
-      return `'${t.replace(/'/g, "''")}'`;
-    case "number":
-    case "raw":
-      return t === "" ? "NULL" : t;
-    default: {
-      if (t === "") return "''";
-      if (/^null$/i.test(t)) return "NULL";
-      if (/^-?\d+(\.\d+)?$/.test(t)) return t;
-      if (t.length >= 2 && t.startsWith("'") && t.endsWith("'")) return t;
-      return `'${t.replace(/'/g, "''")}'`;
-    }
-  }
-}
-
-/** パラメータを値で置き換えたSQLを返す */
-export function substituteParams(
-  sql: string,
-  values: Record<string, ParamValue>
-): string {
-  const hits = scan(sql);
-  let out = "";
-  let last = 0;
-  for (const h of hits) {
-    if (!(h.name in values)) continue;
-    out += sql.slice(last, h.start) + formatParamValue(values[h.name]);
-    last = h.end;
-  }
-  out += sql.slice(last);
-  return out;
-}
-
-/**
  * SQL中でパラメータと比較されているカラム名を推測する。
  * 例: "u.code = :code" → "code" / ":d <= created_at" → "created_at"
  */

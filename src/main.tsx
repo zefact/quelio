@@ -8,7 +8,11 @@ import { DiffWindow } from "./components/DiffWindow";
 import { ErWindow } from "./components/ErWindow";
 import { SchemaWindow } from "./components/SchemaWindow";
 import { initTheme } from "./theme";
-import { blockBrowserShortcuts, blockSelectAll } from "./blockShortcuts";
+import {
+  blockBrowserShortcuts,
+  blockSave,
+  blockSelectAll,
+} from "./blockShortcuts";
 
 initTheme();
 blockBrowserShortcuts();
@@ -31,6 +35,18 @@ window.addEventListener("contextmenu", (e) => {
 
 // URLパラメータでウィンドウの役割を切り替える
 const params = new URLSearchParams(window.location.search);
+// ⌘Sを使う画面 (メインウィンドウ) 以外では、
+// ブラウザの保存ダイアログが出ないようにここで止める。
+// メインウィンドウはApp側が既定の動作を止めたうえで使う
+if (
+  params.has("console") ||
+  params.has("diff") ||
+  params.has("schema") ||
+  params.has("er")
+) {
+  blockSave();
+}
+
 const content = params.has("console") ? (
   <ConsoleWindow />
 ) : params.has("diff") ? (

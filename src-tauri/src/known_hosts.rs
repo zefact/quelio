@@ -4,23 +4,29 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 /// known_hosts.json の保存先 (アプリ起動時にsetupで設定される)
 static PATH: OnceLock<PathBuf> = OnceLock::new();
+
+/// 読み込み→書き込みを直列化する
+/// (複数タブから同時に初回接続すると、記録が混ざって壊れるため)
+static LOCK: Mutex<()> = Mutex::new(());
 
 pub fn init(path: PathBuf) {
     let _ = PATH.set(path);
 }
 
-fn load() -> HashMap<String, String> {
+/// 記録済みのホスト鍵を読み込む。
+/// 保存先が未設定・ファイルが壊れている場合はエラーにする。
+/// (黙って空を返すと「初回接続」扱いになり、鍵の検証自体が無効になるため)
+fn load() -> Result<HashMap<String, String>, String> {
     let Some(path) = PATH.get() else {
-        return HashMap::new();
+        return Err(
+            "SSHホスト鍵の記録先を初期化できていないため、接続を中止しました".to_string(),
+        );
     };
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    Ok(crate::json_store::read(path, "SSHホスト鍵の記録")?.unwrap_or_default())
 }
 
 fn save(map: &HashMap<String, String>) -> Result<(), String> {
@@ -31,7 +37,7 @@ fn save(map: &HashMap<String, String>) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let json = serde_json::to_string_pretty(map).map_err(|e| e.to_string())?;
-    std::fs::write(path, json).map_err(|e| e.to_string())
+    crate::json_store::write(path, &json, "SSHホスト鍵の記録")
 }
 
 /// ホスト鍵を検証する。
@@ -39,8 +45,10 @@ fn save(map: &HashMap<String, String>) -> Result<(), String> {
 /// - 一致: 受け入れる
 /// - 不一致: 拒否理由の文字列を返す (呼び出し側で接続エラーにする)
 pub fn verify(host: &str, port: u16, fingerprint: &str) -> Result<(), String> {
+    // 他のスレッドがパニックしていても、記録の読み書き自体は続けられる
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let key = format!("{host}:{port}");
-    let mut map = load();
+    let mut map = load()?;
 
     match map.get(&key) {
         None => {

@@ -1,22 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import { useModal } from "../hooks/useModal";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
-  appendTempUpload,
   cancelJob,
-  createTempUpload,
+  detectTools,
   jobStatus,
   startExport,
   startImport,
 } from "../api";
-import type { ExportMode } from "../types";
-
-/** バイト数の表示 */
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
-  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
-}
+import { stageDroppedFile } from "../uploadFile";
+import { fmtBytes } from "../format";
+import type { DbType, ExportMode, ExportTable } from "../types";
 
 interface JobView {
   jobId: string;
@@ -108,21 +102,90 @@ interface ExportProps {
   sessionId: string;
   database: string;
   connName: string;
-  tables: string[];
+  dbType: DbType;
+  tables: ExportTable[];
   onClose: () => void;
+  /** 設定画面を開く (外部ツールが見つからないとき) */
+  onOpenSettings?: () => void;
 }
 
-/** 選択テーブルのエクスポートダイアログ */
+/**
+ * 必要な外部ツールが使えるかを、ダイアログを開いた時点で確かめる。
+ * 開始してから「見つかりません」と言われるのを避ける
+ */
+function useToolCheck(dbType: DbType, kind: "export" | "import") {
+  const [missing, setMissing] = useState<string | null>(null);
+  const [checking, setChecking] = useState(true);
+  useEffect(() => {
+    const need =
+      dbType === "mysql"
+        ? kind === "export"
+          ? "mysqldump"
+          : "mysql"
+        : kind === "export"
+          ? "pg_dump"
+          : "psql";
+    let alive = true;
+    detectTools()
+      .then((list) => {
+        if (!alive) return;
+        const found = list.find((t) => t.tool === need);
+        setMissing(found?.path ? null : need);
+      })
+      .catch(() => {
+        // 調べられなかったときは止めない (開始時のエラーで分かる)
+        if (alive) setMissing(null);
+      })
+      .finally(() => {
+        if (alive) setChecking(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [dbType, kind]);
+  return { missing, checking };
+}
+
+/** 外部ツールが見つからないときの案内 */
+function ToolMissing({ tool, onOpenSettings }: { tool: string; onOpenSettings?: () => void }) {
+  return (
+    <div className="result-banner ng">
+      <span className="dot" aria-hidden />
+      <strong>{tool} が見つかりません</strong>
+      <span className="result-detail">
+        設定の「外部ツール」でパスを指定するか、インストールしてください
+      </span>
+      {onOpenSettings && (
+        <>
+          <span className="toolbar-spacer" />
+          <button className="btn-secondary" onClick={onOpenSettings}>
+            設定を開く
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** 画面に出すテーブル名 (PostgreSQLはスキーマ付き) */
+function tableLabel(t: ExportTable): string {
+  return t.schema ? `${t.schema}.${t.name}` : t.name;
+}
+
+/** 選択テーブルをSQLダンプへ書き出すダイアログ */
 export function ExportDialog({
   sessionId,
   database,
   connName,
+  dbType,
   tables,
   onClose,
+  onOpenSettings,
 }: ExportProps) {
   const [mode, setMode] = useState<ExportMode>("full");
   const [error, setError] = useState<string | null>(null);
   const { job, watch } = useJob();
+  const { missing, checking } = useToolCheck(dbType, "export");
 
   const handleStart = async () => {
     setError(null);
@@ -134,11 +197,20 @@ export function ExportDialog({
     }
   };
 
+
+  // Escで閉じる・初期フォーカスは共通の作法にそろえる (実行中は閉じない)
+  const boxRef = useModal(onClose, !job?.running);
+
   return (
     <div className="modal-overlay" onMouseDown={job?.running ? undefined : onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        onMouseDown={(e) => e.stopPropagation()}
+        tabIndex={-1}
+        ref={boxRef}
+      >
         <div className="modal-head">
-          <span className="modal-title">エクスポート</span>
+          <span className="modal-title">SQLダンプ出力</span>
           <button
             className="modal-close"
             onClick={onClose}
@@ -154,7 +226,7 @@ export function ExportDialog({
             {connName} / {database}
           </span>
           <span className="transfer-tables">
-            {tables.length}テーブル: {tables.join(", ")}
+            {tables.length}テーブル: {tables.map(tableLabel).join(", ")}
           </span>
         </div>
 
@@ -186,6 +258,9 @@ export function ExportDialog({
             <span className="result-detail">{error}</span>
           </div>
         )}
+        {missing && (
+          <ToolMissing tool={missing} onOpenSettings={onOpenSettings} />
+        )}
         {job && <JobProgress job={job} />}
 
         <div className="modal-actions">
@@ -193,7 +268,11 @@ export function ExportDialog({
           {job?.running ? (
             <button
               className="btn-secondary"
-              onClick={() => cancelJob(job.jobId).catch(() => {})}
+              onClick={() =>
+                cancelJob(job.jobId).catch((e) =>
+                  setError(`中止できませんでした: ${e}`)
+                )
+              }
             >
               キャンセル
             </button>
@@ -205,9 +284,18 @@ export function ExportDialog({
               <button
                 className="btn-primary"
                 onClick={handleStart}
-                disabled={tables.length === 0}
+                disabled={tables.length === 0 || !!missing || checking}
+                title={
+                  missing
+                    ? `${missing} が見つかりません`
+                    : checking
+                      ? "必要なコマンドを確認しています..."
+                      : tables.length === 0
+                        ? "表を1つ以上選んでください"
+                        : undefined
+                }
               >
-                {job && !job.error ? "再実行" : "エクスポート開始"}
+                {job && !job.error ? "再実行" : "出力を開始"}
               </button>
             </>
           )}
@@ -217,33 +305,7 @@ export function ExportDialog({
   );
 }
 
-/** ArrayBuffer → base64 */
-function bufToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let s = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    s += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(s);
-}
-
-/** D&DされたFileを一時ファイルへ転送してパスを返す */
-async function stageDroppedFile(
-  f: File,
-  onProgress: (done: number, total: number) => void
-): Promise<string> {
-  const path = await createTempUpload(f.name);
-  const CHUNK = 4 * 1024 * 1024;
-  for (let off = 0; off < f.size; off += CHUNK) {
-    const buf = await f.slice(off, off + CHUNK).arrayBuffer();
-    await appendTempUpload(path, bufToBase64(buf));
-    onProgress(Math.min(off + CHUNK, f.size), f.size);
-  }
-  return path;
-}
-
-/** インポート対象ファイル */
+/** 流し込む対象のファイル */
 interface PickedFile {
   path: string;
   name: string;
@@ -254,17 +316,22 @@ interface ImportProps {
   sessionId: string;
   database: string;
   connName: string;
+  dbType: DbType;
   onClose: () => void;
-  /** インポート成功後にテーブル一覧を更新する */
+  /** 設定画面を開く (外部ツールが見つからないとき) */
+  onOpenSettings?: () => void;
+  /** 実行に成功したあとテーブル一覧を更新する */
   onImported: () => void;
 }
 
-/** SQLファイルのインポートダイアログ */
+/** SQLファイルを流し込むダイアログ */
 export function ImportDialog({
   sessionId,
   database,
   connName,
+  dbType,
   onClose,
+  onOpenSettings,
   onImported,
 }: ImportProps) {
   const [file, setFile] = useState<PickedFile | null>(null);
@@ -273,6 +340,7 @@ export function ImportDialog({
   const [staging, setStaging] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { job, watch } = useJob();
+  const { missing, checking } = useToolCheck(dbType, "import");
   const notified = useRef(false);
 
   useEffect(() => {
@@ -286,14 +354,19 @@ export function ImportDialog({
 
   const pickFile = async () => {
     if (busy) return;
-    const selected = await open({
-      multiple: false,
-      filters: [{ name: "SQL", extensions: ["sql", "txt", "dump"] }],
-    });
-    if (typeof selected === "string") {
-      const name = selected.split("/").pop() ?? selected;
-      setFile({ path: selected, name, size: null });
-      setError(null);
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "SQL", extensions: ["sql", "txt", "dump"] }],
+      });
+      if (typeof selected === "string") {
+        // 区切りはOSによって違うので、両方から末尾を取る
+        const name = selected.split(/[\\/]/).pop() ?? selected;
+        setFile({ path: selected, name, size: null });
+        setError(null);
+      }
+    } catch (e) {
+      setError(String(e));
     }
   };
 
@@ -330,11 +403,20 @@ export function ImportDialog({
     }
   };
 
+
+  // Escで閉じる・初期フォーカスは共通の作法にそろえる (実行中は閉じない)
+  const boxRef = useModal(onClose, !job?.running);
+
   return (
     <div className="modal-overlay" onMouseDown={job?.running ? undefined : onClose}>
-      <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        onMouseDown={(e) => e.stopPropagation()}
+        tabIndex={-1}
+        ref={boxRef}
+      >
         <div className="modal-head">
-          <span className="modal-title">インポート (SQLファイル実行)</span>
+          <span className="modal-title">SQLファイル実行</span>
           <button
             className="modal-close"
             onClick={onClose}
@@ -427,6 +509,9 @@ export function ImportDialog({
             <span className="result-detail">{error}</span>
           </div>
         )}
+        {missing && (
+          <ToolMissing tool={missing} onOpenSettings={onOpenSettings} />
+        )}
         {job && <JobProgress job={job} />}
 
         <div className="modal-actions">
@@ -434,7 +519,11 @@ export function ImportDialog({
           {job?.running ? (
             <button
               className="btn-secondary"
-              onClick={() => cancelJob(job.jobId).catch(() => {})}
+              onClick={() =>
+                cancelJob(job.jobId).catch((e) =>
+                  setError(`中止できませんでした: ${e}`)
+                )
+              }
             >
               キャンセル
             </button>
@@ -446,9 +535,20 @@ export function ImportDialog({
               <button
                 className="btn-primary"
                 onClick={handleStart}
-                disabled={!file || staging !== null}
+                disabled={!file || staging !== null || !!missing || checking}
+                title={
+                  missing
+                    ? `${missing} が見つかりません`
+                    : checking
+                      ? "必要なコマンドを確認しています..."
+                      : !file
+                        ? "取り込むファイルを選んでください"
+                        : staging !== null
+                          ? "ファイルを準備しています..."
+                          : undefined
+                }
               >
-                インポート実行
+                実行する
               </button>
             </>
           )}

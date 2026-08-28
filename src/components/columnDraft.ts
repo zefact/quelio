@@ -193,3 +193,53 @@ export function withSize(colType: string, size: string): string {
 export function withBase(colType: string, base: string): string {
   return joinType(base, splitType(colType).size);
 }
+
+/** 型のサイズ指定 (例: "10,2") を数値の並びにする。数値以外が混ざればnull */
+function sizeNumbers(size: string): number[] | null {
+  if (!size.trim()) return null;
+  const nums = size.split(",").map((p) => Number(p.trim()));
+  return nums.every((n) => Number.isFinite(n)) ? nums : null;
+}
+
+/**
+ * データが失われうる変更を挙げる (空なら確認は不要)。
+ * 実行してしまうと戻せないので、実行前の確認に使う
+ */
+export function riskyChanges(before: ColumnSpec, after: ColumnSpec): string[] {
+  const reasons: string[] = [];
+  const a = splitType(before.colType.trim().toLowerCase());
+  const b = splitType(after.colType.trim().toLowerCase());
+  if (a.base !== b.base) {
+    reasons.push(
+      `型を ${before.colType} から ${after.colType} へ変更します (値が変換できないと失敗し、変換できても丸められることがあります)`
+    );
+  } else {
+    // 桁数・小数部のどれか1つでも小さくなれば「縮小」とみなす
+    const na = sizeNumbers(a.size);
+    const nb = sizeNumbers(b.size);
+    const shrink =
+      na !== null &&
+      nb !== null &&
+      na.length === nb.length &&
+      nb.some((n, i) => n < na[i]);
+    if (shrink) {
+      reasons.push(
+        `型のサイズを ${before.colType} から ${after.colType} へ縮めます (収まらない値は切り詰め・エラーになります)`
+      );
+    }
+  }
+  if (before.nullable && !after.nullable) {
+    reasons.push(
+      "NULL可 から NOT NULL へ変更します (NULLの行が残っていると失敗します)"
+    );
+  }
+  // 文字セット・照合順序が変わると、変換できない文字が失われることがある
+  const collA = (before.collation ?? "").trim().toLowerCase();
+  const collB = (after.collation ?? "").trim().toLowerCase();
+  if (collA && collB && collA !== collB) {
+    reasons.push(
+      `照合順序を ${before.collation} から ${after.collation} へ変更します (文字セットが変わると変換できない文字が失われます)`
+    );
+  }
+  return reasons;
+}

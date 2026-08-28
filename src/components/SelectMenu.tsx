@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePopupPosition } from "../hooks/usePopupPosition";
+import { useDismiss } from "../hooks/useDismiss";
 
 export interface SelectOption {
   value: string;
@@ -86,15 +87,8 @@ export function SelectMenu({
   const label = selected?.label ?? (value || placeholder);
 
   // 外側クリックで閉じる
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
-    };
-    // モーダル等がstopPropagationしてもここに届くようキャプチャ段階で監視する
-    document.addEventListener("mousedown", onDown, true);
-    return () => document.removeEventListener("mousedown", onDown, true);
-  }, [open]);
+  // (モーダル等がstopPropagationしてもここに届くようキャプチャ段階で監視する)
+  useDismiss(open, () => setOpen(false), { capture: true, ref: wrapRef });
 
   // 開いたとき選択中の項目を表示範囲へスクロール
   useEffect(() => {

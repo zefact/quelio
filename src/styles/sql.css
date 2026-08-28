@@ -1,0 +1,1463 @@
+/* SQLエディタと、その周りのメニュー・検索バー・セッション画面 */
+
+/* ============ 履歴・保存SQLの統合メニュー ============ */
+
+.lib-menu {
+  min-width: 440px;
+  max-width: 580px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* メニュー内の「履歴 / 保存SQL」切り替えタブ */
+.lib-tabs {
+  display: flex;
+  gap: var(--space-1);
+  padding: 2px 2px 4px;
+}
+
+.lib-tabs button {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 0;
+  cursor: pointer;
+}
+
+.lib-tabs button:hover {
+  color: var(--text);
+}
+
+.lib-tabs button.active {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.saved-add {
+  color: var(--text);
+}
+
+.saved-add:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.saved-folder {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 700;
+}
+
+.saved-caret {
+  width: 18px;
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+
+.saved-item-row {
+  display: flex;
+  align-items: center;
+}
+
+.saved-item-row .saved-item {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-del,
+.saved-edit {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 8px;
+  visibility: hidden;
+}
+
+.saved-item-row:hover .saved-del,
+.saved-item-row:hover .saved-edit,
+.saved-del.confirm {
+  visibility: visible;
+}
+
+.saved-edit:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.08);
+}
+
+.saved-del:hover,
+.saved-del.confirm {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.12);
+}
+
+/* 保存ダイアログ */
+.save-sql-modal {
+  width: 460px;
+}
+
+.save-sql-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 14px 16px 16px;
+}
+
+.save-sql-label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.save-sql-input {
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 13px;
+  padding: 7px 10px;
+  outline: none;
+}
+
+.save-sql-input:focus {
+  border-color: var(--accent);
+}
+
+.save-sql-overwrite {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.save-sql-preview {
+  max-height: 110px;
+  overflow: hidden;
+  background: rgba(var(--ink), 0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.save-sql-error {
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.save-sql-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+/* SQL実行タイムアウトの入力欄 (設定 > 一般) */
+.timeout-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.timeout-field input {
+  width: 90px;
+  text-align: right;
+}
+
+/* 設定画面のキー操作一覧 (入力補完のショートカット) */
+.key-hints {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-end;
+}
+
+.key-hint {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.key-hint-keys {
+  display: flex;
+  gap: 3px;
+}
+
+.key-hint kbd {
+  min-width: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--bg-panel);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.key-hint-label {
+  min-width: 64px;
+  text-align: left;
+}
+
+/* ============ ページ内検索バー (Cmd/Ctrl+F) ============ */
+
+/* ページ内検索の一致強調 (Custom Highlight API)。
+ * 全一致は薄い黄色、現在位置は濃いオレンジで区別する */
+::highlight(quelio-find) {
+  background: rgba(250, 204, 21, 0.35);
+}
+
+::highlight(quelio-find-active) {
+  background: rgba(249, 115, 22, 0.75);
+  color: #fff;
+}
+
+.find-bar {
+  position: fixed;
+  top: 52px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 6px 8px;
+  background: var(--menu-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: slide-in 0.12s ease;
+}
+
+.find-bar input {
+  width: 210px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text);
+  font-size: 13px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+.find-bar input:focus {
+  border-color: var(--accent);
+}
+
+/* 一致なしのときは入力欄の枠を赤くして知らせる */
+.find-bar.not-found input {
+  border-color: var(--danger);
+}
+
+/* 一致件数 (現在位置/総数) */
+.find-count {
+  min-width: 44px;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.find-bar.not-found .find-count {
+  color: var(--danger);
+}
+
+.find-bar button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 5px 6px;
+  border-radius: var(--radius-xs);
+}
+
+.find-bar button:hover {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+/* 更新系SQLの「N行に影響しました」バナー (結果グリッドの代わりに上詰めで表示) */
+.result-banner.exec-result {
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
+/* ライトテーマでは淡色文字 (#a7f3d0 / #fecaca) が背景に溶けて読めないため濃色にする */
+html[data-theme="light"] .result-banner.ok {
+  color: #04684a;
+}
+
+html[data-theme="light"] .result-banner.ng {
+  color: #a11d1d;
+}
+
+.result-banner strong {
+  flex-shrink: 0;
+}
+
+.result-detail {
+  color: inherit;
+  opacity: 0.9;
+  /* エラーメッセージの改行をそのまま表示する (複数行の案内があるため) */
+  white-space: pre-wrap;
+}
+
+.elapsed {
+  margin-left: 8px;
+  font-size: 11px;
+  opacity: 0.65;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+/* ============ セッション画面(接続済みタブ) ============ */
+
+.session {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.session-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(var(--ink), 0.015);
+  flex-shrink: 0;
+}
+
+.session-conn {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex-shrink: 1;
+  max-width: 360px;
+}
+
+.session-name {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-host {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* 長いホスト名は省略表示 (ホバーで全文) */
+.session-host-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.db-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  margin-left: 16px;
+  padding: 0 10px;
+  height: 34px;
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-btn);
+  color: var(--text-dim);
+}
+
+.db-select-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+.db-select {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  padding-right: 18px;
+  cursor: pointer;
+  min-width: 180px;
+  background-image: url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93a8' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+}
+
+.db-select:focus {
+  outline: none;
+}
+
+.db-select option {
+  background: var(--bg-panel);
+  color: var(--text);
+}
+
+/* ============ 独自セレクトボックス (SelectMenu) ============
+   ネイティブselectのドロップダウンはWindows (WebView2) でOS描画になり
+   テーマと合わないため、コンテキストメニューと同じ見た目で自前描画する */
+
+.select-menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.select-menu-trigger {
+  display: block;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-menu-trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.select-menu-label.placeholder {
+  color: var(--text-faint);
+}
+
+/* 下に入りきらないときは上へ出す (.up はSelectMenu側で判定して付ける) */
+.select-menu-pop.up {
+  top: auto;
+  bottom: calc(100% + 9px);
+}
+
+.select-menu-pop {
+  position: absolute;
+  top: calc(100% + 9px);
+  left: 0;
+  z-index: 120;
+  min-width: 100%;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--menu-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: 5px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+  animation: slide-in 0.1s ease;
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+}
+
+.select-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  padding: 6px 10px 6px 6px;
+  text-align: left;
+  font-size: 12.5px;
+  font-family: inherit;
+  /* 未選択の項目は文字色を薄くして、選択中との差をつける */
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.select-menu-item.hover {
+  background: rgba(99, 102, 241, 0.25);
+  color: var(--text);
+}
+
+/* 選択中の項目は通常の文字色 + 太字 */
+.select-menu-item.checked {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.select-menu-check {
+  width: 14px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 11px;
+}
+
+.select-menu-empty {
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+/* ツールバーのサーバー情報チップ */
+
+.server-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: 14px;
+  min-width: 0;
+  /* ウィンドウが狭いときは切り捨てずに横スクロールできるようにする */
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  /* ツールバーの見た目を崩さないよう、スクロールバーは出さない
+   * (トラックパッドの横スワイプ・Shift+ホイールでスクロールできる) */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.server-info::-webkit-scrollbar {
+  display: none;
+}
+
+.server-info .info-chip {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.server-info .info-chip-value {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-error {
+  margin: 12px 16px 0;
+}
+
+/* 別ウィンドウを開けなかったときの帯 (タブバーの下) */
+.app-error {
+  margin: 8px 16px 0;
+}
+
+/* 保存先を開くボタン (完了メッセージの右) */
+.reveal-btn {
+  flex: none;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: rgba(var(--ink), 0.05);
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.reveal-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-2, #a5b4fc);
+}
+
+/* 開けなかったとき (数秒で元に戻る) */
+.reveal-btn.reveal-error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* 読み込み中の「中止」ボタン */
+.loading-cancel {
+  margin-left: 12px;
+}
+
+/* コンソールのクリア失敗 */
+.console-error {
+  font-size: 11.5px;
+  color: var(--danger);
+}
+
+.session-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* 左ペイン: テーブル一覧 */
+
+.table-pane {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: rgba(var(--ink), 0.015);
+  padding: 10px;
+  min-height: 0;
+}
+
+.table-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 見出し・件数・アイコンは左に寄せ、余白は toolbar-spacer が吸収する */
+  gap: var(--space-2);
+  padding: 2px 6px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.panel-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  background: rgba(var(--ink), 0.06);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+  flex-shrink: 0;
+}
+
+.filter-input {
+  width: 100%;
+  font-size: 12px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.filter-input::placeholder {
+  color: var(--text-faint);
+}
+
+.filter-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+/* テーブル一覧の操作案内 (右クリックにしか無い操作を知らせる) */
+.side-table-hint {
+  margin: 6px 2px 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.side-table-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* 編集できない理由 (データタブの操作バー) */
+.edit-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 46ch;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.edit-hint-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgba(var(--ink), 0.1);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.side-table-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  color: var(--text-dim);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.side-table-item:hover {
+  background: rgba(var(--ink), 0.05);
+  color: var(--text);
+}
+
+.side-table-item.selected {
+  background: linear-gradient(
+    90deg,
+    rgba(99, 102, 241, 0.2),
+    rgba(34, 211, 238, 0.08)
+  );
+  color: var(--text);
+}
+
+.side-table-name {
+  /* テーブル名は縮めない (日本語名の方を先に省略する) */
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* テーブルの日本語名 (テーブルコメント)。テーブル名のすぐ後ろに薄く出す */
+.side-table-logical {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右クリックから数えた正確な件数 */
+.side-table-count {
+  flex: none;
+  margin-left: auto;
+  padding-left: 8px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.table-schema {
+  color: var(--text-faint);
+}
+
+.table-pane-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-faint);
+  font-size: 12px;
+  padding: 12px 8px;
+}
+
+/* コンテンツ領域 */
+
+.session-content {
+  flex: 1;
+  overflow-y: auto;
+  /* ウィンドウが狭くてもペイン自体には横スクロールを出さない
+   * (結果グリッドやエディタは内部で個別にスクロールする) */
+  overflow-x: hidden;
+  padding: 24px 28px;
+  min-width: 0;
+}
+
+.content-placeholder.dim-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-faint);
+  font-size: 13px;
+}
+
+.content-table-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* CREATE文の表示ボタン (見出しの右端) */
+.table-ddl-btn {
+  flex: none;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
+/* テーブル名はコピーしたいことがあるので、文字を選べるようにする */
+.content-table-head h2 {
+  cursor: text;
+}
+
+.content-table-head h2 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+}
+
+/* ============ SQLエディタ ============ */
+
+.sql-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-btn);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.sql-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: rgba(var(--ink), 0.3);
+}
+
+/* DB未選択時など: 押せないことがひと目で分かるように薄く表示する */
+.sql-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sql-btn.active {
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  border-color: transparent;
+  box-shadow: 0 2px 12px rgba(99, 102, 241, 0.35);
+}
+
+.query-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.sql-editor {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--input-bg);
+  overflow: hidden;
+}
+
+.sql-editor:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+/* CodeMirror (SQLエディタ本体) */
+.sql-cm {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.sql-cm .cm-editor {
+  height: 100%;
+}
+
+.query-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  flex-shrink: 0;
+  /* 幅が足りないときは2行に折り返す。
+   * overflowでスクロールさせるとメニューやツールチップが
+   * クリップされて見えなくなるため使わない */
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
+.query-actions .btn-primary,
+.query-actions .btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  border: none;
+  border-radius: var(--radius-btn);
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  /* 文字サイズや枠線の有無が違っても高さを揃える
+     (EXPLAINの▾が無いSQLiteでも他のボタンと同じ高さになる) */
+  height: 34px;
+}
+
+/* スプリットボタンは中の2つが同じ高さになるよう引き伸ばす */
+.run-split > .btn-primary,
+.run-split > .btn-secondary {
+  height: 100%;
+}
+
+.query-actions .run-split {
+  height: 34px;
+}
+
+.query-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.format-error {
+  font-size: 11px;
+  color: var(--danger);
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 実行ボタン (モード切替つきスプリットボタン) */
+
+.run-split {
+  position: relative;
+  display: inline-flex;
+}
+
+.query-actions .run-main {
+  border-radius: var(--radius-btn) 0 0 var(--radius-btn);
+}
+
+.query-actions .run-caret {
+  border-radius: 0 9px 9px 0;
+  padding: 8px 9px;
+  border-left: 1px solid rgba(255, 255, 255, 0.28);
+  font-size: 10px;
+}
+
+.run-menu {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  min-width: 220px;
+}
+
+/* 下に入りきらないときはボタンの上へ出す */
+.run-menu.up {
+  top: auto;
+  bottom: calc(100% + 5px);
+}
+
+/* メニューの選択中項目 (DB選択メニューなどと同じ「通常色 + 太字」に揃える) */
+.context-item.checked {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.context-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* EXPLAINボタンと実行計画ビュー */
+
+.plan-container {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.plan-toolbar {
+  flex-shrink: 0;
+  margin-bottom: 6px;
+}
+
+.plan-mode-tabs .result-tab {
+  font-size: 11px;
+}
+
+.plan-pretty {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+
+/* サマリ+カラムヘッダをまとめてスクロール時に固定する */
+.plan-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 100px rgba(var(--ink), 0.03);
+  border-bottom: 1px solid var(--border);
+}
+
+.plan-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+/* ツリー表示のカラムヘッダ (行のメトリクス列と同じ幅で揃える) */
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 14px 6px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+}
+
+.plan-head-op-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  padding-left: 10px;
+}
+
+/* 操作カラムのリサイザ (ヘッダ) */
+.plan-col-resizer {
+  flex-shrink: 0;
+  width: 9px;
+  align-self: stretch;
+  cursor: col-resize;
+  position: relative;
+}
+
+.plan-col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(var(--ink), 0.14);
+}
+
+.plan-col-resizer:hover::after {
+  background: var(--accent);
+}
+
+/* ヘッダと全行を共通の幅にする内側ラッパ。
+   操作カラム固定時は最も広い行に合わせた幅になり、全行の列位置が揃ったまま
+   横スクロールできる (行ごとにwidth:max-contentを当てると列がズレるため) */
+.plan-inner {
+  min-width: 100%;
+}
+
+.plan-pretty.op-fixed .plan-inner {
+  width: max-content;
+}
+
+/* 操作カラム固定時: メトリクス列を右端に寄せて全行の列位置を揃える。
+   (操作カラムはflex:noneの固定幅なので、余白はmargin-left:autoで吸収する) */
+.plan-pretty.op-fixed .plan-row-metrics {
+  margin-left: auto;
+}
+
+.plan-pretty.op-fixed .plan-head .plan-col.rows {
+  margin-left: auto;
+}
+
+.plan-head .tip-target {
+  cursor: help;
+}
+
+.plan-head .tip-target:hover {
+  color: var(--text);
+}
+
+/* メトリクスの固定幅カラム (ヘッダと行で共通) */
+.plan-col {
+  flex-shrink: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.plan-col.rows {
+  width: 108px;
+}
+
+.plan-col.loops {
+  width: 52px;
+}
+
+.plan-col.time {
+  width: 80px;
+}
+
+.plan-col.bar {
+  width: 120px;
+}
+
+.plan-head .plan-col.bar {
+  text-align: left;
+}
+
+/* ヘッダ説明ツールチップ (HoverTip: body直下にポータル表示) */
+.hover-tip {
+  position: fixed;
+  z-index: 500;
+  /* has-tooltip と同じだけ待ってから出す (体感をそろえる) */
+  animation: hover-tip-in 0.12s ease 0.35s both;
+  width: max-content;
+  max-width: 320px;
+  background: var(--menu-bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  letter-spacing: normal;
+  text-transform: none;
+  /* 論理名 / 補足 / 型を改行で分けて表示するため、改行はそのまま活かす */
+  white-space: pre-line;
+  pointer-events: none;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.35);
+  animation: tip-in 0.12s ease 0.3s both;
+}
+
+@keyframes tip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.plan-summary-item strong {
+  color: var(--accent-2);
+  font-size: 13px;
+}
+
+.plan-summary-hint {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.plan-tree {
+  padding: 6px 0 10px;
+}
+
+.plan-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 3px 14px 3px 10px;
+  border-bottom: 1px solid rgba(var(--ink), 0.03);
+  /* インデントはplan-row-main側のpadding-leftで付ける */
+}
+
+.plan-row.hot {
+  background: rgba(248, 113, 113, 0.06);
+}
+
+.plan-row-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+
+.plan-tree-mark {
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+
+/* ツリーの折りたたみトグル (▾/▸)。子を持たない行はspacerで位置だけ揃える */
+.plan-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  width: 16px;
+  padding: 2px 0;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.plan-toggle:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.08);
+}
+
+.plan-toggle.spacer {
+  visibility: hidden;
+  cursor: default;
+}
+
+/* 折りたたみ中の配下ノード数チップ */
+.plan-chip.dim {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.plan-op {
+  font-weight: 700;
+  font-size: 12.5px;
+  white-space: nowrap;
+  /* 長い操作名は右の数値列に重ならないよう省略する */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.plan-detail {
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  /* 幅が足りないときは操作名より先に補足を縮める */
+  flex-shrink: 3;
+}
+
+.plan-row-metrics {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.plan-chip {
+  color: var(--text-dim);
+  background: rgba(var(--ink), 0.05);
+  border-radius: 5px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.plan-badge {
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 5px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.plan-badge.warn {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.14);
+  border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
+.plan-badge.dim {
+  color: var(--text-faint);
+  background: rgba(var(--ink), 0.05);
+}
+
+.plan-time {
+  text-align: right;
+  color: var(--text);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.plan-time.warm {
+  color: #fbbf24;
+}
+
+.plan-time.hot {
+  color: var(--danger);
+}
+
+.plan-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(var(--ink), 0.06);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.plan-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+  opacity: 0.75;
+}
+
+.plan-bar-fill.warm {
+  background: #fbbf24;
+}
+
+.plan-bar-fill.hot {
+  background: var(--danger);
+}
+
+.query-actions .explain-btn {
+  padding: 8px 12px;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  background: rgba(var(--ink), 0.05);
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+}
+
+.query-actions .explain-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: rgba(var(--ink), 0.3);
+}
+
+/* EXPLAIN/ANALYZE切替のスプリットボタン */
+.explain-split .run-menu {
+  min-width: max-content;
+}
+
+.explain-split .run-menu .context-item {
+  white-space: nowrap;
+}
+
+.explain-split .run-main {
+  border-right: none;
+}
+
+.explain-split .run-caret {
+  border-left: 1px solid var(--border-strong);
+}
+
+.plan-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  padding: 12px 8px;
+  font-size: 12.5px;
+  line-height: 1.75;
+}
+
+.plan-line {
+  white-space: pre;
+}
+
+/* SQL結果の行番号列 */
+
+.row-num {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  user-select: none;
+}
+
+/* 行番号列: データの値と見間違えないよう、
+   SQLエディタの行番号と同じ「余白(ガター)」の見た目にする */
+.grid td.rownum-cell {
+  background: rgba(var(--ink), 0.04);
+  border-right: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+.grid th.rownum-cell {
+  border-right: 1px solid var(--border);
+  /* ソート対象外の列なのでクリックしても反応しないことを示す */
+  cursor: default;
+}
+
+/* SQLキャンセルボタンと経過時間 */
+
+.cancel-query-btn {
+  background: rgba(248, 113, 113, 0.12) !important;
+  color: var(--danger) !important;
+  border: 1px solid rgba(248, 113, 113, 0.4) !important;
+}
+
+.cancel-query-btn:hover {
+  background: rgba(248, 113, 113, 0.22) !important;
+}
+
+.running-elapsed {
+  color: var(--accent-2);
+}
+
+/* 実行時キャプチャ */
+
+.capture-switch .switch-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ウィンドウが狭くてもトグルのラベルを改行・圧縮させない */
+.query-actions .capture-switch {
+  flex-shrink: 0;
+}
+
+.query-actions .capture-switch .switch-label {
+  white-space: nowrap;
+}
+
+.capture-msg {
+  font-size: 11px;
+  color: var(--text-dim);
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ライトテーマでのブランドロゴ文字 (白グラデーションだと見えないため) */
+html[data-theme="light"] .brand-name {
+  background: linear-gradient(90deg, #1f2430, #4b5568);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* 保存トースト (モーダル右上に浮かせる) */

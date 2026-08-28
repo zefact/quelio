@@ -1,0 +1,608 @@
+/* カード / フォーム / ボタン / 結果バナー / 実行履歴 */
+
+/* ============ カード・フォーム ============ */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px 20px;
+  margin-bottom: 14px;
+  backdrop-filter: blur(6px);
+}
+
+.card.collapsed {
+  padding-bottom: 18px;
+}
+
+/*
+ * ドロップダウンを開いているカードを手前へ出す。
+ *
+ * .card は backdrop-filter を持つため、それ自体が「重なりの文脈」になる。
+ * カードの中の z-index はカードの中だけで効くので、
+ * 何もしないと後ろにあるカード (SSH踏み台など) の方が後から描かれ、
+ * はみ出したメニューがその下に隠れてしまう
+ */
+.card:has(.select-menu-pop) {
+  position: relative;
+  z-index: 1;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.card-head h2 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.card.collapsed .card-head {
+  margin-bottom: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  background: rgba(var(--ink), 0.05);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  padding: 3px;
+  gap: 2px;
+}
+
+.segment {
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.segment:hover {
+  color: var(--text);
+}
+
+.segment.active {
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.35);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+}
+
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.form-grid label.span2 {
+  grid-column: span 2;
+}
+
+.form-grid label.grow {
+  grid-column: 1;
+}
+
+.form-grid label.w-port {
+  max-width: 140px;
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+/* Valkey用TLSスイッチの行 (labelの入れ子を避けるためdivで組む) */
+.form-grid .tls-row {
+  grid-column: span 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* 右クリックメニューに出す注記 (操作できない理由) */
+.context-note {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.6;
+  max-width: 260px;
+}
+
+/* 読み取り専用の接続を示すバッジ */
+.ro-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(251, 191, 36, 0.18);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  color: #fbbf24;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+
+/* TLSの選択 (プルダウン) */
+/* 接続フォームの中の選択欄は、隣の入力欄と同じ見た目に合わせる
+   (見た目そのものは .select-field 側。ここでは寸法だけ揃える) */
+.form-grid .select-menu-wrap {
+  width: 100%;
+}
+
+.form-grid .select-field.db-select {
+  padding: 9px 26px 9px 12px;
+  border-radius: var(--radius-btn);
+  font-size: 13.5px;
+}
+
+/* 入力欄の下に出す補足 */
+.form-grid .field-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+
+/* パスワードを復号できなかったときの注意書き */
+.form-grid .locked-secret {
+  grid-column: span 2;
+  padding: 8px 12px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: var(--radius-sm);
+  background: rgba(248, 113, 113, 0.08);
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+
+/* .form-grid label の縦積み指定を打ち消してスイッチを横並びに戻す */
+.form-grid .tls-row .switch {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.field-label em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--text-faint);
+  margin-left: 2px;
+}
+
+.form-grid input {
+  font-size: 13.5px;
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-btn);
+  background: var(--input-bg);
+  color: var(--text);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.form-grid input::placeholder {
+  color: var(--text-faint);
+}
+
+.form-grid input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+.form-grid input[type="number"]::-webkit-outer-spin-button,
+.form-grid input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch input {
+  display: none;
+}
+
+.switch .track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: rgba(var(--ink), 0.12);
+  border: 1px solid var(--border-strong);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+/* 実行中などで無効化されたスイッチは薄くして操作不可を示す */
+.switch:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.switch input:disabled {
+  cursor: not-allowed;
+}
+
+.switch input:checked + .track {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+}
+
+.switch input:checked + .track::after {
+  transform: translateX(16px);
+}
+
+.switch-label {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ============ ボタン ============ */
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.form-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 10px 20px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.12s ease, transform 0.06s ease;
+}
+
+.form-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.form-actions button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/*
+ * ボタンは5種類だけ。
+ *   btn-primary   … その画面の主な操作 (1つだけ)
+ *   btn-secondary … それ以外の操作
+ *   btn-ghost     … 枠だけの軽い操作
+ *   btn-danger    … 取り消せない操作 (枠線タイプ)
+ *   アイコンボタン … pane-icon-btn / sql-btn など、文字を持たないもの
+ *
+ * 色だけ変えたいときは修飾クラスを足す (単独では使わない):
+ *   btn-secondary btn-ok       … 「接続テスト」のような確認系
+ *   btn-primary btn-fill-danger … 塗りつぶしの削除ボタン
+ */
+
+/* ボタンの基本形 (どこに置いてもネイティブの四角いボタンにならないように) */
+.btn-primary,
+.btn-secondary,
+.btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  border: none;
+  border-radius: var(--radius-btn);
+  padding: 8px 16px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, filter 0.12s ease;
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), #4f46e5);
+  color: #fff;
+  box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+
+/* 確認系 (接続テストなど) の色違い。btn-secondary と併用する */
+.btn-secondary.btn-ok {
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--success);
+  border: 1px solid rgba(52, 211, 153, 0.4) !important;
+}
+
+.btn-secondary.btn-ok:hover:not(:disabled) {
+  background: rgba(52, 211, 153, 0.2);
+}
+
+.btn-secondary {
+  background: rgba(var(--ink), 0.07);
+  color: var(--text);
+  border: 1px solid var(--border-strong) !important;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: rgba(var(--ink), 0.12);
+}
+
+.btn-danger {
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid rgba(248, 113, 113, 0.35) !important;
+  margin-left: auto;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-btn);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.btn-ghost:hover {
+  color: var(--text);
+  border-color: rgba(var(--ink), 0.3);
+}
+
+.spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(52, 211, 153, 0.3);
+  border-top-color: var(--success);
+  animation: spin 0.7s linear infinite;
+}
+
+.spinner.light {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+}
+
+.spinner.accent {
+  border-color: rgba(99, 102, 241, 0.3);
+  border-top-color: var(--accent);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============ 結果バナー ============ */
+
+.result-banner {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 13px 16px;
+  border-radius: var(--radius-lg);
+  font-size: 13px;
+  animation: slide-in 0.18s ease;
+}
+
+@keyframes slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.result-banner .dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  align-self: center;
+}
+
+/*
+ * 種類を付けないとき (件数の報告など) の見た目。
+ * 付けないと枠も点の色も無く、字だけが浮いて見えてしまう
+ */
+.result-banner:not(.ok):not(.ng):not(.warn) {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.result-banner:not(.ok):not(.ng):not(.warn) .dot {
+  background: var(--text-faint);
+}
+
+.result-banner.ok {
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #a7f3d0;
+}
+
+.result-banner.ok .dot {
+  background: var(--success);
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.8);
+}
+
+.result-banner.ng {
+  background: rgba(248, 113, 113, 0.09);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: #fecaca;
+  word-break: break-all;
+}
+
+.result-banner.ng .dot {
+  background: var(--danger);
+  box-shadow: 0 0 10px rgba(248, 113, 113, 0.8);
+}
+
+/* ============ 実行履歴 (統合メニューの履歴タブ) ============ */
+
+.history-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.history-time {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.history-sql {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.history-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* 削除など、取り消せない操作のゴーストボタン */
+.btn-ghost.danger {
+  color: var(--danger);
+}
+
+.btn-ghost.danger:hover {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+/* トグルがOFFのときに、何が起きるかを添える (例: オートコミット) */
+.switch-note {
+  margin-left: 6px;
+  color: var(--text-faint);
+}
+
+/* ------------------------------------------------------------
+   ダイアログの中の1行入力欄
+
+   見た目をここに集約し、幅や配置は用途ごとのclass (.db-admin-name など)
+   で足す。付け忘れるとブラウザ既定の見た目のまま出てしまい、
+   ダークテーマでは特に浮くため、新しい入力欄にはこれを付けること
+   ------------------------------------------------------------ */
+.text-field {
+  min-width: 0;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.text-field::placeholder {
+  color: var(--text-faint);
+}
+
+.text-field:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+.text-field:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* SelectMenu を単体で置くときの見た目 (.text-field と対にする)。
+   .db-select は「枠を持つ入れ物の中に置く」前提の指定なので、
+   単体で使うと枠も背景も付かない */
+.select-field.db-select {
+  min-width: 0;
+  width: 100%;
+  padding: 7px 22px 7px 10px;
+  font-size: 13px;
+  text-align: left;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--input-bg);
+  /* 枠を付けたぶん、矢印を内側へ寄せる */
+  background-position: right 8px center;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.select-field.db-select:focus,
+.select-field.db-select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+.select-field.db-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 長い選択肢 (utf8mb4 — UTF-8 Unicode など) を枠からはみ出させない */
+.select-field .select-menu-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

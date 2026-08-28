@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { emitAppEvent, FIND_EVENT } from "../appEvents";
 import { dotStyle } from "../colors";
 import type { WorkTab } from "../types";
 import { AppMenu } from "./AppMenu";
@@ -80,6 +81,14 @@ export function TabBar({
             <span className="tab-label">
               {t.connected ? t.profile.name || "(無名)" : "新しい接続"}
             </span>
+            {t.connected && t.profile.readOnly && (
+              <span
+                className="ro-badge"
+                title="読み取り専用の接続です (更新はできません)"
+              >
+                R/O
+              </span>
+            )}
             <button
               className="tab-close"
               title={t.connected ? "切断して閉じる" : "閉じる"}
@@ -99,6 +108,28 @@ export function TabBar({
       </button>
 
       <span className="tabbar-spacer" data-tauri-drag-region />
+
+      <button
+        className="console-btn has-tooltip"
+        data-tooltip="画面内を検索 (⌘F)"
+        onClick={() => emitAppEvent(FIND_EVENT)}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <circle
+            cx="11"
+            cy="11"
+            r="6"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+          <path
+            d="M20 20l-4.5-4.5"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
 
       <button
         className="console-btn has-tooltip"
@@ -161,7 +192,7 @@ export function TabBar({
 
       <button
         className="console-btn has-tooltip"
-        data-tooltip="設定 (外部ツールのパス)"
+        data-tooltip="設定"
         onClick={onOpenSettings}
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>

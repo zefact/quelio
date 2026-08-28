@@ -1,0 +1,539 @@
+/* タブバーとコンソールウィンドウ */
+
+/* ============ タブバー ============ */
+
+.tabbar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  padding: 8px 12px 0;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 10px 7px 2px;
+}
+
+/* ロゴ部分もドラッグでウィンドウ移動できるように、
+   子要素へのクリックはすべて.brand本体に集約する */
+.brand > * {
+  pointer-events: none;
+}
+
+.brand-name {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: linear-gradient(90deg, #fff, #b8c0d8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+
+.tabbar-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  overflow-x: auto;
+  /* 縦方向には動かさない */
+  overflow-y: hidden;
+  min-width: 0;
+  /* スクロールは可能にしつつスクロールバーは表示しない */
+  scrollbar-width: none;
+}
+
+.tabbar-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 10px 8px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.tab:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.04);
+}
+
+.tab.active {
+  color: var(--text);
+  background: var(--bg-card);
+  border-color: var(--border);
+  position: relative;
+}
+
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  border-radius: 2px;
+}
+
+.tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tab-dot.mysql {
+  background: var(--mysql);
+  box-shadow: 0 0 6px rgba(240, 166, 58, 0.6);
+}
+
+.tab-dot.postgresql {
+  background: var(--postgres);
+  box-shadow: 0 0 6px rgba(90, 155, 216, 0.6);
+}
+
+.tab-dot.valkey {
+  background: var(--valkey);
+  box-shadow: 0 0 6px rgba(217, 86, 79, 0.6);
+}
+
+.tab-dot.idle {
+  background: var(--text-faint);
+}
+
+.tab-label {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tab-close:hover {
+  background: rgba(248, 113, 113, 0.2);
+  color: var(--danger);
+}
+
+.tab-add {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 5px;
+  margin-left: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.tab-add:hover {
+  background: rgba(99, 102, 241, 0.2);
+  color: var(--text);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.tabbar-spacer {
+  flex: 1;
+}
+
+/* Windows等用の︙アプリメニュー */
+.app-menu {
+  position: relative;
+  flex-shrink: 0;
+}
+
+/* .context-menu(fixed)より後勝ちになるようセレクタを重ねてabsoluteを効かせる */
+.app-menu .app-menu-dropdown.context-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  right: 0;
+  left: auto;
+  min-width: 170px;
+}
+
+/* Quelioについて (Windows等の代替Aboutダイアログ) */
+.modal.about-modal {
+  width: min(360px, calc(100vw - 60px));
+  text-align: center;
+  padding: 26px 22px 20px;
+}
+
+/* アプリのアイコン (画像自体が角丸なので背景は付けない) */
+.about-icon {
+  display: block;
+  width: 76px;
+  height: 76px;
+  margin: 0 auto 12px;
+  border-radius: 17px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.about-name {
+  font-size: 18px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.about-desc {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* バージョン・リリース日・サイト (項目名は左、値は右) */
+.about-meta {
+  margin: 16px 0 0;
+  padding: 12px 2px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  text-align: left;
+}
+
+.about-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+
+.about-meta dt {
+  flex: none;
+  width: 68px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.about-meta dd {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.about-beta-note {
+  margin-left: 6px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+}
+
+/* サイトのリンク (押すと既定のブラウザで開く) */
+.about-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-2);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.about-link svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.about-link:hover {
+  text-decoration: underline;
+}
+
+.about-copy {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.about-close {
+  margin-top: 16px;
+}
+
+.console-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  margin-bottom: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.console-btn:hover:not(:disabled) {
+  background: rgba(34, 211, 238, 0.15);
+  color: var(--accent-2);
+  border-color: rgba(34, 211, 238, 0.45);
+}
+
+/* 使えない状態 (未接続のスキーマ差分など)。理由はツールチップで出す */
+.console-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* macOS: タイトルバー統合(Overlay)時に信号機ボタンぶんの余白を確保 */
+
+html.macos .tabbar {
+  padding-left: 86px;
+}
+
+html.macos .console-toolbar,
+html.macos .diff-toolbar {
+  padding-left: 86px;
+}
+
+/* CSSツールチップ (data-tooltip属性) */
+
+/*
+ * ツールチップの使い分け (3種類あった経緯を残さないための決め事)
+ *
+ *   has-tooltip + data-tooltip … 操作の説明。ボタンやアイコンに付ける。
+ *                                 見た目と出るまでの時間をここで統一する
+ *   HoverTip (React)           … グリッドのヘッダなど、親のはみ出し隠しで
+ *                                 切られてしまう場所の長い説明
+ *   title 属性                 … 省略された文字列の全体を見せる用途と、
+ *                                 読み上げ・アクセシビリティの補助
+ *
+ * 新しく操作の説明を足すときは has-tooltip を使う (title は増やさない)
+ */
+@keyframes hover-tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.has-tooltip {
+  position: relative;
+}
+
+.has-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 200;
+  /* 改行を書けるようにする (長い説明は折り返す) */
+  white-space: pre-line;
+  max-width: 320px;
+  width: max-content;
+  background: var(--menu-bg);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  /* HoverTip と同じ見た目にそろえる */
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.6;
+  text-align: left;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-3px);
+  transition: opacity 0.12s ease 0.35s, transform 0.12s ease 0.35s,
+    visibility 0s linear 0.47s;
+  pointer-events: none;
+}
+
+.has-tooltip:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition-delay: 0.35s;
+}
+
+/* ホバー時のfilter等でボタンがスタッキングコンテキストになると
+ * ツールチップが後続要素 (ER図キャンバス等) の下に隠れるため、
+ * ホバー中はボタンごと前面に出す */
+.has-tooltip:hover {
+  z-index: 200;
+}
+
+/* 画面左側の要素用: ツールチップを左端起点で右へ伸ばす */
+.has-tooltip.tooltip-left::after {
+  right: auto;
+  left: 0;
+}
+
+/* 長文ツールチップ用: 折り返してウィンドウ外に隠れないようにする
+ * (data-tooltip内の改行もそのまま表示される) */
+.has-tooltip.tooltip-wrap::after {
+  white-space: pre-line;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 40px));
+  line-height: 1.5;
+}
+
+/* ============ コンソールウィンドウ ============ */
+
+.console {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+}
+
+.console-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.console-filter {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.console-count {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* 一覧はウィンドウいっぱいに広げる (枠や角丸は付けない) */
+.console-list.grid-wrap {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.console-list .grid th,
+.console-list .grid th:first-child,
+.console-list .grid th:last-child {
+  z-index: 3;
+  /* 枠いっぱいに出すので、共通グリッドの角丸は打ち消す */
+  border-radius: 0;
+}
+
+.console-list .grid td {
+  font-size: 12px;
+  vertical-align: top;
+  line-height: 1.55;
+}
+
+.console-db {
+  color: var(--accent-2);
+}
+
+.console-query {
+  color: var(--text);
+}
+
+.console-list tr.meta .console-query {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* 1件も無いときの案内 (グリッドが出す colspan 行) */
+.console-list .grid tbody td[colspan] {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+}
+
+/* SQLログの保存先 (長いパスは省略して出す) */
+.console-saved {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* データベース管理を開くボタン (DBセレクタの隣) */
+.db-admin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.db-admin-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+}

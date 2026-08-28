@@ -22,19 +22,36 @@ export function usePopupPosition<T extends HTMLElement>(
 ): [RefObject<T | null>, CSSProperties] {
   const ref = useRef<T>(null);
   const [style, setStyle] = useState<CSSProperties>({ left: x, top: y });
+  /**
+   * CSSで指定された max-height。
+   *
+   * ここで付けるインラインの max-height はCSSの指定より強いので、
+   * 覚えておかないと「CSSでは320pxまで」のメニューを
+   * 画面の高さまで伸ばしてしまう。
+   * インラインを付ける前 (最初に開いたとき) の値だけを覚える
+   */
+  const cssMax = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
 
+    if (cssMax.current === null) {
+      const raw = getComputedStyle(el).maxHeight;
+      cssMax.current = raw.endsWith("px")
+        ? Number.parseFloat(raw)
+        : Number.POSITIVE_INFINITY;
+    }
+
     const place = () => {
       const rect = el.getBoundingClientRect();
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const maxH = vh - MARGIN * 2;
+      // 画面に収まる高さと、CSSの指定のうち小さいほうまでに収める
+      const maxH = Math.min(vh - MARGIN * 2, cssMax.current ?? Infinity);
       // 表示上の高さ (CSSのmax-heightが効いていればその値) で位置を決める
       const h = Math.min(rect.height, maxH);
-      // 中身が画面より高いかどうかはscrollHeightで見る (付けたmax-heightに影響されない)
+      // 中身が入りきるかはscrollHeightで見る (付けたmax-heightに影響されない)
       const tooTall = el.scrollHeight > maxH + 1;
 
       let left = x;

@@ -939,6 +939,137 @@ pub struct KvRunOutput {
 /// 接続を占有・破壊するため実行を拒否するコマンド
 const BLOCKED_COMMANDS: &[&str] = &["MONITOR", "SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE"];
 
+/// 実行前に確認したい破壊的なコマンド。
+/// 取り消せない・サーバー全体に影響するもの
+const DESTRUCTIVE_COMMANDS: &[&str] = &[
+    "FLUSHALL", "FLUSHDB", "SHUTDOWN", "REPLICAOF", "SLAVEOF", "SWAPDB", "RESET",
+    "FAILOVER", "MIGRATE", "DEBUG", "DEL", "UNLINK", "RENAME", "GETDEL",
+    // スクリプトは中で何でも実行できるため、_RO 版以外は確認の対象にする
+    "EVAL", "EVALSHA", "FCALL",
+];
+
+/// 壊しはしないが、サーバーを詰まらせる可能性があるため確認したいコマンド
+const HEAVY_COMMANDS: &[&str] = &[
+    "KEYS",
+    // LCS は2つの文字列の長さの積だけ計算する (数MB同士だとサーバーが数秒止まる)
+    "LCS",
+];
+
+/// サブコマンドまで見て判断する破壊的なコマンド
+const DESTRUCTIVE_SUBCOMMANDS: &[(&str, &[&str])] = &[
+    ("CONFIG", &["SET", "REWRITE", "RESETSTAT"]),
+    ("ACL", &["SETUSER", "DELUSER", "LOAD", "SAVE"]),
+    ("CLIENT", &["KILL", "PAUSE", "UNPAUSE", "NO-EVICT"]),
+    ("SCRIPT", &["FLUSH"]),
+    ("FUNCTION", &["FLUSH", "DELETE", "RESTORE"]),
+    ("CLUSTER", &["RESET", "FORGET", "FAILOVER", "SETSLOT", "ADDSLOTS", "DELSLOTS"]),
+    ("XGROUP", &["DESTROY"]),
+    ("LATENCY", &["RESET"]),
+    ("SLOWLOG", &["RESET"]),
+];
+
+/// 確認が要るコマンドなら、確認画面に出す表示名を返す (例: "CONFIG SET")
+pub fn destructive_command(args: &[String]) -> Option<String> {
+    let name = args.first()?.to_uppercase();
+    if DESTRUCTIVE_COMMANDS.contains(&name.as_str()) || HEAVY_COMMANDS.contains(&name.as_str()) {
+        return Some(name);
+    }
+    let sub = args.get(1)?.to_uppercase();
+    DESTRUCTIVE_SUBCOMMANDS
+        .iter()
+        .find(|(c, subs)| *c == name && subs.contains(&sub.as_str()))
+        .map(|_| format!("{name} {sub}"))
+}
+
+/// 取り消せない操作か (重いだけのものと文言を分けるために使う)
+fn is_irreversible(shown: &str) -> bool {
+    !HEAVY_COMMANDS.contains(&shown)
+}
+
+/// 確認が要るコマンドを全て返す (1つ確認したら他も素通り、とならないように)
+pub fn find_destructive(commands: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in commands {
+        if let Some(c) = destructive_command(&split_args(line)) {
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
+/// 値を変えないコマンド (読み取り専用の接続で許可する)。
+/// 一覧に無いものは変更する可能性があるものとして拒否する
+const READ_ONLY_COMMANDS: &[&str] = &[
+    "GET", "MGET", "GETRANGE", "STRLEN", "SUBSTR", "EXISTS", "TYPE", "TTL", "PTTL",
+    "EXPIRETIME", "PEXPIRETIME", "KEYS", "SCAN", "RANDOMKEY", "DBSIZE", "DUMP",
+    "HGET", "HMGET", "HGETALL", "HKEYS", "HVALS", "HLEN", "HEXISTS", "HSTRLEN", "HSCAN",
+    "HRANDFIELD", "LRANGE", "LLEN", "LINDEX", "LPOS", "SMEMBERS", "SCARD", "SISMEMBER",
+    "SMISMEMBER", "SRANDMEMBER", "SSCAN", "SDIFF", "SINTER", "SUNION", "SINTERCARD",
+    "ZRANGE", "ZRANGEBYSCORE", "ZRANGEBYLEX", "ZREVRANGE", "ZREVRANGEBYSCORE", "ZCARD",
+    "ZCOUNT", "ZSCORE", "ZMSCORE", "ZRANK", "ZREVRANK", "ZSCAN", "ZLEXCOUNT", "ZRANDMEMBER",
+    "XRANGE", "XREVRANGE", "XLEN", "XPENDING", "BITCOUNT", "BITPOS", "GETBIT", "BITFIELD_RO",
+    "PFCOUNT", "GEOPOS", "GEODIST", "GEOSEARCH", "GEOHASH", "GEORADIUS_RO",
+    "GEORADIUSBYMEMBER_RO", "SORT_RO", "EVAL_RO", "EVALSHA_RO", "FCALL_RO",
+    // 集合演算のうち、結果を書き戻さない方 (…STORE は別コマンドなので入らない)
+    "ZDIFF", "ZUNION", "ZINTER", "ZINTERCARD", "LCS",
+    // ハッシュのフィールド単位のTTL (設定する HEXPIRE / HPERSIST は入らない)
+    "HTTL", "HPTTL", "HEXPIRETIME", "HPEXPIRETIME",
+    "LOLWUT", "INFO", "PING", "ECHO", "TIME",
+];
+
+/// サブコマンドまで見ないと判断できないもの (許可するサブコマンドの一覧)。
+/// 例: CLIENT LIST は参照だが、CLIENT KILL は他の接続を切ってしまう
+const READ_ONLY_SUBCOMMANDS: &[(&str, &[&str])] = &[
+    ("CLIENT", &["LIST", "INFO", "ID", "GETNAME"]),
+    /*
+     * ACL GETUSER はパスワードのハッシュを返すため、読むだけでも通さない。
+     * ACL LIST も定義を返すが、こちらはハッシュを `#…` として伏せた形になる
+     */
+    ("ACL", &["LIST", "CAT", "WHOAMI", "USERS"]),
+    ("OBJECT", &["ENCODING", "FREQ", "IDLETIME", "REFCOUNT", "HELP"]),
+    ("MEMORY", &["USAGE", "STATS", "DOCTOR", "HELP"]),
+    ("SLOWLOG", &["GET", "LEN", "HELP"]),
+    ("LATENCY", &["LATEST", "HISTORY", "DOCTOR", "HELP"]),
+    ("XINFO", &["STREAM", "GROUPS", "CONSUMERS", "HELP"]),
+    ("COMMAND", &["COUNT", "DOCS", "INFO", "GETKEYS", "LIST", "HELP"]),
+    ("CONFIG", &["GET"]),
+    ("SCRIPT", &["EXISTS", "HELP"]),
+    ("FUNCTION", &["LIST", "DUMP", "STATS", "HELP"]),
+    ("PUBSUB", &["CHANNELS", "NUMSUB", "NUMPAT", "SHARDCHANNELS", "SHARDNUMSUB", "HELP"]),
+    (
+        "CLUSTER",
+        &[
+            "INFO",
+            "MYID",
+            "SLOTS",
+            "SHARDS",
+            "NODES",
+            "LINKS",
+            "KEYSLOT",
+            "COUNTKEYSINSLOT",
+            "GETKEYSINSLOT",
+            "COUNT-FAILURE-REPORTS",
+            "HELP",
+        ],
+    ),
+];
+
+/// 読み取り専用の接続で実行してよいコマンドか (サブコマンドまで見る)
+pub fn is_read_only_command(args: &[String]) -> bool {
+    let Some(name) = args.first() else {
+        return false;
+    };
+    let name = name.to_uppercase();
+    if let Some((_, subs)) = READ_ONLY_SUBCOMMANDS.iter().find(|(n, _)| *n == name) {
+        return args
+            .get(1)
+            .is_some_and(|s| subs.contains(&s.to_uppercase().as_str()));
+    }
+    READ_ONLY_COMMANDS.contains(&name.as_str())
+}
+
 /// コマンド行を引数に分割する (ダブル/シングルクォート対応)
 fn split_args(line: &str) -> Vec<String> {
     let mut args = Vec::new();
@@ -1004,8 +1135,17 @@ fn value_to_plain(v: &redis::Value) -> String {
     }
 }
 
+/// バイト列を、切り詰めずに文字として読む。
+///
+/// 検索の照合に使う。表示用の `bytes_to_display` は途中で切って
+/// 「… (Nバイト)」を足すので、そのまま照合に使うと
+/// 切れた先が見えないうえ、足した文字まで検索に引っかかってしまう
+pub(crate) fn bytes_to_text(b: &[u8]) -> String {
+    String::from_utf8_lossy(b).to_string()
+}
+
 /// バイト列を表示用文字列にする (バイナリはhex表記、長すぎる場合は省略)
-fn bytes_to_display(b: &[u8]) -> String {
+pub(crate) fn bytes_to_display(b: &[u8]) -> String {
     match std::str::from_utf8(b) {
         Ok(s) => {
             if s.len() > VALUE_PREVIEW_BYTES {
@@ -1033,6 +1173,93 @@ fn floor_char(s: &str, max: usize) -> usize {
         i -= 1;
     }
     i
+}
+
+/// 値そのものが資格情報になる設定名。
+///
+/// `CONFIG GET requirepass` はパスワードをそのまま返す。
+/// 読み取り専用は「安全に渡せる接続」のつもりで使われるので、
+/// 参照はできても中身は見せない
+const SECRET_CONFIGS: &[&str] = &[
+    "requirepass",
+    // Valkey 8 で primary… も別名として使える
+    "masterauth",
+    "primaryauth",
+    "tls-key-file-pass",
+    "tls-client-key-file-pass",
+];
+
+/// 伏せたことが分かる文言 (空欄と区別できるようにする)
+const MASKED_CONFIG: &str = "(値は伏せています)";
+
+fn is_secret_config(name: &str) -> bool {
+    SECRET_CONFIGS.iter().any(|s| name.eq_ignore_ascii_case(s))
+}
+
+/// `CONFIG GET` かどうか
+fn is_config_get(args: &[String]) -> bool {
+    args.len() >= 2
+        && args[0].eq_ignore_ascii_case("CONFIG")
+        && args[1].eq_ignore_ascii_case("GET")
+}
+
+/// 文字列として読める値なら取り出す (設定名の照合に使う)
+fn value_str(v: &redis::Value) -> Option<String> {
+    match v {
+        redis::Value::BulkString(b) => Some(String::from_utf8_lossy(b).to_string()),
+        redis::Value::SimpleString(s) => Some(s.clone()),
+        _ => None,
+    }
+}
+
+/// 設定値のうち、資格情報になるものを伏せる。
+///
+/// 値が空のときは伏せない。「パスワードが設定されていない」こと自体は
+/// 運用上知りたい情報で、伏せると分からなくなる
+fn mask_config_value(name: &redis::Value, value: redis::Value) -> redis::Value {
+    let secret = value_str(name).is_some_and(|n| is_secret_config(&n));
+    let empty = value_str(&value).is_some_and(|v| v.is_empty());
+    if secret && !empty {
+        redis::Value::BulkString(MASKED_CONFIG.as_bytes().to_vec())
+    } else {
+        value
+    }
+}
+
+/// `CONFIG GET` の応答から資格情報を伏せる。
+///
+/// `CONFIG GET *` や `CONFIG GET requirepa*` のようにパターンで
+/// まとめて取れるため、要求した名前ではなく**返ってきた名前**を見る。
+/// RESP2は「名前, 値, 名前, 値…」の並び、RESP3は連想配列で返る
+fn mask_config_reply(v: redis::Value) -> redis::Value {
+    match v {
+        redis::Value::Array(items) => {
+            let mut out: Vec<redis::Value> = Vec::with_capacity(items.len());
+            let mut it = items.into_iter();
+            while let Some(name) = it.next() {
+                match it.next() {
+                    Some(value) => {
+                        let masked = mask_config_value(&name, value);
+                        out.push(name);
+                        out.push(masked);
+                    }
+                    // 対になっていない末尾はそのまま返す (想定外の形)
+                    None => out.push(name),
+                }
+            }
+            redis::Value::Array(out)
+        }
+        redis::Value::Map(pairs) => redis::Value::Map(
+            pairs
+                .into_iter()
+                .map(|(name, value)| {
+                    let masked = mask_config_value(&name, value);
+                    (name, masked)
+                })
+                .collect(),
+        ),
+        other => other,
+    }
 }
 
 /// redis-cli風に整形する
@@ -1074,6 +1301,8 @@ fn format_value(v: &redis::Value, out: &mut Vec<String>, prefix: &str) {
 pub async fn exec(
     conn: &mut MultiplexedConnection,
     commands: &[String],
+    read_only: bool,
+    confirmed: bool,
 ) -> Result<KvRunOutput, String> {
     let mut statements = Vec::new();
     for (i, line) in commands.iter().enumerate() {
@@ -1096,6 +1325,33 @@ pub async fn exec(
             out.statements = statements;
             return Ok(out);
         }
+        if read_only && !is_read_only_command(&args) {
+            // CLIENT KILL のようにサブコマンドまで含めて示す
+            let shown = args
+                .iter()
+                .take(2)
+                .map(|a| a.to_uppercase())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let mut out = err_at(format!(
+                "この接続は読み取り専用です。{shown} は値を変える可能性があるため実行できません"
+            ));
+            out.statements = statements;
+            return Ok(out);
+        }
+        // 取り消せない操作・重い操作は、画面で確認を経ていなければ実行しない
+        // (複数行に紛れていても1行ずつ見るので素通りしない)
+        if !confirmed {
+            if let Some(cmd) = destructive_command(&args) {
+                let mut out = err_at(if is_irreversible(&cmd) {
+                    format!("{cmd} は取り消せない操作です。実行前の確認が必要です")
+                } else {
+                    format!("{cmd} はサーバーを詰まらせることがあります。実行前の確認が必要です")
+                });
+                out.statements = statements;
+                return Ok(out);
+            }
+        }
         if upper == "SELECT" {
             let mut out = err_at(
                 "SELECT はツールバーのDB選択から切り替えてください".to_string(),
@@ -1116,6 +1372,12 @@ pub async fn exec(
             };
         match res {
             Ok(v) => {
+                // 読み取り専用では、設定値に混ざる資格情報を伏せる
+                let v = if read_only && is_config_get(&args) {
+                    mask_config_reply(v)
+                } else {
+                    v
+                };
                 let mut lines = Vec::new();
                 format_value(&v, &mut lines, "");
                 statements.push(KvStatementResult {
@@ -1136,4 +1398,145 @@ pub async fn exec(
         error: None,
         failed_index: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ok(line: &str) -> bool {
+        is_read_only_command(&split_args(line))
+    }
+
+    #[test]
+    fn 参照だけのコマンドは通す() {
+        for cmd in [
+            "GET k", "SCAN 0", "TYPE k", "TTL k", "HGETALL h", "LRANGE l 0 -1",
+            // 集合演算は、結果を書き戻さない方だけ
+            "ZDIFF 2 a b", "ZUNION 2 a b", "ZINTER 2 a b", "ZINTERCARD 2 a b",
+            "LCS a b",
+            // ハッシュのフィールドTTLは、読む方だけ
+            "HTTL h FIELDS 1 f", "HPEXPIRETIME h FIELDS 1 f",
+        ] {
+            assert!(ok(cmd), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn 書き込むコマンドは断る() {
+        for cmd in [
+            "SET k v", "DEL k", "FLUSHALL", "ZDIFFSTORE d 2 a b", "ZUNIONSTORE d 2 a b",
+            // 期限を付けるものは書き込み
+            "HEXPIRE h 60 FIELDS 1 f", "HPERSIST h FIELDS 1 f", "GETEX k", "GETDEL k",
+            // 取り出しつつ所有権を移すもの
+            "XAUTOCLAIM s g c 0 0", "XCLAIM s g c 0 1-1",
+        ] {
+            assert!(!ok(cmd), "{cmd}");
+        }
+    }
+
+    fn bulk(s: &str) -> redis::Value {
+        redis::Value::BulkString(s.as_bytes().to_vec())
+    }
+
+    /// CONFIG GET の応答 (RESP2の「名前, 値」の並び) を作る
+    fn config_reply(pairs: &[(&str, &str)]) -> redis::Value {
+        redis::Value::Array(
+            pairs
+                .iter()
+                .flat_map(|(k, v)| [bulk(k), bulk(v)])
+                .collect(),
+        )
+    }
+
+    fn plain(v: &redis::Value) -> String {
+        value_to_plain(v)
+    }
+
+    #[test]
+    fn 設定値の資格情報は伏せる() {
+        let got = mask_config_reply(config_reply(&[
+            ("maxmemory", "0"),
+            ("requirepass", "hunter2"),
+            ("masterauth", "s3cret"),
+            ("primaryauth", "s3cret"),
+            ("tls-key-file-pass", "pw"),
+            ("tls-client-key-file-pass", "pw"),
+            ("appendonly", "yes"),
+        ]));
+        let text = plain(&got);
+        // 資格情報は出さない
+        for secret in ["hunter2", "s3cret", "pw"] {
+            assert!(!text.contains(secret), "{text}");
+        }
+        // 設定名と、資格情報でない値はそのまま
+        for keep in ["maxmemory", "0", "appendonly", "yes", "requirepass"] {
+            assert!(text.contains(keep), "{text}");
+        }
+        assert!(text.contains(MASKED_CONFIG));
+    }
+
+    #[test]
+    fn 設定されていないパスワードは伏せない() {
+        // 「認証が掛かっていない」ことは運用上知りたい情報なので、空欄は空欄のまま
+        let got = mask_config_reply(config_reply(&[("requirepass", "")]));
+        assert!(!plain(&got).contains(MASKED_CONFIG));
+    }
+
+    #[test]
+    fn 大文字小文字とパターン取得でも伏せる() {
+        // CONFIG GET * は名前がサーバーの表記で返るため、返ってきた名前で見る
+        let got = mask_config_reply(config_reply(&[("RequirePass", "hunter2")]));
+        assert!(!plain(&got).contains("hunter2"));
+
+        // 応答が連想配列 (RESP3) でも同じ
+        let got = mask_config_reply(redis::Value::Map(vec![(
+            bulk("requirepass"),
+            bulk("hunter2"),
+        )]));
+        assert!(!plain(&got).contains("hunter2"));
+    }
+
+    #[test]
+    fn 設定を読むコマンド自体は通す() {
+        // 伏せるだけで、CONFIG GET を断りはしない (maxmemory 等は見たい)
+        assert!(ok("CONFIG GET maxmemory"));
+        assert!(is_config_get(&split_args("config get *")));
+        assert!(!is_config_get(&split_args("CONFIG SET maxmemory 0")));
+        assert!(!is_config_get(&split_args("GET config")));
+    }
+
+    #[test]
+    fn 資格情報が読めるコマンドは通さない() {
+        // 読み取り専用でも、パスワードのハッシュまで見せる必要はない
+        assert!(!ok("ACL GETUSER default"));
+        assert!(!ok("acl getuser default"));
+    }
+
+    #[test]
+    fn サブコマンドまで見る() {
+        assert!(ok("CLIENT LIST"));
+        assert!(!ok("CLIENT KILL ID 1"));
+        assert!(!ok("ACL SETUSER x"));
+        assert!(ok("ACL WHOAMI"));
+        assert!(ok("SCRIPT EXISTS abc"));
+        assert!(!ok("SCRIPT FLUSH"));
+        assert!(ok("FUNCTION LIST"));
+        assert!(!ok("FUNCTION FLUSH"));
+        assert!(ok("PUBSUB CHANNELS"));
+        assert!(ok("CLUSTER INFO"));
+        assert!(!ok("CLUSTER FORGET x"));
+        assert!(ok("CONFIG GET maxmemory"));
+        assert!(!ok("CONFIG SET maxmemory 0"));
+        // サブコマンドが無ければ通さない
+        assert!(!ok("CLIENT"));
+        assert!(!ok("CONFIG"));
+    }
+
+    #[test]
+    fn 大文字小文字は区別しない() {
+        assert!(ok("get k"));
+        assert!(ok("client list"));
+        assert!(!ok("set k v"));
+    }
 }

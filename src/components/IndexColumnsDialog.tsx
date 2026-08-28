@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useModal } from "../hooks/useModal";
 import type { ColumnInfo } from "../types";
 
 interface Props {
@@ -55,17 +56,22 @@ export function IndexColumnsDialog({
   /** まだ選ばれていないカラム */
   const rest = columns.filter((c) => !picked.includes(c.name));
 
+
+  // Escで閉じる・初期フォーカスは共通の作法にそろえる
+  const boxRef = useModal(onClose);
+
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
       <div
         className="modal index-cols-modal"
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
-          if (e.key === "Escape") onClose();
+          // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+          if (e.nativeEvent.isComposing) return;
           if (e.key === "Enter" && picked.length > 0) onDecide(picked);
         }}
         tabIndex={-1}
-        ref={(el) => el?.focus()}
+        ref={boxRef}
       >
         <div className="modal-head">
           <span className="modal-title">

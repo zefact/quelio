@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { AboutDialog } from "./AboutDialog";
+import { useDismiss } from "../hooks/useDismiss";
 
 /**
  * Windows等 (macOS以外) 用のアプリメニュー (︙ボタン)。
@@ -11,12 +12,7 @@ export function AppMenu() {
   const [showAbout, setShowAbout] = useState(false);
 
   // 画面のどこかをクリックしたらメニューを閉じる
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+  useDismiss(open, () => setOpen(false));
 
   const quit = () => {
     getCurrentWindow()

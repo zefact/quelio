@@ -29,4 +29,11 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+
+  // テスト (vitest)。
+  // 対象は「画面に依存しない純関数」だけなので、DOMの用意は要らない
+  test: {
+    include: ["src/**/*.test.ts"],
+    environment: "node",
+  },
 }));

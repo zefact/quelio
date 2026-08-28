@@ -44,3 +44,57 @@ export function buildTableSelect(
   const base = `SELECT * FROM ${quoteTable(dbType, table)}`;
   return cond ? `${base} WHERE ${cond}` : base;
 }
+
+/**
+ * テーブルの列を並べたSELECT文。
+ * `SELECT *` と違って、あとから列を消すだけで絞り込める
+ */
+export function buildSelectStatement(
+  dbType: DbType,
+  table: TableInfo,
+  columns: string[]
+): string {
+  const cols = columns.length
+    ? columns.map((c) => quoteIdent(dbType, c)).join(",\n  ")
+    : "*";
+  return `SELECT\n  ${cols}\nFROM ${quoteTable(dbType, table)};`;
+}
+
+/**
+ * 列を並べたINSERT文のひな形。
+ * 値はすべてNULLにしておくので、必要なところだけ書き換えて使う
+ */
+export function buildInsertStatement(
+  dbType: DbType,
+  table: TableInfo,
+  columns: string[]
+): string {
+  if (columns.length === 0) {
+    return `INSERT INTO ${quoteTable(dbType, table)} () VALUES ();`;
+  }
+  const cols = columns.map((c) => quoteIdent(dbType, c)).join(",\n  ");
+  const values = columns.map(() => "NULL").join(",\n  ");
+  return `INSERT INTO ${quoteTable(dbType, table)} (\n  ${cols}\n) VALUES (\n  ${values}\n);`;
+}
+
+/** 正確な件数を数えるSELECT文 */
+export function buildCountStatement(
+  dbType: DbType,
+  table: TableInfo
+): string {
+  return `SELECT COUNT(*) FROM ${quoteTable(dbType, table)};`;
+}
+
+/**
+ * テーブルを空にするSQL。
+ * SQLiteにTRUNCATEは無いので DELETE を使う (どちらも取り消せない)
+ */
+export function buildTruncateStatement(
+  dbType: DbType,
+  table: TableInfo
+): string {
+  const t = quoteTable(dbType, table);
+  return dbType === "sqlite"
+    ? `DELETE FROM ${t};`
+    : `TRUNCATE TABLE ${t};`;
+}

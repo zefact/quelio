@@ -1,32 +1,49 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   APP_SETTINGS_EVENT,
   applyColumnDdl,
+  applyForeignKeyDdl,
   applyIndexDdl,
   applyRowChange,
+  fetchCell,
+  tableDdl,
   getAppSettings,
   listCollations,
   listColumnTypes,
+  previewColumnDdl,
   setTableComment,
 } from "../api";
 import { buildColumnTips } from "../columnTips";
+import { quoteIdent, quoteTable } from "../tableSql";
 import { parseComment } from "../comment";
 import type {
   AppSettings,
   ColumnChange,
   ColumnInfo,
+  ForeignKeyChange,
   DbType,
   IndexChange,
-  QueryResult,
+  CellValue,
+  RowCell,
   RowChange,
   TableDetail,
   TableInfo,
   TableTab,
 } from "../types";
 import { joinComment } from "./columnDraft";
+import { DdlDialog } from "./DdlDialog";
 import { DropColumnConfirm } from "./DropColumnConfirm";
 import { StructureView } from "./StructureView";
 import { TableDataView } from "./TableDataView";
+
+import type { TableDataPane } from "./panes";
 
 interface Props {
   table: TableInfo;
@@ -34,6 +51,8 @@ interface Props {
   sessionId: string;
   database?: string;
   dbType: DbType;
+  /** 読み取り専用の接続か (変更操作をすべて出さない) */
+  readOnly?: boolean;
   /** 定義を取得し直す (DDL実行後) */
   onReloadDetail: () => void;
   /** 生成したSQLをSQLエディタへ送る */
@@ -44,16 +63,8 @@ interface Props {
   // ---- 定義タブ ----
   detail: TableDetail | null;
   loadingDetail: boolean;
-  // ---- データタブ ----
-  data: QueryResult | null;
-  loadingData: boolean;
-  dataError: string | null;
-  where: string;
-  onChangeWhere: (where: string) => void;
-  onApplyWhere: () => void;
-  onReloadData: () => void;
-  onPageData: (offset: number) => void;
-  onSortData: (orderBy: string | null, orderDir: "asc" | "desc") => void;
+  /** データタブの状態と操作 (ここでは中身を見ず、そのまま渡す) */
+  dataPane: TableDataPane;
 }
 
 function typeChip(t: string): string {
@@ -104,21 +115,14 @@ export function TableView({
   sessionId,
   database,
   dbType,
+  readOnly,
   onReloadDetail,
   onSendToEditor,
   view,
   onChangeView,
   detail,
   loadingDetail,
-  data,
-  loadingData,
-  dataError,
-  where,
-  onChangeWhere,
-  onApplyWhere,
-  onReloadData,
-  onPageData,
-  onSortData,
+  dataPane,
 }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   /** 削除の確認中カラム (削除は取り返しがつかないので確認を出す) */
@@ -131,8 +135,6 @@ export function TableView({
   const [nameError, setNameError] = useState<string | null>(null);
   /** Enterとフォーカスアウトで二重に実行しないためのガード */
   const nameBusy = useRef(false);
-  /** Escで抜けた直後のフォーカスアウトでは確定させない */
-  const skipNameBlur = useRef(false);
 
   /** カラムの変更をそのまま実行する (失敗は呼び出し元へ投げ返す) */
   const applyDdl = async (change: ColumnChange) => {
@@ -140,21 +142,88 @@ export function TableView({
     onReloadDetail();
   };
 
+  /** 実行せずに、生成されるSQLだけを取得する (並べ替えの確認用) */
+  const previewDdl = (change: ColumnChange) =>
+    previewColumnDdl(sessionId, table.schema, table.name, change);
+
   /** インデックスの変更をそのまま実行する */
   const applyIndex = async (change: IndexChange) => {
     await applyIndexDdl(sessionId, database, table.schema, table.name, change);
     onReloadDetail();
   };
 
-  /** データ1行の追加・更新・削除を実行し、一覧を取得し直す */
-  const applyRow = async (change: RowChange) => {
-    await applyRowChange(sessionId, database, table.schema, table.name, change);
-    onReloadData();
+  /** 外部キーの追加・削除を実行し、定義を取得し直す */
+  const applyForeignKey = async (change: ForeignKeyChange) => {
+    await applyForeignKeyDdl(
+      sessionId,
+      database,
+      table.schema,
+      table.name,
+      change
+    );
+    onReloadDetail();
   };
 
-  /** ビューとValkeyは定義を変更できない */
+  /** CREATE文の表示中か */
+  const [showDdl, setShowDdl] = useState(false);
+
+  /*
+   * データタブ (TableDataView) は React.memo で包んであるので、
+   * 渡す関数・配列は毎回作り直さない。
+   * そうしないと、定義タブ側の状態が変わるたびに表全体が描き直される
+   */
+  const target = useRef({ sessionId, database, table, dbType, dataPane });
+  target.current = { sessionId, database, table, dbType, dataPane };
+
+  /** 切り詰められたセルの全文を読み直す */
+  const fetchFullCell = useCallback(
+    (column: string, key: RowCell[]): Promise<CellValue> => {
+      const t = target.current;
+      return fetchCell(
+        t.sessionId,
+        t.database,
+        t.table.schema,
+        t.table.name,
+        column,
+        key
+      );
+    },
+    []
+  );
+
+  /** データ1行の追加・更新・削除を実行し、一覧を取得し直す */
+  const applyRow = useCallback(async (change: RowChange) => {
+    const t = target.current;
+    await applyRowChange(
+      t.sessionId,
+      t.database,
+      t.table.schema,
+      t.table.name,
+      change
+    );
+    t.dataPane.onReload();
+  }, []);
+
+  /** カラム名をDBの書き方でクォートする (INSERT文のコピー用) */
+  const quoteName = useCallback(
+    (name: string) => quoteIdent(target.current.dbType, name),
+    []
+  );
+
+  /** 主キーの判定に使うカラム定義 (未取得なら空のまま作り直さない) */
+  const dataColumns = useMemo(() => detail?.columns ?? [], [detail]);
+
+  /** ビューとValkeyは定義を変更できない。読み取り専用の接続も同じ扱い */
   const canEdit =
-    dbType !== "valkey" && !table.tableType.toUpperCase().includes("VIEW");
+    !readOnly &&
+    dbType !== "valkey" &&
+    !table.tableType.toUpperCase().includes("VIEW");
+  /** 編集できないときの理由 (画面に出す) */
+  const editDisabledReason = readOnly
+    ? "この接続は読み取り専用です (接続設定で変更できます)"
+    : table.tableType.toUpperCase().includes("VIEW")
+      ? "ビューは直接編集できません (元のテーブルを編集してください)"
+      : undefined;
   /** SQLiteにはテーブルコメントの仕組みが無い */
   const canName = canEdit && dbType !== "sqlite";
 
@@ -271,27 +340,47 @@ export function TableView({
             placeholder="日本語名 (テーブルコメント)"
             onChange={(e) => setNameDraft(e.target.value)}
             onKeyDown={(e) => {
+              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+              if (e.nativeEvent.isComposing) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 saveName();
               } else if (e.key === "Escape") {
                 e.preventDefault();
-                skipNameBlur.current = true;
                 setNameDraft(null);
                 setNameError(null);
               }
             }}
-            // 別の場所をクリックしたときも確定する
-            // (エラー表示中は直してもらうため何もしない)
-            onBlur={() => {
-              if (skipNameBlur.current) {
-                skipNameBlur.current = false;
-                return;
-              }
-              if (nameError) return;
-              saveName();
-            }}
+            title="Enterで確定 / Escで取消"
+            /*
+             * 別の場所をクリックしても確定も破棄もしない。
+             * 以前はここで ALTER TABLE … COMMENT を実行していたため、
+             * 入力途中のクリックで定義が変わってしまった
+             */
           />
+        ) : null}
+        {nameDraft !== null ? (
+          <button
+            className="inline-apply-btn"
+            title="この日本語名にする (Enter)"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={saveName}
+          >
+            ✓
+          </button>
+        ) : null}
+        {nameDraft !== null ? (
+          <button
+            className="inline-apply-btn"
+            title="やめる (Esc)"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setNameDraft(null);
+              setNameError(null);
+            }}
+          >
+            ✕
+          </button>
         ) : displayName ? (
           <span
             className={"table-logical" + (canName ? " editable" : "")}
@@ -310,6 +399,15 @@ export function TableView({
           )
         )}
         {nameError && <span className="table-logical-error">{nameError}</span>}
+        <span className="toolbar-spacer" />
+        {/* 定義を人に渡すとき用。表示するだけで実行はしない */}
+        <button
+          className="btn-ghost table-ddl-btn"
+          onClick={() => setShowDdl(true)}
+          title="CREATE 文を表示してコピーする"
+        >
+          CREATE 文
+        </button>
       </div>
 
       <div className="table-tabs" role="tablist">
@@ -338,30 +436,41 @@ export function TableView({
             dbType={dbType}
             resetKey={`${table.schema ?? ""}.${table.name}`}
             onApplyDdl={applyDdl}
+            onPreviewDdl={previewDdl}
             onRequestDrop={setDropping}
             onApplyIndexDdl={applyIndex}
+            onApplyForeignKeyDdl={applyForeignKey}
             types={types}
             collations={collations}
           />
         ) : (
           <TableDataView
-            data={data}
-            loading={loadingData}
-            error={dataError}
-            where={where}
+            pane={dataPane}
             showRowNumbers={settings?.showRowNumbers ?? true}
             columnTips={columnTips}
-            tableColumns={detail?.columns ?? []}
+            tableColumns={dataColumns}
             canEdit={canEdit}
+            editDisabledReason={editDisabledReason}
+            insertTable={quoteTable(dbType, table)}
+            quoteName={quoteName}
+            dbType={dbType}
             onApplyRow={applyRow}
-            onChangeWhere={onChangeWhere}
-            onApplyWhere={onApplyWhere}
-            onReload={onReloadData}
-            onPage={onPageData}
-            onSort={onSortData}
+            onFetchCell={fetchFullCell}
           />
         )}
       </div>
+
+      {showDdl && (
+        <DdlDialog
+          // テーブルが変わったら作り直す
+          key={`${table.schema ?? ""}.${table.name}`}
+          table={table.schema ? `${table.schema}.${table.name}` : table.name}
+          onLoad={() =>
+            tableDdl(sessionId, database, table.schema, table.name)
+          }
+          onClose={() => setShowDdl(false)}
+        />
+      )}
 
       {dropping && (
         <DropColumnConfirm

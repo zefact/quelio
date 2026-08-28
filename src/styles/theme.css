@@ -1,0 +1,157 @@
+/* ============================================================
+   DB Tool — ダークテーマ (タブ中心レイアウト)
+   ============================================================ */
+
+:root {
+  --bg: #0c0e14;
+  --bg-panel: #12151d;
+  --bg-card: rgba(var(--ink), 0.03);
+  --border: rgba(var(--ink), 0.08);
+  --border-strong: rgba(var(--ink), 0.14);
+  --text: #e7eaf2;
+  --text-dim: #8b93a8;
+  --text-faint: #5b6275;
+  --accent: #6366f1;
+  --accent-2: #22d3ee;
+  /* 入力補完の選択行と一致文字 (地の色に対して読める濃さにする) */
+  --completion-sel: #4f46e5;
+  --completion-match: #a5b4fc;
+  --success: #34d399;
+  --danger: #f87171;
+  --mysql: #f0a63a;
+  --postgres: #5a9bd8;
+  --sqlite: #00b09b;
+  --valkey: #d9564f;
+
+  /* テーマ依存の派生色 (--ink はオーバーレイのRGBチャンネル) */
+  --ink: 255, 255, 255;
+  --input-bg: rgba(0, 0, 0, 0.35);
+  --menu-bg: #1a1e29;
+  --modal-bg: #141824;
+  color-scheme: dark;
+
+  /* 角丸のスケール。
+   * 新しく書くCSSはここから選ぶ (生の px は増やさない)。
+   * 値は今の見た目をそのまま名前にしたもので、
+   * まだ寄せていない一度きりの値 (5 / 7 / 14 / 16px など) が少し残っている */
+  --radius-xs: 6px; /* チップ・小さなバッジ */
+  --radius-sm: 8px; /* 入力欄・メニュー項目 */
+  --radius-btn: 9px; /* ボタン */
+  --radius-md: 10px; /* カード・パネル */
+  --radius-lg: 12px; /* 大きめのパネル */
+  --radius-pill: 999px; /* 丸いバッジ */
+
+  /* 余白のスケール (gap / padding / margin はここから選ぶ) */
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+
+  /* SQLシンタックスハイライト */
+  --syn-keyword: #c4b5fd;
+  --syn-string: #6ee7b7;
+  --syn-number: #fcd34d;
+  --syn-comment: #64748b;
+  --syn-operator: #67e8f9;
+  --syn-type: #93c5fd;
+  --syn-func: #f9a8d4;
+
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background-color: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ライトテーマ (設定のカラーモードで切替。data-theme はルート要素に付与) */
+html[data-theme="light"] {
+  --bg: #f2f3f7;
+  --bg-panel: #ffffff;
+  --bg-card: rgba(17, 24, 39, 0.03);
+  --border: rgba(17, 24, 39, 0.1);
+  --border-strong: rgba(17, 24, 39, 0.2);
+  --text: #1f2430;
+  --text-dim: #5b6478;
+  --text-faint: #9aa1b5;
+  --success: #0c9e6e;
+  --danger: #dc4a4a;
+  --completion-sel: #4338ca;
+  --completion-match: #4338ca;
+  --ink: 17, 24, 39;
+  --input-bg: #ffffff;
+  --menu-bg: #ffffff;
+  --modal-bg: #ffffff;
+  color-scheme: light;
+
+  /* SQLシンタックスハイライト (ライト用に濃いめ) */
+  --syn-keyword: #7c3aed;
+  --syn-string: #047857;
+  --syn-number: #b45309;
+  --syn-comment: #94a3b8;
+  --syn-operator: #0e7490;
+  --syn-type: #1d4ed8;
+  --syn-func: #be185d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  /*
+   * デスクトップアプリらしく、ボタン・タブ・一覧などのUI部分は
+   * マウスドラッグで文字を選択できないようにする。
+   * コピーしたくなる場所だけ下で選択可に戻す
+   */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 値・カラム名・SQL・エラー文など、コピーしたくなる箇所は選択できるようにする */
+input,
+textarea,
+select,
+[contenteditable="true"],
+.cm-editor,
+.grid td,
+.grid th .th-label,
+.content-table-head h2,
+.column-sql,
+.result-detail,
+.info-chip-value,
+.ddl-bar-text.ng,
+.new-table-error {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 行番号は値ではないのでコピー対象から外す */
+.grid td.rownum-cell {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.mono {
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
+    radial-gradient(900px 400px at -10% 110%, rgba(34, 211, 238, 0.07), transparent 60%),
+    var(--bg);
+}
+
+.workspace {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+}

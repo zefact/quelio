@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import type { Notify } from "../notify";
 import { detectTools, getToolSettings, saveToolSettings } from "../api";
 import type { ToolSettings, ToolStatus } from "../types";
 
 interface Props {
-  notify: (msg: string) => void;
+  notify: Notify;
 }
 
 const TOOL_KEYS: { tool: string; key: keyof ToolSettings; desc: string }[] = [
-  { tool: "mysqldump", key: "mysqldump", desc: "MySQLエクスポート" },
-  { tool: "mysql", key: "mysql", desc: "MySQLインポート" },
-  { tool: "pg_dump", key: "pgDump", desc: "PostgreSQLエクスポート" },
-  { tool: "psql", key: "psql", desc: "PostgreSQLインポート" },
+  { tool: "mysqldump", key: "mysqldump", desc: "MySQLのSQLダンプ出力" },
+  { tool: "mysql", key: "mysql", desc: "MySQLのSQLファイル実行" },
+  { tool: "pg_dump", key: "pgDump", desc: "PostgreSQLのSQLダンプ出力" },
+  { tool: "psql", key: "psql", desc: "PostgreSQLのSQLファイル実行" },
 ];
 
 /**
@@ -64,7 +65,7 @@ export function SettingsTools({ notify }: Props) {
       setStatus(st);
       savedRef.current = JSON.stringify(s);
     } catch (e) {
-      notify(String(e));
+      notify(String(e), "error");
     } finally {
       setLoading(false);
     }
@@ -83,12 +84,12 @@ export function SettingsTools({ notify }: Props) {
       savedRef.current = JSON.stringify(settings);
       setStatus(await detectTools());
     } catch (e) {
-      notify(String(e));
+      notify(String(e), "error");
     }
   };
 
   return (
-    <section className="set-section set-tools">
+    <section className="set-section">
       <div className="set-section-head">
         <h3 className="set-section-title">コマンドのパス</h3>
         <button
@@ -102,8 +103,8 @@ export function SettingsTools({ notify }: Props) {
         </button>
       </div>
       <p className="set-section-note">
-        エクスポート/インポートに使うコマンドの場所です。空欄のままなら
-        Homebrew等の標準的な場所から自動検出します。パスの変更は自動で保存されます。
+        SQLダンプの出力・実行に使うコマンドの場所です。空欄のままなら
+        よく使われる場所から自動で探します。パスの変更は自動で保存されます。
       </p>
 
       {loading ? (
@@ -144,6 +145,8 @@ export function SettingsTools({ notify }: Props) {
                   }
                   onBlur={save}
                   onKeyDown={(e) => {
+                    // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                    if (e.nativeEvent.isComposing) return;
                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                   }}
                 />

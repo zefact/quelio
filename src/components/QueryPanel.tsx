@@ -1,48 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { format } from "sql-formatter";
-import {
-  cancelCsvExport,
-  csvExportStatus,
-  exportQueryCsv,
-  getAppSettings,
-} from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatErrorMessage, formatSql } from "../sqlFormat";
+import { MOD, SHIFT } from "../keyLabel";
+import { checkDangerousSql } from "../api";
 import { captureResults } from "../capture";
+import { CellDetail } from "./CellDetail";
+import type { Clip } from "../cellValue";
+import { clipIndex, clippedRowKeys } from "../cellValue";
+import { CellText } from "./CellText";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableHeight } from "../hooks/useResizableHeight";
-import type { DbType, QueryResult, StatementResult } from "../types";
-import { QUERY_PAGE_SIZE } from "../types";
+import type {
+  DangerousStatement,
+  DbType,
+  EditorOptions,
+  StatementResult,
+} from "../types";
+import { useWatchedSettings } from "../hooks/useWatchedSettings";
+import { SheetTabs } from "./SheetTabs";
 import type { SchemaMap } from "./sqlCompletion";
-import { isPlanResult, planLines, PlanView } from "./PlanView";
-import { SqlLibraryMenu } from "./SqlLibraryMenu";
-import {
+import { DangerousSqlConfirm } from "./DangerousSqlConfirm";
+import type {
   GridColumn,
-  ResizableGrid,
+  GridRow,
   SortDir,
   SortState,
 } from "./ResizableGrid";
+import { QueryToolbar } from "./QueryToolbar";
+import { QueryResultBar } from "./QueryResultBar";
+import { QueryResultView } from "./QueryResultView";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
-
-type RunMode = "all" | "selection";
-
-/**
- * 行末のカンマを次行の先頭に移す (カンマ先頭スタイル)。
- * 例: "  company_cd,"  →  "  company_cd" / "  , company_kbn"
- */
-function toLeadingCommas(sql: string): string {
-  const lines = sql.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trimEnd().endsWith(",")) {
-      // カンマを移す先 = 次の非空行
-      let j = i + 1;
-      while (j < lines.length && lines[j].trim() === "") j++;
-      if (j < lines.length) {
-        lines[i] = lines[i].trimEnd().slice(0, -1);
-        lines[j] = lines[j].replace(/^(\s*)/, "$1, ");
-      }
-    }
-  }
-  return lines.join("\n");
-}
+import { useDismiss } from "../hooks/useDismiss";
+import { useCsvExport } from "../hooks/useCsvExport";
 
 /** セル値の比較 (数値として解釈できれば数値比較、NULLは常に末尾) */
 function compareCells(a: string | null, b: string | null): number {
@@ -77,22 +65,15 @@ const EXPLAIN_COL_DESC: Record<string, string> = {
     "追加情報。Using filesort / Using temporary が出ていたら改善余地のサイン。Using index はカバリングインデックスで良好",
 };
 
-/** 結果セットを返さない実行 (INSERT/UPDATE等) の結果かどうか */
-function isExecResult(r: QueryResult): boolean {
-  return r.rowsAffected !== null && r.rowsAffected !== undefined;
-}
-
-/** 結果タブのラベル: "1: SELECT" のように文の種類を添える */
-function statementLabel(sql: string, index: number): string {
-  const head = sql.trim().split(/\s+/)[0]?.toUpperCase() ?? "SQL";
-  return `${index + 1}: ${head}`;
-}
+import type { SheetPane } from "./panes";
 
 interface Props {
   /** CSV出力で使うセッションID (タブのキー) */
   sessionId: string;
   /** 選択中のデータベース */
   database?: string;
+  /** 接続先の表示名 (実行前の確認ダイアログに出す) */
+  connectionName: string;
   dbType: DbType;
   sql: string;
   results: StatementResult[] | null;
@@ -110,6 +91,9 @@ interface Props {
   autocomplete?: boolean;
   /** 入力補完が自動で開くまでの待ち時間 (ミリ秒) */
   autocompleteDelayMs?: number;
+  /** 実行設定 (トランザクション・キャプチャ等)。タブ側で保持している */
+  options: EditorOptions;
+  onChangeOptions: (patch: Partial<EditorOptions>) => void;
   onChangeSql: (sql: string) => void;
   /** offset行目からの実行。sqlOverride指定時は選択実行、transactionでBEGIN〜COMMIT/ROLLBACKに包む */
   onRun: (
@@ -128,12 +112,15 @@ interface Props {
     orderBy: string | null,
     orderDir: "asc" | "desc"
   ) => void;
+  /** SQLのシート (書きかけのSQLを複数持つ) の状態と操作 */
+  sheetPane: SheetPane;
 }
 
 /** SQLエディタ(行番号付き) + 実行結果ペイン(文ごとのタブ) */
 export function QueryPanel({
   sessionId,
   database,
+  connectionName,
   dbType,
   sql,
   results,
@@ -145,88 +132,70 @@ export function QueryPanel({
   schema,
   autocomplete,
   autocompleteDelayMs,
+  options,
+  onChangeOptions,
   onChangeSql,
   onRun,
   onCancel,
   onPage,
   onServerSort,
+  sheetPane,
 }: Props) {
   const [editorHeight, startResize] = useResizableHeight(220, 72, 4000);
-  /** SQLエディタを画面いっぱいに広げているか (結果欄を隠す) */
-  const [editorFull, setEditorFull] = useState(false);
+  /*
+   * 実行設定 (トランザクション・キャプチャ・実行対象・EXPLAINの種類・最大化) は
+   * タブ側 (WorkTab.editorOpts) で保持する。
+   * ここでローカルstateにすると、定義タブへ切り替えて戻ったときに
+   * 既定値へ戻ってしまい、ONにしたつもりが効いていない事故につながるため
+   */
+  const { txn: txnOn, capture: captureOn, runMode, explainMode } = options;
+  const editorFull = options.editorFull;
   const [sort, setSort] = useState<SortState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
   const [hasSelection, setHasSelection] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
-  const [runMode, setRunMode] = useState<RunMode>("all");
-  const [runMenuOpen, setRunMenuOpen] = useState(false);
-  const runSplitRef = useRef<HTMLDivElement>(null);
-  const explainSplitRef = useRef<HTMLDivElement>(null);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
-  const [explainMode, setExplainMode] = useState<"explain" | "analyze">(
-    "explain"
-  );
-  const [explainMenuOpen, setExplainMenuOpen] = useState(false);
-  const [captureOn, setCaptureOn] = useState(false);
-  const [txnOn, setTxnOn] = useState(false);
   const [captureMsg, setCaptureMsg] = useState<string | null>(null);
+  /** 直近に保存したファイル (「フォルダを開く」の対象) */
+  /** キャプチャの保存先 (「フォルダを開く」用) */
+  const [capturePath, setCapturePath] = useState<string | null>(null);
+  /**
+   * CSV出力 (進捗・結果メッセージ・保存先をまとめて持つ)。
+   * 保存先はキャプチャとは別に持つ (取り違えると別のファイルを開いてしまう)
+   */
+  const csv = useCsvExport();
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   // エディタの右クリックメニューは画面外へ出ないよう位置を補正する
   const [ctxPosRef, ctxStyle] = usePopupPosition<HTMLDivElement>(
     ctxMenu?.x ?? 0,
     ctxMenu?.y ?? 0
   );
-  /** 実行▾・EXPLAIN▾のメニューを上向きに出すか (下に入りきらないとき) */
-  const [runMenuUp, setRunMenuUp] = useState(false);
-  const [explainMenuUp, setExplainMenuUp] = useState(false);
-  const runCaretRef = useRef<HTMLButtonElement>(null);
-  const explainCaretRef = useRef<HTMLButtonElement>(null);
 
-  /** ボタンの下にメニュー (約110px) が入るか */
-  const opensUp = (el: HTMLElement | null) =>
-    !!el && window.innerHeight - el.getBoundingClientRect().bottom < 120;
+  /**
+   * 取り返しのつかないSQLが見つかったときの確認待ち。
+   * 確認して初めて実行する (goを呼ぶ)
+   */
+  const [danger, setDanger] = useState<{
+    stmts: DangerousStatement[];
+    go: () => void;
+  } | null>(null);
+  /** 全文表示中のセル (カラム名と値) */
+  const [cellView, setCellView] = useState<{
+    column: string;
+    value: string;
+    clip: Clip | null;
+  } | null>(null);
   /** 直前の実行でキャプチャを要求されたか */
   const captureReq = useRef(false);
   const editorRef = useRef<SqlEditorHandle>(null);
-  /** 実行中の経過時間 (ms) */
-  const [elapsedMs, setElapsedMs] = useState(0);
+  /** 危険SQLの判定中か (二重実行の防止) */
+  const guarding = useRef(false);
   /** 直近の実行を開始したボタン (スピナーの表示先を決める) */
   const [runSource, setRunSource] = useState<"run" | "explain">("run");
   /** 行番号列を表示するか (設定。実行のたびに読み直す) */
-  const [showRowNums, setShowRowNums] = useState(true);
-  /** CSV出力中のジョブ (対象の結果タブ・ID・開始時刻。未実行はnull) */
-  const [csvJob, setCsvJob] = useState<{
-    id: string;
-    index: number;
-    startedAt: number;
-  } | null>(null);
-  /** CSV出力の書き出し済み行数 */
-  const [csvRows, setCsvRows] = useState(0);
-  /** CSV出力の経過時間 (ms) */
-  const [csvElapsed, setCsvElapsed] = useState(0);
-  /** CSV出力の結果メッセージ (出力した結果タブでのみ表示する) */
-  const [csvMsg, setCsvMsg] = useState<{ index: number; text: string } | null>(
-    null
-  );
+  /** 行番号列を出すか (設定。設定画面や別ウィンドウでの変更に追従する) */
+  const showRowNums = useWatchedSettings().showRowNumbers;
 
-  useEffect(() => {
-    getAppSettings()
-      .then((s) => setShowRowNums(s.showRowNumbers))
-      .catch(() => {});
-  }, [running]);
-
-  // 実行中は経過時間を100msごとに更新する
-  // (開始時刻は親のタブ状態が保持しているため、タブ切替で再マウントされてもリセットされない)
-  useEffect(() => {
-    if (!running) return;
-    const start = runStartedAt ?? Date.now();
-    setElapsedMs(Date.now() - start);
-    const timer = window.setInterval(
-      () => setElapsedMs(Date.now() - start),
-      100
-    );
-    return () => window.clearInterval(timer);
-  }, [running, runStartedAt]);
 
   // 新しい結果が来たら: ソート解除。文の構成が変わった場合のみ最後のタブへ
   // (ページ送りによる差し替えでは選択中のタブを維持する)
@@ -248,21 +217,64 @@ export function QueryPanel({
   const selectedText = (): string | null =>
     editorRef.current?.getSelectedText() ?? null;
 
-  /** 現在のモードで実行 (キャプチャ要求も記録) */
+  /**
+   * 実行前に、取り返しのつかないSQL (DROP・WHERE無しのUPDATE等) が無いか調べる。
+   * 見つかったら確認ダイアログを出し、確認できたら exec を呼ぶ。
+   * 調べられなかった場合は、実行を止めずにそのまま進める
+   */
+  const guardRun = async (text: string, proceed: () => void) => {
+    // 判定の往復を待つ間はまだ running=false なので、自前で二重実行を止める
+    if (guarding.current) return;
+    guarding.current = true;
+    try {
+      const stmts = await checkDangerousSql(sessionId, text, dbType);
+      if (stmts.length > 0) {
+        setDanger({ stmts, go: proceed });
+        return;
+      }
+    } catch {
+      /* 判定できないときは通常どおり実行する */
+    } finally {
+      guarding.current = false;
+    }
+    proceed();
+  };
+
+  /** 実行の本体 (キャプチャ要求も記録) */
+  const exec = (text?: string) => {
+    captureReq.current = captureOn;
+    setCaptureMsg(null);
+    onRun(0, text, txnOn);
+  };
+
+  /** 現在のモードで実行 */
   const run = () => {
     if (running) return;
-    setRunSource("run");
     if (runMode === "selection") {
       const text = selectedText();
-      if (!text?.trim()) return;
-      captureReq.current = captureOn;
-      setCaptureMsg(null);
-      onRun(0, text, txnOn);
+      if (!text?.trim()) {
+        // キーボードだけだと無反応に見えるので理由を出す
+        setCaptureMsg(
+          "実行対象が「選択」です。範囲を選ぶか、実行対象を「全体」に変えてください"
+        );
+        return;
+      }
+      setRunSource("run");
+      guardRun(text, () => exec(text));
     } else {
       if (!sql.trim()) return;
-      captureReq.current = captureOn;
-      setCaptureMsg(null);
-      onRun(0, undefined, txnOn);
+      // 選択しているのに全体が走る、を黙って起こさない
+      const hadSelection = !!selectedText()?.trim();
+      setRunSource("run");
+      // 判定に掛けた文をそのまま実行する
+      // (確認している間にエディタが変わっても、別の文が走らないように)
+      guardRun(sql, () => {
+        exec(sql);
+        // execが案内を消すので、そのあとに出す
+        if (hadSelection) {
+          setCaptureMsg("選択範囲ではなく全体を実行しました (選択のみは ⌘⇧Enter)");
+        }
+      });
     }
   };
 
@@ -272,50 +284,31 @@ export function QueryPanel({
     captureReq.current = false;
     if (!results?.length) return;
     setCaptureMsg("キャプチャ保存中...");
+    setCapturePath(null);
     captureResults(results)
-      .then((paths) =>
-        setCaptureMsg(`キャプチャ保存: ${paths.length}件 → 保存先フォルダ`)
-      )
+      .then((paths) => {
+        setCaptureMsg(`キャプチャ保存: ${paths.length}件 → ${paths[0] ?? ""}`);
+        setCapturePath(paths[0] ?? null);
+      })
       .catch((e) => setCaptureMsg(`キャプチャ失敗: ${e}`));
   }, [running, results]);
 
-  // 各メニュー(実行モード / EXPLAIN / エディタ右クリック)は外側クリックで閉じる。
+  // エディタの右クリックメニューは外側クリックで閉じる。
   // 他のメニューを開いたときにも閉じるよう、キャプチャ段階で
   // 自分の領域外かどうかを判定する (stopPropagationの影響を受けない)
-  useEffect(() => {
-    if (!runMenuOpen && !explainMenuOpen && !ctxMenu) return;
-    const close = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (!runSplitRef.current?.contains(t)) setRunMenuOpen(false);
-      if (!explainSplitRef.current?.contains(t)) setExplainMenuOpen(false);
-      if (!ctxMenuRef.current?.contains(t)) setCtxMenu(null);
-    };
-    document.addEventListener("mousedown", close, true);
-    return () => document.removeEventListener("mousedown", close, true);
-  }, [runMenuOpen, explainMenuOpen, ctxMenu]);
+  useDismiss(!!ctxMenu, () => setCtxMenu(null), {
+    capture: true,
+    ref: ctxMenuRef,
+  });
 
   const handleFormat = () => {
+    if (!sql.trim()) return;
     setFormatError(null);
     try {
-      // sql-formatterのMySQL方言はREPLACE()関数を
-      // REPLACE INTO文と誤認してパースエラーになるため一時退避する
-      const escaped = sql.replace(/\breplace\s*\(/gi, "QUELIO_REPLACE_FN(");
-      let formatted = format(escaped, {
-        language:
-          dbType === "mysql"
-            ? "mysql"
-            : dbType === "sqlite"
-              ? "sqlite"
-              : "postgresql",
-        keywordCase: "upper",
-        tabWidth: 2,
-      });
-      formatted = formatted.replace(/QUELIO_REPLACE_FN\s*\(/g, "REPLACE(");
-      onChangeSql(toLeadingCommas(formatted));
+      onChangeSql(formatSql(sql, dbType));
     } catch (e) {
       // 構文が不完全で整形できない場合はエラーの要点を表示する
-      const msg = String(e).split("\n")[0].replace(/^Error:\s*/, "");
-      setFormatError(`整形できません: ${msg}`);
+      setFormatError(formatErrorMessage(e));
     }
   };
 
@@ -329,18 +322,19 @@ export function QueryPanel({
     onRun(0, text?.trim() ? text : undefined, false, mode);
   };
 
-  /** ⌘/Ctrl+Enter: 選択があれば選択実行、なければ全体実行 */
-  const runViaShortcut = () => {
-    if (running || !sql.trim()) return;
-    setRunSource("run");
-    captureReq.current = captureOn;
-    setCaptureMsg(null);
+  /**
+   * ⌘/Ctrl+Shift+Enter: 実行対象の設定によらず、選択部分だけを実行する。
+   * (⌘Enterは実行ボタンと同じ動きにしてあるので、こちらで使い分ける)
+   */
+  const runSelectionViaShortcut = () => {
+    if (running) return;
     const text = selectedText();
-    if (text?.trim()) {
-      onRun(0, text, txnOn);
-    } else {
-      onRun(0, undefined, txnOn);
+    if (!text?.trim()) {
+      setCaptureMsg("選択されていません (⌘⇧Enter は選択部分のみ実行します)");
+      return;
     }
+    setRunSource("run");
+    guardRun(text, () => exec(text));
   };
 
   /** EXPLAIN の種類を選べるDBか (SQLiteは EXPLAIN QUERY PLAN のみ) */
@@ -349,69 +343,28 @@ export function QueryPanel({
   const active = results?.[activeIdx] ?? null;
   const result = active?.result ?? null;
 
-  /**
-   * 表示中の結果タブのSQLを全件CSVへ書き出す。
-   * 画面は1000行ずつだが、CSVは同じSQLを流し直して全行を出力する
-   */
-  const handleExportCsv = async () => {
-    if (!active || csvJob || running) return;
-    const job = {
-      id: `csv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  /** 表示中の結果タブをCSVへ書き出す */
+  const handleExportCsv = () => {
+    if (!active || csv.job || running) return;
+    /*
+     * 実行計画はSQLを流し直せない。
+     * 画面が持っているのは EXPLAIN の結果なので、流し直すと
+     * 元のSQLが走って「計画ではなくデータ」が出てしまう
+     */
+    if (explainKind) {
+      void csv.savePlan(result, activeIdx);
+      return;
+    }
+    csv.start({
+      sessionId,
+      database,
+      sql: active.sql,
+      orderBy: result?.orderBy,
+      orderDir: result?.orderDir,
       // 進捗・結果はこの結果タブでのみ表示する
       index: activeIdx,
-      startedAt: Date.now(),
-    };
-    setCsvJob(job);
-    setCsvRows(0);
-    setCsvElapsed(0);
-    setCsvMsg(null);
-    const show = (text: string) => setCsvMsg({ index: job.index, text });
-    try {
-      const out = await exportQueryCsv(
-        sessionId,
-        database,
-        active.sql,
-        job.id,
-        result?.orderBy,
-        result?.orderDir
-      );
-      if (out.cancelled) {
-        show(
-          `CSV出力を中止しました (${out.rows.toLocaleString()}行で停止・ファイルは残していません)`
-        );
-      } else {
-        const name = out.path.split("/").pop() ?? out.path;
-        show(`${out.rows.toLocaleString()}行を保存: ${name}`);
-      }
-      window.setTimeout(() => setCsvMsg(null), 10000);
-    } catch (e) {
-      show(`CSV出力に失敗: ${e}`);
-    } finally {
-      setCsvJob(null);
-    }
+    });
   };
-
-  /** CSV出力のキャンセル要求 (書き出し済みのファイルは破棄される) */
-  const handleCancelCsv = () => {
-    if (!csvJob) return;
-    cancelCsvExport(csvJob.id).catch(() => {});
-  };
-
-  // CSV出力中は経過時間と書き出し済み行数を定期的に更新する
-  useEffect(() => {
-    if (!csvJob) return;
-    const tick = () => {
-      setCsvElapsed(Date.now() - csvJob.startedAt);
-      csvExportStatus(csvJob.id)
-        .then((rows) => {
-          if (typeof rows === "number") setCsvRows(rows);
-        })
-        .catch(() => {});
-    };
-    tick();
-    const timer = window.setInterval(tick, 300);
-    return () => window.clearInterval(timer);
-  }, [csvJob]);
 
   const gridColumns: GridColumn[] = useMemo(() => {
     const cols: GridColumn[] = (result?.columns ?? []).map((name, i) => ({
@@ -449,7 +402,14 @@ export function QueryPanel({
    * ページング可能な結果はサーバーサイドソート(その文を再実行)、
    * それ以外は表示中の行のクライアントソート。
    */
-  const selectSort = (id: string, dir: SortDir) => {
+  /*
+   * 結果の表示 (QueryResultView) は React.memo で包んであるので、
+   * 渡す関数は毎回作り直さない。
+   * そうしないと、スプリッタのドラッグやCSVの進捗表示のたびに
+   * 200行のグリッドまで描き直しになる
+   */
+  const selectSortRef = useRef((_id: string, _dir: SortDir) => {});
+  selectSortRef.current = (id: string, dir: SortDir) => {
     if (id === "__row") return;
     if (result?.pageable) {
       const colName = result.columns[Number(id.slice(1))];
@@ -459,6 +419,10 @@ export function QueryPanel({
     }
     setSort(dir ? { id, dir } : null);
   };
+  const selectSort = useCallback(
+    (id: string, dir: SortDir) => selectSortRef.current(id, dir),
+    []
+  );
 
   /** グリッドに表示するソート状態 (サーバーソート優先) */
   const gridSort: SortState | null = useMemo(() => {
@@ -482,22 +446,87 @@ export function QueryPanel({
     );
   }, [result, sort]);
 
+  /*
+   * グリッドに渡す行。
+   * 実行中の経過時間やCSVの進捗で再描画がかかるため、
+   * メモ化しておかないと1000行ぶんの要素を毎秒何度も作り直すことになる
+   */
+  /** カラム番号から見出しの名前を引く (セルの全文表示に使う) */
+  const columnLabel = (i: number) => result?.columns[i] ?? `列${i + 1}`;
+
+  /** 切り詰められたセルを (行, 列) から引く */
+  const clipAt = useMemo(() => clipIndex(result?.clipped), [result]);
+  /** 切り詰められた値がある行 (コピーの注記に使う) */
+  const clippedRows = useMemo(() => clippedRowKeys(result?.clipped), [result]);
+
+  const gridRows: GridRow[] = useMemo(
+    () =>
+      sortedRows.map((r) => {
+        const cells = r.cells.map((v, i) =>
+          v === null ? (
+            <span className="null-cell">NULL</span>
+          ) : (
+            <CellText
+              value={v}
+              clip={clipAt(r.index, i)}
+              onOpen={(value) =>
+                setCellView({
+                  column: columnLabel(i),
+                  value,
+                  clip: clipAt(r.index, i),
+                })
+              }
+            />
+          )
+        );
+        if (showRowNums) {
+          cells.unshift(
+            <span className="mono row-num">
+              {(result?.offset ?? 0) + r.index + 1}
+            </span>
+          );
+        }
+        return { key: String(r.index), cells };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sortedRows, showRowNums, result?.offset, result?.columns]
+  );
+
   return (
     <div className={"query-panel" + (editorFull ? " editor-full" : "")}>
+      <SheetTabs
+        sheets={sheetPane.sheets}
+        activeId={sheetPane.activeId}
+        activeSql={sql}
+        running={running}
+        onSelect={sheetPane.onSelect}
+        onAdd={sheetPane.onAdd}
+        onClose={sheetPane.onClose}
+        onRename={sheetPane.onRename}
+      />
+
       {/* エディタ (最大化中は残りの高さいっぱいに広げる) */}
       <div
         className="sql-editor"
         style={editorFull ? undefined : { height: editorHeight }}
       >
         <SqlEditor
+          /*
+           * シート (と接続タブ) が変わったらエディタを作り直す。
+           * 本文を差し替えるだけだと取り消し履歴が残り、
+           * 切り替えた直後の ⌘Z で前のシートの内容が入ってしまう
+           */
+          key={`${sessionId}:${sheetPane.activeId}`}
           ref={editorRef}
           value={sql}
           dbType={dbType}
           placeholder="SELECT * FROM ...  (複数のSQLは ; で区切って記述できます)"
           onChange={onChangeSql}
-          onRun={runViaShortcut}
+          onRun={run}
+          onRunSelection={runSelectionViaShortcut}
           onSelectionChange={setHasSelection}
           onContextMenu={(x, y) => setCtxMenu({ x, y })}
+        onFormat={handleFormat}
           schema={schema}
           autocomplete={autocomplete}
           autocompleteDelayMs={autocompleteDelayMs}
@@ -516,7 +545,7 @@ export function QueryPanel({
           onMouseDown={(e) => e.stopPropagation()}
         >
           <button
-            className="context-item"
+            className="context-item has-key"
             disabled={!sql.trim()}
             onClick={() => {
               setCtxMenu(null);
@@ -524,201 +553,32 @@ export function QueryPanel({
             }}
           >
             SQLを整形 (カンマ先頭)
+            <span className="context-key">{`${MOD}${SHIFT}F`}</span>
           </button>
         </div>
       )}
 
-      {/* アクション */}
-      <div className="query-actions">
-        <div className="run-split" ref={runSplitRef}>
-          <button
-            className="btn-primary run-main"
-            onClick={run}
-            disabled={
-              running ||
-              (runMode === "all" ? !sql.trim() : !hasSelection)
-            }
-            title={
-              runMode === "selection"
-                ? "選択したテキストのみ実行"
-                : "エディタ全体を実行"
-            }
-          >
-            {running && runSource === "run" ? (
-              <>
-                <span className="spinner light" /> 実行中...
-              </>
-            ) : runMode === "all" ? (
-              "実行"
-            ) : (
-              "選択実行"
-            )}
-          </button>
-          <button
-            className="btn-primary run-caret"
-            ref={runCaretRef}
-            onClick={() => {
-              setRunMenuUp(opensUp(runCaretRef.current));
-              setRunMenuOpen((o) => !o);
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            disabled={running}
-            title="実行モードを切り替え"
-          >
-            ▾
-          </button>
-          {runMenuOpen && (
-            <div
-              className={"context-menu run-menu" + (runMenuUp ? " up" : "")}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              {(
-                [
-                  ["all", "実行 (全体)"],
-                  ["selection", "選択実行 (選択部分のみ)"],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  className={
-                    "context-item" + (runMode === mode ? " checked" : "")
-                  }
-                  onClick={() => {
-                    setRunMode(mode);
-                    setRunMenuOpen(false);
-                  }}
-                >
-                  {runMode === mode ? "✓ " : ""}
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="run-split explain-split" ref={explainSplitRef}>
-          <button
-            className={
-              "btn-secondary explain-btn has-tooltip tooltip-left" +
-              // SQLiteは種類の切り替えが無いので単独ボタンにする
-              (hasExplainModes ? " run-main" : "")
-            }
-            data-tooltip={
-              !hasExplainModes
-                ? "実行計画を表示 (SQLiteは EXPLAIN QUERY PLAN を実行します)"
-                : explainMode === "explain"
-                  ? "実行計画を表示 (EXPLAIN)"
-                  : "実際に実行して計画と実測時間を表示 (EXPLAIN ANALYZE)"
-            }
-            disabled={running || !sql.trim()}
-            onClick={() => runExplain(hasExplainModes ? explainMode : "explain")}
-          >
-            {running && runSource === "explain" ? (
-              <>
-                <span className="spinner accent" /> 実行中...
-              </>
-            ) : !hasExplainModes || explainMode === "explain" ? (
-              "EXPLAIN"
-            ) : (
-              "ANALYZE"
-            )}
-          </button>
-          {hasExplainModes && (
-          <button
-            className="btn-secondary explain-btn run-caret"
-            ref={explainCaretRef}
-            onClick={() => {
-              setExplainMenuUp(opensUp(explainCaretRef.current));
-              setExplainMenuOpen((o) => !o);
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            disabled={running}
-            title="EXPLAINの種類を切り替え"
-          >
-            ▾
-          </button>
-          )}
-          {hasExplainModes && explainMenuOpen && (
-            <div
-              className={"context-menu run-menu" + (explainMenuUp ? " up" : "")}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              {(
-                [
-                  ["explain", "EXPLAIN (実行計画のみ表示)"],
-                  ["analyze", "EXPLAIN ANALYZE (実際に実行して実測)"],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  className={
-                    "context-item" + (explainMode === mode ? " checked" : "")
-                  }
-                  onClick={() => {
-                    setExplainMode(mode);
-                    setExplainMenuOpen(false);
-                  }}
-                >
-                  {explainMode === mode ? "✓ " : ""}
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <SqlLibraryMenu currentSql={sql} onSelect={onChangeSql} />
-        {running && (
-          <button
-            className="btn-secondary cancel-query-btn"
-            onClick={onCancel}
-            title="実行中のSQLをキャンセル"
-          >
-            キャンセル
-          </button>
-        )}
-        <label
-          className="switch capture-switch has-tooltip tooltip-left tooltip-wrap"
-          data-tooltip={
-            "ON: 実行をBEGIN〜COMMITで包み、途中でエラーになったら自動ROLLBACKで全て取り消します\nOFF: 各SQLは即時確定 (オートコミット)。エラーになっても実行済みのSQLは取り消されません"
-          }
-        >
-          <input
-            type="checkbox"
-            checked={txnOn}
-            disabled={running}
-            onChange={(e) => setTxnOn(e.target.checked)}
-          />
-          <span className="track" aria-hidden />
-          <span className="switch-label">トランザクション</span>
-        </label>
-        <label
-          className="switch capture-switch has-tooltip tooltip-left"
-          data-tooltip="実行時にSQLと全結果タブをPNGで保存 (保存先は設定で変更できます)"
-        >
-          <input
-            type="checkbox"
-            checked={captureOn}
-            disabled={running}
-            onChange={(e) => setCaptureOn(e.target.checked)}
-          />
-          <span className="track" aria-hidden />
-          <span className="switch-label">キャプチャ</span>
-        </label>
-        {formatError ? (
-          <span className="format-error" title={formatError}>
-            {formatError}
-          </span>
-        ) : captureMsg ? (
-          <span className="capture-msg mono" title={captureMsg}>
-            {captureMsg}
-          </span>
-        ) : null}
-
-        {running && (
-          <span className="query-meta mono running-elapsed">
-            {(elapsedMs / 1000).toFixed(1)}s 経過
-          </span>
-        )}
-      </div>
+      <QueryToolbar
+        sql={sql}
+        hasSelection={hasSelection}
+        running={running}
+        runSource={runSource}
+        runStartedAt={runStartedAt}
+        runMode={runMode}
+        explainMode={explainMode}
+        hasExplainModes={hasExplainModes}
+        txnOn={txnOn}
+        captureOn={captureOn}
+        formatError={formatError}
+        captureMsg={captureMsg}
+        capturePath={capturePath}
+        onRun={run}
+        onExplain={runExplain}
+        onCancel={onCancel}
+        onChangeSql={onChangeSql}
+        onFormat={handleFormat}
+        onChangeOptions={onChangeOptions}
+      />
 
       <div
         className="row-splitter"
@@ -740,7 +600,7 @@ export function QueryPanel({
               : "SQLエディタを画面いっぱいに広げる"
           }
           onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => setEditorFull((v) => !v)}
+          onClick={() => onChangeOptions({ editorFull: !editorFull })}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
             <path
@@ -761,176 +621,57 @@ export function QueryPanel({
         </button>
       </div>
 
-      {/* 結果ヘッダ: 文ごとのタブ + その文の件数・ページ送り
-          (件数とページ送りは結果タブごとの情報なので結果側に置く) */}
       {results && results.length > 0 && (
-        <div className="result-bar">
-          {results.length > 1 && (
-            <div className="result-tabs">
-              {results.map((s, i) => (
-                <button
-                  key={i}
-                  className={"result-tab" + (i === activeIdx ? " active" : "")}
-                  title={s.sql}
-                  onClick={() => setActiveIdx(i)}
-                >
-                  {statementLabel(s.sql, i)}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* 右側: CSV出力 / 件数 / ページ送り (いずれも表示中の結果タブの情報) */}
-          <div className="result-bar-right">
-            {/* 出力中は進捗 (行数と経過時間) を出し、キャンセルできるようにする。
-                進捗も結果メッセージも、出力した結果タブでのみ表示する */}
-            {csvJob?.index === activeIdx ? (
-              <>
-                <span className="capture-msg mono csv-progress">
-                  {csvRows.toLocaleString()}行 出力中... (
-                  {(csvElapsed / 1000).toFixed(1)}s)
-                </span>
-                <button
-                  className="btn-secondary cancel-query-btn"
-                  onClick={handleCancelCsv}
-                  title="CSV出力を中止する (作りかけのファイルは残しません)"
-                >
-                  キャンセル
-                </button>
-              </>
-            ) : (
-              csvMsg?.index === activeIdx && (
-                <span className="capture-msg mono" title={csvMsg.text}>
-                  {csvMsg.text}
-                </span>
-              )
-            )}
-
-            {!running && result && !isExecResult(result) && (
-              <button
-                // 画面右端のボタンなので、ツールチップは右端起点で左へ伸ばす
-                // (tooltip-leftを付けると右へ伸びて画面外で切れる)
-                className="btn-secondary explain-btn csv-btn has-tooltip tooltip-wrap"
-                data-tooltip={
-                  "この結果タブのSQLを全件CSVで保存します\n1000行を超えても全行出力します"
-                }
-                disabled={!!csvJob || result.rows.length === 0}
-                onClick={handleExportCsv}
-              >
-                {csvJob?.index === activeIdx ? (
-                  <>
-                    <span className="spinner accent" /> 出力中...
-                  </>
-                ) : (
-                  "CSVダウンロード"
-                )}
-              </button>
-            )}
-
-            {!running && result && (
-              <span className="query-meta mono">
-                {isExecResult(result)
-                  ? `${result.rowsAffected}行に影響`
-                  : result.pageable
-                    ? result.rows.length === 0
-                      ? "0行"
-                      : `${(result.offset + 1).toLocaleString()}〜${(
-                          result.offset + result.rows.length
-                        ).toLocaleString()}行目`
-                    : `${result.rows.length}行${result.hasMore ? " (先頭のみ表示)" : ""}`}
-                {` — ${result.elapsedMs}ms`}
-              </span>
-            )}
-
-            {result?.pageable && (result.offset > 0 || result.hasMore) && (
-              <span className="pager">
-                <button
-                  className="pager-btn"
-                  title="前の1000行"
-                  disabled={running || result.offset === 0}
-                  onClick={() =>
-                    onPage(
-                      activeIdx,
-                      Math.max(0, result.offset - QUERY_PAGE_SIZE)
-                    )
-                  }
-                >
-                  ‹
-                </button>
-                <button
-                  className="pager-btn"
-                  title="次の1000行"
-                  disabled={running || !result.hasMore}
-                  onClick={() =>
-                    onPage(activeIdx, result.offset + QUERY_PAGE_SIZE)
-                  }
-                >
-                  ›
-                </button>
-              </span>
-            )}
-          </div>
-        </div>
+        <QueryResultBar
+          results={results}
+          activeIdx={activeIdx}
+          onSelectTab={setActiveIdx}
+          result={result}
+          running={running}
+          explainKind={explainKind}
+          csv={csv}
+          onExportCsv={handleExportCsv}
+          onPage={onPage}
+        />
       )}
 
-      {/* 結果 */}
-      <div className="query-result">
-        {error && (
-          <div className="result-banner ng query-error">
-            <span className="dot" aria-hidden />
-            <strong>エラー</strong>
-            <span className="result-detail">{error}</span>
-          </div>
-        )}
-        {!result ? (
-          !error && (
-            <div className="content-placeholder dim-center">
-              SQLを実行すると結果がここに表示されます
-            </div>
-          )
-        ) : isExecResult(result) ? (
-          <div className="result-banner ok exec-result">
-            <span className="dot" aria-hidden />
-            <strong>実行完了</strong>
-            <span className="result-detail">
-              {result.rowsAffected}行に影響しました ({result.elapsedMs}ms)
-            </span>
-          </div>
-        ) : result.rows.length === 0 ? (
-          <div className="content-placeholder dim-center">結果は0行でした</div>
-        ) : isPlanResult(result.columns) ? (
-          <PlanView lines={planLines(result.rows)} />
-        ) : (
-          <ResizableGrid
-            // 実行のたび・結果タブの切替のたびに列幅を内容へフィットさせる
-            autoFit
-            fitKey={`${runStartedAt ?? 0}:${activeIdx}`}
-            selectable
-            columns={gridColumns}
-            sort={gridSort}
-            onSortSelect={selectSort}
-            rows={sortedRows.map((r) => {
-              const cells = r.cells.map((v) =>
-                v === null ? (
-                  <span className="null-cell">NULL</span>
-                ) : (
-                  <span className="mono" title={v}>
-                    {v}
-                  </span>
-                )
-              );
-              if (showRowNums) {
-                cells.unshift(
-                  <span className="mono row-num">
-                    {(result?.offset ?? 0) + r.index + 1}
-                  </span>
-                );
-              }
-              return { key: String(r.index), cells };
-            })}
-          />
-        )}
-      </div>
+      <QueryResultView
+        result={result}
+        error={error}
+        columns={gridColumns}
+        rows={gridRows}
+        clippedRowKeys={clippedRows}
+        sort={gridSort}
+        onSortSelect={selectSort}
+        // 実行・結果タブの切替・シートの切替のたびに列幅を測り直す
+        // (シートIDを入れないと、別シートの結果に前の幅と選択が残る)
+        fitKey={`${sheetPane.activeId}:${runStartedAt ?? 0}:${activeIdx}`}
+      />
+
+      {cellView && (
+        <CellDetail
+          column={cellView.column}
+          value={cellView.value}
+          clip={cellView.clip}
+          onClose={() => setCellView(null)}
+        />
+      )}
+
+      {danger && (
+        <DangerousSqlConfirm
+          statements={danger.stmts}
+          connection={connectionName}
+          database={database}
+          transaction={txnOn}
+          dbType={dbType}
+          onCancel={() => setDanger(null)}
+          onConfirm={() => {
+            const go = danger.go;
+            setDanger(null);
+            go();
+          }}
+        />
+      )}
     </div>
   );
 }

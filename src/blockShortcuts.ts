@@ -25,8 +25,9 @@ export function blockBrowserShortcuts(): void {
         //   preventDefault込みで処理するため、ここでは抑止しない
         // キャレットブラウズ切替 (WebView2): F7
         e.key === "F7" ||
-        // 印刷 / ページ保存 / ファイルを開く / ダウンロード一覧 / ソース表示
-        (ctrl && (key === "p" || key === "s" || key === "o" || key === "j" || key === "u"));
+        // 印刷 / ファイルを開く / ダウンロード一覧 / ソース表示
+        // ※ Ctrl(Cmd)+S はアプリ側で「SQLをお気に入りへ保存」に使うので抑止しない
+        (ctrl && (key === "p" || key === "o" || key === "j" || key === "u"));
 
       if (isBlocked) {
         e.preventDefault();
@@ -34,6 +35,27 @@ export function blockBrowserShortcuts(): void {
       }
     },
     // アプリ内のリスナーより先に処理するためcaptureで登録する
+    { capture: true }
+  );
+}
+
+/**
+ * ブラウザの「名前を付けて保存」(Ctrl/Cmd+S) を止める。
+ *
+ * WindowsのWebView2では保存ダイアログが出てしまう。
+ * アプリ側では「SQLをお気に入りへ保存」に使っているが、
+ * その処理を持たないウィンドウ (コンソール・ER図・スキーマ・差分) でも
+ * ダイアログが出ないよう、ここで既定の動作だけを止める。
+ * 伝播は止めないのでアプリ側のショートカットはそのまま動く
+ */
+export function blockSave(): void {
+  window.addEventListener(
+    "keydown",
+    (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      if (e.key.toLowerCase() !== "s") return;
+      e.preventDefault();
+    },
     { capture: true }
   );
 }

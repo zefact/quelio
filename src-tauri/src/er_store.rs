@@ -5,26 +5,18 @@
 use std::collections::HashMap;
 
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use crate::json_store;
 
 fn store_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("設定ディレクトリを取得できません: {e}"))?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("設定ディレクトリを作成できません: {e}"))?;
-    Ok(dir.join("er_diagrams.json"))
+    json_store::config_path(app, "er_diagrams.json")
 }
 
+/// 読み込む。壊れていればエラー (空で上書きしてしまわないように)
 fn load_all(app: &AppHandle) -> Result<HashMap<String, Value>, String> {
     let path = store_path(app)?;
-    if !path.exists() {
-        return Ok(HashMap::new());
-    }
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| format!("ER図を読み込めません: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("ER図の形式が不正です: {e}"))
+    Ok(json_store::read(&path, "ER図")?.unwrap_or_default())
 }
 
 /// 指定キーの保存済みER図を返す (無ければNone)
@@ -34,7 +26,7 @@ pub fn load(app: &AppHandle, key: &str) -> Result<Option<Value>, String> {
 
 /// 指定キーでER図を保存する (上書き)
 pub fn save(app: &AppHandle, key: String, data: Value) -> Result<(), String> {
-    let mut all = load_all(app).unwrap_or_default();
+    let mut all = load_all(app)?;
     all.insert(key, data);
     write_all(app, &all)
 }
@@ -56,7 +48,7 @@ pub fn merge(
     app: &AppHandle,
     incoming: HashMap<String, Value>,
 ) -> Result<(usize, usize), String> {
-    let mut all = load_all(app).unwrap_or_default();
+    let mut all = load_all(app)?;
     let mut added = 0;
     let mut updated = 0;
     for (k, v) in incoming {
@@ -72,7 +64,7 @@ pub fn merge(
 
 /// 指定キーのER図を削除する
 pub fn delete(app: &AppHandle, key: &str) -> Result<(), String> {
-    let mut all = load_all(app).unwrap_or_default();
+    let mut all = load_all(app)?;
     all.remove(key);
     write_all(app, &all)
 }
@@ -81,5 +73,5 @@ fn write_all(app: &AppHandle, all: &HashMap<String, Value>) -> Result<(), String
     let path = store_path(app)?;
     let text =
         serde_json::to_string(all).map_err(|e| format!("ER図のシリアライズに失敗: {e}"))?;
-    std::fs::write(&path, text).map_err(|e| format!("ER図を書き込めません: {e}"))
+    json_store::write(&path, &text, "ER図")
 }
