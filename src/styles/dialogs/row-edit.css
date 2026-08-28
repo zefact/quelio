@@ -1,0 +1,347 @@
+/* データを直接編集するときの行・セルの見た目 */
+
+/* ---- 行を直接編集するときの操作バー ---- */
+
+.ddl-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: -1px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: rgba(99, 102, 241, 0.08);
+  font-size: 11.5px;
+}
+
+.ddl-bar-text {
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+/* 並べ替えの確認バー (ドロップ直後。まだ実行していない) */
+.ddl-bar.move-bar {
+  background: rgba(34, 211, 238, 0.1);
+  border-color: rgba(34, 211, 238, 0.35);
+}
+
+.ddl-bar.move-bar .ddl-bar-text b {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* 一覧が「移動後の並び」であることの補足 */
+.move-note {
+  color: var(--text-faint);
+}
+
+/* 実行されるSQL (長いので1行に省略し、全文はツールチップで見せる) */
+.move-sql {
+  display: block;
+  margin-top: 2px;
+  max-width: 720px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ddl-bar-text.ng {
+  color: var(--danger);
+  font-weight: 600;
+  white-space: pre-line;
+  /* 長いエラーでもバーが伸び続けないようにする */
+  max-height: 76px;
+  overflow: auto;
+}
+
+.ddl-bar kbd {
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--bg-panel);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* エラーの丸アイコン */
+.ddl-bar-icon.ng {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ddl-bar-btn {
+  flex: none;
+  padding: 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ddl-bar-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: rgba(var(--ink), 0.3);
+}
+
+.ddl-bar-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.ddl-bar-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  color: #fff;
+}
+
+.ddl-bar-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 操作バーとグリッドを1つの塊に見せる */
+.ddl-bar + .grid-wrap {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.ddl-bar + .grid-wrap .grid th:first-child,
+.ddl-bar + .grid-wrap .grid th:last-child {
+  border-radius: 0;
+}
+
+/* ---- 編集中の行 ---- */
+
+/* 入力欄はセルいっぱいに広げるので、セル自体の余白は無くす */
+.grid tr.row-editing > td {
+  padding: 0;
+  background: rgba(99, 102, 241, 0.06);
+  overflow: hidden;
+}
+
+/* 行番号と編集できない列は通常どおりの余白に戻す */
+.grid tr.row-editing > td.rownum-cell {
+  padding: 7px 12px;
+}
+
+.grid tr.row-editing > td > .cell-locked {
+  display: block;
+  padding: 7px 12px;
+}
+
+/* 編集中であることを示す左のライン */
+.grid tr.row-editing > td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.grid tr.row-editing.has-error > td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.grid tr.row-editing.has-error > td {
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.grid tr.row-editing.busy > td {
+  opacity: 0.6;
+}
+
+/*
+ * 並べ替えの確認中の行。
+ * 一覧は移動後の並びで表示し、どのカラムが動いたかを色で示す
+ */
+.grid tr.row-moved > td {
+  background: rgba(34, 211, 238, 0.14);
+}
+
+.grid tr.row-moved > td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent-2);
+}
+
+/* 行番号の横に「移動中」の印を出す */
+.grid tr.row-moved > td:first-child .row-num::after {
+  content: "⇅";
+  margin-left: 6px;
+  color: var(--accent-2);
+  font-weight: 700;
+}
+
+/* 追加中の行 */
+.grid tr.row-new > td:first-child {
+  box-shadow: inset 3px 0 0 #22c55e;
+}
+
+.grid tr.row-new > td {
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.grid tr.row-new .row-num {
+  font-size: 10px;
+  font-weight: 700;
+  color: #16a34a;
+}
+
+/* セルいっぱいに広がる入力欄 (枠線は内側の影で描き、幅・高さを増やさない) */
+.cell-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  margin: 0;
+  padding: 0 11px;
+  border: none;
+  border-radius: 0;
+  background: var(--input-bg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.cell-input.right {
+  text-align: right;
+}
+
+.cell-input::placeholder {
+  color: var(--text-faint);
+}
+
+.cell-input:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cell-input:disabled {
+  opacity: 0.6;
+}
+
+/* ---- ドラッグでのカラム並べ替え (MySQL) ---- */
+
+/* 行番号のところをつまんで動かす */
+.grid td.rownum-cell .drag-handle {
+  display: block;
+  cursor: grab;
+}
+
+/* ドラッグ中はどこにカーソルがあっても「つかんでいる手」にする */
+body.row-dragging,
+body.row-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+/*
+ * 動かしている行。
+ * 台紙から持ち上がって宙に浮いているように見せる。
+ * 影はセルごとではなく行全体の形に対して落とすので、
+ * カラムの境目に影の切れ目が出ない
+ */
+.grid tr.row-moving {
+  filter: drop-shadow(0 7px 9px rgba(0, 0, 0, 0.4))
+    drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+  /* ポインタに追従して動かすので、事前に合成レイヤーへ乗せておく */
+  will-change: transform;
+}
+
+.grid tr.row-moving > td {
+  position: relative;
+  z-index: 3;
+  /* 下の行が透けないよう不透明にする (浮いた1枚の板に見せる) */
+  background: var(--bg-panel);
+  border-bottom-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(99, 102, 241, 0.55),
+    inset 0 -1px 0 rgba(99, 102, 241, 0.55);
+}
+
+/* 左右の端は角を丸めて1枚のカードに見せる */
+.grid tr.row-moving > td:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 0 1px 0 rgba(99, 102, 241, 0.55),
+    inset 0 -1px 0 rgba(99, 102, 241, 0.55);
+}
+
+.grid tr.row-moving > td:last-child {
+  border-radius: 0 8px 8px 0;
+  box-shadow:
+    inset -1px 0 0 rgba(99, 102, 241, 0.55),
+    inset 0 1px 0 rgba(99, 102, 241, 0.55),
+    inset 0 -1px 0 rgba(99, 102, 241, 0.55);
+}
+
+.grid tr.row-moving .row-num {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* 見出しの横に出す「?」ヒントボタン */
+.hint-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.hint-btn:hover {
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.12);
+}
+
+/* 種別の説明ポップアップ */
+.index-help {
+  width: 440px;
+  /* 高さは画面の余白に合わせてJS側で指定する */
+  overflow-y: auto;
+  padding: 6px 4px 8px;
+}
+
+.index-help-list {
+  margin: 0;
+  padding: 2px 10px 0;
+}
+
+.index-help-list > div + div {
+  margin-top: 10px;
+}
+
+.index-help-list dt {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.index-help-list dd {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}

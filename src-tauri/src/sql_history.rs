@@ -26,6 +26,31 @@ pub fn load(app: &AppHandle) -> Result<Vec<HistoryEntry>, String> {
     Ok(json_store::read(&path, "履歴")?.unwrap_or_default())
 }
 
+/// 書き出し (件数の上限は呼ぶ側で守る)
+fn save_all(app: &AppHandle, list: &[HistoryEntry]) -> Result<(), String> {
+    let path = history_path(app)?;
+    let text = serde_json::to_string_pretty(list)
+        .map_err(|e| format!("履歴のシリアライズに失敗: {e}"))?;
+    json_store::write(&path, &text, "履歴")
+}
+
+/// 1件だけ消して、残りを新しい順で返す。
+///
+/// 同じ本文の履歴は1件しか持たない (追加時に前のものを消す) ので、
+/// 本文で指せば取り違えは起きない
+pub fn remove(app: &AppHandle, sql: &str) -> Result<Vec<HistoryEntry>, String> {
+    let mut list = load(app)?;
+    list.retain(|e| e.sql != sql);
+    save_all(app, &list)?;
+    Ok(list)
+}
+
+/// すべて消す
+pub fn clear(app: &AppHandle) -> Result<Vec<HistoryEntry>, String> {
+    save_all(app, &[])?;
+    Ok(Vec::new())
+}
+
 /// 履歴の先頭に追加する。
 /// 同じSQLが既にあれば先頭へ移動し、最大件数を超えた分は古い順に捨てる
 pub fn add(app: &AppHandle, sql: String) -> Result<(), String> {
@@ -47,9 +72,5 @@ pub fn add(app: &AppHandle, sql: String) -> Result<(), String> {
         },
     );
     list.truncate(MAX_HISTORY);
-
-    let path = history_path(app)?;
-    let text = serde_json::to_string_pretty(&list)
-        .map_err(|e| format!("履歴のシリアライズに失敗: {e}"))?;
-    json_store::write(&path, &text, "履歴")
+    save_all(app, &list)
 }

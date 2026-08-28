@@ -26,13 +26,18 @@ pub fn export_connections(app: &AppHandle, path: &str) -> Result<usize, String> 
     for c in &mut store.connections {
         c.password = String::new();
         c.password_locked = false;
+        // 「保存済み」の目印は書き出し先では意味がない
+        c.password_saved = false;
+        c.passphrase_saved = false;
         if let Some(ssh) = &mut c.ssh {
             ssh.passphrase = None;
         }
     }
     let text = serde_json::to_string_pretty(&store)
         .map_err(|e| format!("シリアライズに失敗: {e}"))?;
-    std::fs::write(path, text).map_err(|e| format!("ファイルを書き込めません: {e}"))?;
+    // 接続先の一覧なので、所有者だけが読める権限で書き出す
+    crate::outfile::write(path.as_ref(), text)
+        .map_err(|e| format!("ファイルを書き込めません: {e}"))?;
     Ok(store.connections.len())
 }
 

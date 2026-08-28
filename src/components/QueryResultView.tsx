@@ -16,6 +16,8 @@ interface Props {
   error: string | null;
   columns: GridColumn[];
   rows: GridRow[];
+  /** コピー用の元の値 (行キー → 列の並びの値) */
+  rowValues: (key: string) => (string | null)[] | undefined;
   /** 値が切り詰められている行のキー (コピーの注記に使う) */
   clippedRowKeys: Set<string>;
   sort: SortState | null;
@@ -35,6 +37,7 @@ function QueryResultViewInner({
   error,
   columns,
   rows,
+  rowValues,
   clippedRowKeys,
   sort,
   onSortSelect,
@@ -77,6 +80,7 @@ function QueryResultViewInner({
           sort={sort}
           onSortSelect={onSortSelect}
           rows={rows}
+          rowValues={rowValues}
           clippedRowKeys={clippedRowKeys}
           // まず200行だけ描き、スクロールに合わせて継ぎ足す
           maxRenderRows={200}

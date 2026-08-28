@@ -85,14 +85,17 @@
   gap: 14px 18px;
 }
 
-.form-grid label {
+/* 入力欄1つぶんの並び (ラベルで包めない独自部品は .form-field を付ける) */
+.form-grid label,
+.form-grid .form-field {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   min-width: 0;
 }
 
-.form-grid label.span2 {
+.form-grid label.span2,
+.form-grid .form-field.span2 {
   grid-column: span 2;
 }
 
@@ -156,12 +159,6 @@
 }
 
 /* 入力欄の下に出す補足 */
-.form-grid .field-note {
-  font-size: 11px;
-  color: var(--text-dim);
-  line-height: 1.7;
-}
-
 /* パスワードを復号できなかったときの注意書き */
 .form-grid .locked-secret {
   grid-column: span 2;

@@ -1,4 +1,4 @@
-import { CSSProperties } from "react";
+import { memo, type CSSProperties } from "react";
 import { colMarker, colTracks, NODE_HEAD_H, ROW_H, type ErNode } from "../er/model";
 
 interface Props {
@@ -16,17 +16,29 @@ interface Props {
   showLogical: boolean;
   /** 行の両端に接続ハンドルを出すか (マウスが乗っているテーブルだけ) */
   showHandles: boolean;
-  onNodeMouseDown: (e: React.MouseEvent) => void;
-  onHoverChange: (hovered: boolean) => void;
-  onHeadContextMenu: (e: React.MouseEvent) => void;
-  onColumnClick: (column: string) => void;
-  onColumnContextMenu: (e: React.MouseEvent, column: string) => void;
-  onHandleMouseDown: (e: React.MouseEvent, column: string) => void;
-  onResizeMouseDown: (e: React.MouseEvent) => void;
+  /*
+   * 操作の通知には、どのテーブルかを必ず添える。
+   * 呼び出し側がテーブルごとに関数を作らずに済み、
+   * 下の memo が効くようになる
+   */
+  onNodeMouseDown: (e: React.MouseEvent, table: string) => void;
+  onHoverChange: (hovered: boolean, table: string) => void;
+  onHeadContextMenu: (e: React.MouseEvent, table: string) => void;
+  onColumnClick: (table: string, column: string) => void;
+  onColumnContextMenu: (
+    e: React.MouseEvent,
+    table: string,
+    column: string
+  ) => void;
+  onHandleMouseDown: (
+    e: React.MouseEvent,
+    table: string,
+    column: string
+  ) => void;
+  onResizeMouseDown: (e: React.MouseEvent, table: string) => void;
 }
 
-/** ER図のテーブル1つぶんの表示 */
-export function ErNodeView({
+function ErNodeViewInner({
   node: n,
   x,
   y,
@@ -64,15 +76,15 @@ export function ErNodeView({
         "er-node" + (related ? " related" : "") + (selected ? " selected" : "")
       }
       style={{ left: x, top: y, width: n.w, height: n.h }}
-      onMouseDown={onNodeMouseDown}
-      onMouseEnter={() => onHoverChange(true)}
-      onMouseLeave={() => onHoverChange(false)}
+      onMouseDown={(e) => onNodeMouseDown(e, n.name)}
+      onMouseEnter={() => onHoverChange(true, n.name)}
+      onMouseLeave={() => onHoverChange(false, n.name)}
     >
       <div
         className="er-node-head mono"
         title={n.logical ? `${n.name} (${n.logical})` : n.name}
-        onMouseDown={onNodeMouseDown}
-        onContextMenu={onHeadContextMenu}
+        onMouseDown={(e) => onNodeMouseDown(e, n.name)}
+        onContextMenu={(e) => onHeadContextMenu(e, n.name)}
       >
         {n.name}
         {n.logical && (
@@ -105,8 +117,8 @@ export function ErNodeView({
                     ? " (NOT NULL)"
                     : " (NULL可)")
               }
-              onClick={() => onColumnClick(c.name)}
-              onContextMenu={(ev) => onColumnContextMenu(ev, c.name)}
+              onClick={() => onColumnClick(n.name, c.name)}
+              onContextMenu={(ev) => onColumnContextMenu(ev, n.name, c.name)}
             >
               {colMarker(c)}
               {c.name}
@@ -117,7 +129,7 @@ export function ErNodeView({
                   "er-col-type" + (selectedColumn === c.name ? " sel" : "")
                 }
                 title={c.type}
-                onClick={() => onColumnClick(c.name)}
+                onClick={() => onColumnClick(n.name, c.name)}
               >
                 {c.type}
               </span>
@@ -128,7 +140,7 @@ export function ErNodeView({
                   "er-col-logical" + (selectedColumn === c.name ? " sel" : "")
                 }
                 title={c.logical}
-                onClick={() => onColumnClick(c.name)}
+                onClick={() => onColumnClick(n.name, c.name)}
               >
                 {c.logical}
               </span>
@@ -141,7 +153,7 @@ export function ErNodeView({
                   className={`er-link-handle ${side}`}
                   style={{ top: NODE_HEAD_H + i * ROW_H + ROW_H / 2 - 5.5 }}
                   title="ドラッグして相手のカラムへ線をつなぐ"
-                  onMouseDown={(e) => onHandleMouseDown(e, c.name)}
+                  onMouseDown={(e) => onHandleMouseDown(e, n.name, c.name)}
                 />
               ))}
           </div>
@@ -150,8 +162,45 @@ export function ErNodeView({
       <div
         className="er-node-resize"
         title="ドラッグで幅を調整 (右クリックメニューで自動に戻せます)"
-        onMouseDown={onResizeMouseDown}
+        onMouseDown={(e) => onResizeMouseDown(e, n.name)}
       />
     </div>
   );
 }
+
+/** 中身が同じ集合か (ハイライトは描画のたびに作り直されるため) */
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  if (a === b) return true;
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
+/**
+ * ER図のテーブル1つぶんの表示。
+ *
+ * 図の移動・拡大では中身が変わらないので、
+ * 変わったテーブルだけを描き直す (数百テーブルでも移動が重くならない)。
+ * 操作の通知は呼び出し側で固定してあるので、そのまま比べてよい
+ */
+export const ErNodeView = memo(ErNodeViewInner, (p, q) => {
+  return (
+    p.node === q.node &&
+    p.x === q.x &&
+    p.y === q.y &&
+    p.related === q.related &&
+    p.selected === q.selected &&
+    p.selectedColumn === q.selectedColumn &&
+    p.showTypes === q.showTypes &&
+    p.showLogical === q.showLogical &&
+    p.showHandles === q.showHandles &&
+    sameSet(p.highlighted, q.highlighted) &&
+    p.onNodeMouseDown === q.onNodeMouseDown &&
+    p.onHoverChange === q.onHoverChange &&
+    p.onHeadContextMenu === q.onHeadContextMenu &&
+    p.onColumnClick === q.onColumnClick &&
+    p.onColumnContextMenu === q.onColumnContextMenu &&
+    p.onHandleMouseDown === q.onHandleMouseDown &&
+    p.onResizeMouseDown === q.onResizeMouseDown
+  );
+});

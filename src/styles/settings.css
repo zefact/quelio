@@ -347,6 +347,33 @@
   max-width: none;
 }
 
+/* SQL整形の見本 (設定を変えるとその場で書き換わる) */
+.sql-format-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  width: 100%;
+}
+
+.sql-format-preview pre {
+  width: 100%;
+  margin: 0;
+  /* 見本 (17行) がそのまま入る高さ。設定によって伸びたら中でスクロールする */
+  max-height: 400px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(var(--ink), 0.04);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.7;
+  /* タブ幅は「字下げ」の設定に合わせて見えるようにする */
+  tab-size: 4;
+  white-space: pre;
+}
+
 /* セクション見出し + 付随ボタン (再検出など。タイトルのすぐ横に置く) */
 .set-section-head {
   display: flex;
@@ -1052,16 +1079,16 @@
   border-top: 1px solid var(--border);
 }
 
-/* スプリッタ右端の開閉ボタン (SQLエディタを画面いっぱいに広げる) */
-.row-splitter {
-  position: relative;
-}
-
-.splitter-btn {
+/*
+ * SQLエディタを画面いっぱいに広げる / 元に戻すボタン。
+ *
+ * エディタの枠の右下 (枠線の右端) に置く。
+ * 区切り線のところに置くと、何に効くボタンなのかが分かりにくかった
+ */
+.editor-size-btn {
   position: absolute;
   right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
+  bottom: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1070,7 +1097,8 @@
   padding: 0;
   border: none;
   border-radius: 7px;
-  background: transparent;
+  /* 下の行の文字と重なっても読めるよう、エディタと同じ色で塗る */
+  background: var(--input-bg);
   color: var(--text-faint);
   line-height: 1;
   cursor: pointer;
@@ -1078,15 +1106,15 @@
 }
 
 /* 開閉でアイコンを反転させる (下向き=エディタを広げる / 上向き=結果欄を戻す) */
-.splitter-btn svg {
+.editor-size-btn svg {
   transition: transform 0.16s ease;
 }
 
-.splitter-btn.on svg {
+.editor-size-btn.on svg {
   transform: rotate(180deg);
 }
 
-.splitter-btn:hover {
+.editor-size-btn:hover {
   background: rgba(34, 211, 238, 0.15);
   color: var(--accent-2);
 }
@@ -1100,14 +1128,6 @@
 .query-panel.editor-full .result-bar,
 .query-panel.editor-full .query-result {
   display: none;
-}
-
-.query-panel.editor-full .row-splitter {
-  cursor: default;
-}
-
-.query-panel.editor-full .row-splitter .grip {
-  visibility: hidden;
 }
 
 .row-splitter .grip {

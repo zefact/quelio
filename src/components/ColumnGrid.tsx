@@ -216,7 +216,7 @@ export function ColumnGrid({
     setError(null);
     setTypeMenu(null);
     setPendingMove(null);
-  }, [resetKey]);
+  }, [resetKey, setError]);
 
   // 編集対象のセルが変わったらその入力欄へフォーカスを移す
   // (同じ行の別セルをダブルクリックしたときは要素が作り直されないため、
@@ -420,6 +420,7 @@ export function ColumnGrid({
       alive = false;
       window.clearTimeout(timer);
     };
+    // 編集中の内容が変わったときだけ組み立て直す
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, changed]);
 

@@ -1,0 +1,89 @@
+/* SQLエディタの入力補完 */
+
+/* ---- SQLエディタの入力補完 ---- */
+
+/* 候補リストの置き場所。
+ * エディタ枠の中だと overflow: hidden で切れるので body の直下に出す。
+ * 高さ0・絶対配置なので、まわりのレイアウトには影響しない */
+#cm-tooltip-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+  z-index: 400;
+}
+
+/* CodeMirror標準のテーマ (.ͼ1 .cm-tooltip...) の方が詳細度が高いので、
+ * html body を付けて確実に上書きする */
+html body .cm-tooltip.cm-tooltip-autocomplete {
+  /* 中身の幅に合わせる (右端が切れないように) */
+  width: max-content;
+  max-width: min(720px, 92vw);
+  border: 1px solid var(--border-strong);
+  /* 角丸だと候補が見づらいので四角にする */
+  border-radius: 0;
+  background: var(--bg-panel);
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+
+html body .cm-tooltip.cm-tooltip-autocomplete > ul {
+  max-height: 260px;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  overflow: auto;
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-size: 12px;
+}
+
+/* 候補は「名前 / テーブル名 / 日本語名 / 型」の4列。
+ * 最小幅だけ決めて縦を揃え、はみ出す行はその行だけ広がるようにする
+ * (途中で切ってしまうより読めるほうを優先) */
+html body .cm-tooltip.cm-tooltip-autocomplete > ul > li {
+  display: flex;
+  align-items: baseline;
+  /* 列の間は2文字分くらい空ければ十分 */
+  gap: var(--space-4);
+  padding: 3px 8px;
+  color: var(--text);
+  line-height: 1.55;
+  cursor: pointer;
+}
+
+/* 選択中の候補 (文字は白で固定し、ライト・ダークとも読めるようにする) */
+html body .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: var(--completion-sel);
+  color: #fff;
+}
+
+/* 列の幅は completionLayout.ts が測って揃える (styleのwidthが入る)。
+ * CSS側は折り返さないことだけ決めておく */
+.cm-completionLabel {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.cm-completionCell {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 10.5px;
+}
+
+html body .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionCell {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* 入力中の文字に一致した部分 */
+.cm-completionMatchedText {
+  color: var(--completion-match);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+html body .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
+  color: #fff;
+  text-decoration: underline;
+}

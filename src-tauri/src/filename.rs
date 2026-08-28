@@ -83,7 +83,6 @@ fn pg_pattern_part(s: &str) -> String {
     format!("\"{}\"", s.replace('"', "\"\""))
 }
 
-/// pg_dump の `-t` に渡す1テーブルぶんのパターン
 /// 同じ名前のファイルを上書きしない書き出し先を返す。
 ///
 /// 同じ秒に2回押されても前のファイルを消さないよう、
@@ -107,6 +106,7 @@ pub fn unique_path(
     Err("同じ名前のファイルが多すぎます".to_string())
 }
 
+/// pg_dump の `-t` に渡す1テーブルぶんのパターン
 pub fn pg_table_pattern(schema: Option<&str>, name: &str) -> String {
     match schema.filter(|s| !s.is_empty()) {
         Some(s) => format!("{}.{}", pg_pattern_part(s), pg_pattern_part(name)),

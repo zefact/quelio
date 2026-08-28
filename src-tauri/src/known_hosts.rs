@@ -40,22 +40,44 @@ fn save(map: &HashMap<String, String>) -> Result<(), String> {
     crate::json_store::write(path, &json, "SSHホスト鍵の記録")
 }
 
+/// 初めて見るホスト鍵に出会ったことを表すしるし (エラーの1行目に入れる)。
+///
+/// 画面はこの行を見て、フィンガープリントの確認ダイアログを出す。
+/// 形式: `SSH_HOST_UNKNOWN\tホスト\tポート\tフィンガープリント`
+pub const UNKNOWN_HOST_MARK: &str = "SSH_HOST_UNKNOWN";
+
+/// 利用者が確認したホスト鍵を記録する (画面の「信頼して接続」から呼ぶ)
+pub fn trust(host: &str, port: u16, fingerprint: &str) -> Result<(), String> {
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut map = load()?;
+    map.insert(format!("{host}:{port}"), fingerprint.to_string());
+    save(&map)
+}
+
 /// ホスト鍵を検証する。
-/// - 初回: 記録して受け入れる (TOFU)
+/// - 初回: 記録が無いので中止し、確認をうながす (利用者が確認したら trust で記録する)
 /// - 一致: 受け入れる
 /// - 不一致: 拒否理由の文字列を返す (呼び出し側で接続エラーにする)
 pub fn verify(host: &str, port: u16, fingerprint: &str) -> Result<(), String> {
     // 他のスレッドがパニックしていても、記録の読み書き自体は続けられる
     let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let key = format!("{host}:{port}");
-    let mut map = load()?;
+    let map = load()?;
 
     match map.get(&key) {
         None => {
-            // 初回接続: 記録して信頼する
-            map.insert(key, fingerprint.to_string());
-            save(&map)?;
-            Ok(())
+            /*
+             * 初回接続。
+             * 黙って信頼すると、最初の1回が中間者だった場合に気づけないので、
+             * フィンガープリントを見せて確認してもらう
+             */
+            Err(format!(
+                "{UNKNOWN_HOST_MARK}\t{host}\t{port}\t{fingerprint}\n\
+                 SSHサーバー ({key}) へは初めての接続です。\n\
+                 ホスト鍵のフィンガープリントが、管理者から知らされている値と\n\
+                 同じかどうかを確認してください。\n\
+                 {fingerprint}"
+            ))
         }
         Some(stored) if stored == fingerprint => Ok(()),
         Some(stored) => {

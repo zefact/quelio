@@ -160,9 +160,25 @@ impl MasterKeys {
     }
 }
 
+/// 保存済みの暗号文の形をしているか。
+///
+/// 「`enc:v1:` で始まる」だけで判断すると、その文字列を実際のパスワードに
+/// 使っている場合に、平文のまま保存してしまう。
+/// 中身まで見て、暗号文として辻褄が合うものだけを暗号化済みとみなす
+pub fn looks_encrypted(stored: &str) -> bool {
+    let Some(body) = stored.strip_prefix(ENC_PREFIX) else {
+        return false;
+    };
+    match B64.decode(body) {
+        // nonce(12バイト) + 認証タグ(16バイト) より短いものは暗号文ではない
+        Ok(bytes) => bytes.len() >= 12 + 16,
+        Err(_) => false,
+    }
+}
+
 /// 平文を暗号化して "enc:v1:..." 形式で返す (空文字・暗号化済みはそのまま)
 pub fn encrypt(key: &[u8; 32], plain: &str) -> Result<String, String> {
-    if plain.is_empty() || plain.starts_with(ENC_PREFIX) {
+    if plain.is_empty() || looks_encrypted(plain) {
         return Ok(plain.to_string());
     }
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
@@ -215,6 +231,18 @@ mod tests {
         assert_eq!(decrypt(&other, &enc), None);
         // 二重暗号化はしない
         assert_eq!(encrypt(&key, &enc).unwrap(), enc);
+    }
+
+    #[test]
+    fn プレフィックスで始まるパスワードも暗号化する() {
+        let key = [7u8; 32];
+        // 暗号文の形をしていない (base64として短すぎる) ので、ただの平文として扱う
+        let plain = "enc:v1:hello";
+        let enc = encrypt(&key, plain).unwrap();
+        assert_ne!(enc, plain, "平文のまま保存してはいけない");
+        assert_eq!(decrypt(&key, &enc).as_deref(), Some(plain));
+        assert!(!looks_encrypted(plain));
+        assert!(looks_encrypted(&enc));
     }
 
     #[test]

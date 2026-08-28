@@ -109,6 +109,7 @@ export function SchemaWindow() {
       .then((s) => setDelim(s.commentDelimiter))
       .catch(() => {});
     load(sel.sessionId, sel.database);
+    // 起動時に1回だけ (load は毎回作り直されるので依存に入れない)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

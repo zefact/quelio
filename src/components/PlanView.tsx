@@ -45,7 +45,7 @@ export function parsePlan(lines: string[]): PlanNode[] | null {
     const indent = raw.match(/^\s*/)?.[0].length ?? 0;
     const trimmed = raw.trim();
     const isArrow = trimmed.startsWith("->");
-    let body = isArrow ? trimmed.slice(2).trim() : trimmed;
+    const body = isArrow ? trimmed.slice(2).trim() : trimmed;
 
     // メタ情報を取り出す
     const cost = body.match(COST_RE);

@@ -43,6 +43,7 @@ export function DropColumnConfirm({
     return () => {
       alive = false;
     };
+    // 開いた時点の内容で1回だけ組み立てる (途中で変わらない)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

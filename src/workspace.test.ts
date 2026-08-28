@@ -1,138 +1,75 @@
 import { describe, expect, it } from "vitest";
-import { MAX_SHEETS, toSaved, toTabs } from "./workspace";
+import { MAX_SHEETS, toSaved, toSheets, toTab } from "./workspace";
 import type { SavedWorkspace } from "./workspace";
-import { defaultEditorOptions, emptySheet, emptyTab, newSheetId } from "./types";
-import type { ConnectionStore, WorkTab } from "./types";
+import {
+  activeSheetOf,
+  defaultEditorOptions,
+  emptySheet,
+  emptyTab,
+  newSheetId,
+} from "./types";
+import type { WorkTab } from "./types";
 
-const store: ConnectionStore = {
-  folders: [],
-  connections: [
-    {
-      id: "c1",
-      name: "本番",
-      dbType: "mysql",
-      host: "h",
-      port: 3306,
-      user: "u",
-      password: "",
-    },
-  ],
-};
-
-/** 接続先とシートを持つタブを作る */
-function tabWith(sheets: { title: string; sql: string }[], activeAt = 0) {
-  const t: WorkTab = emptyTab("k1");
-  t.profile = { ...store.connections[0] };
+/** シートを持つタブを作る */
+function tabWith(
+  key: string,
+  sheets: { title: string; sql: string }[],
+  activeAt = 0
+): WorkTab {
+  const t = emptyTab(key);
   const list = sheets.map((s) => ({
     ...emptySheet(newSheetId()),
     title: s.title,
     sql: s.sql,
   }));
-  t.editor = {
-    ...t.editor,
-    sheets: list,
-    activeSheet: list[activeAt].id,
-    // 表示中のシートの内容はエディタ側に置かれている
-    sql: list[activeAt].sql,
-    editorOpts: list[activeAt].editorOpts,
-  };
+  t.editor = { ...t.editor, sheets: list, activeSheet: list[activeAt].id };
   return t;
 }
 
 let seq = 0;
 const newKey = () => `tab-${seq++}`;
 
-describe("toSaved / toTabs", () => {
-  it("シートの並び順と表示位置が往復で変わらない", () => {
-    const tab = tabWith(
-      [
-        { title: "検証", sql: "SELECT 1" },
-        { title: "本命", sql: "UPDATE t SET a = 1" },
-        { title: "", sql: "SELECT 3" },
-      ],
-      1
-    );
+describe("toSaved", () => {
+  it("並び順そのままで、名前とSQLを保存する", () => {
+    const tab = tabWith("k1", [
+      { title: "検証", sql: "SELECT 1" },
+      { title: "本命", sql: "UPDATE t SET a = 1" },
+      { title: "", sql: "SELECT 3" },
+    ]);
     const saved = toSaved([tab], tab.key);
-    const built = toTabs(saved, store, newKey);
-    expect(built).not.toBeNull();
-    const back = built!.tabs[0];
-    expect(back.editor.sheets.map((s) => s.sql)).toEqual([
+    expect(saved.sheets.map((s) => s.sql)).toEqual([
       "SELECT 1",
       "UPDATE t SET a = 1",
       "SELECT 3",
     ]);
-    expect(back.editor.sheets.map((s) => s.title)).toEqual(["検証", "本命", ""]);
-    // 表示中のシートも同じものに戻る
-    const at = back.editor.sheets.findIndex((s) => s.id === back.editor.activeSheet);
-    expect(at).toBe(1);
-    expect(back.editor.sql).toBe("UPDATE t SET a = 1");
+    expect(saved.sheets.map((s) => s.title)).toEqual(["検証", "本命", ""]);
   });
 
-  it("表示中のシートの内容はタブ側から拾う", () => {
-    const tab = tabWith([{ title: "", sql: "古い" }]);
-    tab.editor.sql = "書きかけ";
+  it("接続タブが複数あっても、シートは1列にまとめる", () => {
+    const a = tabWith("k1", [{ title: "A", sql: "SELECT 1" }]);
+    const b = tabWith("k2", [
+      { title: "B1", sql: "SELECT 2" },
+      { title: "B2", sql: "SELECT 3" },
+    ]);
+    const saved = toSaved([a, b], "k2");
+    expect(saved.sheets.map((s) => s.title)).toEqual(["A", "B1", "B2"]);
+    // 前面のタブで開いていたシートの位置になる
+    expect(saved.activeSheet).toBe(1);
+  });
+
+  it("名前もSQLも無いシートは保存しない", () => {
+    const tab = tabWith("k1", [
+      { title: "", sql: "   " },
+      { title: "", sql: "SELECT 1" },
+      { title: "メモ", sql: "" },
+    ]);
     const saved = toSaved([tab], tab.key);
-    expect(saved.tabs[0].sheets?.[0].sql).toBe("書きかけ");
+    expect(saved.sheets.map((s) => s.title)).toEqual(["", "メモ"]);
   });
 
-  it("実行結果は保存しない", () => {
-    const tab = tabWith([{ title: "", sql: "SELECT 1" }]);
-    tab.editor.queryError = "エラー";
-    const built = toTabs(toSaved([tab], tab.key), store, newKey)!;
-    expect(built.tabs[0].editor.queryError).toBeNull();
-    expect(built.tabs[0].editor.queryResults).toBeNull();
-  });
-
-  it("シートを持たない古い形式 (v1) からも1枚作る", () => {
-    const v1: SavedWorkspace = {
-      version: 1,
-      activeIndex: 0,
-      tabs: [
-        {
-          profileId: "c1",
-          sql: "SELECT 1",
-          view: "query",
-          editorOpts: defaultEditorOptions(),
-          tableTab: "definition",
-          db: null,
-          table: null,
-        },
-      ],
-    };
-    const built = toTabs(v1, store, newKey)!;
-    expect(built.tabs[0].editor.sheets).toHaveLength(1);
-    expect(built.tabs[0].editor.sql).toBe("SELECT 1");
-    expect(built.tabs[0].editor.activeSheet).toBe(built.tabs[0].editor.sheets[0].id);
-  });
-
-  it("versionが無い保存内容は読まない", () => {
-    const broken = { activeIndex: 0, tabs: [] } as unknown as SavedWorkspace;
-    expect(toTabs(broken, store, newKey)).toBeNull();
-  });
-
-  it("壊れた要素が混ざっていても落ちない", () => {
-    const tab = tabWith([{ title: "", sql: "SELECT 1" }]);
-    const saved = toSaved([tab], tab.key);
-    // 保存ファイルが壊れて null が混ざった状態
-    saved.tabs = [null, ...saved.tabs] as unknown as typeof saved.tabs;
-    const built = toTabs(saved, store, newKey);
-    expect(built).not.toBeNull();
-    expect(built!.tabs).toHaveLength(1);
-    expect(built!.tabs[0].editor.sql).toBe("SELECT 1");
-  });
-
-  it("知らない新しい形式は読まない", () => {
-    const future = { version: 99, activeIndex: 0, tabs: [] } as SavedWorkspace;
-    expect(toTabs(future, store, newKey)).toBeNull();
-  });
-
-  it("消された接続先を指していたら、接続先なしのタブになる", () => {
-    const tab = tabWith([{ title: "", sql: "SELECT 1" }]);
-    tab.profile = { ...tab.profile, id: "missing" };
-    const built = toTabs(toSaved([tab], tab.key), store, newKey)!;
-    expect(built.tabs[0].profile.id).not.toBe("missing");
-    // 書きかけのSQLは残す
-    expect(built.tabs[0].editor.sql).toBe("SELECT 1");
+  it("空のシートを開いていたら、表示位置は先頭に戻す", () => {
+    const tab = tabWith("k1", [{ title: "A", sql: "SELECT 1" }, { title: "", sql: "" }], 1);
+    expect(toSaved([tab], tab.key).activeSheet).toBe(0);
   });
 
   it("シートは上限までしか保存しない", () => {
@@ -140,28 +77,112 @@ describe("toSaved / toTabs", () => {
       title: "",
       sql: `SELECT ${i}`,
     }));
-    const tab = tabWith(many);
-    expect(toSaved([tab], tab.key).tabs[0].sheets).toHaveLength(MAX_SHEETS);
+    expect(toSaved([tabWith("k1", many)], "k1").sheets).toHaveLength(MAX_SHEETS);
   });
 
-  it("表示位置が範囲外でも壊れない", () => {
-    const tab = tabWith([{ title: "", sql: "SELECT 1" }]);
-    const saved = toSaved([tab], tab.key);
-    saved.tabs[0].activeSheet = 99;
-    const built = toTabs(saved, store, newKey)!;
-    expect(built.tabs[0].editor.activeSheet).toBe(built.tabs[0].editor.sheets[0].id);
-  });
-
-  it("接続中のタブは、開いていたDBとテーブルを復元先として持つ", () => {
-    const tab = tabWith([{ title: "", sql: "" }]);
+  it("接続先や開いていたテーブルは保存しない", () => {
+    const tab = tabWith("k1", [{ title: "", sql: "SELECT 1" }]);
     tab.connected = true;
     tab.selectedDb = "app";
     tab.selectedTable = ".users";
-    const built = toTabs(toSaved([tab], tab.key), store, newKey)!;
-    expect(built.tabs[0].restore).toEqual({
-      profileId: "c1",
-      db: "app",
-      table: ".users",
-    });
+    const saved = toSaved([tab], tab.key) as unknown as Record<string, unknown>;
+    expect(Object.keys(saved).sort()).toEqual([
+      "activeSheet",
+      "sheets",
+      "version",
+    ]);
+  });
+});
+
+describe("toTab", () => {
+  it("往復してもシートの並びと表示位置が変わらない", () => {
+    const tab = tabWith(
+      "k1",
+      [
+        { title: "検証", sql: "SELECT 1" },
+        { title: "本命", sql: "UPDATE t SET a = 1" },
+      ],
+      1
+    );
+    const back = toTab(toSaved([tab], tab.key), newKey())!;
+    expect(back.editor.sheets.map((s) => s.title)).toEqual(["検証", "本命"]);
+    expect(activeSheetOf(back.editor).sql).toBe("UPDATE t SET a = 1");
+  });
+
+  it("実行結果は保存しない", () => {
+    const tab = tabWith("k1", [{ title: "", sql: "SELECT 1" }]);
+    activeSheetOf(tab.editor).queryError = "エラー";
+    const sheet = activeSheetOf(toTab(toSaved([tab], tab.key), newKey())!.editor);
+    expect(sheet.queryError).toBeNull();
+    expect(sheet.queryResults).toBeNull();
+  });
+
+  it("戻したタブは接続していない (接続先も空)", () => {
+    const tab = tabWith("k1", [{ title: "", sql: "SELECT 1" }]);
+    const back = toTab(toSaved([tab], tab.key), newKey())!;
+    expect(back.connected).toBe(false);
+    expect(back.profile.id).toBe("");
+    expect(back.restore).toBeUndefined();
+    // 繋いだらSQLエディタから始める
+    expect(back.view).toBe("query");
+  });
+
+  it("戻すものが無ければ null", () => {
+    const empty = toSaved([tabWith("k1", [{ title: "", sql: "" }])], "k1");
+    expect(toTab(empty, newKey())).toBeNull();
+  });
+});
+
+describe("保存内容の読み込み", () => {
+  it("タブごとに持っていた古い形式 (v1 / v2) は読まない", () => {
+    const v2 = {
+      version: 2,
+      activeIndex: 0,
+      tabs: [
+        {
+          profileId: "c1",
+          sql: "SELECT 1",
+          view: "query",
+          editorOpts: defaultEditorOptions(),
+          sheets: [
+            { title: "A", sql: "SELECT 1", editorOpts: defaultEditorOptions() },
+          ],
+          activeSheet: 0,
+          tableTab: "definition",
+          db: null,
+          table: null,
+        },
+      ],
+    } as unknown as SavedWorkspace;
+    expect(toSheets(v2)).toBeNull();
+  });
+
+  it("versionが無い / 知らない新しい形式も読まない", () => {
+    expect(toSheets({ sheets: [] } as unknown as SavedWorkspace)).toBeNull();
+    expect(
+      toSheets({ version: 99, sheets: [], activeSheet: 0 } as SavedWorkspace)
+    ).toBeNull();
+  });
+
+  it("壊れた要素が混ざっていても、読めるところまで読む", () => {
+    const broken = {
+      version: 3,
+      activeSheet: 0,
+      sheets: [null, { title: "A", sql: "SELECT 1" }, 5],
+    } as unknown as SavedWorkspace;
+    const r = toSheets(broken)!;
+    expect(r.sheets.map((s) => s.sql)).toEqual(["SELECT 1"]);
+    // 既定のエディタ設定で埋める
+    expect(r.sheets[0].editorOpts).toEqual(defaultEditorOptions());
+  });
+
+  it("表示位置が範囲外でも壊れない", () => {
+    const saved: SavedWorkspace = {
+      version: 3,
+      activeSheet: 99,
+      sheets: [{ title: "A", sql: "SELECT 1", editorOpts: defaultEditorOptions() }],
+    };
+    const back = toTab(saved, newKey())!;
+    expect(back.editor.activeSheet).toBe(back.editor.sheets[0].id);
   });
 });

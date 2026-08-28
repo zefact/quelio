@@ -4,8 +4,8 @@ import {
   ParamKind,
   ParamValue,
 } from "../sqlParams";
-import { previewSql } from "../api";
-import type { DbType } from "../types";
+import { checkDangerousFilled, previewSql } from "../api";
+import type { DangerousStatement, DbType } from "../types";
 import { SelectMenu } from "./SelectMenu";
 
 interface Props {
@@ -42,7 +42,28 @@ export function SqlParamModal({
       return { ...prev, [name]: { ...cur, ...patch } };
     });
 
-  const submit = () => onSubmit(values);
+  /**
+   * 値を入れて初めて「確認の要るSQL」になったもの。
+   *
+   * 「そのまま」「数値」の値はクォートされずに入るので、
+   * `WHERE :cond` に `1=1` を入れると全件更新に変わる。
+   * プレースホルダのままの判定では気づけないため、置換後にもう一度見る
+   */
+  const [danger, setDanger] = useState<DangerousStatement[]>([]);
+  /*
+   * 確認済みの警告の中身。
+   * 「確認した」という真偽値だけで覚えると、値を書き換えて
+   * 別の警告に変わったときにチェックが付いたままになる
+   */
+  const dangerKey = danger.map((d) => `${d.kind}\u0000${d.sql}`).join("\u0001");
+  const [agreedFor, setAgreedFor] = useState("");
+  const agreed = danger.length > 0 && agreedFor === dangerKey;
+
+  const blocked = danger.length > 0 && !agreed;
+  const submit = () => {
+    if (blocked) return;
+    onSubmit(values);
+  };
 
   /**
    * 実際に実行されるSQL。
@@ -58,6 +79,12 @@ export function SqlParamModal({
       previewSql(sessionId, sql, dbType, values)
         .then((s) => {
           if (alive) setPreview(s);
+        })
+        .catch(() => {});
+      // 値しだいで内容が変わるので、警告も同じ間隔で見直す
+      checkDangerousFilled(sessionId, sql, dbType, values)
+        .then((found) => {
+          if (alive) setDanger(found);
         })
         .catch(() => {});
     }, 120);
@@ -122,6 +149,29 @@ export function SqlParamModal({
           <div className="sqlp-preview-head">実行されるSQL</div>
           <pre className="mono sqlp-preview-body">{preview}</pre>
         </div>
+        {danger.length > 0 && (
+          <div className="sqlp-danger">
+            <div className="sqlp-danger-head">
+              入力した値によって、取り返しのつかないSQLになっています
+            </div>
+            <ul className="sqlp-danger-list">
+              {danger.map((d, i) => (
+                <li key={i}>
+                  <span className="sqlp-danger-kind">{d.kind}</span>
+                  <span className="mono sqlp-danger-sql">{d.sql}</span>
+                </li>
+              ))}
+            </ul>
+            <label className="sqlp-danger-agree">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreedFor(e.target.checked ? dangerKey : "")}
+              />
+              内容を確認しました
+            </label>
+          </div>
+        )}
         <div className="sqlp-hint">
           型はカラム定義から自動判定されます (右のプルダウンで変更可能)。
           「文字列」は常に ' ' 付き、「数値」「そのまま」は入力どおりに
@@ -131,7 +181,12 @@ export function SqlParamModal({
           <button className="btn-ghost" onClick={onCancel}>
             キャンセル
           </button>
-          <button className="btn-primary" onClick={submit}>
+          <button
+            className={danger.length > 0 ? "btn-danger" : "btn-primary"}
+            disabled={blocked}
+            title={blocked ? "上の内容を確認してください" : undefined}
+            onClick={submit}
+          >
             実行
           </button>
         </div>

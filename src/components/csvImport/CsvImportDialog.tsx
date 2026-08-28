@@ -127,9 +127,10 @@ export function CsvImportDialog({
       .finally(() => {
         if (seq === previewSeq.current) setLoading(false);
       });
-    // 画面から離れたら結果を捨てる
+    // 画面から離れたら結果を捨てる (refはこの効果の中で掴んでおく)
+    const seqRef = previewSeq;
     return () => {
-      previewSeq.current++;
+      seqRef.current++;
     };
   }, [file, options]);
 

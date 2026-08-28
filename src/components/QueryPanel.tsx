@@ -142,6 +142,26 @@ export function QueryPanel({
   sheetPane,
 }: Props) {
   const [editorHeight, startResize] = useResizableHeight(220, 72, 4000);
+  /** エディタ側の枠 (最大化中の高さを測ってドラッグの開始値にする) */
+  const sqlPaneRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * 区切り線のドラッグ。
+   *
+   * 最大化中でも動かせるようにして、そのまま結果欄を出せるようにする
+   * (押しただけでは何も変えない。実際に動かしたときだけ最大化をやめる)
+   */
+  const handleSplitterDown = (e: React.MouseEvent) => {
+    if (!editorFull) {
+      startResize(e);
+      return;
+    }
+    const shown = sqlPaneRef.current?.getBoundingClientRect().height;
+    startResize(e, {
+      from: shown ? Math.round(shown) : undefined,
+      onStart: () => onChangeOptions({ editorFull: false }),
+    });
+  };
   /*
    * 実行設定 (トランザクション・キャプチャ・実行対象・EXPLAINの種類・最大化) は
    * タブ側 (WorkTab.editorOpts) で保持する。
@@ -194,7 +214,8 @@ export function QueryPanel({
   const [runSource, setRunSource] = useState<"run" | "explain">("run");
   /** 行番号列を表示するか (設定。実行のたびに読み直す) */
   /** 行番号列を出すか (設定。設定画面や別ウィンドウでの変更に追従する) */
-  const showRowNums = useWatchedSettings().showRowNumbers;
+  const appSettings = useWatchedSettings();
+  const showRowNums = appSettings.showRowNumbers;
 
 
   // 新しい結果が来たら: ソート解除。文の構成が変わった場合のみ最後のタブへ
@@ -305,7 +326,7 @@ export function QueryPanel({
     if (!sql.trim()) return;
     setFormatError(null);
     try {
-      onChangeSql(formatSql(sql, dbType));
+      onChangeSql(formatSql(sql, dbType, appSettings.sqlFormat));
     } catch (e) {
       // 構文が不完全で整形できない場合はエラーの要点を表示する
       setFormatError(formatErrorMessage(e));
@@ -459,6 +480,23 @@ export function QueryPanel({
   /** 切り詰められた値がある行 (コピーの注記に使う) */
   const clippedRows = useMemo(() => clippedRowKeys(result?.clipped), [result]);
 
+  /*
+   * コピー用の元の値。
+   *
+   * 以前は「画面に描いていない行はコピーできない」ため、
+   * コピーの直前に1000行ぶんを一度に描き足していた (その間、画面が固まる)。
+   * 表に出しているのと同じ値をここから直接渡す
+   */
+  const rowValueOf = useMemo(() => {
+    const byKey = new Map(sortedRows.map((r) => [String(r.index), r.cells]));
+    return (key: string) => {
+      const cells = byKey.get(key);
+      if (!cells) return undefined;
+      // 行番号の列はコピー対象外なので、位置合わせの空文字を置く
+      return showRowNums ? ["", ...cells] : cells;
+    };
+  }, [sortedRows, showRowNums]);
+
   const gridRows: GridRow[] = useMemo(
     () =>
       sortedRows.map((r) => {
@@ -488,6 +526,7 @@ export function QueryPanel({
         }
         return { key: String(r.index), cells };
       }),
+    // セルの中身はこの4つで決まる (表示のための関数は依存に入れない)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sortedRows, showRowNums, result?.offset, result?.columns]
   );
@@ -497,7 +536,6 @@ export function QueryPanel({
       <SheetTabs
         sheets={sheetPane.sheets}
         activeId={sheetPane.activeId}
-        activeSql={sql}
         running={running}
         onSelect={sheetPane.onSelect}
         onAdd={sheetPane.onAdd}
@@ -508,6 +546,7 @@ export function QueryPanel({
       {/* エディタ (最大化中は残りの高さいっぱいに広げる) */}
       <div
         className="sql-editor"
+        ref={sqlPaneRef}
         style={editorFull ? undefined : { height: editorHeight }}
       >
         <SqlEditor
@@ -531,6 +570,36 @@ export function QueryPanel({
           autocomplete={autocomplete}
           autocompleteDelayMs={autocompleteDelayMs}
         />
+        {/* エディタを画面いっぱいに広げる / 元に戻す (アイコンは開閉で反転) */}
+        <button
+          className={"editor-size-btn" + (editorFull ? " on" : "")}
+          title={
+            editorFull ? "結果欄を表示する" : "SQLエディタを画面いっぱいに広げる"
+          }
+          aria-label={
+            editorFull ? "結果欄を表示する" : "SQLエディタを画面いっぱいに広げる"
+          }
+          // 押しても入力位置 (カーソル) を失わないようにする
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onChangeOptions({ editorFull: !editorFull })}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path
+              d="M7 10.5 12 15.5l5-5"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M6 19.5h12"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              opacity="0.55"
+            />
+          </svg>
+        </button>
       </div>
 
       {/* エディタの右クリックメニュー */}
@@ -582,43 +651,10 @@ export function QueryPanel({
 
       <div
         className="row-splitter"
-        title={editorFull ? "" : "ドラッグで高さを変更"}
-        onMouseDown={editorFull ? undefined : startResize}
+        title="ドラッグで高さを変更"
+        onMouseDown={handleSplitterDown}
       >
         <span className="grip" aria-hidden />
-        {/* エディタを画面いっぱいに広げる / 元に戻す (アイコンは開閉で反転) */}
-        <button
-          className={"splitter-btn" + (editorFull ? " on" : "")}
-          title={
-            editorFull
-              ? "結果欄を表示する"
-              : "SQLエディタを画面いっぱいに広げる"
-          }
-          aria-label={
-            editorFull
-              ? "結果欄を表示する"
-              : "SQLエディタを画面いっぱいに広げる"
-          }
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => onChangeOptions({ editorFull: !editorFull })}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path
-              d="M7 10.5 12 15.5l5-5"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M6 19.5h12"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              opacity="0.55"
-            />
-          </svg>
-        </button>
       </div>
 
       {results && results.length > 0 && (
@@ -640,6 +676,7 @@ export function QueryPanel({
         error={error}
         columns={gridColumns}
         rows={gridRows}
+        rowValues={rowValueOf}
         clippedRowKeys={clippedRows}
         sort={gridSort}
         onSortSelect={selectSort}

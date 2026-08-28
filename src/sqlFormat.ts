@@ -1,9 +1,11 @@
 import { format } from "sql-formatter";
-import type { DbType } from "./types";
+import type { DbType, SqlFormatSettings } from "./types";
+import { defaultSqlFormat } from "./types";
 
 /**
  * SQLの整形。
  *
+ * 書き方 (カンマの位置・大文字小文字・字下げ) は設定で変えられる。
  * 整形できないときは例外を投げる (呼び出し側でエラーを出す)。
  * 元のSQLは書き換えず、整形後の文字列を返す
  */
@@ -44,13 +46,97 @@ export function toLeadingCommas(sql: string): string {
   return lines.join("\n");
 }
 
-/** 整形する (カンマ先頭スタイル)。整形できないときは例外を投げる */
-export function formatSql(sql: string, dbType: DbType): string {
+/**
+ * JOIN の ON を次の行へ出し、条件を一段下げる。
+ *
+ * 例:
+ *   INNER JOIN m_shop b ON a.user_id = b.user_id
+ * →
+ *   INNER JOIN m_shop b
+ *   ON
+ *     a.user_id = b.user_id
+ *
+ * 続く AND / OR の行も同じ結合条件なので、まとめて一段下げる
+ * (元の行の空白はそのまま残すので、幅をそろえる字下げでも列が崩れない)
+ */
+const JOIN_ON = /^(\s*)(.*\bJOIN\b.*?)\s+\b(ON)\b\s+(.+)$/i;
+const COND_CONT = /^(\s*)(AND|OR)\b/i;
+
+export function toOnNewline(sql: string, unit: string): string {
+  const src = sql.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < src.length; i++) {
+    const m = JOIN_ON.exec(src[i]);
+    if (!m) {
+      out.push(src[i]);
+      continue;
+    }
+    const [, indent, head, on, cond] = m;
+    out.push(indent + head, indent + on, indent + unit + cond);
+    // 同じ深さで続く AND / OR は、この ON の条件の続き
+    while (i + 1 < src.length) {
+      const next = COND_CONT.exec(src[i + 1]);
+      if (!next || next[1] !== indent) break;
+      out.push(unit + src[i + 1]);
+      i++;
+    }
+  }
+  return out.join("\n");
+}
+
+/** 字下げ1段ぶんの文字 */
+function indentUnit(indent: SqlFormatSettings["indent"]): string {
+  if (indent === "tab") return "\t";
+  return indent === "4" ? "    " : "  ";
+}
+
+/** 設定の値が壊れていても落ちないよう、知らない値は既定へ戻す */
+function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
+/** 設定を sql-formatter に渡せる形にそろえる */
+function sanitize(opts: SqlFormatSettings | undefined): SqlFormatSettings {
+  const d = defaultSqlFormat();
+  if (!opts) return d;
+  return {
+    commaStyle: pick(opts.commaStyle, ["leading", "trailing"] as const, d.commaStyle),
+    keywordCase: pick(
+      opts.keywordCase,
+      ["upper", "lower", "preserve"] as const,
+      d.keywordCase
+    ),
+    indent: pick(opts.indent, ["2", "4", "tab"] as const, d.indent),
+    logicalNewline: pick(
+      opts.logicalNewline,
+      ["before", "after"] as const,
+      d.logicalNewline
+    ),
+    indentStyle: pick(
+      opts.indentStyle,
+      ["standard", "tabularLeft", "tabularRight"] as const,
+      d.indentStyle
+    ),
+    onClause: pick(opts.onClause, ["same", "newline"] as const, d.onClause),
+  };
+}
+
+/** 整形する。整形できないときは例外を投げる */
+export function formatSql(
+  sql: string,
+  dbType: DbType,
+  options?: SqlFormatSettings
+): string {
+  const opts = sanitize(options);
   const escaped = sql.replace(REPLACE_FN, REPLACE_MARK);
   const formatted = format(escaped, {
     language: language(dbType),
-    keywordCase: "upper",
-    tabWidth: 2,
+    keywordCase: opts.keywordCase,
+    indentStyle: opts.indentStyle,
+    logicalOperatorNewline: opts.logicalNewline,
+    useTabs: opts.indent === "tab",
+    // タブのときは幅の指定を見ない (整形器がタブ1文字を使う)
+    tabWidth: opts.indent === "4" ? 4 : 2,
     /*
      * `:name` `@name` をパラメータとして読ませる。
      * 指定しないとMySQL・SQLiteでは `:name` が構文エラーになり、
@@ -59,7 +145,11 @@ export function formatSql(sql: string, dbType: DbType): string {
      */
     paramTypes: { named: [":", "@"] },
   });
-  return toLeadingCommas(formatted.replace(REPLACE_BACK, "REPLACE("));
+  let out = formatted.replace(REPLACE_BACK, "REPLACE(");
+  if (opts.onClause === "newline") {
+    out = toOnNewline(out, indentUnit(opts.indent));
+  }
+  return opts.commaStyle === "leading" ? toLeadingCommas(out) : out;
 }
 
 /** 例外から、画面に出す1行のメッセージを作る */

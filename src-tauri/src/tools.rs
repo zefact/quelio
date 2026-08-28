@@ -52,19 +52,67 @@ pub fn save_settings(app: &AppHandle, settings: &ToolSettings) -> Result<(), Str
     crate::json_store::write(&path, &text, "設定")
 }
 
-/// 自動検出の探索ディレクトリ (Homebrew / MacPorts / Postgres.app / システム標準)
-const SEARCH_DIRS: &[&str] = &[
+/// パスが通っていない場所にも入りがちなので、決まった場所も見に行く。
+///
+/// macOS は Homebrew / MacPorts / Postgres.app、
+/// Linux はディストリビューションの標準的な置き場所。
+/// Windows は場所がバージョン付きフォルダなので、下の関数で組み立てる
+const FIXED_DIRS: &[&str] = &[
+    // macOS
     "/opt/homebrew/bin",
     "/opt/homebrew/opt/mysql-client/bin",
     "/opt/homebrew/opt/libpq/bin",
-    "/usr/local/bin",
     "/usr/local/opt/mysql-client/bin",
     "/usr/local/opt/libpq/bin",
     "/usr/local/mysql/bin",
     "/opt/local/bin",
     "/Applications/Postgres.app/Contents/Versions/latest/bin",
+    // Linux / 共通
+    "/usr/local/bin",
     "/usr/bin",
+    "/usr/local/pgsql/bin",
+    "/opt/mysql/bin",
+    "/snap/bin",
 ];
+
+/// Windows: `Program Files` の下の、バージョンごとに分かれたフォルダの bin。
+///
+/// 例) `C:\Program Files\PostgreSQL\16\bin`,
+///     `C:\Program Files\MySQL\MySQL Server 8.0\bin`
+///
+/// 環境変数が無いOS (macOS / Linux) では空になるので、
+/// プラットフォームで分けずに同じコードのままにしている
+fn program_files_dirs() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let roots = ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"];
+    for root in roots.iter().filter_map(std::env::var_os) {
+        let root = PathBuf::from(root);
+        for vendor in ["PostgreSQL", "MySQL"] {
+            // 中のフォルダは名前が版によって変わるので、あるものを全部見る
+            let Ok(entries) = std::fs::read_dir(root.join(vendor)) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                out.push(e.path().join("bin"));
+            }
+        }
+        out.push(root.join("MariaDB").join("bin"));
+    }
+    out
+}
+
+/// 自動検出で探す場所を、見に行く順に並べて返す。
+///
+/// まず PATH (利用者が自分で通した場所が最優先)、
+/// 次に決まった場所、最後に Windows のインストール先
+fn search_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    dirs.extend(FIXED_DIRS.iter().map(PathBuf::from));
+    dirs.extend(program_files_dirs());
+    dirs
+}
 
 /// 設定パス優先でツールの実体を探す
 fn find_tool(configured: &str, name: &str) -> (Option<PathBuf>, bool) {
@@ -73,10 +121,13 @@ fn find_tool(configured: &str, name: &str) -> (Option<PathBuf>, bool) {
         let p = PathBuf::from(c);
         return (p.is_file().then_some(p), true);
     }
-    for dir in SEARCH_DIRS {
-        let p = Path::new(dir).join(name);
-        if p.is_file() {
-            return (Some(p), false);
+    for dir in search_dirs() {
+        // Windowsは実行ファイルに .exe が付く
+        for file in [name.to_string(), format!("{name}.exe")] {
+            let p = Path::new(&dir).join(file);
+            if p.is_file() {
+                return (Some(p), false);
+            }
         }
     }
     (None, false)
@@ -125,7 +176,17 @@ fn require_tool(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
     };
     let (path, _) = find_tool(configured, name);
     path.ok_or_else(|| {
-        format!("{name} が見つかりません。設定画面でパスを指定するか、インストールしてください (例: brew install mysql-client / libpq)")
+        format!(
+            concat!(
+                "{name} が見つかりません。",
+                "設定画面でパスを指定するか、インストールしてください\n",
+                "macOS: brew install mysql-client libpq\n",
+                "Linux: パッケージ管理から mysql-client / postgresql-client\n",
+                "Windows: MySQL / PostgreSQL のインストーラ",
+                " (Program Files の下は自動で探します)"
+            ),
+            name = name
+        )
     })
 }
 
@@ -291,7 +352,8 @@ pub async fn start_export(
     // DB名はユーザーが決めるものなので、そのままファイル名にしない
     let stem = crate::filename::safe_stem(&database);
     let out_path = dir.join(format!("{stem}_{ts}.sql"));
-    let out_file = std::fs::File::create(&out_path)
+    // ダンプはDBの中身そのものなので、所有者だけが読める権限で作る
+    let out_file = crate::outfile::create(&out_path)
         .map_err(|e| format!("出力ファイルを作成できません: {e}"))?;
     let mut cmd = match ep.db_type {
         DbType::Valkey | DbType::Sqlite => unreachable!(),

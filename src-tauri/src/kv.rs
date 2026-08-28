@@ -41,7 +41,7 @@ pub async fn connect(
         connect_inner(host, port, user, password, db_index, use_tls, sni_host),
     )
     .await
-    .map_err(|_| "Valkey接続がタイムアウトしました".to_string())?
+    .map_err(|_| crate::apperr::timeout_message("Valkey接続"))?
 }
 
 async fn connect_inner(
@@ -125,6 +125,24 @@ fn info_get(info: &str, key: &str) -> Option<String> {
 }
 
 /// サーバー情報チップ用の (ラベル, 値) 一覧を返す
+/// 論理DBの数を返す (`CONFIG GET databases`)。
+///
+/// 既定は16だが、設定で変えられる。
+/// CONFIG を禁じている構成 (マネージドサービス等) では取れないので、
+/// その場合は既定の16として扱う
+pub async fn db_count(conn: &mut MultiplexedConnection) -> i64 {
+    let res: Result<Vec<String>, _> = redis::cmd("CONFIG")
+        .arg("GET")
+        .arg("databases")
+        .query_async(conn)
+        .await;
+    // 返りは ["databases", "16"] の並び
+    res.ok()
+        .and_then(|v| v.get(1).and_then(|s| s.parse::<i64>().ok()))
+        .filter(|n| (1..=1024).contains(n))
+        .unwrap_or(16)
+}
+
 pub async fn server_info(
     conn: &mut MultiplexedConnection,
 ) -> Result<Vec<(String, String)>, String> {
@@ -228,10 +246,7 @@ pub async fn scan(
         }
         let vals: Vec<redis::Value> = pipe.query_async(conn).await.map_err(format_err)?;
         for (i, k) in keys.iter().enumerate() {
-            let kv_type = vals
-                .get(i * 2)
-                .map(|v| value_to_plain(v))
-                .unwrap_or_default();
+            let kv_type = vals.get(i * 2).map(value_to_plain).unwrap_or_default();
             let ttl = match vals.get(i * 2 + 1) {
                 Some(redis::Value::Int(n)) => *n,
                 _ => -1,

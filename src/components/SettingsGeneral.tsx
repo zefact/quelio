@@ -74,15 +74,15 @@ export function SettingsGeneral({ notify }: Props) {
       <section className="set-section">
         <h3 className="set-section-title">起動時</h3>
         <SettingRow
-          title="前回のタブを復元する"
-          desc="前回開いていたタブ (接続先と書きかけのSQL) を起動時に戻します。接続はしません。切っておくと、空のタブ1つで始まります。"
+          title="前回の書きかけSQLを復元する"
+          desc="SQLエディタのシート (SQLと、付けた名前) を起動時に戻します。接続先のタブは戻さないので、いつも接続先を選ぶところから始まります。名前もSQLも空のシートは保存しません。"
         >
           <label className="switch">
             <input
               type="checkbox"
-              checked={app.restoreTabs}
+              checked={app.restoreSheets}
               onChange={(e) =>
-                saveApp({ ...app, restoreTabs: e.target.checked })
+                saveApp({ ...app, restoreSheets: e.target.checked })
               }
             />
             <span className="track" aria-hidden />

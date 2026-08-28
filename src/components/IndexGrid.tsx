@@ -217,7 +217,7 @@ export function IndexGrid({
     setEditing(null);
     setError(null);
     setPicking(false);
-  }, [resetKey]);
+  }, [resetKey, setError]);
 
   // フォーカスが外れていてもEscで取り消せるようにする。
   // カラム選択ダイアログを開いているときはそちらを閉じるだけにする

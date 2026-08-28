@@ -1,0 +1,167 @@
+/* データベース・スキーマの管理 */
+
+/* ============================================================
+   データベース・スキーマの管理
+   ============================================================ */
+
+.modal.db-admin-modal {
+  width: min(680px, 94vw);
+}
+
+.db-admin-section {
+  margin-top: var(--space-4);
+}
+
+.db-admin-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.db-admin-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.db-admin-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.db-admin-opt {
+  width: 170px;
+  flex-shrink: 0;
+}
+
+/* 一覧はダイアログを伸ばしすぎず、中でスクロールさせる */
+.db-admin-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 190px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.db-admin-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.db-admin-list li:last-child {
+  border-bottom: none;
+}
+
+.db-admin-list li > :first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 接続中のDBは削除できないので、そうと分かる色にする */
+.db-admin-list li.current {
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.db-admin-hint {
+  margin: var(--space-4) 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+.db-admin-typed {
+  width: 100%;
+  margin-top: var(--space-3);
+}
+
+.db-admin-cascade {
+  margin-top: var(--space-3);
+}
+
+
+/* データベース作成の任意指定 (文字コード・照合順序) */
+.db-admin-opts-row {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.db-admin-opt-field {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.db-admin-opt-label {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* SelectMenu の外側divが幅を持たないと、中のボタンが伸びない */
+.db-admin-opt-field .select-menu-wrap {
+  min-width: 0;
+}
+
+/* 作成と削除は別の操作なので、かたまりが分かるようにする。
+   作る側は枠で囲い、一覧 (消す側) とは見出しで切り分ける */
+.db-admin-create {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(var(--ink), 0.03);
+}
+
+.db-admin-subtitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* 一覧側の見出しは、上の枠から離して置く */
+.db-admin-section > .db-admin-subtitle,
+.db-admin-section .db-admin-create + .db-admin-subtitle {
+  margin-top: var(--space-4);
+}
+
+.db-admin-count {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(var(--ink), 0.07);
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+/* まとめて削除するときの対象一覧 */
+.drop-table-list {
+  max-height: 180px;
+  margin: 0 0 var(--space-3);
+  padding: 8px 10px;
+  overflow: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.drop-table-agree {
+  margin-bottom: var(--space-2);
+}

@@ -8,9 +8,9 @@ import {
   kvScan,
 } from "../api";
 import { captureResults } from "../capture";
-import { badgeStyle } from "../colors";
 import { useResizableHeight } from "../hooks/useResizableHeight";
 import { useResizableWidth } from "../hooks/useResizableWidth";
+import { useEvent } from "../hooks/useEvent";
 import type {
   KvBrowseState,
   KvChange,
@@ -20,11 +20,14 @@ import type {
   StatementResult,
   WorkTab,
 } from "../types";
+import { activeSheetOf } from "../types";
 import { KvCommandEditor } from "./KvCommandEditor";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { KvValueGrid } from "./KvValueGrid";
 import { SelectMenu } from "./SelectMenu";
-import { SqlLibraryMenu } from "./SqlLibraryMenu";
+import { ConnectionChip, ServerInfo } from "./SessionHeader";
+import { PaneHead, SidePane } from "./SidePane";
+import { SqlLibraryMenu } from "./sqlLibrary/SqlLibraryMenu";
 import { KvBulkDialog } from "./kvBulk/KvBulkDialog";
 
 interface Props {
@@ -111,7 +114,8 @@ export function KvSessionView({
   const db = selectedDb ?? "0";
   // コンソール関連の状態はタブ側 (WorkTab) に持たせ、タブ切替後も維持する
   const consoleOpen = tab.view === "query";
-  const command = tab.editor.sql;
+  // Valkeyのコンソールは1枚のシートだけを使う
+  const command = activeSheetOf(tab.editor).sql;
   const results = tab.kv.results ?? [];
   const execError = tab.kv.execError ?? null;
 
@@ -119,6 +123,14 @@ export function KvSessionView({
   // タブを離れて戻ってきたときは、前回の一覧・選択をそのまま復元する
   const saved = tab.kv.browse;
   const [pattern, setPattern] = useState(saved?.pattern ?? "*");
+  /*
+   * 実際に検索したパターン。
+   *
+   * 入力欄の一文字ごとにタブへ保存すると、そのたびにアプリ全体が描き直される。
+   * 保存するのは「この一覧を出したときのパターン」だけにして、
+   * 入力中の文字はこの画面の中だけで持つ
+   */
+  const appliedPattern = useRef(saved?.pattern ?? "*");
   const [keys, setKeys] = useState<KvKeyInfo[]>(saved?.keys ?? []);
   const [cursor, setCursor] = useState(saved?.cursor ?? "0");
   const [done, setDone] = useState(saved?.done ?? true);
@@ -175,11 +187,12 @@ export function KvSessionView({
     async (fresh: boolean, pat?: string) => {
       setScanning(true);
       setError(null);
+      appliedPattern.current = pat ?? pattern;
       try {
         const r = await kvScan(
           tab.key,
           db,
-          pat ?? pattern,
+          appliedPattern.current,
           fresh ? "0" : cursor
         );
         setKeys((prev) => (fresh ? r.entries : [...prev, ...r.entries]));
@@ -192,7 +205,6 @@ export function KvSessionView({
         setScanning(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [tab.key, db, pattern, cursor]
   );
 
@@ -209,6 +221,7 @@ export function KvSessionView({
     setDetail(null);
     if (keep && keep.db === db && keep.keys.length > 0) {
       setPattern(keep.pattern);
+      appliedPattern.current = keep.pattern;
       setKeys(keep.keys);
       setCursor(keep.cursor);
       setDone(keep.done);
@@ -219,18 +232,32 @@ export function KvSessionView({
     }
     const pat = keep?.db === db ? (keep?.pattern ?? "*") : "*";
     setPattern(pat);
+    appliedPattern.current = pat;
     setKeys([]);
     setCursor("0");
     setSelectedKey(null);
     void scan(true, pat);
+    // タブ・DBが変わったときだけ復元する (中の関数は依存に入れない)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.key, db]);
 
-  // 一覧・選択が変わったらタブ側へ保存する (タブ切替で消えないように)
+  /*
+   * 一覧・選択が変わったらタブ側へ保存する (タブ切替で消えないように)。
+   * 入力中のパターンは対象にしない
+   * (確定して検索したときに、その一覧と一緒に保存される)
+   */
+  const saveBrowse = useEvent(onKvBrowse);
   useEffect(() => {
-    onKvBrowse({ db, pattern, keys, cursor, done, dbsize, selectedKey });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, pattern, keys, cursor, done, dbsize, selectedKey]);
+    saveBrowse({
+      db,
+      pattern: appliedPattern.current,
+      keys,
+      cursor,
+      done,
+      dbsize,
+      selectedKey,
+    });
+  }, [db, keys, cursor, done, dbsize, selectedKey, saveBrowse]);
 
   /** キー選択 → 詳細を取得 */
   const openKey = async (key: string) => {
@@ -397,21 +424,7 @@ export function KvSessionView({
     <div className="session">
       {/* ツールバー */}
       <div className="session-toolbar">
-        <span className="db-badge valkey" style={badgeStyle(profile.color)}>
-          Vk
-        </span>
-        <div className="session-conn">
-          <span className="session-name">{profile.name || "(無名)"}</span>
-          <span className="session-host mono">
-            {profile.ssh?.enabled && <span className="ssh-chip">SSH</span>}
-            <span
-              className="session-host-text"
-              title={`${profile.host}:${profile.port}`}
-            >
-              {profile.host}:{profile.port}
-            </span>
-          </span>
-        </div>
+        <ConnectionChip profile={profile} />
 
         <div className="db-select-wrap">
           <span className="kv-db-label mono">DB</span>
@@ -423,16 +436,7 @@ export function KvSessionView({
           />
         </div>
 
-        {tab.serverInfo.length > 0 && (
-          <div className="server-info">
-            {tab.serverInfo.map(([label, value]) => (
-              <span className="info-chip" key={label} title={`${label}: ${value}`}>
-                <span className="info-chip-label">{label}</span>
-                <span className="info-chip-value mono">{value}</span>
-              </span>
-            ))}
-          </div>
-        )}
+        <ServerInfo items={tab.serverInfo} />
 
         <span className="toolbar-spacer" />
         <button
@@ -457,13 +461,15 @@ export function KvSessionView({
       {/* 本体 */}
       <div className="session-body">
         {/* 左ペイン: キーブラウザ */}
-        <aside className="table-pane kv-pane" style={{ width: paneWidth }}>
-          <div className="table-pane-head">
-            <span>キー</span>
-            <span className="panel-count">
-              {keys.length}
-              {dbsize >= 0 ? ` / ${dbsize}` : ""}
-            </span>
+        <SidePane
+          width={paneWidth}
+          onStartResize={startPaneResize}
+          className="kv-pane"
+        >
+          <PaneHead
+            title="キー"
+            count={`${keys.length}${dbsize >= 0 ? ` / ${dbsize}` : ""}`}
+          >
             {/* テーブル一覧と同じ位置に再読み込みを置く (先頭からSCANし直す) */}
             <button
               className="pane-icon-btn has-tooltip tooltip-left"
@@ -519,7 +525,7 @@ export function KvSessionView({
             </button>
             {/* 余白を右側に寄せて、見出し・件数・アイコンを左揃えにする */}
             <span className="toolbar-spacer" />
-          </div>
+          </PaneHead>
           <input
             className="filter-input mono"
             placeholder="パターン (例: user:*)"
@@ -528,7 +534,8 @@ export function KvSessionView({
             onKeyDown={(e) => {
               // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
               if (e.nativeEvent.isComposing) return;
-              if (e.key === "Enter") scan(true);
+              // 走査中は受け付けない (連打すると読み出し位置がずれる)
+              if (e.key === "Enter" && !scanning) scan(true);
             }}
           />
           {newKey && (
@@ -644,9 +651,7 @@ export function KvSessionView({
               )}
             </button>
           </div>
-        </aside>
-
-        <div className="pane-splitter" onMouseDown={startPaneResize} />
+        </SidePane>
 
         <main className="session-content kv-content">
           {error && (

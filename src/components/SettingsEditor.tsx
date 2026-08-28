@@ -2,6 +2,7 @@ import { useAppSettings } from "../hooks/useAppSettings";
 import type { Notify } from "../notify";
 import { isMac } from "../platform";
 import { SettingRow } from "./SettingRow";
+import { SettingsSqlFormat } from "./SettingsSqlFormat";
 
 interface Props {
   notify: Notify;
@@ -20,11 +21,12 @@ const KEY_HINTS: [string[], string][] = [
   [["Esc"], "閉じる"],
 ];
 
-/** 設定 > エディタ (SQLエディタの入力補完) */
+/** 設定 > エディタ (入力補完とSQLの整形) */
 export function SettingsEditor({ notify }: Props) {
   const { app, setApp, saveApp } = useAppSettings(notify);
 
   return (
+    <>
     <section className="set-section">
       <h3 className="set-section-title">入力補完</h3>
       <p className="set-section-note">
@@ -95,5 +97,7 @@ export function SettingsEditor({ notify }: Props) {
         </div>
       </SettingRow>
     </section>
+    <SettingsSqlFormat app={app} saveApp={saveApp} />
+    </>
   );
 }

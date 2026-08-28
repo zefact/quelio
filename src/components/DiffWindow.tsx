@@ -173,7 +173,8 @@ function splitDiff(a: string, b: string): [string, string, string] {
 
 /** スペースを可視化 (半角→␣ / 全角→□) */
 function visualizeWs(s: string): string {
-  return s.replace(/ /g, "␣").replace(/　/g, "□");
+  // 全角スペースは見た目で分からないので、エスケープで書く
+  return s.replace(/ /g, "␣").replace(/\u3000/g, "□");
 }
 
 /** 差異部分のUnicodeコードポイント一覧 */

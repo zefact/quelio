@@ -1,0 +1,69 @@
+/* 実行中の接続一覧 */
+
+/* ---- 実行中の接続一覧 ---- */
+
+.modal.process-modal {
+  width: min(1180px, 96vw);
+}
+
+.process-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.process-toolbar .routine-filter {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 一覧は縦に伸ばしすぎず、中でスクロールさせる */
+.process-body {
+  display: flex;
+  min-height: 220px;
+  max-height: min(56vh, 520px);
+  margin-bottom: var(--space-3);
+}
+
+.process-body .grid-wrap {
+  flex: 1;
+  overflow: auto;
+  min-width: 0;
+}
+
+/* 自分自身の接続は薄く出して、間違えて止めないようにする */
+.process-body tr.meta td {
+  color: var(--text-faint);
+}
+
+.process-notice {
+  margin-bottom: var(--space-3);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink), 0.05);
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.process-hint {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+/* 確認ダイアログに出す対象のSQL */
+.process-target {
+  display: block;
+  margin-top: var(--space-3);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink), 0.05);
+  font-size: 11.5px;
+  line-height: 1.5;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { call } from "./commands";
 import type {
   AppSettings,
   CellValue,
@@ -45,7 +45,7 @@ import type {
   RowCell,
   RowChange,
   RunOutput,
-  SavedSqlEntry,
+  SavedSqlStore,
   SchemaEntry,
   SchemaTable,
   SessionSummary,
@@ -62,15 +62,27 @@ import type {
 import type { ParamValue } from "./sqlParams";
 
 export function listConnections(): Promise<ConnectionStore> {
-  return invoke("list_connections");
+  return call("list_connections");
+}
+
+/**
+ * SSH踏み台のホスト鍵を信頼して記録する (初回接続の確認から呼ぶ)。
+ * 記録しておくと、次からは鍵が変わったときだけ確認が出る
+ */
+export function trustSshHost(
+  host: string,
+  port: number,
+  fingerprint: string
+): Promise<void> {
+  return call("trust_ssh_host", { host, port, fingerprint });
 }
 
 export function createFolder(name: string): Promise<FolderInfo> {
-  return invoke("create_folder", { name });
+  return call("create_folder", { name });
 }
 
 export function deleteFolder(id: string): Promise<void> {
-  return invoke("delete_folder", { id });
+  return call("delete_folder", { id });
 }
 
 export function updateLayout(
@@ -78,37 +90,37 @@ export function updateLayout(
   order: LayoutEntry[],
   rootOrder?: string[]
 ): Promise<void> {
-  return invoke("update_layout", { folders, order, rootOrder });
+  return call("update_layout", { folders, order, rootOrder });
 }
 
 export function saveConnection(
   profile: ConnectionProfile
 ): Promise<ConnectionProfile> {
-  return invoke("save_connection", { profile });
+  return call("save_connection", { profile });
 }
 
 export function deleteConnection(id: string): Promise<void> {
-  return invoke("delete_connection", { id });
+  return call("delete_connection", { id });
 }
 
 export function testConnection(
   profile: ConnectionProfile
 ): Promise<TestResult> {
-  return invoke("test_connection", { profile });
+  return call("test_connection", { profile });
 }
 
 export function connectSession(
   sessionId: string,
   profile: ConnectionProfile
 ): Promise<ConnectInfo> {
-  return invoke("connect_session", { sessionId, profile });
+  return call("connect_session", { sessionId, profile });
 }
 
 export function listTables(
   sessionId: string,
   database: string
 ): Promise<TableInfo[]> {
-  return invoke("list_tables", { sessionId, database });
+  return call("list_tables", { sessionId, database });
 }
 
 export function tableDetail(
@@ -117,7 +129,7 @@ export function tableDetail(
   schema: string | undefined,
   table: string
 ): Promise<TableDetail> {
-  return invoke("table_detail", { sessionId, database, schema, table });
+  return call("table_detail", { sessionId, database, schema, table });
 }
 
 /**
@@ -130,12 +142,12 @@ export function previewSql(
   dbType: DbType,
   params: Record<string, ParamValue>
 ): Promise<string> {
-  return invoke("preview_sql", { sessionId, sql, dbType, params });
+  return call("preview_sql", { sessionId, sql, dbType, params });
 }
 
 /** 文字コード・照合順序の一覧 (データベース作成の選択肢) */
 export function listCharsets(sessionId: string): Promise<CharsetInfo[]> {
-  return invoke("list_charsets", { sessionId });
+  return call("list_charsets", { sessionId });
 }
 
 /** 実行せずに、データベースを作るSQLを返す (確認ダイアログに出す) */
@@ -145,7 +157,7 @@ export function previewCreateDatabase(
   encoding?: string,
   collation?: string
 ): Promise<string> {
-  return invoke("preview_create_database", {
+  return call("preview_create_database", {
     dbType,
     name,
     encoding: encoding ?? null,
@@ -158,7 +170,7 @@ export function previewCreateSchema(
   dbType: DbType,
   name: string
 ): Promise<string> {
-  return invoke("preview_create_schema", { dbType, name });
+  return call("preview_create_schema", { dbType, name });
 }
 
 /**
@@ -169,26 +181,26 @@ export function exportPlanCsv(
   columns: string[],
   rows: (string | null)[][]
 ): Promise<CsvExportResult> {
-  return invoke("export_plan_csv", { columns, rows });
+  return call("export_plan_csv", { columns, rows });
 }
 
 /** 消してはいけないデータベースの名前 (画面で削除ボタンを出さないため) */
 export function systemDatabases(dbType: DbType): Promise<string[]> {
-  return invoke("system_databases", { dbType });
+  return call("system_databases", { dbType });
 }
 
 /** 設定フォルダのファイルが読める形かを確かめる */
 export function checkConfigFiles(): Promise<ConfigFile[]> {
-  return invoke("check_config_files");
+  return call("check_config_files");
 }
 
 /** 壊れた設定ファイルを退避する (退避先のパスを返す) */
 export function quarantineConfigFile(name: string): Promise<string> {
-  return invoke("quarantine_config_file", { name });
+  return call("quarantine_config_file", { name });
 }
 
 export function disconnectSession(sessionId: string): Promise<void> {
-  return invoke("disconnect_session", { sessionId });
+  return call("disconnect_session", { sessionId });
 }
 
 export function runQuery(
@@ -203,7 +215,7 @@ export function runQuery(
   /** SQL中の :name / @name に入れる値 (埋め込みはバックエンドで行う) */
   params?: Record<string, ParamValue>
 ): Promise<RunOutput> {
-  return invoke("run_query", {
+  return call("run_query", {
     sessionId,
     database,
     sql,
@@ -222,7 +234,7 @@ export function createTable(
   database: string | undefined,
   table: NewTableSpec
 ): Promise<string[]> {
-  return invoke("create_table", { sessionId, database, table });
+  return call("create_table", { sessionId, database, table });
 }
 
 /** 実行せずに、テーブルを作るSQLを返す (確認ダイアログに出す) */
@@ -231,7 +243,7 @@ export function previewCreateTable(
   database: string | undefined,
   table: NewTableSpec
 ): Promise<string> {
-  return invoke("preview_create_table", { sessionId, database, table });
+  return call("preview_create_table", { sessionId, database, table });
 }
 
 /** テーブル名を変更する。実行したSQLを返す */
@@ -242,7 +254,7 @@ export function renameTable(
   table: string,
   newName: string
 ): Promise<string[]> {
-  return invoke("rename_table", {
+  return call("rename_table", {
     sessionId,
     database,
     schema,
@@ -259,7 +271,7 @@ export function dropTable(
   table: string,
   tableType: string
 ): Promise<string[]> {
-  return invoke("drop_table", {
+  return call("drop_table", {
     sessionId,
     database,
     schema,
@@ -276,7 +288,7 @@ export function setTableComment(
   table: string,
   comment: string
 ): Promise<string[]> {
-  return invoke("set_table_comment", {
+  return call("set_table_comment", {
     sessionId,
     database,
     schema,
@@ -294,7 +306,7 @@ export function fetchCell(
   column: string,
   key: RowCell[]
 ): Promise<CellValue> {
-  return invoke("fetch_cell", {
+  return call("fetch_cell", {
     sessionId,
     database,
     schema,
@@ -312,7 +324,7 @@ export function applyForeignKeyDdl(
   table: string,
   change: ForeignKeyChange
 ): Promise<string[]> {
-  return invoke("apply_foreign_key_ddl", {
+  return call("apply_foreign_key_ddl", {
     sessionId,
     database,
     schema,
@@ -326,7 +338,7 @@ export function listRoutines(
   sessionId: string,
   database: string
 ): Promise<RoutineInfo[]> {
-  return invoke("list_routines", { sessionId, database });
+  return call("list_routines", { sessionId, database });
 }
 
 /** 預けたCSVファイルの先頭だけ読んで、列と数行を返す */
@@ -334,7 +346,7 @@ export function previewCsv(
   path: string,
   options: CsvOptions
 ): Promise<CsvPreview> {
-  return invoke("preview_csv", { path, options });
+  return call("preview_csv", { path, options });
 }
 
 /**
@@ -355,7 +367,7 @@ export function importCsv(
   emptyAsNull: boolean,
   jobId: string
 ): Promise<ImportResult> {
-  return invoke("import_csv", {
+  return call("import_csv", {
     sessionId,
     database,
     schema,
@@ -382,7 +394,7 @@ export function searchObjects(
   database: string | undefined,
   keyword: string
 ): Promise<ObjectSearchResult> {
-  return invoke("search_objects", { sessionId, database, keyword });
+  return call("search_objects", { sessionId, database, keyword });
 }
 
 /**
@@ -396,7 +408,7 @@ export function searchValues(
   options: ValueSearchOptions,
   jobId: string
 ): Promise<ValueSearchResult> {
-  return invoke("search_values", { sessionId, database, options, jobId });
+  return call("search_values", { sessionId, database, options, jobId });
 }
 
 // ---------- Valkey: 一括削除と値検索 ----------
@@ -412,7 +424,7 @@ export function kvCountKeys(
   pattern: string,
   jobId: string
 ): Promise<KvCountResult> {
-  return invoke("kv_count_keys", { sessionId, database, pattern, jobId });
+  return call("kv_count_keys", { sessionId, database, pattern, jobId });
 }
 
 /**
@@ -427,7 +439,7 @@ export function kvDeleteKeys(
   confirmedAll: boolean,
   jobId: string
 ): Promise<KvDeleteResult> {
-  return invoke("kv_delete_keys", {
+  return call("kv_delete_keys", {
     sessionId,
     database,
     pattern,
@@ -444,7 +456,7 @@ export function kvSearch(
   options: KvSearchOptions,
   jobId: string
 ): Promise<KvSearchResult> {
-  return invoke("kv_search", {
+  return call("kv_search", {
     sessionId,
     database,
     pattern,
@@ -462,7 +474,7 @@ export function createDatabase(
   encoding?: string,
   collation?: string
 ): Promise<string[]> {
-  return invoke("create_database", { sessionId, name, encoding, collation });
+  return call("create_database", { sessionId, name, encoding, collation });
 }
 
 /** データベースを消す (削除後の一覧を返す) */
@@ -470,7 +482,7 @@ export function dropDatabase(
   sessionId: string,
   name: string
 ): Promise<string[]> {
-  return invoke("drop_database", { sessionId, name });
+  return call("drop_database", { sessionId, name });
 }
 
 /** スキーマの一覧を取得する (PostgreSQLのみ) */
@@ -478,7 +490,7 @@ export function listSchemas(
   sessionId: string,
   database: string
 ): Promise<string[]> {
-  return invoke("list_schemas", { sessionId, database });
+  return call("list_schemas", { sessionId, database });
 }
 
 /**
@@ -494,7 +506,7 @@ export function changeSchema(
   drop: boolean,
   cascade: boolean
 ): Promise<string[]> {
-  return invoke("change_schema", { sessionId, database, name, drop, cascade });
+  return call("change_schema", { sessionId, database, name, drop, cascade });
 }
 
 /**
@@ -507,7 +519,7 @@ export function listProcesses(
   database: string,
   log: boolean
 ): Promise<ProcessInfo[]> {
-  return invoke("list_processes", { sessionId, database, log });
+  return call("list_processes", { sessionId, database, log });
 }
 
 /** 他の接続のSQLを中止する / 接続を切る */
@@ -517,7 +529,7 @@ export function killProcess(
   target: number,
   action: ProcessAction
 ): Promise<void> {
-  return invoke("kill_process", { sessionId, database, target, action });
+  return call("kill_process", { sessionId, database, target, action });
 }
 
 /** テーブルの正確な行数を数える (一覧の概算行数との差を確かめる) */
@@ -527,12 +539,12 @@ export function countTableRows(
   schema: string | undefined,
   table: string
 ): Promise<number> {
-  return invoke("count_table_rows", { sessionId, database, schema, table });
+  return call("count_table_rows", { sessionId, database, schema, table });
 }
 
 /** 保存したファイルの場所をOSのファイラで開く */
 export function revealPath(path: string): Promise<void> {
-  return invoke("reveal_path", { path });
+  return call("reveal_path", { path });
 }
 
 /** テーブルの CREATE 文を取得する */
@@ -542,7 +554,7 @@ export function tableDdl(
   schema: string | undefined,
   table: string
 ): Promise<string> {
-  return invoke("table_ddl", { sessionId, database, schema, table });
+  return call("table_ddl", { sessionId, database, schema, table });
 }
 
 /** データを1行だけ追加・更新・削除する。実行したSQLを返す */
@@ -553,7 +565,7 @@ export function applyRowChange(
   table: string,
   change: RowChange
 ): Promise<string> {
-  return invoke("apply_row_change", {
+  return call("apply_row_change", {
     sessionId,
     database,
     schema,
@@ -567,7 +579,7 @@ export function schemaColumns(
   sessionId: string,
   database: string
 ): Promise<SchemaTable[]> {
-  return invoke("schema_columns", { sessionId, database });
+  return call("schema_columns", { sessionId, database });
 }
 
 /** カラムに使える型の一覧を返す (PostgreSQLはユーザー定義型も含む) */
@@ -575,7 +587,7 @@ export function listColumnTypes(
   sessionId: string,
   database: string
 ): Promise<string[]> {
-  return invoke("list_column_types", { sessionId, database });
+  return call("list_column_types", { sessionId, database });
 }
 
 /** 使える照合順序の一覧を返す (MySQL / PostgreSQLのみ。他は空配列) */
@@ -583,7 +595,7 @@ export function listCollations(
   sessionId: string,
   database: string
 ): Promise<string[]> {
-  return invoke("list_collations", { sessionId, database });
+  return call("list_collations", { sessionId, database });
 }
 
 /** インデックスの追加・変更・削除を実行する。実行したSQLを返す */
@@ -594,7 +606,7 @@ export function applyIndexDdl(
   table: string,
   change: IndexChange
 ): Promise<string[]> {
-  return invoke("apply_index_ddl", {
+  return call("apply_index_ddl", {
     sessionId,
     database,
     schema,
@@ -610,7 +622,7 @@ export function previewColumnDdl(
   table: string,
   change: ColumnChange
 ): Promise<string[]> {
-  return invoke("preview_column_ddl", { sessionId, schema, table, change });
+  return call("preview_column_ddl", { sessionId, schema, table, change });
 }
 
 /** カラム変更を実行する (実行したSQLを返す) */
@@ -621,7 +633,7 @@ export function applyColumnDdl(
   table: string,
   change: ColumnChange
 ): Promise<string[]> {
-  return invoke("apply_column_ddl", {
+  return call("apply_column_ddl", {
     sessionId,
     database,
     schema,
@@ -634,7 +646,7 @@ export function exportSchemaCsv(
   sessionId: string,
   database: string
 ): Promise<string[]> {
-  return invoke("export_schema_csv", { sessionId, database });
+  return call("export_schema_csv", { sessionId, database });
 }
 
 /**
@@ -649,7 +661,7 @@ export function exportQueryCsv(
   orderBy?: string,
   orderDir?: string
 ): Promise<CsvExportResult> {
-  return invoke("export_query_csv", {
+  return call("export_query_csv", {
     sessionId,
     database,
     sql,
@@ -661,39 +673,39 @@ export function exportQueryCsv(
 
 /** CSV出力の進捗 (書き出し済み行数) を取得する。終了済みはnull */
 export function csvExportStatus(jobId: string): Promise<JobProgress | null> {
-  return invoke("csv_export_status", { jobId });
+  return call("csv_export_status", { jobId });
 }
 
 /** CSV出力をキャンセルする */
 export function cancelCsvExport(jobId: string): Promise<void> {
-  return invoke("cancel_csv_export", { jobId });
+  return call("cancel_csv_export", { jobId });
 }
 
 // ---------- 設定 > エクスポート/インポート ----------
 
 /** 接続一覧をJSONファイルへ書き出す (件数を返す)。パスワードは含まれない */
 export function exportConnections(path: string): Promise<number> {
-  return invoke("export_connections", { path });
+  return call("export_connections", { path });
 }
 
 /** JSONファイルから接続一覧を取り込む */
 export function importConnections(path: string): Promise<ImportCounts> {
-  return invoke("import_connections", { path });
+  return call("import_connections", { path });
 }
 
 /** 全ER図をJSONファイルへ書き出す (件数を返す) */
 export function exportErDiagrams(path: string): Promise<number> {
-  return invoke("export_er_diagrams", { path });
+  return call("export_er_diagrams", { path });
 }
 
 /** JSONファイルからER図を取り込む (同名は上書き) */
 export function importErDiagrams(path: string): Promise<ImportCounts> {
-  return invoke("import_er_diagrams", { path });
+  return call("import_er_diagrams", { path });
 }
 
 /** SSH秘密鍵の参照ダイアログの初期フォルダ (~/.ssh または ホーム) を返す */
 export function defaultSshKeyDir(): Promise<string> {
-  return invoke("default_ssh_key_dir");
+  return call("default_ssh_key_dir");
 }
 
 /** 実行結果キャプチャ(PNG)をDownloadsに保存し、保存先パスを返す */
@@ -701,22 +713,22 @@ export function saveCapture(
   fileName: string,
   dataBase64: string
 ): Promise<string> {
-  return invoke("save_capture", { fileName, dataBase64 });
+  return call("save_capture", { fileName, dataBase64 });
 }
 
 export function listSessions(): Promise<SessionSummary[]> {
-  return invoke("list_sessions");
+  return call("list_sessions");
 }
 
 export function schemaSnapshot(
   sessionId: string,
   database: string
 ): Promise<SchemaEntry[]> {
-  return invoke("schema_snapshot", { sessionId, database });
+  return call("schema_snapshot", { sessionId, database });
 }
 
 export function openDiff(): Promise<void> {
-  return invoke("open_diff");
+  return call("open_diff");
 }
 
 export function openSchema(
@@ -724,12 +736,12 @@ export function openSchema(
   database: string,
   name?: string
 ): Promise<void> {
-  return invoke("open_schema", { sessionId, database, name: name ?? null });
+  return call("open_schema", { sessionId, database, name: name ?? null });
 }
 
 /** ER図ウィンドウを開く */
 export function openEr(sessionId: string, database: string): Promise<void> {
-  return invoke("open_er", { sessionId, database });
+  return call("open_er", { sessionId, database });
 }
 
 /** ER図用: スキーマと外部キーをまとめて取得する */
@@ -737,41 +749,41 @@ export function schemaWithForeignKeys(
   sessionId: string,
   database: string
 ): Promise<{ entries: SchemaEntry[]; foreignKeys: FkInfo[] }> {
-  return invoke("schema_with_foreign_keys", { sessionId, database });
+  return call("schema_with_foreign_keys", { sessionId, database });
 }
 
 /** 前回の作業状態 (タブ・書きかけSQL) を取得する (無ければnull) */
 export function getWorkspace(): Promise<unknown | null> {
-  return invoke("get_workspace");
+  return call("get_workspace");
 }
 
 /** 作業状態を保存する (全上書き) */
 export function saveWorkspace(data: unknown): Promise<void> {
-  return invoke("save_workspace", { data });
+  return call("save_workspace", { data });
 }
 
 /** 保存済みER図を取得する (無ければnull) */
 export function getErDiagram(key: string): Promise<ErDiagramData | null> {
-  return invoke("get_er_diagram", { key });
+  return call("get_er_diagram", { key });
 }
 
 /** ER図を保存する (キーごとに上書き) */
 export function saveErDiagram(key: string, data: ErDiagramData): Promise<void> {
-  return invoke("save_er_diagram", { key, data });
+  return call("save_er_diagram", { key, data });
 }
 
 /** 保存済みER図の名前一覧を取得する */
 export function listErDiagrams(): Promise<string[]> {
-  return invoke("list_er_diagrams");
+  return call("list_er_diagrams");
 }
 
 /** 保存済みER図を削除する */
 export function deleteErDiagram(key: string): Promise<void> {
-  return invoke("delete_er_diagram", { key });
+  return call("delete_er_diagram", { key });
 }
 
 export function openConsole(): Promise<void> {
-  return invoke("open_console");
+  return call("open_console");
 }
 
 /**
@@ -786,15 +798,30 @@ export function checkDangerousSql(
   sql: string,
   dbType: DbType
 ): Promise<DangerousStatement[]> {
-  return invoke("check_dangerous_sql", { sessionId, sql, dbType });
+  return call("check_dangerous_sql", { sessionId, sql, dbType });
+}
+
+/**
+ * パラメータの値を入れた後のSQLが、確認の要る内容になっていないかを見る。
+ *
+ * 「そのまま」「数値」の値は囲まずに埋め込まれるので、
+ * 値を入れて初めて危険になる場合がある (例: 条件に 1=1)
+ */
+export function checkDangerousFilled(
+  sessionId: string,
+  sql: string,
+  dbType: DbType,
+  params: Record<string, ParamValue>
+): Promise<DangerousStatement[]> {
+  return call("check_dangerous_filled", { sessionId, sql, dbType, params });
 }
 
 export function getQueryLog(afterSeq: number): Promise<QueryLogEntry[]> {
-  return invoke("get_query_log", { afterSeq });
+  return call("get_query_log", { afterSeq });
 }
 
 export function clearQueryLog(): Promise<void> {
-  return invoke("clear_query_log");
+  return call("clear_query_log");
 }
 
 /**
@@ -806,21 +833,21 @@ export function exportQueryLog(
   filter: string,
   format: LogFormat
 ): Promise<ExportedLog> {
-  return invoke("export_query_log", { filter, format });
+  return call("export_query_log", { filter, format });
 }
 
 // ---------- 外部ツール (エクスポート/インポート) ----------
 
 export function getToolSettings(): Promise<ToolSettings> {
-  return invoke("get_tool_settings");
+  return call("get_tool_settings");
 }
 
 export function saveToolSettings(settings: ToolSettings): Promise<void> {
-  return invoke("save_tool_settings", { settings });
+  return call("save_tool_settings", { settings });
 }
 
 export function detectTools(): Promise<ToolStatus[]> {
-  return invoke("detect_tools");
+  return call("detect_tools");
 }
 
 export function startExport(
@@ -829,7 +856,7 @@ export function startExport(
   tables: ExportTable[],
   mode: ExportMode
 ): Promise<StartedJob> {
-  return invoke("start_export", { sessionId, database, tables, mode });
+  return call("start_export", { sessionId, database, tables, mode });
 }
 
 export function startImport(
@@ -837,21 +864,21 @@ export function startImport(
   database: string,
   filePath: string
 ): Promise<StartedJob> {
-  return invoke("start_import", { sessionId, database, filePath });
+  return call("start_import", { sessionId, database, filePath });
 }
 
 export function jobStatus(jobId: string): Promise<JobStatus> {
-  return invoke("job_status", { jobId });
+  return call("job_status", { jobId });
 }
 
 /** スキーマの読み込み (専用接続) を中止する */
 export function cancelSchemaLoad(sessionId: string): Promise<void> {
-  return invoke("cancel_schema_load", { sessionId });
+  return call("cancel_schema_load", { sessionId });
 }
 
 /** 実行中のSQLをキャンセルする */
 export function cancelQuery(sessionId: string): Promise<void> {
-  return invoke("cancel_query", { sessionId });
+  return call("cancel_query", { sessionId });
 }
 
 // ---------- Valkey (KVモード) ----------
@@ -863,7 +890,7 @@ export function kvScan(
   pattern: string,
   cursor: string
 ): Promise<KvScanResult> {
-  return invoke("kv_scan", { sessionId, database, pattern, cursor });
+  return call("kv_scan", { sessionId, database, pattern, cursor });
 }
 
 /** キーの詳細 (型・TTL・値プレビュー) を取得する */
@@ -872,7 +899,7 @@ export function kvKeyDetail(
   database: string,
   key: string
 ): Promise<KvKeyDetail> {
-  return invoke("kv_key_detail", { sessionId, database, key });
+  return call("kv_key_detail", { sessionId, database, key });
 }
 
 /** Valkey: キーの値を変更する (追加・削除・改名・TTL変更・新規作成) */
@@ -881,7 +908,7 @@ export function kvApply(
   database: string,
   change: KvChange
 ): Promise<void> {
-  return invoke("kv_apply", { sessionId, database, change });
+  return call("kv_apply", { sessionId, database, change });
 }
 
 /** コマンド (複数行) を逐次実行する */
@@ -891,7 +918,7 @@ export function kvExec(
   commands: string[],
   confirmed = false
 ): Promise<KvRunOutput> {
-  return invoke("kv_exec", { sessionId, database, commands, confirmed });
+  return call("kv_exec", { sessionId, database, commands, confirmed });
 }
 
 /**
@@ -899,16 +926,16 @@ export function kvExec(
  * 無ければnull
  */
 export function checkKvDestructive(commands: string[]): Promise<string[]> {
-  return invoke("check_kv_destructive", { commands });
+  return call("check_kv_destructive", { commands });
 }
 
 export function cancelJob(jobId: string): Promise<void> {
-  return invoke("cancel_job", { jobId });
+  return call("cancel_job", { jobId });
 }
 
 /** D&Dファイル転送用の一時ファイルを作成する */
 export function createTempUpload(fileName: string): Promise<string> {
-  return invoke("create_temp_upload", { fileName });
+  return call("create_temp_upload", { fileName });
 }
 
 /** 一時ファイルへチャンクを追記する */
@@ -916,12 +943,12 @@ export function appendTempUpload(
   path: string,
   dataBase64: string
 ): Promise<void> {
-  return invoke("append_temp_upload", { path, dataBase64 });
+  return call("append_temp_upload", { path, dataBase64 });
 }
 
 /** アプリ全般の設定を取得する */
 export function getAppSettings(): Promise<AppSettings> {
-  return invoke("get_app_settings");
+  return call("get_app_settings");
 }
 
 /** 設定が保存されたことを同じウィンドウ内の画面へ伝えるイベント名 */
@@ -929,26 +956,36 @@ export const APP_SETTINGS_EVENT = "quelio-app-settings-changed";
 
 /** アプリ全般の設定を保存する */
 export async function saveAppSettings(settings: AppSettings): Promise<void> {
-  await invoke("save_app_settings", { settings });
+  await call("save_app_settings", { settings });
   // 設定はモーダルで変えるため、開いたままの画面へ変更を知らせる
   window.dispatchEvent(new CustomEvent(APP_SETTINGS_EVENT));
 }
 
 /** SQL実行履歴を取得する (新しい順・最大100件) */
 export function getSqlHistory(): Promise<SqlHistoryEntry[]> {
-  return invoke("get_sql_history");
+  return call("get_sql_history");
 }
 
 /** SQL実行履歴に追加する */
 export function addSqlHistory(sql: string): Promise<void> {
-  return invoke("add_sql_history", { sql });
+  return call("add_sql_history", { sql });
+}
+
+/** 履歴を1件消す。残りの全件を返す */
+export function deleteSqlHistory(sql: string): Promise<SqlHistoryEntry[]> {
+  return call("delete_sql_history", { sql });
+}
+
+/** 履歴をすべて消す (空の一覧が返る) */
+export function clearSqlHistory(): Promise<SqlHistoryEntry[]> {
+  return call("clear_sql_history");
 }
 
 /** 保存済みのSQLパラメータ値を取得する (パラメータ名 → 直近の値と埋め込み方) */
 export function getSqlParams(
   scope: string
 ): Promise<Record<string, { value: string; kind: string }>> {
-  return invoke("get_sql_params", { scope });
+  return call("get_sql_params", { scope });
 }
 
 /** SQLパラメータ値を保存する (接続ごと。同名は上書き) */
@@ -956,12 +993,12 @@ export function saveSqlParams(
   scope: string,
   entries: Record<string, { value: string; kind: string }>
 ): Promise<void> {
-  return invoke("save_sql_params", { scope, entries });
+  return call("save_sql_params", { scope, entries });
 }
 
 /** 保存SQLの一覧を取得する */
-export function getSavedSql(): Promise<SavedSqlEntry[]> {
-  return invoke("get_saved_sql");
+export function getSavedSql(): Promise<SavedSqlStore> {
+  return call("get_saved_sql");
 }
 
 /** 保存SQLを追加/更新する (idがnullなら新規)。更新後の全件を返す */
@@ -970,11 +1007,57 @@ export function upsertSavedSql(
   name: string,
   folder: string,
   sql: string
-): Promise<SavedSqlEntry[]> {
-  return invoke("upsert_saved_sql", { id, name, folder, sql });
+): Promise<SavedSqlStore> {
+  return call("upsert_saved_sql", { id, name, folder, sql });
 }
 
-/** 保存SQLを削除する。削除後の全件を返す */
-export function deleteSavedSql(id: string): Promise<SavedSqlEntry[]> {
-  return invoke("delete_saved_sql", { id });
+/** 保存SQLを削除する。削除後の全体を返す */
+export function deleteSavedSql(id: string): Promise<SavedSqlStore> {
+  return call("delete_saved_sql", { id });
+}
+
+/** お気に入りのフォルダを作る (空のままでも残る) */
+export function createSavedFolder(path: string): Promise<SavedSqlStore> {
+  return call("create_saved_folder", { path });
+}
+
+/** フォルダの名前を変える (中身のパスも付け替わる) */
+export function renameSavedFolder(
+  path: string,
+  name: string
+): Promise<SavedSqlStore> {
+  return call("rename_saved_folder", { path, name });
+}
+
+/** フォルダを中身ごと削除する */
+export function deleteSavedFolder(path: string): Promise<SavedSqlStore> {
+  return call("delete_saved_folder", { path });
+}
+
+/**
+ * 項目を移す (ドラッグでの並べ替え)。
+ *
+ * @param folder 移動先のフォルダ ("" = ルート)
+ * @param index そのフォルダの中で何番目に置くか
+ */
+export function moveSavedItem(
+  id: string,
+  folder: string,
+  index: number
+): Promise<SavedSqlStore> {
+  return call("move_saved_item", { id, folder, index });
+}
+
+/**
+ * フォルダを移す (ドラッグでの並べ替え)。
+ *
+ * @param parent 移動先の親フォルダ ("" = ルート)
+ * @param index その中で何番目に置くか
+ */
+export function moveSavedFolder(
+  path: string,
+  parent: string,
+  index: number
+): Promise<SavedSqlStore> {
+  return call("move_saved_folder", { path, parent, index });
 }

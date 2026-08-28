@@ -96,9 +96,8 @@ export function SelectMenu({
     const idx = options.findIndex((o) => o.value === value);
     setHover(idx);
     if (idx >= 0) {
-      popRef.current
-        ?.querySelectorAll(".select-menu-item")
-        [idx]?.scrollIntoView({ block: "nearest" });
+      const items = popRef.current?.querySelectorAll(".select-menu-item");
+      items?.[idx]?.scrollIntoView({ block: "nearest" });
     }
   }, [open, options, value]);
 
@@ -129,9 +128,8 @@ export function SelectMenu({
       const dir = e.key === "ArrowDown" ? 1 : -1;
       const next = Math.min(Math.max(hover + dir, 0), options.length - 1);
       setHover(next);
-      popRef.current
-        ?.querySelectorAll(".select-menu-item")
-        [next]?.scrollIntoView({ block: "nearest" });
+      const items = popRef.current?.querySelectorAll(".select-menu-item");
+      items?.[next]?.scrollIntoView({ block: "nearest" });
     }
   };
 
@@ -183,7 +181,16 @@ export function SelectMenu({
                 (i === hover ? " hover" : "")
               }
               onMouseEnter={() => setHover(i)}
-              onClick={() => commit(o.value)}
+              onClick={(e) => {
+                /*
+                 * <label> の中に置かれた場合、この項目を押すと
+                 * ラベルが「中の最初の操作部品」(このメニューのボタン) へ
+                 * クリックを送り直し、閉じた直後にまた開いてしまう。
+                 * 既定の動きを止めて、その送り直しを起こさせない
+                 */
+                e.preventDefault();
+                commit(o.value);
+              }}
             >
               <span className="select-menu-check" aria-hidden>
                 {o.value === value ? "✓" : ""}

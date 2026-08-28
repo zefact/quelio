@@ -1,4 +1,5 @@
 mod app_settings;
+mod apperr;
 mod backup;
 mod catalog;
 mod commands;
@@ -20,6 +21,7 @@ mod json_store;
 mod known_hosts;
 mod kv;
 mod models;
+mod outfile;
 mod query;
 mod query_log;
 mod saved_sql;
@@ -167,6 +169,7 @@ pub fn run() {
         .manage(csv_job::CsvJobs::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_connections,
+            commands::trust_ssh_host,
             commands::save_connection,
             commands::delete_connection,
             commands::create_folder,
@@ -237,11 +240,18 @@ pub fn run() {
             commands::save_app_settings,
             commands::get_sql_history,
             commands::add_sql_history,
+            commands::delete_sql_history,
+            commands::clear_sql_history,
             commands::get_sql_params,
             commands::save_sql_params,
             commands::get_saved_sql,
             commands::upsert_saved_sql,
             commands::delete_saved_sql,
+            commands::create_saved_folder,
+            commands::rename_saved_folder,
+            commands::delete_saved_folder,
+            commands::move_saved_item,
+            commands::move_saved_folder,
             commands::get_tool_settings,
             commands::save_tool_settings,
             commands::detect_tools,
@@ -265,6 +275,7 @@ pub fn run() {
             commands::delete_er_diagram,
             commands::disconnect_session,
             commands::check_dangerous_sql,
+            commands::check_dangerous_filled,
             commands::get_query_log,
             commands::clear_query_log,
             commands::export_query_log,

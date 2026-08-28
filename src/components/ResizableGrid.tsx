@@ -1,4 +1,12 @@
-import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal, flushSync } from "react-dom";
 import { translateY } from "../domTransform";
 import { rafThrottle } from "../rafThrottle";
@@ -16,6 +24,8 @@ import {
 import type { DbType } from "../types";
 import { HoverTip } from "./HoverTip";
 import { useDismiss } from "../hooks/useDismiss";
+import { useMultiSelect } from "../hooks/useMultiSelect";
+import { useToast } from "../hooks/useToast";
 
 export interface GridColumn {
   id: string;
@@ -106,6 +116,14 @@ interface Props {
    * (1000行×数十列を一度にDOMへ出すと初期表示とスクロールが重いため)
    */
   maxRenderRows?: number;
+  /**
+   * 行キーから元の値を引く (並びは columns と同じ)。
+   *
+   * これがあると、コピーのために「まだ描いていない行」を
+   * 描き足さずに済む (1000行の表でも一瞬で終わる)。
+   * 渡されない画面では、これまでどおり表示中のDOMから読む
+   */
+  rowValues?: (key: string) => (string | null)[] | undefined;
   /** 上限で切られていても、末尾の1行 (追加中の行など) は必ず描く */
   pinLastRow?: boolean;
   /**
@@ -181,6 +199,7 @@ export function ResizableGrid({
   rowProps,
   animateRows,
   maxRenderRows,
+  rowValues,
   pinLastRow,
   insertTable,
   insertColumn,
@@ -197,13 +216,22 @@ export function ResizableGrid({
     x: number;
     y: number;
   } | null>(null);
-  /** 選択中の行キー */
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  /**
-   * Shift+クリックの基準行 (行キーで持つ)。
-   * 位置で持つと、表示範囲がずれる画面で別の行が基準になってしまう
+  /*
+   * 行の複数選択 (⌘/Ctrl でひとつずつ、Shift で範囲)。
+   * テーブル一覧と同じ操作なので、同じフックを使う。
+   * 同じ行をもう一度押したら選択を外す (コピー対象を空に戻せるように)
    */
-  const [anchor, setAnchor] = useState<string | null>(null);
+  const {
+    selected,
+    setSelected,
+    click: clickRow,
+    rightClick: rightClickRow,
+    selectAll: selectAllRows,
+    clear: clearSelection,
+  } = useMultiSelect(
+    useMemo(() => rows.map((r) => r.key), [rows]),
+    { toggleOnRepeat: true }
+  );
   /** 行の右クリックメニューの表示位置と対象行 */
   const [rowMenu, setRowMenu] = useState<{
     x: number;
@@ -221,8 +249,7 @@ export function ResizableGrid({
     sortMenu?.y ?? 0
   );
   /** コピー結果の一時表示 */
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<number | null>(null);
+  const { toast, flash } = useToast(1800);
   const [widths, setWidths] = useState<Record<string, number>>(() =>
     Object.fromEntries(columns.map((c) => [c.id, c.width]))
   );
@@ -263,6 +290,7 @@ export function ResizableGrid({
       wrapRef.current.scrollTop = 0;
     }
     setShown(maxRenderRows);
+    // 表示内容が入れ替わったときだけ描画量を戻す
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataKey, maxRenderRows]);
   const limited =
@@ -390,8 +418,11 @@ export function ResizableGrid({
     document.addEventListener("mouseup", up, { once: true });
   };
 
-  /** 列インデックスの内容フィット幅を計測する (DOM未描画ならnull) */
-  const measureColumn = (idx: number): number | null => {
+  /*
+   * 列インデックスの内容フィット幅を計測する (DOM未描画ならnull)。
+   * 効果の依存に入れられるよう、列の数が変わらないかぎり作り直さない
+   */
+  const measureColumn = useCallback((idx: number): number | null => {
     const table = tableRef.current;
     if (!table || idx < 0) return null;
     const all = table.querySelectorAll(
@@ -439,7 +470,7 @@ export function ResizableGrid({
 
     const min = columns[idx].minWidth ?? 50;
     return Math.min(FIT_MAX, Math.max(min, Math.ceil(max)));
-  };
+  }, [columns]);
 
   /** リサイザのダブルクリックで列幅を内容にフィットさせる */
   const fitColumn = (id: string) => {
@@ -477,8 +508,7 @@ export function ResizableGrid({
       });
     });
     return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoFit, fitKey, rows, columns]);
+  }, [autoFit, fitKey, rows, columns, measureColumn]);
 
   // ---------- 行の選択とコピー ----------
 
@@ -496,9 +526,8 @@ export function ResizableGrid({
    */
   const rowsSig = stableRowKeys ? 0 : rows.length;
   useEffect(() => {
-    setSelected(new Set());
-    setAnchor(null);
-  }, [fitKey, rowsSig, columns.length]);
+    clearSelection();
+  }, [fitKey, rowsSig, columns.length, clearSelection]);
 
   /*
    * 行キーが安定している画面では、選択を消す代わりに
@@ -513,55 +542,14 @@ export function ResizableGrid({
       const next = new Set([...prev].filter((k) => keys.has(k)));
       return next.size === prev.size ? prev : next;
     });
-  }, [stableRowKeys, rows]);
-
-  useEffect(
-    () => () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    },
-    []
-  );
-
-  /** 短いメッセージを一時表示する */
-  const flash = (message: string) => {
-    setToast(message);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 1800);
-  };
+  }, [stableRowKeys, rows, setSelected]);
 
   /** 行クリック (⌘/Ctrl: 追加/解除, Shift: 範囲, 通常: 単一選択) */
-  const handleRowClick = (e: React.MouseEvent, key: string, idx: number) => {
+  const handleRowClick = (e: React.MouseEvent, key: string) => {
     if (!selectable) return;
     // キー操作(⌘+C / ⌘+A)を受け取れるようにフォーカスを移す
     wrapRef.current?.focus();
-    if (e.metaKey || e.ctrlKey) {
-      setSelected((cur) => {
-        const next = new Set(cur);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        return next;
-      });
-      setAnchor(key);
-      return;
-    }
-    const anchorIdx =
-      anchor === null ? -1 : rows.findIndex((r) => r.key === anchor);
-    // 基準行が表示から外れていたら、範囲選択はせず1行だけ選び直す
-    if (e.shiftKey && anchorIdx >= 0) {
-      // Shift+クリックで伸びた文字列選択が残らないようにする
-      window.getSelection()?.removeAllRanges();
-      const [from, to] = [
-        Math.min(anchorIdx, idx),
-        Math.max(anchorIdx, idx),
-      ];
-      setSelected(new Set(rows.slice(from, to + 1).map((r) => r.key)));
-      return;
-    }
-    // 同じ行をもう一度クリックしたら選択解除
-    setSelected((cur) =>
-      cur.size === 1 && cur.has(key) ? new Set() : new Set([key])
-    );
-    setAnchor(key);
+    clickRow(e, key);
   };
 
   /** コピー対象の行数 (選択が無ければ表示中の全行) */
@@ -579,26 +567,40 @@ export function ResizableGrid({
   /** 選択行 (未選択なら全行) を指定の形式でクリップボードへコピーする */
   const copyRows = (format: CopyFormat) => {
     setRowMenu(null);
-    // 描画を絞っている場合、DOMに無い行はコピーできないので先に全行を描く
-    if (limited) flushSync(() => setShown(rows.length));
-    const table = tableRef.current;
-    if (!table) return;
-    const trs = Array.from(
-      table.querySelectorAll("tbody tr[data-row-key]")
-    ) as HTMLElement[];
-    const targets =
-      selected.size > 0
-        ? trs.filter((tr) => selected.has(tr.dataset.rowKey ?? ""))
-        : trs;
-    if (targets.length === 0) return;
     const cols = columns
       .map((c, i) => ({ c, i }))
       .filter(({ c }) => !c.excludeFromCopy);
     const labels = cols.map(({ c }) => c.label);
-    const data = readCells(
-      targets,
-      cols.map(({ i }) => i)
-    );
+    /** コピー対象の行キー (選択が無ければ全行) */
+    const keys = (
+      selected.size > 0 ? rows.filter((r) => selected.has(r.key)) : rows
+    ).map((r) => r.key);
+    if (keys.length === 0) return;
+    let data;
+    if (rowValues) {
+      // 元の値をもらえる画面では、画面に描いていない行もそのまま読める
+      data = keys.map((k) => {
+        const vals = rowValues(k) ?? [];
+        return cols.map(({ i }) => (i < vals.length ? vals[i] : ""));
+      });
+    } else {
+      // 描画を絞っている場合、DOMに無い行はコピーできないので先に全行を描く
+      if (limited) flushSync(() => setShown(rows.length));
+      const table = tableRef.current;
+      if (!table) return;
+      const trs = Array.from(
+        table.querySelectorAll("tbody tr[data-row-key]")
+      ) as HTMLElement[];
+      const targets =
+        selected.size > 0
+          ? trs.filter((tr) => selected.has(tr.dataset.rowKey ?? ""))
+          : trs;
+      if (targets.length === 0) return;
+      data = readCells(
+        targets,
+        cols.map(({ i }) => i)
+      );
+    }
     let text: string;
     if (format === "json") text = toJson(data, labels);
     else if (format === "markdown") text = toMarkdown(data, labels);
@@ -613,12 +615,11 @@ export function ResizableGrid({
     } else text = toTsv(data, format === "tsvHeader" ? labels : undefined);
     // 長すぎて切り詰められた値は、画面と同じ「先頭だけ」がコピーされる
     const clipped =
-      !!clippedRowKeys &&
-      targets.some((tr) => clippedRowKeys.has(tr.dataset.rowKey ?? ""));
+      !!clippedRowKeys && keys.some((k) => clippedRowKeys.has(k));
     writeClipboard(text)
       .then(() =>
         flash(
-          `${selected.size > 0 ? `選択した${targets.length}行` : `${targets.length}行すべて`}を${
+          `${selected.size > 0 ? `選択した${keys.length}行` : `${keys.length}行すべて`}を${
             FORMAT_LABEL[format]
           }コピーしました${clipped ? " (長い値は先頭までです)" : ""}`
         )
@@ -638,10 +639,7 @@ export function ResizableGrid({
     e.preventDefault();
     if (selectable) {
       wrapRef.current?.focus();
-      if (!selected.has(key)) {
-        setSelected(new Set([key]));
-        setAnchor(key);
-      }
+      rightClickRow(key);
     }
     setRowMenu({ x: e.clientX, y: e.clientY, key, index: idx });
   };
@@ -652,8 +650,7 @@ export function ResizableGrid({
     const key = e.key.toLowerCase();
     if (key === "a") {
       e.preventDefault();
-      setSelected(new Set(rows.map((r) => r.key)));
-      setAnchor(rows[0]?.key ?? null);
+      selectAllRows();
     } else if (key === "c") {
       // セル内の文字を範囲選択しているときは通常のコピーに任せる
       const sel = window.getSelection();
@@ -682,15 +679,23 @@ export function ResizableGrid({
     { capture: true, inside: ".context-menu", resize: true, escape: true }
   );
 
+  /*
+   * 列の幅。
+   * 列が増えた直後の1フレームは widths にまだ入っていないので、
+   * 指定された既定幅で埋める (undefined のまま足すと NaN になり、
+   * その回だけ表の幅が消える)
+   */
+  const widthOf = (c: GridColumn) => widths[c.id] ?? c.width;
   // コンテナに余りがある場合は最後の列を伸ばして幅いっぱいにする
-  const lastId = columns[columns.length - 1]?.id;
+  const last = columns[columns.length - 1];
+  const lastId = last?.id;
   const sumOthers = columns
     .slice(0, -1)
-    .reduce((sum, c) => sum + widths[c.id], 0);
-  const lastW = lastId
-    ? Math.max(widths[lastId], containerW - sumOthers - 2)
+    .reduce((sum, c) => sum + widthOf(c), 0);
+  const lastW = last
+    ? Math.max(widthOf(last), containerW - sumOthers - 2)
     : 0;
-  const renderW = (id: string) => (id === lastId ? lastW : widths[id]);
+  const renderW = (c: GridColumn) => (c.id === lastId ? lastW : widthOf(c));
   const total = sumOthers + lastW;
 
   return (
@@ -722,7 +727,7 @@ export function ResizableGrid({
       >
         <colgroup>
           {columns.map((c) => (
-            <col key={c.id} style={{ width: renderW(c.id) }} />
+            <col key={c.id} style={{ width: renderW(c) }} />
           ))}
         </colgroup>
         <thead>
@@ -817,7 +822,7 @@ export function ResizableGrid({
               }
               onClick={
                 selectable
-                  ? (e) => handleRowClick(e, r.key, rowIdx)
+                  ? (e) => handleRowClick(e, r.key)
                   : undefined
               }
               onContextMenu={

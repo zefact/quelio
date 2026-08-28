@@ -13,7 +13,8 @@ use tokio::time::{timeout, Duration};
 
 use crate::catalog::LogCtx;
 use crate::csv_job::CsvJob;
-use crate::db::format_db_error;
+use crate::apperr::AppError;
+use crate::db::db_error;
 use crate::models::DbType;
 
 /// 1つの問い合わせを待つ上限
@@ -261,10 +262,10 @@ fn preview(text: &str) -> String {
 /// 探す範囲は画面で選んでいるデータベースの中だけにするので、
 /// 選んでいなければ「何を探すか」が決まらない。
 /// 黙って全体を探すと、画面に出ている範囲と食い違う
-pub fn search_scope(database: Option<&str>) -> Result<&str, String> {
+pub fn search_scope(database: Option<&str>) -> Result<&str, AppError> {
     match database.map(str::trim).filter(|d| !d.is_empty()) {
         Some(d) => Ok(d),
-        None => Err("データベースを選んでから検索してください".to_string()),
+        None => Err("データベースを選んでから検索してください".into()),
     }
 }
 
@@ -273,7 +274,7 @@ pub async fn mysql_objects(
     database: &str,
     needle: &str,
     ctx: &LogCtx<'_>,
-) -> Result<Vec<ObjectHit>, String> {
+) -> Result<Vec<ObjectHit>, AppError> {
     let pattern = like_pattern(needle);
     let mut out = Vec::new();
 
@@ -295,8 +296,8 @@ pub async fn mysql_objects(
         .fetch_all(&mut *conn),
     )
     .await
-    .map_err(|_| "検索がタイムアウトしました".to_string())?
-    .map_err(format_db_error)?;
+    .map_err(|_| AppError::timeout("検索"))?
+    .map_err(db_error)?;
     for r in &rows {
         out.push(ObjectHit {
             database: r.try_get("TABLE_SCHEMA").unwrap_or_default(),
@@ -327,8 +328,8 @@ pub async fn mysql_objects(
         .fetch_all(&mut *conn),
     )
     .await
-    .map_err(|_| "検索がタイムアウトしました".to_string())?
-    .map_err(format_db_error)?;
+    .map_err(|_| AppError::timeout("検索"))?
+    .map_err(db_error)?;
     for r in &rows {
         out.push(ObjectHit {
             database: r.try_get("TABLE_SCHEMA").unwrap_or_default(),
@@ -351,7 +352,7 @@ pub async fn pg_objects(
     database: &str,
     needle: &str,
     ctx: &LogCtx<'_>,
-) -> Result<Vec<ObjectHit>, String> {
+) -> Result<Vec<ObjectHit>, AppError> {
     let pattern = like_pattern(needle);
     let mut out = Vec::new();
 
@@ -371,8 +372,8 @@ pub async fn pg_objects(
         sqlx::query(sqlx::AssertSqlSafe(tables_sql.clone())).bind(&pattern).fetch_all(&mut *conn),
     )
     .await
-    .map_err(|_| "検索がタイムアウトしました".to_string())?
-    .map_err(format_db_error)?;
+    .map_err(|_| AppError::timeout("検索"))?
+    .map_err(db_error)?;
     for r in &rows {
         let kind: Option<i8> = r.try_get("kind").unwrap_or_default();
         out.push(ObjectHit {
@@ -405,8 +406,8 @@ pub async fn pg_objects(
         sqlx::query(sqlx::AssertSqlSafe(cols_sql.clone())).bind(&pattern).fetch_all(&mut *conn),
     )
     .await
-    .map_err(|_| "検索がタイムアウトしました".to_string())?
-    .map_err(format_db_error)?;
+    .map_err(|_| AppError::timeout("検索"))?
+    .map_err(db_error)?;
     for r in &rows {
         out.push(ObjectHit {
             database: database.to_string(),
@@ -436,7 +437,7 @@ pub async fn sqlite_objects(
     conn: &mut SqliteConnection,
     needle: &str,
     ctx: &LogCtx<'_>,
-) -> Result<Vec<ObjectHit>, String> {
+) -> Result<Vec<ObjectHit>, AppError> {
     let pattern = like_pattern(needle);
     let mut out = Vec::new();
 
@@ -452,8 +453,8 @@ pub async fn sqlite_objects(
         sqlx::query(sqlx::AssertSqlSafe(tables_sql.clone())).bind(&pattern).fetch_all(&mut *conn),
     )
     .await
-    .map_err(|_| "検索がタイムアウトしました".to_string())?
-    .map_err(format_db_error)?;
+    .map_err(|_| AppError::timeout("検索"))?
+    .map_err(db_error)?;
     for r in &rows {
         out.push(ObjectHit {
             database: String::new(),
@@ -481,8 +482,8 @@ pub async fn sqlite_objects(
         sqlx::query(sqlx::AssertSqlSafe(cols_sql.clone())).bind(&pattern).fetch_all(&mut *conn),
     )
     .await
-    .map_err(|_| "検索がタイムアウトしました".to_string())?
-    .map_err(format_db_error)?;
+    .map_err(|_| AppError::timeout("検索"))?
+    .map_err(db_error)?;
     for r in &rows {
         out.push(ObjectHit {
             database: String::new(),
@@ -503,7 +504,7 @@ pub async fn mysql_value_columns(
     conn: &mut MySqlConnection,
     database: &str,
     ctx: &LogCtx<'_>,
-) -> Result<Vec<SearchColumn>, String> {
+) -> Result<Vec<SearchColumn>, AppError> {
     // ビューは実体が無く、重い定義だと検索が長引くのでテーブルだけにする
     let sql = "SELECT c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_TYPE \
                FROM information_schema.COLUMNS c \
@@ -517,8 +518,8 @@ pub async fn mysql_value_columns(
         sqlx::query(sql).bind(database).fetch_all(&mut *conn),
     )
     .await
-    .map_err(|_| "検索がタイムアウトしました".to_string())?
-    .map_err(format_db_error)?;
+    .map_err(|_| AppError::timeout("検索"))?
+    .map_err(db_error)?;
     /*
      * データベース名で修飾しておく。
      * 接続の既定スキーマは USE で変わりうるので、名前だけだと別のDBを読みかねない
@@ -538,7 +539,7 @@ pub async fn mysql_value_columns(
 pub async fn pg_value_columns(
     conn: &mut PgConnection,
     ctx: &LogCtx<'_>,
-) -> Result<Vec<SearchColumn>, String> {
+) -> Result<Vec<SearchColumn>, AppError> {
     let sql = "SELECT n.nspname AS schema, c.relname AS tbl, a.attname AS col, \
                     format_type(a.atttypid, a.atttypmod) AS typ \
              FROM pg_attribute a \
@@ -551,8 +552,8 @@ pub async fn pg_value_columns(
     ctx.qlog.add(ctx.connection, ctx.database, sql);
     let rows = timeout(SEARCH_TIMEOUT, sqlx::query(sql).fetch_all(&mut *conn))
         .await
-        .map_err(|_| "検索がタイムアウトしました".to_string())?
-        .map_err(format_db_error)?;
+        .map_err(|_| AppError::timeout("検索"))?
+        .map_err(db_error)?;
     Ok(rows
         .iter()
         .map(|r| SearchColumn {
@@ -568,7 +569,7 @@ pub async fn pg_value_columns(
 pub async fn sqlite_value_columns(
     conn: &mut SqliteConnection,
     ctx: &LogCtx<'_>,
-) -> Result<Vec<SearchColumn>, String> {
+) -> Result<Vec<SearchColumn>, AppError> {
     let sql = "SELECT m.name AS tbl, p.name AS col, p.\"type\" AS typ \
              FROM sqlite_master m JOIN pragma_table_info(m.name) p \
              WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' \
@@ -576,8 +577,8 @@ pub async fn sqlite_value_columns(
     ctx.qlog.add(ctx.connection, ctx.database, sql);
     let rows = timeout(SEARCH_TIMEOUT, sqlx::query(sql).fetch_all(&mut *conn))
         .await
-        .map_err(|_| "検索がタイムアウトしました".to_string())?
-        .map_err(format_db_error)?;
+        .map_err(|_| AppError::timeout("検索"))?
+        .map_err(db_error)?;
     Ok(rows
         .iter()
         .map(|r| SearchColumn {
@@ -826,7 +827,7 @@ pub async fn mysql_values(
             }
             // 「中止」を押すとサーバー側からも止めに行くので、そのエラーが先に返る
             Ok(Err(_)) if cancelled(job) => return finish(p, true, false),
-            Ok(Err(e)) => note_skipped(&mut p, &schema, &table, &format_db_error(e)),
+            Ok(Err(e)) => note_skipped(&mut p, &schema, &table, &db_error(e).message),
             Err(_) => note_skipped(&mut p, &schema, &table, "タイムアウトしました"),
         }
         if p.scanned >= MAX_TABLES || p.over_deadline() {
@@ -880,7 +881,7 @@ pub async fn pg_values(
             }
             // 「中止」を押すとサーバー側からも止めに行くので、そのエラーが先に返る
             Ok(Err(_)) if cancelled(job) => return finish(p, true, false),
-            Ok(Err(e)) => note_skipped(&mut p, &schema, &table, &format_db_error(e)),
+            Ok(Err(e)) => note_skipped(&mut p, &schema, &table, &db_error(e).message),
             Err(_) => note_skipped(&mut p, &schema, &table, "タイムアウトしました"),
         }
         if p.scanned >= MAX_TABLES || p.over_deadline() {
@@ -933,7 +934,7 @@ pub async fn sqlite_values(
             }
             // 「中止」を押すとサーバー側からも止めに行くので、そのエラーが先に返る
             Ok(Err(_)) if cancelled(job) => return finish(p, true, false),
-            Ok(Err(e)) => note_skipped(&mut p, &schema, &table, &format_db_error(e)),
+            Ok(Err(e)) => note_skipped(&mut p, &schema, &table, &db_error(e).message),
             Err(_) => note_skipped(&mut p, &schema, &table, "タイムアウトしました"),
         }
         if p.scanned >= MAX_TABLES || p.over_deadline() {
@@ -963,11 +964,11 @@ mod tests {
          * 選んでいないときに黙って全体を探すと、
          * 画面に出ている範囲と食い違って「今どこを見ているのか」が分からなくなる
          */
-        assert_eq!(search_scope(Some("shop")), Ok("shop"));
+        assert_eq!(search_scope(Some("shop")).ok(), Some("shop"));
 
         for empty in [None, Some(""), Some("   ")] {
             let err = search_scope(empty).expect_err("選んでいなければエラー");
-            assert!(err.contains("データベースを選んで"), "{err}");
+            assert!(err.message.contains("データベースを選んで"), "{err}");
         }
     }
 

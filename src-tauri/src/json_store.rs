@@ -62,7 +62,7 @@ pub const CONFIG_FILES: &[(&str, &str)] = &[
     ("connections.json", "接続先"),
     ("app_settings.json", "アプリ設定"),
     ("tools.json", "外部ツールの設定"),
-    ("workspace.json", "前回の作業状態"),
+    ("workspace.json", "前回の書きかけSQL"),
     ("er_diagrams.json", "ER図"),
     ("saved_sql.json", "お気に入りのSQL"),
     ("sql_history.json", "SQLの実行履歴"),

@@ -1,0 +1,115 @@
+/* CSV取り込みダイアログ */
+
+/* ============================================================
+   CSV取り込みダイアログ
+   ============================================================ */
+
+.modal.csv-import-modal {
+  width: min(1080px, 96vw);
+}
+
+/* 読み取り方法と取り込み方法 (横に並べて、幅が足りなければ折り返す) */
+.csv-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.csv-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.csv-field-label {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* 補足は必ず次の行へ回す */
+.csv-settings-hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* 対応表は中でスクロールさせ、ダイアログを伸ばしすぎない */
+.csv-import-body {
+  display: flex;
+  min-height: 160px;
+  max-height: min(44vh, 400px);
+  margin: var(--space-3) 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.csv-map {
+  flex: 1;
+  min-width: 0;
+}
+
+.csv-map-table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+/* 見出しは縦スクロールしても残す */
+.csv-map-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+  background: var(--modal-bg);
+  border-bottom: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border);
+}
+
+.csv-map-name {
+  display: block;
+  max-width: 180px;
+  margin-bottom: var(--space-1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 700;
+}
+
+.csv-map-select {
+  width: 100%;
+  min-width: 150px;
+  max-width: 200px;
+}
+
+.csv-map-select.skip {
+  color: var(--text-faint);
+}
+
+.csv-map-select.dup {
+  border-color: var(--danger);
+}
+
+.csv-map-table td {
+  max-width: 220px;
+  padding: var(--space-1) var(--space-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+/* 取り込まない列は薄くして、対象外だと分かるようにする */
+.csv-map-table td.csv-map-skip {
+  color: var(--text-faint);
+}
+
+.csv-import-hint {
+  flex: 1;
+  font-size: 11px;
+}

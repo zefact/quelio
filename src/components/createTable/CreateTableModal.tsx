@@ -183,7 +183,7 @@ export function CreateTableModal({
         <div className="ct-body">
           <div className="db-admin-opts-row">
             {isPg && (
-              <label className="db-admin-opt-field">
+              <div className="db-admin-opt-field">
                 <span className="db-admin-opt-label">スキーマ</span>
                 <SelectMenu
                   className="select-field mono"
@@ -194,7 +194,7 @@ export function CreateTableModal({
                   popFixed
                   onChange={setSchema}
                 />
-              </label>
+              </div>
             )}
             <label className="db-admin-opt-field ct-name-field">
               <span className="db-admin-opt-label">テーブル名</span>
@@ -224,7 +224,7 @@ export function CreateTableModal({
 
           {isMysql && (
             <div className="db-admin-opts-row">
-              <label className="db-admin-opt-field">
+              <div className="db-admin-opt-field">
                 <span className="db-admin-opt-label">文字コード</span>
                 <SelectMenu
                   className="select-field mono"
@@ -238,8 +238,8 @@ export function CreateTableModal({
                     setCollation(DEFAULT);
                   }}
                 />
-              </label>
-              <label className="db-admin-opt-field">
+              </div>
+              <div className="db-admin-opt-field">
                 <span className="db-admin-opt-label">照合順序</span>
                 <SelectMenu
                   className="select-field mono"
@@ -253,7 +253,7 @@ export function CreateTableModal({
                   popFixed
                   onChange={setCollation}
                 />
-              </label>
+              </div>
             </div>
           )}
 

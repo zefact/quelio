@@ -73,6 +73,7 @@ export function SettingsTools({ notify }: Props) {
 
   useEffect(() => {
     refresh();
+    // 画面を開いたときに1回だけ検出する
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

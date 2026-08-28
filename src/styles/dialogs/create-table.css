@@ -1,0 +1,246 @@
+/* テーブルの新規作成と、テーブル名の変更 */
+
+/* ============ テーブルの新規作成 ============ */
+
+.new-table-row {
+  margin: 0 10px 8px;
+}
+
+.new-table-input {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+}
+
+.new-table-input input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.new-table-input input:focus {
+  outline: none;
+}
+
+.new-table-input input::placeholder {
+  color: var(--text-faint);
+}
+
+/* 新規行であることを示す + マーク */
+.new-table-mark {
+  flex: none;
+  width: 15px;
+  text-align: center;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.new-table-hint,
+.new-table-error {
+  margin: 5px 2px 0;
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+
+.new-table-hint {
+  color: var(--text-faint);
+}
+
+.new-table-error {
+  color: var(--danger);
+  font-weight: 600;
+  white-space: pre-line;
+  max-height: 92px;
+  overflow: auto;
+}
+
+/* テーブル名の変更 (一覧の行をその場で入力欄にする) */
+.rename-table-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 1px 0;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+}
+
+.rename-table-row input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.rename-table-row input:focus {
+  outline: none;
+}
+
+/* 名前・日本語名の編集を確定する小さなボタン。
+   別の場所をクリックしても確定しない代わりに、明示的な確定手段を置く */
+.inline-apply-btn {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: rgba(var(--ink), 0.05);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.inline-apply-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-2, #a5b4fc);
+}
+
+
+/* ---------- テーブル作成 ---------- */
+
+.modal.create-table-modal {
+  width: min(1120px, 96vw);
+}
+
+/* カラムが増えても画面に収まるよう、中だけをスクロールさせる */
+.ct-body {
+  margin-top: var(--space-4);
+  max-height: min(62vh, 560px);
+  overflow: auto;
+}
+
+/* 名前と説明は幅を取りたいので、他の指定より広げる */
+.ct-name-field {
+  flex: 1.2;
+}
+
+.ct-comment-field {
+  flex: 1.6;
+}
+
+/*
+ * カラムの表。
+ * 列の幅は固定にして、名前とコメントだけ余りを分け合う。
+ * 狭い画面では横スクロールさせる (詰めると押しにくくなるため)
+ */
+.ct-grid {
+  margin-top: var(--space-4);
+  min-width: 940px;
+}
+
+.ct-head,
+.ct-row {
+  display: grid;
+  grid-template-columns:
+    minmax(120px, 1fr) 148px 76px 56px 56px 62px 132px
+    minmax(120px, 1fr) 84px;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* コメントを持てないDB (SQLite) ではその列ごと出さない */
+.ct-grid.no-comment .ct-head,
+.ct-grid.no-comment .ct-row {
+  grid-template-columns:
+    minmax(120px, 1fr) 148px 76px 56px 56px 62px minmax(120px, 1fr) 84px;
+}
+
+.ct-head {
+  padding: 0 var(--space-1) var(--space-2);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.ct-th-args,
+.ct-th-check {
+  text-align: center;
+}
+
+.ct-row {
+  padding: 3px var(--space-1);
+}
+
+.ct-row .text-field,
+.ct-row .select-field,
+.ct-row .select-menu-wrap {
+  width: 100%;
+  min-width: 0;
+}
+
+.ct-args {
+  text-align: center;
+}
+
+/* チェックは列の真ん中にそろえる (見出しと同じ位置に来るように) */
+.ct-check {
+  display: flex;
+  justify-content: center;
+}
+
+.ct-check input {
+  cursor: pointer;
+}
+
+.ct-ops {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.ct-op-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-btn);
+  background: none;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ct-op-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(var(--ink), 0.07);
+  border-color: var(--border-strong);
+}
+
+.ct-op-btn.danger:hover:not(:disabled) {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.ct-op-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ct-add {
+  margin-top: var(--space-2);
+}
+
+.ct-foot-hint {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}

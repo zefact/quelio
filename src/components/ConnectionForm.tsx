@@ -37,8 +37,17 @@ export function ConnectionForm({
   const set = (patch: Partial<ConnectionProfile>) =>
     onChange({ ...profile, ...patch });
   /** パスワード・パスフレーズを入れ直したら「復号できない」状態は解除する */
+  /*
+   * パスワードを入力し直したときは「保存済み (伏せてある)」の目印を落とす。
+   * 落としておかないと、空にして保存しても前の値が復活してしまう
+   */
   const setSecret = (patch: Partial<ConnectionProfile>) =>
-    onChange({ ...profile, ...patch, passwordLocked: false });
+    onChange({
+      ...profile,
+      ...patch,
+      passwordLocked: false,
+      passwordSaved: false,
+    });
   const setSsh = (patch: Partial<SshConfig>) =>
     onChange({ ...profile, ssh: { ...ssh, ...patch } });
   /** パスフレーズを入れ直したときも「復号できない」状態を解除する */
@@ -47,6 +56,7 @@ export function ConnectionForm({
       ...profile,
       ssh: { ...ssh, ...patch },
       passwordLocked: false,
+      passphraseSaved: false,
     });
 
   const changeDbType = (dbType: DbType) => {
@@ -86,8 +96,7 @@ export function ConnectionForm({
   const certField = (
     label: string,
     value: string | undefined,
-    apply: (path: string) => void,
-    placeholder: string
+    apply: (path: string) => void
   ) => (
     <label className="span2">
       <span className="field-label">{label}</span>
@@ -96,7 +105,6 @@ export function ConnectionForm({
           className="mono"
           value={value ?? ""}
           onChange={(e) => apply(e.target.value)}
-          placeholder={placeholder}
         />
         <button
           type="button"
@@ -256,6 +264,12 @@ export function ConnectionForm({
             <input
               type="password"
               value={profile.passwordLocked ? "" : profile.password}
+              // 保存済みのものは中身を持ってこないので、そうと分かるようにする
+              placeholder={
+                profile.passwordSaved && !profile.passwordLocked
+                  ? "保存済み (変えるときだけ入力)"
+                  : ""
+              }
               onChange={(e) => setSecret({ password: e.target.value })}
             />
           </label>
@@ -268,7 +282,13 @@ export function ConnectionForm({
           )}
           {hasSslMode && (
             <>
-              <label className="span2">
+              {/*
+                * SelectMenu はボタンで作った独自の部品なので、
+                * <label> では包まない
+                * (包むと、項目を押したクリックがラベル経由で
+                *  ボタンへ送り直され、閉じた直後にまた開いてしまう)
+                */}
+              <div className="form-field span2">
                 <span className="field-label">TLS (通信の暗号化)</span>
                 {/* ネイティブの<select>はドロップダウンがOS描画になり、
                     アプリのテーマと合わないので共通のSelectMenuを使う */}
@@ -281,33 +301,22 @@ export function ConnectionForm({
                   }))}
                   onChange={(v) => set({ sslMode: v as SslMode })}
                 />
-              </label>
+              </div>
               {sslMode !== "" && sslMode !== "disable" && (
                 <>
                   {(sslMode === "verify-ca" || sslMode === "verify-full") &&
-                    certField(
-                      "CA証明書",
-                      profile.caCertPath,
-                      (caCertPath) => set({ caCertPath }),
-                      "サーバー証明書の検証に使うPEMファイル"
+                    certField("CA証明書", profile.caCertPath, (caCertPath) =>
+                      set({ caCertPath })
                     )}
                   {certField(
                     "クライアント証明書",
                     profile.clientCertPath,
-                    (clientCertPath) => set({ clientCertPath }),
-                    "クライアント認証を使う場合のみ"
+                    (clientCertPath) => set({ clientCertPath })
                   )}
                   {certField(
                     "クライアント秘密鍵",
                     profile.clientKeyPath,
-                    (clientKeyPath) => set({ clientKeyPath }),
-                    "クライアント証明書とセットで指定"
-                  )}
-                  {sslMode === "verify-full" && ssh.enabled && (
-                    <div className="span2 field-note">
-                      SSH踏み台を経由すると接続先が 127.0.0.1 になるため、
-                      ホスト名の検証はできません。CA証明書の検証までを行います。
-                    </div>
+                    (clientKeyPath) => set({ clientKeyPath })
                   )}
                 </>
               )}
@@ -445,6 +454,11 @@ export function ConnectionForm({
               <input
                 type="password"
                 value={profile.passwordLocked ? "" : (ssh.passphrase ?? "")}
+                placeholder={
+                  profile.passphraseSaved && !profile.passwordLocked
+                    ? "保存済み (変えるときだけ入力)"
+                    : ""
+                }
                 onChange={(e) => setSshSecret({ passphrase: e.target.value })}
               />
             </label>

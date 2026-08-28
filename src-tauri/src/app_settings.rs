@@ -34,12 +34,79 @@ pub struct AppSettings {
     /// 戻せない・影響範囲が読めないので、この設定に関わらず常に確認する
     #[serde(default = "default_true")]
     pub confirm_alter: bool,
-    /// 起動時に前回のタブ (接続先と書きかけのSQL) を復元するか。
+    /// 起動時に前回の書きかけSQL (SQLシートと名前) を復元するか。
     ///
-    /// 既定は復元しない。前回の接続先が入ったまま立ち上がると、
-    /// 意図しない環境へ繋いでしまうため、空のタブ1つで始める
+    /// 既定は復元しない。接続タブは設定に関わらず毎回まっさらから始める
+    /// (前回の接続先が入ったまま立ち上がると、意図しない環境へ繋いでしまうため)
     #[serde(default)]
-    pub restore_tabs: bool,
+    pub restore_sheets: bool,
+    /// SQLエディタの「整形」ボタンの書式
+    #[serde(default)]
+    pub sql_format: SqlFormatSettings,
+}
+
+/// SQLの整形の書き方。
+///
+/// 値は画面側 (sql-formatter) がそのまま使う文字列なので、
+/// ここでは中身を判定せず、読めない値は既定へ戻すだけにしている
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SqlFormatSettings {
+    /// カンマの位置 ("leading" = 次の行の先頭 / "trailing" = その行の末尾)
+    #[serde(default = "default_comma_style")]
+    pub comma_style: String,
+    /// キーワードの大文字小文字 ("upper" / "lower" / "preserve")
+    #[serde(default = "default_upper")]
+    pub keyword_case: String,
+    /// 字下げの1段ぶん ("2" / "4" / "tab")
+    #[serde(default = "default_indent")]
+    pub indent: String,
+    /// AND・OR の位置 ("before" = 行の先頭 / "after" = 行の末尾)
+    #[serde(default = "default_before")]
+    pub logical_newline: String,
+    /// 字下げのスタイル ("standard" / "tabularLeft" / "tabularRight")
+    #[serde(default = "default_indent_style")]
+    pub indent_style: String,
+    /// JOIN の ON の置き方 ("same" = JOINと同じ行 / "newline" = 次の行)
+    #[serde(default = "default_on_clause")]
+    pub on_clause: String,
+}
+
+fn default_comma_style() -> String {
+    "leading".to_string()
+}
+
+fn default_upper() -> String {
+    "upper".to_string()
+}
+
+fn default_indent() -> String {
+    "2".to_string()
+}
+
+fn default_before() -> String {
+    "before".to_string()
+}
+
+fn default_indent_style() -> String {
+    "standard".to_string()
+}
+
+fn default_on_clause() -> String {
+    "newline".to_string()
+}
+
+impl Default for SqlFormatSettings {
+    fn default() -> Self {
+        Self {
+            comma_style: default_comma_style(),
+            keyword_case: default_upper(),
+            indent: default_indent(),
+            logical_newline: default_before(),
+            indent_style: default_indent_style(),
+            on_clause: default_on_clause(),
+        }
+    }
 }
 
 fn default_autocomplete_delay_ms() -> u64 {
@@ -73,7 +140,8 @@ impl Default for AppSettings {
             autocomplete_enabled: true,
             autocomplete_delay_ms: default_autocomplete_delay_ms(),
             confirm_alter: true,
-            restore_tabs: false,
+            restore_sheets: false,
+            sql_format: SqlFormatSettings::default(),
         }
     }
 }

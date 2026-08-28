@@ -1,0 +1,163 @@
+/* 実行前の確認ダイアログ (危険なSQL・削除の確認) */
+
+/* ============ カラム変更 (DDL) ============ */
+
+.column-modal {
+  width: min(640px, calc(100vw - 60px));
+}
+
+/* 対象テーブル・カラム名 (見出しの右) */
+.column-modal-target {
+  margin-left: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.column-modal-body {
+  margin-bottom: 14px;
+}
+
+.column-note {
+  margin: 4px 0 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+
+/* 削除時の注意書き */
+.column-warn {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border-radius: var(--radius-btn);
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* 確認ダイアログに並べる注意点 */
+.column-warn-list {
+  margin: 0;
+  padding-left: 18px;
+  font-weight: 600;
+  line-height: 1.7;
+}
+
+/* 確認ダイアログに出す実行SQL */
+.confirm-sql-head {
+  margin: 10px 0 5px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-faint);
+}
+
+.confirm-sql {
+  max-height: 160px;
+  margin: 0;
+  padding: 9px 11px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  background: rgba(var(--ink), 0.03);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
+
+/* 実行前の確認に出す、注意が必要なSQLの一覧 */
+.danger-sql-lead {
+  display: block;
+  line-height: 1.7;
+}
+
+.danger-sql-list {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.danger-sql-list li {
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: rgba(var(--ink), 0.06);
+}
+
+.danger-sql-kind {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.danger-sql-text {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1.6;
+  word-break: break-all;
+}
+
+/* 実行するSQLのプレビュー */
+.column-sql {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.column-error {
+  margin-top: 12px;
+  white-space: pre-line;
+}
+
+.column-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* カラム一覧の削除アイコン (押せるときだけ赤くする) */
+.pane-icon-btn.danger:hover:not(:disabled) {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+/* 削除確認ダイアログ */
+.ddl-confirm {
+  width: min(620px, calc(100vw - 60px));
+}
+
+.ddl-confirm:focus {
+  outline: none;
+}
+
+/* 見出しの操作ヒント */
+.ddl-hint {
+  margin-right: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--text-faint);
+}

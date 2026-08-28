@@ -1,0 +1,441 @@
+/* Valkey (KVモード) のキーブラウザ・値編集・一括操作 */
+
+/* ============ Valkey (KVモード) ============ */
+
+.kv-db-label {
+  /* 値 (SelectMenu) と同じ等幅フォントにして縦位置を揃える */
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  padding-left: 4px;
+}
+
+/* ---- 左ペイン: キーブラウザ ---- */
+
+.kv-key-item {
+  gap: 7px;
+}
+
+.kv-key-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kv-ttl {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.kv-type {
+  flex-shrink: 0;
+  /* いちばん長い STREAM / STRING (約52px) より広い最小幅にして、
+   * どの型でもバッジ幅を揃える = キー名の開始位置が縦にそろう。
+   * width:auto なので想定外に長い型名でも切れずに広がる */
+  min-width: 56px;
+  width: auto;
+  padding: 2px 6px;
+  text-align: center;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 5px;
+  color: var(--text-dim);
+  background: rgba(var(--ink), 0.08);
+}
+
+.kv-type-string {
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.14);
+}
+
+.kv-type-hash {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.16);
+}
+
+.kv-type-list {
+  color: #f0a63a;
+  background: rgba(240, 166, 58, 0.15);
+}
+
+.kv-type-set {
+  color: #22d3ee;
+  background: rgba(34, 211, 238, 0.14);
+}
+
+.kv-type-zset {
+  color: #f472b6;
+  background: rgba(244, 114, 182, 0.15);
+}
+
+.kv-type-stream {
+  color: #5a9bd8;
+  background: rgba(90, 155, 216, 0.16);
+}
+
+.kv-pane-foot {
+  flex-shrink: 0;
+  padding-top: 8px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.kv-more-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12px;
+}
+
+/* ---- 右側コンテンツ ---- */
+
+.kv-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* ---- コマンドコンソール ---- */
+
+.kv-console {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kv-cmd-editor {
+  flex-shrink: 0;
+}
+
+.kv-out {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kv-out-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.kv-out-cmd {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(var(--ink), 0.03);
+}
+
+.kv-prompt {
+  color: var(--accent-2);
+  font-weight: 700;
+}
+
+.kv-out-ms {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.kv-out-lines {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---- キー詳細 ---- */
+
+.kv-detail {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kv-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 詳細ヘッダの型バッジはキー名と中央揃えにし、幅も文字に合わせる */
+.kv-detail-head .kv-type {
+  width: auto;
+  padding: 3px 9px;
+  font-size: 10px;
+  line-height: 1.4;
+  align-self: center;
+}
+
+.kv-detail-key {
+  font-size: 15px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kv-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.kv-value-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.kv-value-wrap .grid td {
+  white-space: pre-wrap;
+  word-break: break-all;
+  vertical-align: top;
+}
+
+.kv-value-wrap .kv-cell-a {
+  color: var(--text-dim);
+}
+
+.kv-truncated {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* ---- Valkeyの値編集 ---- */
+
+/* 値ビューの操作バー (追加ボタン・キー操作のヒント) */
+.kv-value-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-height: 26px;
+}
+
+.kv-value-bar .ddl-bar-text {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.kv-edit-error {
+  flex-shrink: 0;
+}
+
+/* ダブルクリックで編集できる箇所 (キー名・TTL) */
+.kv-editable {
+  border-bottom: 1px dashed var(--border-strong);
+  cursor: text;
+}
+
+.kv-detail-key {
+  cursor: text;
+}
+
+.kv-key-input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* TTLの入力は「TTL:」の右に並べる (cell-inputはblockなのでinlineに戻す) */
+.kv-ttl-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  vertical-align: middle;
+}
+
+/* .cell-input の width:100% / height:32px に負けないよう要素名を付ける */
+input.kv-ttl-input {
+  display: inline-block;
+  width: 92px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.kv-ttl-unit {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+/* 値の終わりが分かるよう、最後の行の下にも線を引く
+ * (共通の .grid tbody tr:last-child td は線を消しているので上書きする) */
+.kv-value-wrap .grid tbody tr:last-child td {
+  border-bottom: 1px solid var(--border);
+}
+
+/* 値ビューの入力欄はセルいっぱいに広げる */
+.kv-value-wrap .cell-input {
+  width: 100%;
+}
+
+/* 改行を含む値も編集できるよう、値の入力欄は複数行にする。
+ * .cell-input の height 指定に負けないよう要素名も付ける */
+textarea.cell-textarea {
+  height: auto;
+  min-height: 32px;
+  padding: 6px 11px;
+  line-height: 1.6;
+  font-family: inherit;
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.kv-cell-dim {
+  color: var(--text-faint);
+}
+
+/* キーを削除するボタン (ヘッダの中で赤文字にする) */
+.sql-btn.danger {
+  color: var(--danger);
+}
+
+.sql-btn.danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
+}
+
+/* 新規キーの入力フォーム */
+.kv-new-key {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 10px 8px;
+}
+
+.kv-new-key input,
+.kv-new-key select {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 0;
+  background: var(--input-bg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.kv-new-key-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.kv-new-key-foot .ddl-bar-text {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+
+/* ============================================================
+   Valkey: キーの検索・一括削除
+   ============================================================ */
+
+.modal.kv-bulk-modal {
+  width: min(1040px, 96vw);
+}
+
+.kv-bulk-tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.kv-bulk-tab {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.kv-bulk-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.kv-bulk-panel {
+  padding-top: var(--space-4);
+}
+
+.kv-bulk-opts {
+  display: flex;
+  gap: var(--space-5);
+  margin-top: var(--space-3);
+}
+
+.kv-bulk-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* 当たったキーの一覧 (中でスクロールさせる) */
+.kv-bulk-hits {
+  display: flex;
+  min-height: 200px;
+  max-height: min(42vh, 380px);
+  margin-top: var(--space-3);
+}
+
+/*
+ * 中の表は幅いっぱいに広げる。
+ * 広げないと、列が少ないときに表が中身の幅で止まり、右側が空いて見える
+ */
+.kv-bulk-hits > .grid-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 消す前に見せるキーの見本 */
+.kv-bulk-sample {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3);
+  list-style: none;
+  max-height: 160px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 11.5px;
+  line-height: 1.7;
+}

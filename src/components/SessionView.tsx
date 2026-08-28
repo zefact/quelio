@@ -10,7 +10,6 @@ import {
   schemaColumns,
 } from "../api";
 import { writeClipboard } from "../gridCopy";
-import { badgeStyle, dbBadgeLabel } from "../colors";
 import { parseComment } from "../comment";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableWidth } from "../hooks/useResizableWidth";
@@ -24,11 +23,11 @@ import {
 } from "../tableSql";
 import type {
   AppSettings,
-  EditorOptions,
   TableInfo,
-  TableTab,
   WorkTab,
 } from "../types";
+import { activeSheetOf } from "../types";
+import { useTabActions } from "./tabActions";
 import type { SchemaMap } from "./sqlCompletion";
 import { CreateTableModal } from "./createTable/CreateTableModal";
 import { DropTableConfirm } from "./DropTableConfirm";
@@ -39,87 +38,50 @@ import { DbAdminDialog } from "./dbAdmin/DbAdminDialog";
 import { SearchDialog } from "./search/SearchDialog";
 import { RoutineDialog } from "./RoutineDialog";
 import { SelectMenu } from "./SelectMenu";
+import { ConnectionChip, ServerInfo } from "./SessionHeader";
+import { PaneHead, SidePane } from "./SidePane";
+import { TableList } from "./TableList";
 import { TableView } from "./TableView";
 import { ExportDialog, ImportDialog } from "./TransferDialog";
 import { useDismiss } from "../hooks/useDismiss";
+import { useMultiSelect } from "../hooks/useMultiSelect";
+import { useToast } from "../hooks/useToast";
 
 import type { SheetPane, TableDataPane } from "./panes";
 
 interface Props {
   tab: WorkTab;
-  onSelectDb: (db: string) => void;
-  /** 設定画面を開く (外部ツールが見つからないときの案内から) */
-  onOpenSettings: () => void;
-  /** テーブル一覧の再読み込み (選択中のテーブルは維持する) */
-  onReloadTables: () => Promise<void> | void;
-  /** データベースを作成・削除したあとの一覧 */
-  onDatabasesChanged: (list: string[]) => void;
-  /** 選択中テーブルの定義を取得し直す (DDL実行後) */
-  onReloadDetail: () => void;
-  /** 生成したSQLをSQLエディタへ送る */
-  onSendToEditor: (sql: string) => void;
-  onSelectTable: (table: TableInfo) => void;
-  onToggleQuery: () => void;
-  onChangeSql: (sql: string) => void;
-  /** SQLエディタの実行設定 (トランザクション等) の変更 */
-  onChangeEditorOpts: (patch: Partial<EditorOptions>) => void;
-  onRunQuery: (
-    offset: number,
-    sqlOverride?: string,
-    transaction?: boolean,
-    explain?: "explain" | "analyze"
-  ) => void;
-  /** 実行中SQLのキャンセル */
-  onCancelQuery: () => void;
-  /** 結果タブ単位のページ送り */
-  onPageQuery: (index: number, offset: number) => void;
-  /** サーバーサイドソートの変更 */
-  onSortQuery: (
-    index: number,
-    orderBy: string | null,
-    orderDir: "asc" | "desc"
-  ) => void;
-  /** 定義 / データ タブの切替 */
-  onChangeTableTab: (view: TableTab) => void;
   /** データタブの状態と操作 (ここでは中身を見ず、そのまま渡す) */
   dataPane: TableDataPane;
   /** SQLのシートの状態と操作 (同上) */
   sheetPane: SheetPane;
 }
 
-function typeLabel(t: string): { label: string; cls: string } {
-  if (t === "VIEW") return { label: "V", cls: "view" };
-  if (t === "MATERIALIZED VIEW") return { label: "MV", cls: "view" };
-  if (t === "FOREIGN TABLE") return { label: "F", cls: "view" };
-  return { label: "T", cls: "table" };
-}
-
 /** 接続済みタブの中身: 上部DBセレクタ + 左テーブル一覧 + コンテンツ領域 */
-export function SessionView({
-  tab,
-  onSelectDb,
-  onOpenSettings,
-  onReloadTables,
-  onDatabasesChanged,
-  onReloadDetail,
-  onSendToEditor,
-  onSelectTable,
-  onToggleQuery,
-  onChangeSql,
-  onChangeEditorOpts,
-  onRunQuery,
-  onCancelQuery,
-  onPageQuery,
-  onSortQuery,
-  onChangeTableTab,
-  dataPane,
-  sheetPane,
-}: Props) {
+export function SessionView({ tab, dataPane, sheetPane }: Props) {
+  /*
+   * 「今のタブに対する操作」はContextから受け取る。
+   * どれも呼び出し方は変わらないので、ここで名前を開いておく
+   */
+  const {
+    onSelectDb,
+    onOpenSettings,
+    onReloadTables,
+    onDatabasesChanged,
+    onReloadDetail,
+    onSendToEditor,
+    onSelectTable,
+    onToggleQuery,
+    onChangeSql,
+    onChangeEditorOpts,
+    onRunQuery,
+    onCancelQuery,
+    onPageQuery,
+    onSortQuery,
+    onChangeTableTab,
+  } = useTabActions();
   const [filter, setFilter] = useState("");
   const [paneWidth, startResize] = useResizableWidth(260, 170, 520);
-  /** 複数選択中のテーブルキー (SQLダンプ出力の対象) */
-  const [multiSel, setMultiSel] = useState<Set<string>>(new Set());
-  const [anchorIdx, setAnchorIdx] = useState<number | null>(null);
   const [dialog, setDialog] = useState<"export" | "import" | null>(null);
   /** テーブル一覧の再読み込み中か (アイコンの回転表示用) */
   const [reloading, setReloading] = useState(false);
@@ -164,20 +126,7 @@ export function SessionView({
   /** 右クリックから数えた正確な件数 (テーブルキー → 表示文字列) */
   const [counts, setCounts] = useState<Record<string, string>>({});
   /** 「コピーしました」などの一時表示 */
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    },
-    []
-  );
-  /** 短いメッセージを一時表示する */
-  const flash = (message: string) => {
-    setToast(message);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 2400);
-  };
+  const { toast, flash, clear: clearToast } = useToast(2400);
 
   /** テーブルの列名 (入力補完用のスキーマから借りる。無ければ空) */
   const columnsOf = (t: TableInfo): string[] =>
@@ -268,14 +217,6 @@ export function SessionView({
   );
   const { profile, databases, selectedDb, tables, loadingTables } = tab;
 
-  // DB切替やテーブル一覧の更新で複数選択をリセット。
-  // 数えた件数も、別のDBの同名テーブルへ持ち越さないようここで消す
-  useEffect(() => {
-    setMultiSel(new Set());
-    setAnchorIdx(null);
-    setCounts({});
-  }, [selectedDb, tables]);
-
   /*
    * DBを切り替えたらCSV取り込みの画面は閉じる
    * (開いたままだと、切り替えた先の同名テーブルへ入れてしまう)。
@@ -297,13 +238,13 @@ export function SessionView({
     setShowDbAdmin(false);
     setShowSearch(false);
     setPendingSelect(null);
-    setToast(null);
+    clearToast();
     // 名前の変更・新規作成の入力が残ると、
     // 切り替えた先の同名テーブルを触ってしまう
     setRenaming(null);
     setRenameError(null);
     setShowCreate(false);
-  }, [tab.key]);
+  }, [tab.key, clearToast]);
 
   // 作成したテーブルが一覧に現れたら選択して定義を表示する
   useEffect(() => {
@@ -328,10 +269,10 @@ export function SessionView({
        * 前に選んでいたテーブルが選択中のまま残ってしまう
        * (右クリックメニューの対象も前のままになる)
        */
-      setMultiSel(new Set([tableKey(found)]));
-      setAnchorIdx(tables.indexOf(found));
+      selectTable(tableKey(found));
       onSelectTable(found);
     }
+    // 一覧が届いたときだけ選び直す (選択の関数は依存に入れない)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tables, pendingSelect, selectedDb, tab.loadingTables]);
 
@@ -353,12 +294,24 @@ export function SessionView({
   const commentDelim = settings?.commentDelimiter ?? "（";
 
   /** テーブルの日本語名 (テーブルコメントの論理名部分)。無ければ空 */
-  const logicalOf = (t: TableInfo): string => {
-    const qualified = t.schema ? `${t.schema}.${t.name}` : t.name;
-    return (
-      schemaMap[qualified]?.logical ?? schemaMap[t.name]?.logical ?? ""
-    );
-  };
+  const logicalOf = useCallback(
+    (t: TableInfo): string => {
+      const qualified = t.schema ? `${t.schema}.${t.name}` : t.name;
+      return schemaMap[qualified]?.logical ?? schemaMap[t.name]?.logical ?? "";
+    },
+    [schemaMap]
+  );
+
+  /*
+   * テーブル一覧の中身 (並びと名前)。
+   *
+   * 再読み込みのたびに配列は作り直されるが、中身が同じなら
+   * カラムを取り直す必要はない (数千テーブルだと待ち時間になる)
+   */
+  const tablesSig = useMemo(
+    () => tables.map((t) => tableKey(t)).join("\n"),
+    [tables]
+  );
 
   // テーブル・カラムの一覧は、DBが変わったときに取り直す
   useEffect(() => {
@@ -391,8 +344,12 @@ export function SessionView({
     return () => {
       alive = false;
     };
-    // テーブル一覧が更新されたとき (作成・改名・削除の後) も取り直す
-  }, [tab.key, selectedDb, commentDelim, tables]);
+    /*
+     * 取り直すのは、テーブルが増減・改名されたとき (tablesSig) と、
+     * 定義そのものを変えたとき (schemaRev)。
+     * 一覧を読み直しただけでは取り直さない
+     */
+  }, [tab.key, selectedDb, commentDelim, tablesSig, tab.schemaRev]);
 
   // 右クリックメニューは外側クリック・リサイズで閉じる
   useDismiss(!!tableMenu, () => setTableMenu(null), { resize: true });
@@ -410,42 +367,65 @@ export function SessionView({
     [tables]
   );
 
+  /** 複数選択 (SQLダンプ出力・まとめて削除の対象)。Shiftの範囲は表示中の並びで決まる */
+  const filteredKeys = useMemo(
+    () => filteredTables.map((t) => tableKey(t)),
+    [filteredTables]
+  );
+  const {
+    selected: multiSel,
+    click: clickTable,
+    rightClick: rightClickTable,
+    select: selectTable,
+    selectAll: selectAllTables,
+    clear: clearMultiSel,
+  } = useMultiSelect(filteredKeys);
+
+  // DB切替やテーブル一覧の更新で複数選択をリセット。
+  // 数えた件数も、別のDBの同名テーブルへ持ち越さないようここで消す
+  useEffect(() => {
+    clearMultiSel();
+    setCounts({});
+  }, [selectedDb, tables, clearMultiSel]);
+
   const selected = tables.find((t) => tableKey(t) === tab.selectedTable) ?? null;
 
   /** テーブル項目クリック (⌘/Ctrl: トグル, Shift: 範囲, 通常: 単一選択+構造表示) */
-  const handleTableClick = (
-    e: React.MouseEvent,
-    t: TableInfo,
-    idx: number
-  ) => {
-    const key = tableKey(t);
-    if (e.metaKey || e.ctrlKey) {
-      setMultiSel((cur) => {
-        const next = new Set(cur);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        return next;
-      });
-      setAnchorIdx(idx);
-      return;
-    }
-    if (e.shiftKey && anchorIdx !== null) {
-      const [from, to] = [Math.min(anchorIdx, idx), Math.max(anchorIdx, idx)];
-      setMultiSel(
-        new Set(filteredTables.slice(from, to + 1).map((x) => tableKey(x)))
-      );
-      return;
-    }
-    setMultiSel(new Set([key]));
-    setAnchorIdx(idx);
-    onSelectTable(t);
-  };
+  const handleTableClick = useCallback(
+    (e: React.MouseEvent, t: TableInfo) => {
+      // ふつうのクリックのときだけ、選択に合わせて定義を出す
+      if (clickTable(e, tableKey(t))) onSelectTable(t);
+    },
+    [clickTable, onSelectTable]
+  );
+
+  /** テーブル項目の右クリック (メニューを出す) */
+  const handleTableContextMenu = useCallback(
+    (e: React.MouseEvent, t: TableInfo) => {
+      e.preventDefault();
+      setRenameError(null);
+      rightClickTable(tableKey(t));
+      setTableMenu({ x: e.clientX, y: e.clientY, table: t });
+    },
+    [rightClickTable]
+  );
+
+  /** 名前の変更中の入力 */
+  const handleRenameInput = useCallback((value: string) => {
+    setRenaming((cur) => (cur ? { ...cur, value } : cur));
+  }, []);
+
+  /** 名前の変更をやめる */
+  const handleRenameCancel = useCallback(() => {
+    setRenaming(null);
+    setRenameError(null);
+  }, []);
 
   /** ⌘/Ctrl+A で表示中のテーブルを全選択 */
   const handlePaneKeyDown = (e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
       e.preventDefault();
-      setMultiSel(new Set(filteredTables.map((t) => tableKey(t))));
+      selectAllTables();
     }
   };
 
@@ -464,33 +444,38 @@ export function SessionView({
    * 入力された名前でテーブル名を変更する (確認は挟まない)。
    * Enterのほか、入力欄からフォーカスが外れたときにも確定する
    */
-  const handleRenameTable = async (t: TableInfo) => {
-    if (renameBusy.current) return;
-    const next = (renaming?.value ?? "").trim();
-    // 空欄や変更なしのときは、そのまま編集を閉じるだけにする
-    if (!next || !selectedDb || next === t.name) {
-      setRenaming(null);
+  const handleRenameTable = useCallback(
+    async (t: TableInfo) => {
+      if (renameBusy.current) return;
+      const next = (renaming?.value ?? "").trim();
+      // 空欄や変更なしのときは、そのまま編集を閉じるだけにする
+      if (!next || !selectedDb || next === t.name) {
+        setRenaming(null);
+        setRenameError(null);
+        return;
+      }
+      renameBusy.current = true;
       setRenameError(null);
-      return;
-    }
-    renameBusy.current = true;
-    setRenameError(null);
-    try {
-      await renameTable(tab.key, selectedDb, t.schema, t.name, next);
-      setRenaming(null);
-      setPendingSelect({ schema: t.schema, name: next });
-      await onReloadTables();
-    } catch (e) {
-      setRenameError(String(e));
-    } finally {
-      renameBusy.current = false;
-    }
-  };
+      try {
+        await renameTable(tab.key, selectedDb, t.schema, t.name, next);
+        setRenaming(null);
+        setPendingSelect({ schema: t.schema, name: next });
+        await onReloadTables();
+      } catch (e) {
+        setRenameError(String(e));
+      } finally {
+        renameBusy.current = false;
+      }
+    },
+    [renaming, selectedDb, tab.key, onReloadTables]
+  );
 
   /** SQLiteはファイルベースのため、ホスト表示や外部ツール連携の扱いが変わる */
   const isSqlite = profile.dbType === "sqlite";
   /** 読み取り専用の接続では、変更する操作をそもそも出さない */
   const readOnly = profile.readOnly ?? false;
+  /** 表示中のシート (書きかけのSQLと実行結果はシートが持つ) */
+  const sheet = activeSheetOf(tab.editor);
   /** 別ウィンドウを開けなかったときの表示 (握りつぶすと無反応に見えるため) */
   const [winError, setWinError] = useState<string | null>(null);
   const dbFilePath = profile.database ?? "";
@@ -512,33 +497,7 @@ export function SessionView({
     <div className="session">
       {/* ツールバー */}
       <div className="session-toolbar">
-        <span
-          className={`db-badge ${profile.dbType}`}
-          style={badgeStyle(profile.color)}
-        >
-          {dbBadgeLabel(profile.dbType)}
-        </span>
-        <div className="session-conn">
-          <span className="session-name">{profile.name || "(無名)"}</span>
-          <span className="session-host mono">
-            {/* SQLiteはホスト:ポートではなくファイルパスを表示する */}
-            {isSqlite ? (
-              <span className="session-host-text" title={dbFilePath}>
-                {dbFilePath}
-              </span>
-            ) : (
-              <>
-                {profile.ssh?.enabled && <span className="ssh-chip">SSH</span>}
-                <span
-                  className="session-host-text"
-                  title={`${profile.host}:${profile.port}`}
-                >
-                  {profile.host}:{profile.port}
-                </span>
-              </>
-            )}
-          </span>
-        </div>
+        <ConnectionChip profile={profile} filePath={dbFilePath} />
 
         {/* SQLiteは1ファイル=1DBなので選択メニューは出さない */}
         {!isSqlite && (
@@ -573,16 +532,7 @@ export function SessionView({
           </div>
         )}
 
-        {tab.serverInfo.length > 0 && (
-          <div className="server-info">
-            {tab.serverInfo.map(([label, value]) => (
-              <span className="info-chip" key={label} title={`${label}: ${value}`}>
-                <span className="info-chip-label">{label}</span>
-                <span className="info-chip-value mono">{value}</span>
-              </span>
-            ))}
-          </div>
-        )}
+        <ServerInfo items={tab.serverInfo} />
 
         <span className="toolbar-spacer" />
         <button
@@ -733,21 +683,22 @@ export function SessionView({
 
       {/* 本体 */}
       <div className="session-body">
-        <aside
-          className="table-pane"
-          style={{ width: paneWidth }}
-          tabIndex={0}
+        <SidePane
+          width={paneWidth}
+          onStartResize={startResize}
+          focusable
           onKeyDown={handlePaneKeyDown}
         >
-          <div className="table-pane-head">
-            <span>テーブル</span>
-            {selectedDb && !loadingTables && (
-              <span className="panel-count">
-                {multiSel.size > 1
+          <PaneHead
+            title="テーブル"
+            count={
+              selectedDb && !loadingTables
+                ? multiSel.size > 1
                   ? `${multiSel.size}/${tables.length}`
-                  : tables.length}
-              </span>
-            )}
+                  : tables.length
+                : undefined
+            }
+          >
             <button
               className={
                 "pane-icon-btn has-tooltip tooltip-left" +
@@ -822,7 +773,7 @@ export function SessionView({
             </button>
               </>
             )}
-          </div>
+          </PaneHead>
           {!selectedDb ? (
             <div className="table-pane-empty">上部からデータベースを選択</div>
           ) : loadingTables ? (
@@ -843,136 +794,25 @@ export function SessionView({
                   ? "読み取り専用の接続です (変更はできません)"
                   : "右クリックで 作成・名前の変更・削除"}
               </p>
-              <ul className="side-table-list">
-                {filteredTables.map((t, idx) => {
-                  const badge = typeLabel(t.tableType);
-                  const key = tableKey(t);
-                  // 名前を変更中の行は、その場で入力欄に差し替える
-                  if (renaming?.key === key) {
-                    return (
-                      <li key={key}>
-                        <div className="rename-table-row">
-                          <span className={`type-chip mini ${badge.cls}`}>
-                            {badge.label}
-                          </span>
-                          <input
-                            className="mono"
-                            autoFocus
-                            value={renaming.value}
-                            onChange={(e) =>
-                              setRenaming({ key, value: e.target.value })
-                            }
-                            title="Enterで確定 / Escで取消"
-                            onKeyDown={(e) => {
-                              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                              if (e.nativeEvent.isComposing) return;
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                handleRenameTable(t);
-                              } else if (e.key === "Escape") {
-                                e.preventDefault();
-                                setRenaming(null);
-                                setRenameError(null);
-                              }
-                            }}
-                            /*
-                             * 別の場所をクリックしても確定も破棄もしない。
-                             * 以前はここで RENAME TABLE を実行していたため、
-                             * 入力途中のクリックでテーブル名が変わってしまった
-                             */
-                          />
-                          {/* 確定と取消 (押しても入力欄からフォーカスを外さない) */}
-                          <button
-                            className="inline-apply-btn"
-                            title="この名前に変更する (Enter)"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => handleRenameTable(t)}
-                          >
-                            ✓
-                          </button>
-                          <button
-                            className="inline-apply-btn"
-                            title="やめる (Esc)"
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => {
-                              setRenaming(null);
-                              setRenameError(null);
-                            }}
-                          >
-                            ✕
-                          </button>
-                        </div>
-                        {renameError && (
-                          <p className="new-table-error">{renameError}</p>
-                        )}
-                      </li>
-                    );
-                  }
-                  return (
-                    <li key={key}>
-                      <button
-                        className={
-                          "side-table-item" +
-                          (tab.selectedTable === key ? " selected" : "") +
-                          (multiSel.has(key) ? " multi" : "")
-                        }
-                        onClick={(e) => handleTableClick(e, t, idx)}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          setRenameError(null);
-                          /*
-                           * 選択の外を右クリックしたら、そのテーブルだけの選択に直す。
-                           * そうしないと「押したテーブル」と「効く対象」がずれる
-                           */
-                          if (!multiSel.has(key)) {
-                            setMultiSel(new Set([key]));
-                            setAnchorIdx(idx);
-                          }
-                          setTableMenu({ x: e.clientX, y: e.clientY, table: t });
-                        }}
-                        // MySQLはschemaが無いため、keyそのまま (".table名") ではなく表示用の名前を出す
-                        title={t.schema ? `${t.schema}.${t.name}` : t.name}
-                      >
-                        <span className={`type-chip mini ${badge.cls}`}>
-                          {badge.label}
-                        </span>
-                        <span className="side-table-name mono">
-                          {showSchema && t.schema && (
-                            <span className="table-schema">{t.schema}.</span>
-                          )}
-                          {t.name}
-                        </span>
-                        {logicalOf(t) && (
-                          <span
-                            className="side-table-logical"
-                            title={logicalOf(t)}
-                          >
-                            {logicalOf(t)}
-                          </span>
-                        )}
-                        {counts[key] && (
-                          <span
-                            className="side-table-count mono"
-                            title="右クリックから数えた正確な件数"
-                          >
-                            {counts[key]}
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-                {filteredTables.length === 0 && (
-                  <li className="table-pane-empty">
-                    {tables.length === 0 ? "テーブルなし" : "該当なし"}
-                  </li>
-                )}
-              </ul>
+              <TableList
+                tables={filteredTables}
+                emptyLabel={tables.length === 0 ? "テーブルなし" : "該当なし"}
+                selectedKey={tab.selectedTable}
+                multiSel={multiSel}
+                counts={counts}
+                showSchema={showSchema}
+                logicalOf={logicalOf}
+                renaming={renaming}
+                renameError={renameError}
+                onRenameInput={handleRenameInput}
+                onRenameCommit={handleRenameTable}
+                onRenameCancel={handleRenameCancel}
+                onItemClick={handleTableClick}
+                onItemContextMenu={handleTableContextMenu}
+              />
             </>
           )}
-        </aside>
-
-        <div className="pane-splitter" onMouseDown={startResize} />
+        </SidePane>
 
         <main className="session-content">
           {tab.view === "query" ? (
@@ -983,17 +823,17 @@ export function SessionView({
                 profile.name || `${profile.host}:${profile.port}`
               }
               dbType={profile.dbType}
-              sql={tab.editor.sql}
-              results={tab.editor.queryResults}
-              error={tab.editor.queryError}
+              sql={sheet.sql}
+              results={sheet.queryResults}
+              error={sheet.queryError}
               running={tab.editor.running}
               runStartedAt={tab.editor.startedAt}
-              explainKind={tab.editor.queryExplain}
+              explainKind={sheet.queryExplain}
               columnTips={tab.columnTips}
               schema={schemaMap}
               autocomplete={settings?.autocompleteEnabled ?? true}
               autocompleteDelayMs={settings?.autocompleteDelayMs ?? 100}
-              options={tab.editor.editorOpts}
+              options={sheet.editorOpts}
               onChangeOptions={onChangeEditorOpts}
               onChangeSql={onChangeSql}
               onRun={onRunQuery}

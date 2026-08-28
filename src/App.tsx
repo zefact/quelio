@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import "./App.css";
 import {
   addSqlHistory,
@@ -20,10 +20,12 @@ import {
   schemaSnapshot,
   tableDetail,
   testConnection,
+  trustSshHost,
   updateLayout,
 } from "./api";
 import { listen } from "@tauri-apps/api/event";
 import { AboutDialog } from "./components/AboutDialog";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ConnectionPicker } from "./components/ConnectionPicker";
 import { QuickOpen } from "./components/QuickOpen";
 import { ShortcutHelp } from "./components/ShortcutHelp";
@@ -55,6 +57,7 @@ import type {
 } from "./types";
 import type { SheetPane, TableDataPane } from "./components/panes";
 import {
+  activeSheetOf,
   emptyProfile,
   emptySheet,
   emptyTab,
@@ -65,12 +68,18 @@ import {
   type TabTableData,
 } from "./types";
 import { emitAppEvent, SAVE_SQL_EVENT } from "./appEvents";
+import { tabsReducer } from "./tabsReducer";
+import {
+  TabActionsProvider,
+  useStableActions,
+} from "./components/tabActions";
+import { parseUnknownHost, stripHostMark } from "./sshTrust";
 import {
   loadWorkspace,
   MAX_SHEETS,
   storeWorkspace,
   toSaved,
-  toTabs,
+  toTab,
 } from "./workspace";
 
 let tabSeq = 1;
@@ -83,7 +92,13 @@ function App() {
     folders: [],
     connections: [],
   });
-  const [tabs, setTabs] = useState<WorkTab[]>(() => [emptyTab("tab-0")]);
+  /*
+   * タブの状態は reducer にまとめてある (遷移は tabsReducer.ts)。
+   * 呼び出し側は今までどおり updateTab / patch* を使う
+   */
+  const [tabs, dispatch] = useReducer(tabsReducer, undefined, () => [
+    emptyTab("tab-0"),
+  ]);
   /*
    * 最新のタブ一覧。
    * 画面へ渡すハンドラを毎回作り直さずに済ませるため、
@@ -104,6 +119,20 @@ function App() {
   const [quickOpen, setQuickOpen] = useState(false);
   /** ショートカット一覧 (⌘/) を出しているか */
   const [showShortcuts, setShowShortcuts] = useState(false);
+  /**
+   * SSH踏み台の初回接続。
+   * ホスト鍵を見せて確認してもらい、承諾されたら記録して接続し直す
+   */
+  const [sshTrust, setSshTrust] = useState<{
+    key: string;
+    profile: ConnectionProfile;
+    host: string;
+    port: number;
+    fingerprint: string;
+    message: string;
+    /** 確認のあとに行うこと (接続 / 接続テスト) */
+    then: "connect" | "test";
+  } | null>(null);
   /** SQLパラメータ入力モーダルの状態 (実行を保留した内容) */
   const [paramReq, setParamReq] = useState<{
     key: string;
@@ -118,6 +147,37 @@ function App() {
   } | null>(null);
   /** パラメータ型推測用のスキーマキャッシュ (セッション:DB → スキーマ) */
   const schemaCache = useRef(new Map<string, SchemaEntry[]>());
+  /**
+   * 取得ごとの通し番号 (「タブ:用途」ごとに数える)。
+   *
+   * 同じ場所へ続けて問い合わせると、先に投げたほうが後で返ることがある。
+   * 投げたときの番号が最新でなくなっていたら、その結果は捨てる
+   * (捨てないと、新しい内容を古い内容で上書きしてしまう)
+   */
+  const reqSeq = useRef(new Map<string, number>());
+
+  /**
+   * スキーマの控えを捨てる (定義を変えたあとに呼ぶ)。
+   *
+   * 残したままにすると、SQLパラメータの型推測と結果ヘッダのカラム説明が
+   * 変更前の定義のままになる
+   */
+  const dropSchemaCache = (key: string) => {
+    for (const k of [...schemaCache.current.keys()]) {
+      if (k.startsWith(`${key}:`)) schemaCache.current.delete(k);
+    }
+  };
+
+  /** 新しい番号を発行する */
+  const startReq = (scope: string) => {
+    const n = (reqSeq.current.get(scope) ?? 0) + 1;
+    reqSeq.current.set(scope, n);
+    return n;
+  };
+
+  /** 発行した番号がまだ最新か (古ければ結果を捨てる) */
+  const isLatestReq = (scope: string, n: number) =>
+    reqSeq.current.get(scope) === n;
 
   const reload = async () => {
     try {
@@ -202,20 +262,20 @@ function App() {
       }
       setStore(loaded);
       /*
-       * 前回のタブを戻すかどうかは設定で決める (既定は戻さない)。
-       * 戻さない場合も、書きかけSQLを消さないよう読み込みだけは行い、
+       * 前回の書きかけSQL (シート) を戻すかどうかは設定で決める (既定は戻さない)。
+       * 接続タブは戻さないので、起動時はいつも接続先を選ぶところから始まる。
+       * 戻さない設定でも、書きかけSQLを消さないよう読み込みだけは行い、
        * 自動保存を止めないようにする
        */
-      const restoreTabs = await getAppSettings()
-        .then((s) => s.restoreTabs)
+      const restoreSheets = await getAppSettings()
+        .then((s) => s.restoreSheets)
         .catch(() => false);
-      // 前回開いていたタブと書きかけSQLを戻す (接続はしない)
       const saved = await loadWorkspace();
       // 読めなかった場合は、空の状態で上書きしないよう保存も止める。
       // 黙って止めると「保存されない」ことに気づけないので画面にも出す
       if (!saved.ok) {
         setWinError(
-          "前回の作業状態を読めませんでした。" +
+          "前回の書きかけSQLを読めませんでした。" +
             "書きかけのSQLを失わないよう、この起動では保存しません " +
             "(設定フォルダの workspace.json を消すと次回から保存します)"
         );
@@ -223,20 +283,20 @@ function App() {
       }
       // 中身が壊れていると組み立てで落ちることがある。
       // そのまま抜けると自動保存が止まったままになるので、ここで受け止める
-      let built: { tabs: WorkTab[]; activeKey: string } | null = null;
+      let built: WorkTab | null;
       try {
-        built = saved.data ? toTabs(saved.data, loaded, newTabKey) : null;
+        built = saved.data ? toTab(saved.data, newTabKey()) : null;
       } catch {
         setWinError(
-          "前回の作業状態が壊れていました。" +
+          "前回の書きかけSQLが壊れていました。" +
             "書きかけのSQLを失わないよう、この起動では保存しません " +
             "(設定フォルダの workspace.json を消すと次回から保存します)"
         );
         return;
       }
-      if (built && restoreTabs) {
-        setTabs(built.tabs);
-        setActiveKey(built.activeKey);
+      if (built && restoreSheets) {
+        dispatch({ type: "replace", tabs: [built] });
+        setActiveKey(built.key);
       }
       restored.current = true;
     })();
@@ -285,7 +345,7 @@ function App() {
       if (mod && !e.shiftKey && key === "t") {
         e.preventDefault();
         addTab();
-      } else if (mod && key === "w") {
+      } else if (mod && !e.altKey && !e.shiftKey && key === "w") {
         e.preventDefault();
         closeTab(activeKey);
       } else if (mod && !e.shiftKey && key === "k") {
@@ -315,6 +375,7 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+    // 中で呼ぶのは常に最新のタブなので、ハンドラは依存に入れない
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, activeKey, showShortcuts]);
 
@@ -327,161 +388,89 @@ function App() {
   }, []);
 
   /** SQLエディタまわりの状態だけを部分更新する */
-  const patchEditor = (key: string, patch: Partial<TabEditorState>) => {
-    setTabs((ts) =>
-      ts.map((t) =>
-        t.key === key ? { ...t, editor: { ...t.editor, ...patch } } : t
-      )
-    );
-  };
+  const patchEditor = (key: string, patch: Partial<TabEditorState>) =>
+    dispatch({ type: "patchEditor", key, patch });
 
   /** 実行設定 (トランザクション等) だけを更新する */
-  const patchEditorOpts = (key: string, patch: Partial<EditorOptions>) => {
-    setTabs((ts) =>
-      ts.map((t) =>
-        t.key === key
-          ? {
-              ...t,
-              editor: {
-                ...t.editor,
-                editorOpts: { ...t.editor.editorOpts, ...patch },
-              },
-            }
-          : t
-      )
-    );
-  };
+  const patchEditorOpts = (key: string, patch: Partial<EditorOptions>) =>
+    dispatch({ type: "patchEditorOpts", key, patch });
 
-  const updateTab = (key: string, patch: Partial<WorkTab>) => {
-    setTabs((ts) => ts.map((t) => (t.key === key ? { ...t, ...patch } : t)));
-  };
+  const updateTab = (key: string, patch: Partial<WorkTab>) =>
+    dispatch({ type: "patchTab", key, patch });
 
   /** Valkey画面の状態だけを部分更新する */
-  const patchKv = (key: string, patch: Partial<TabKvState>) => {
-    setTabs((ts) =>
-      ts.map((t) => (t.key === key ? { ...t, kv: { ...t.kv, ...patch } } : t))
-    );
-  };
+  const patchKv = (key: string, patch: Partial<TabKvState>) =>
+    dispatch({ type: "patchKv", key, patch });
 
   /** データタブの状態だけを部分更新する */
-  const patchData = (key: string, patch: Partial<TabTableData>) => {
-    setTabs((ts) =>
-      ts.map((t) =>
-        t.key === key ? { ...t, tableData: { ...t.tableData, ...patch } } : t
-      )
-    );
-  };
+  const patchData = (key: string, patch: Partial<TabTableData>) =>
+    dispatch({ type: "patchData", key, patch });
 
-  /** 表示中のシートの内容を取り出す (しまうとき用) */
-  const currentSheet = (e: TabEditorState): QuerySheet => ({
-    id: e.activeSheet,
-    title: e.sheets.find((s) => s.id === e.activeSheet)?.title ?? "",
-    sql: e.sql,
-    queryResults: e.queryResults,
-    queryError: e.queryError,
-    queryExplain: e.queryExplain,
-    editorOpts: e.editorOpts,
-  });
-
-  /** シートの内容を表示中の側へ出す */
-  const showSheet = (sheet: QuerySheet): Partial<TabEditorState> => ({
-    activeSheet: sheet.id,
-    sql: sheet.sql,
-    queryResults: sheet.queryResults,
-    queryError: sheet.queryError,
-    queryExplain: sheet.queryExplain,
-    editorOpts: sheet.editorOpts,
-  });
-
-  /** 表示中のシートを一覧へ書き戻す (まだ一覧に無ければ足す) */
-  const storeSheet = (e: TabEditorState): QuerySheet[] => {
-    const stored = currentSheet(e);
-    return e.sheets.some((s) => s.id === e.activeSheet)
-      ? e.sheets.map((s) => (s.id === e.activeSheet ? stored : s))
-      : [...e.sheets, stored];
-  };
+  /** 表示中のシートの中身 (書きかけのSQL・実行結果) を差し替える */
+  const patchSheet = (key: string, patch: Partial<QuerySheet>) =>
+    dispatch({ type: "patchSheet", key, patch });
 
   /**
-   * エディタの状態を差し替える。
+   * シートの並びを差し替える。
    * 実行中は結果の行き先が変わってしまうので、シート操作は受け付けない
    */
   const updateSheets = (
     key: string,
     fn: (e: TabEditorState) => Partial<TabEditorState> | null
-  ) => {
-    setTabs((ts) =>
-      ts.map((t) => {
-        if (t.key !== key || t.editor.running) return t;
-        const patch = fn(t.editor);
-        return patch ? { ...t, editor: { ...t.editor, ...patch } } : t;
-      })
+  ) => dispatch({ type: "editSheets", key, edit: fn });
+
+  /** シートを切り替える (中身はシートが持っているので、開く先を変えるだけ) */
+  const switchSheet = (key: string, id: string) => {
+    updateSheets(key, (e) =>
+      e.activeSheet === id || !e.sheets.some((s) => s.id === id)
+        ? null
+        : { activeSheet: id }
     );
   };
 
-  /** シートを切り替える (今の内容をしまってから、選んだシートを出す) */
-  const switchSheet = (key: string, id: string) => {
-    updateSheets(key, (e) => {
-      if (e.activeSheet === id) return null;
-      const target = e.sheets.find((s) => s.id === id);
-      if (!target) return null;
-      return { sheets: storeSheet(e), ...showSheet(target) };
-    });
-  };
-
-  /** シートを増やす (今の内容はしまい、空のシートを開く) */
+  /** シートを増やす (空のシートを開く) */
   const addSheet = (key: string) => {
     updateSheets(key, (e) => {
       // 保存できる枚数を超えないようにする (画面の「＋」も同じ上限で止める)
-      const list = storeSheet(e);
-      if (list.length >= MAX_SHEETS) return null;
-      const fresh = emptySheet(newSheetId());
-      return {
-        sheets: [...list, fresh],
-        ...showSheet(fresh),
+      if (e.sheets.length >= MAX_SHEETS) return null;
+      const fresh = {
+        ...emptySheet(newSheetId()),
         // 実行設定 (トランザクション等) は今のシートの設定を引き継ぐ
-        editorOpts: { ...e.editorOpts },
+        editorOpts: { ...activeSheetOf(e).editorOpts },
       };
+      return { sheets: [...e.sheets, fresh], activeSheet: fresh.id };
     });
   };
 
   /** シートを閉じる (最後の1枚は閉じない) */
   const closeSheet = (key: string, id: string) => {
     updateSheets(key, (e) => {
-      const list = storeSheet(e);
-      if (list.length <= 1) return null;
-      const at = list.findIndex((s) => s.id === id);
+      if (e.sheets.length <= 1) return null;
+      const at = e.sheets.findIndex((s) => s.id === id);
       if (at === -1) return null;
-      const rest = list.filter((s) => s.id !== id);
+      const rest = e.sheets.filter((s) => s.id !== id);
       // 閉じたのが表示中でなければ、表示はそのまま
       if (id !== e.activeSheet) return { sheets: rest };
-      return { sheets: rest, ...showSheet(rest[Math.min(at, rest.length - 1)]) };
+      return {
+        sheets: rest,
+        activeSheet: rest[Math.min(at, rest.length - 1)].id,
+      };
     });
   };
 
   /** シートに名前を付ける (空なら自動の見出しに戻る) */
-  const renameSheet = (key: string, id: string, title: string) => {
-    setTabs((ts) =>
-      ts.map((t) => {
-        if (t.key !== key) return t;
-        // 一覧にまだ無い (最初のシート) 場合はここで足してから付ける
-        const e = t.editor;
-        const list = e.sheets.some((s) => s.id === e.activeSheet)
-          ? e.sheets
-          : [...e.sheets, currentSheet(e)];
-        return {
-          ...t,
-          editor: {
-            ...e,
-            sheets: list.map((s) => (s.id === id ? { ...s, title } : s)),
-          },
-        };
-      })
-    );
-  };
+  const renameSheet = (key: string, id: string, title: string) =>
+    dispatch({
+      type: "editSheets",
+      key,
+      edit: (e) => ({
+        sheets: e.sheets.map((s) => (s.id === id ? { ...s, title } : s)),
+      }),
+    });
 
   const addTab = () => {
     const key = newTabKey();
-    setTabs((ts) => [...ts, emptyTab(key)]);
+    dispatch({ type: "add", tab: emptyTab(key) });
     setActiveKey(key);
   };
 
@@ -495,21 +484,20 @@ function App() {
         /* 無視 */
       }
     }
-    setTabs((ts) => {
-      const rest = ts.filter((t) => t.key !== key);
-      if (rest.length === 0) {
-        const nk = newTabKey();
-        setActiveKey(nk);
-        return [emptyTab(nk)];
-      }
-      setActiveKey((cur) => {
-        if (cur !== key) return cur;
-        const idx = ts.findIndex((t) => t.key === key);
-        const neighbor = rest[Math.min(idx, rest.length - 1)];
-        return neighbor.key;
-      });
-      return rest;
-    });
+    const list = tabsRef.current;
+    const rest = list.filter((t) => t.key !== key);
+    // 最後の1枚を閉じたときは、空のタブを1つ作って置き換える
+    if (rest.length === 0) {
+      const nk = newTabKey();
+      dispatch({ type: "replace", tabs: [emptyTab(nk)] });
+      setActiveKey(nk);
+      return;
+    }
+    // 閉じたのが表示中のタブなら、隣のタブへ移る
+    const idx = list.findIndex((t) => t.key === key);
+    const neighbor = rest[Math.min(idx, rest.length - 1)];
+    setActiveKey((cur) => (cur === key ? neighbor.key : cur));
+    dispatch({ type: "close", key });
   };
 
   // ---------- 未接続タブ(接続選択)の操作 ----------
@@ -548,9 +536,16 @@ function App() {
     updateTab(key, { busy: "test", testResult: null, error: null });
     try {
       const result = await testConnection(tab.profile);
+      // 初回接続 (ホスト鍵が未記録) は、確認してもらってからやり直す
+      const unknown = parseUnknownHost(result.message);
+      if (unknown) {
+        setSshTrust({ ...unknown, key, profile: tab.profile, then: "test" });
+        updateTab(key, { busy: null, testResult: null });
+        return;
+      }
       updateTab(key, { testResult: result, busy: null });
     } catch (e) {
-      updateTab(key, { error: String(e), busy: null });
+      updateTab(key, { error: stripHostMark(String(e)), busy: null });
     }
   };
 
@@ -585,6 +580,13 @@ function App() {
         await loadTables(key, selectedDb);
       }
     } catch (e) {
+      // 初回接続 (ホスト鍵が未記録) は、確認してもらってからやり直す
+      const unknown = parseUnknownHost(String(e));
+      if (unknown) {
+        setSshTrust({ ...unknown, key, profile, then: "connect" });
+        updateTab(key, { busy: null, error: null });
+        return;
+      }
       updateTab(key, { error: String(e), busy: null });
     }
   };
@@ -593,7 +595,8 @@ function App() {
 
   const loadTables = async (key: string, database: string) => {
     // ValkeyはDB番号の切替のみ (キー一覧はKvSessionView側でSCANする)
-    const tab = tabs.find((tb) => tb.key === key);
+    // 常に最新のタブを見る (作った直後のタブは state にまだ載っていない)
+    const tab = tabOf(key);
     if (tab?.profile.dbType === "valkey") {
       updateTab(key, { selectedDb: database, error: null });
       return;
@@ -621,8 +624,10 @@ function App() {
    * 選択中のテーブルや表示中の内容は、一覧に残っている限り維持する
    */
   const reloadTables = async (key: string) => {
-    const tab = tabs.find((tb) => tb.key === key);
+    const tab = tabOf(key);
     if (!tab?.selectedDb || tab.profile.dbType === "valkey") return;
+    // テーブルが増減している = 定義が変わっているので、控えは捨てる
+    dropSchemaCache(key);
     try {
       const tables = await listTables(key, tab.selectedDb);
       const stillExists =
@@ -631,6 +636,9 @@ function App() {
       updateTab(key, {
         tables,
         error: null,
+        // カラム説明も作り直す (次にSQLを実行したときに読み直す)
+        columnTips: {},
+        columnTipsDb: null,
         // 消えたテーブルを選んだままにしない
         ...(stillExists
           ? {}
@@ -650,7 +658,16 @@ function App() {
     const tab = tabOf(key);
     const table = tab?.tables.find((t) => tableKey(t) === tab.selectedTable);
     if (!tab?.selectedDb || !table) return;
-    updateTab(key, { loadingDetail: true, error: null });
+    // 定義が変わっているので、スキーマの控えとカラム説明を作り直す
+    dropSchemaCache(key);
+    updateTab(key, {
+      loadingDetail: true,
+      error: null,
+      columnTips: {},
+      columnTipsDb: null,
+      // 入力補完のカラム一覧も取り直す (テーブル名が同じままでも中身が変わる)
+      schemaRev: tab.schemaRev + 1,
+    });
     try {
       const detail = await tableDetail(
         key,
@@ -666,7 +683,8 @@ function App() {
 
   /** テーブル選択 → 構造を読み込む (データタブを開いていればデータも取得する) */
   const handleSelectTable = async (key: string, t: TableInfo) => {
-    const tab = tabs.find((tb) => tb.key === key);
+    // 常に最新のタブを見る (作った直後のタブは state にまだ載っていない)
+    const tab = tabOf(key);
     if (!tab?.selectedDb) return;
     updateTab(key, {
       selectedTable: tableKey(t),
@@ -719,6 +737,7 @@ function App() {
     const view = tab.view;
     handleSelectTable(tab.key, target);
     updateTab(tab.key, { restore: undefined, view });
+    // 復元は一覧が届いたときだけ試す (選択の関数は毎回作り直される)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs]);
 
@@ -742,6 +761,8 @@ function App() {
   ) => {
     const tab = tabOf(key);
     if (!tab?.selectedDb) return;
+    const scope = `${key}:data`;
+    const seq = startReq(scope);
     patchData(key, { loading: true, error: null });
     try {
       const out = await runQuery(
@@ -752,6 +773,8 @@ function App() {
         orderBy,
         orderDir
       );
+      // 後から投げたぶんが先に表示されているなら、この結果はもう古い
+      if (!isLatestReq(scope, seq)) return;
       const first = out.statements[0];
       if (out.error || !first) {
         patchData(key, {
@@ -762,6 +785,7 @@ function App() {
       }
       patchData(key, { data: first.result, loading: false, error: null });
     } catch (e) {
+      if (!isLatestReq(scope, seq)) return;
       patchData(key, { loading: false, error: String(e) });
     }
   };
@@ -807,7 +831,10 @@ function App() {
     explain?: "explain" | "analyze"
   ) => {
     const tab = tabOf(key);
-    const sql = (sqlOverride ?? tab?.editor.sql ?? "").trim();
+    const sql = (
+      sqlOverride ??
+      (tab ? activeSheetOf(tab.editor).sql : "")
+    ).trim();
     if (!tab || !sql) return;
     // パラメータ (:name / @name) があれば入力モーダルを出してから実行する
     const params = extractParams(sql);
@@ -907,9 +934,8 @@ function App() {
     // 実行履歴に記録する (失敗しても実行は続ける)
     addSqlHistory(sql).catch(() => {});
     // 前回の実行結果はクリアしてから実行する
-    patchEditor(key, {
-      running: true,
-      startedAt: Date.now(),
+    patchEditor(key, { running: true, startedAt: Date.now() });
+    patchSheet(key, {
       queryError: null,
       queryResults: null,
       queryExplain: explain ?? null,
@@ -926,19 +952,16 @@ function App() {
         explain,
         params
       );
-      patchEditor(key, {
+      patchEditor(key, { running: false });
+      patchSheet(key, {
         queryResults: out.statements.length > 0 ? out.statements : null,
         queryError: out.error ?? null,
-        running: false,
       });
       // ヘッダのツールチップ用にカラム説明を用意しておく (失敗しても実行結果には影響しない)
       if (tab.selectedDb) ensureColumnTips(key, tab.selectedDb);
     } catch (e) {
-      patchEditor(key, {
-        queryResults: null,
-        queryError: String(e),
-        running: false,
-      });
+      patchEditor(key, { running: false });
+      patchSheet(key, { queryResults: null, queryError: String(e) });
     }
   };
 
@@ -976,13 +999,13 @@ function App() {
     orderDir: string | undefined
   ) => {
     const tab = tabOf(key);
-    const stmt = tab?.editor.queryResults?.[index];
-    if (!tab || !stmt) return;
-    patchEditor(key, {
-      running: true,
-      startedAt: Date.now(),
-      queryError: null,
-    });
+    if (!tab) return;
+    const stmt = activeSheetOf(tab.editor).queryResults?.[index];
+    if (!stmt) return;
+    const scope = `${key}:editor`;
+    const seq = startReq(scope);
+    patchEditor(key, { running: true, startedAt: Date.now() });
+    patchSheet(key, { queryError: null });
     try {
       const out = await runQuery(
         key,
@@ -992,28 +1015,37 @@ function App() {
         orderBy,
         orderDir
       );
+      // 後から投げたぶんが先に表示されているなら、この結果はもう古い
+      if (!isLatestReq(scope, seq)) return;
       const fresh = out.statements[0];
       if (out.error || !fresh) {
-        patchEditor(key, {
-          queryError: out.error ?? "実行に失敗しました",
-          running: false,
-        });
+        patchEditor(key, { running: false });
+        patchSheet(key, { queryError: out.error ?? "実行に失敗しました" });
         return;
       }
-      patchEditor(key, {
-        queryResults: (tab.editor.queryResults ?? []).map((s, i) =>
-          i === index ? { sql: stmt.sql, result: fresh.result } : s
+      // 結果は今の内容に当てる (待っている間に他の文が入れ替わっていることがある)
+      const shown = tabOf(key);
+      patchEditor(key, { running: false });
+      patchSheet(key, {
+        queryResults: (
+          (shown && activeSheetOf(shown.editor).queryResults) ??
+          []
+        ).map((st, i) =>
+          i === index ? { sql: stmt.sql, result: fresh.result } : st
         ),
-        running: false,
       });
     } catch (e) {
-      patchEditor(key, { queryError: String(e), running: false });
+      if (!isLatestReq(scope, seq)) return;
+      patchEditor(key, { running: false });
+      patchSheet(key, { queryError: String(e) });
     }
   };
 
   /** 結果タブ単位のページ送り (現在のソートを維持) */
   const handlePageQuery = (key: string, index: number, offset: number) => {
-    const stmt = tabOf(key)?.editor.queryResults?.[index];
+    const shown = tabOf(key);
+    const stmt =
+      shown && activeSheetOf(shown.editor).queryResults?.[index];
     return rerunStatement(
       key,
       index,
@@ -1051,6 +1083,7 @@ function App() {
       onPage: (offset) => reloadTableData(activeKeyNow, offset),
       onSort: (by, dir) => reloadTableData(activeKeyNow, 0, { by, dir }),
     }),
+    // 中の関数は tabsRef 経由で最新を見るので、依存はこの2つでよい
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeKeyNow, activeTab.tableData]
   );
@@ -1064,9 +1097,64 @@ function App() {
       onClose: (id) => closeSheet(activeKeyNow, id),
       onRename: (id, title) => renameSheet(activeKeyNow, id, title),
     }),
+    // 同上 (シートの操作も最新のタブに対して行う)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeKeyNow, activeTab.editor.sheets, activeTab.editor.activeSheet]
   );
+
+  /*
+   * 表示中のタブに対する操作。
+   * SessionViewへは props ではなく Context で渡す (数が多いため)。
+   * 渡す関数の同一性は useStableActions で保つ
+   * (毎回作り直すと、受け取り側の memo が効かなくなる)
+   */
+  const tabActions = useStableActions({
+    onSelectDb: (db) => loadTables(activeTab.key, db),
+    onOpenSettings: () => setShowSettings(true),
+    onReloadTables: () => reloadTables(activeTab.key),
+    onDatabasesChanged: (list) => {
+      /*
+       * 選んでいたDBが消えていたら、テーブル一覧まで一緒に片付ける
+       * (無くなったDBを選んだまま操作させない)
+       */
+      const gone =
+        activeTab.selectedDb !== null && !list.includes(activeTab.selectedDb);
+      updateTab(activeTab.key, {
+        databases: list,
+        ...(gone
+          ? {
+              selectedDb: null,
+              tables: [],
+              selectedTable: null,
+              tableDetail: null,
+              tableData: emptyTableData(),
+              columnTips: {},
+              columnTipsDb: null,
+            }
+          : {}),
+      });
+    },
+    onReloadDetail: () => reloadTableDetail(activeTab.key),
+    onSendToEditor: (sql) => {
+      patchSheet(activeTab.key, { sql });
+      updateTab(activeTab.key, { view: "query" });
+    },
+    onSelectTable: (t) => handleSelectTable(activeTab.key, t),
+    onToggleQuery: () =>
+      updateTab(activeTab.key, {
+        view: activeTab.view === "query" ? "structure" : "query",
+      }),
+    onChangeSql: (sql) => patchSheet(activeTab.key, { sql }),
+    onChangeEditorOpts: (patch) => patchEditorOpts(activeTab.key, patch),
+    onCancelQuery: () => handleCancelQuery(activeTab.key),
+    onRunQuery: (offset, sqlOverride, transaction, explain) =>
+      handleRunQuery(activeTab.key, offset, sqlOverride, transaction, explain),
+    onPageQuery: (index, offset) =>
+      handlePageQuery(activeTab.key, index, offset),
+    onSortQuery: (index, orderBy, orderDir) =>
+      handleSortQuery(activeTab.key, index, orderBy, orderDir),
+    onChangeTableTab: (v) => handleChangeTableTab(activeTab.key, v),
+  });
 
   return (
     <div className="app">
@@ -1114,7 +1202,7 @@ function App() {
             const key = newTabKey();
             const tab = emptyTab(key);
             tab.profile = structuredClone(p);
-            setTabs((ts) => [...ts, tab]);
+            dispatch({ type: "add", tab });
             setActiveKey(key);
             void handleConnect(key, p);
           }}
@@ -1124,6 +1212,39 @@ function App() {
 
       {showShortcuts && (
         <ShortcutHelp onClose={() => setShowShortcuts(false)} />
+      )}
+
+      {sshTrust && (
+        <ConfirmDialog
+          title="SSH踏み台への初回接続です"
+          target={`${sshTrust.host}:${sshTrust.port}`}
+          confirmLabel="信頼して接続"
+          onConfirm={async () => {
+            await trustSshHost(
+              sshTrust.host,
+              sshTrust.port,
+              sshTrust.fingerprint
+            );
+            const req = sshTrust;
+            setSshTrust(null);
+            if (req.then === "connect") {
+              await handleConnect(req.key, req.profile);
+            } else {
+              await handleTest(req.key);
+            }
+          }}
+          onCancel={() => setSshTrust(null)}
+        >
+          <p>
+            このサーバーのホスト鍵を初めて見ました。
+            管理者から知らされている値と同じかどうかを確認してください。
+          </p>
+          <pre className="mono confirm-sql">{sshTrust.fingerprint}</pre>
+          <p>
+            違う値のときは、通信が第三者に中継されている可能性があります。
+            一度記録すると、次からは鍵が変わった時点で接続を止めます。
+          </p>
+        </ConfirmDialog>
       )}
 
       {showSettings && (
@@ -1150,7 +1271,7 @@ function App() {
           <KvSessionView
             tab={activeTab}
             onSelectDb={(db) => loadTables(activeTab.key, db)}
-            onChangeSql={(sql) => patchEditor(activeTab.key, { sql })}
+            onChangeSql={(sql) => patchSheet(activeTab.key, { sql })}
             onSetConsole={(open) =>
               updateTab(activeTab.key, {
                 view: open ? "query" : "structure",
@@ -1163,67 +1284,13 @@ function App() {
             }
           />
         ) : activeTab.connected ? (
-          <SessionView
-            tab={activeTab}
-            onSelectDb={(db) => loadTables(activeTab.key, db)}
-            onOpenSettings={() => setShowSettings(true)}
-            onReloadTables={() => reloadTables(activeTab.key)}
-            onDatabasesChanged={(list) => {
-              /*
-               * 選んでいたDBが消えていたら、テーブル一覧まで一緒に片付ける
-               * (無くなったDBを選んだまま操作させない)
-               */
-              const gone =
-                activeTab.selectedDb !== null &&
-                !list.includes(activeTab.selectedDb);
-              updateTab(activeTab.key, {
-                databases: list,
-                ...(gone
-                  ? {
-                      selectedDb: null,
-                      tables: [],
-                      selectedTable: null,
-                      tableDetail: null,
-                      tableData: emptyTableData(),
-                      columnTips: {},
-                      columnTipsDb: null,
-                    }
-                  : {}),
-              });
-            }}
-            onReloadDetail={() => reloadTableDetail(activeTab.key)}
-            onSendToEditor={(sql) => {
-              patchEditor(activeTab.key, { sql });
-              updateTab(activeTab.key, { view: "query" });
-            }}
-            onSelectTable={(t) => handleSelectTable(activeTab.key, t)}
-            onToggleQuery={() =>
-              updateTab(activeTab.key, {
-                view: activeTab.view === "query" ? "structure" : "query",
-              })
-            }
-            onChangeSql={(sql) => patchEditor(activeTab.key, { sql })}
-            onChangeEditorOpts={(patch) => patchEditorOpts(activeTab.key, patch)}
-            onCancelQuery={() => handleCancelQuery(activeTab.key)}
-            onRunQuery={(offset, sqlOverride, transaction, explain) =>
-              handleRunQuery(
-                activeTab.key,
-                offset,
-                sqlOverride,
-                transaction,
-                explain
-              )
-            }
-            onPageQuery={(index, offset) =>
-              handlePageQuery(activeTab.key, index, offset)
-            }
-            onSortQuery={(index, orderBy, orderDir) =>
-              handleSortQuery(activeTab.key, index, orderBy, orderDir)
-            }
-            onChangeTableTab={(v) => handleChangeTableTab(activeTab.key, v)}
-            dataPane={dataPane}
-            sheetPane={sheetPane}
-          />
+          <TabActionsProvider value={tabActions}>
+            <SessionView
+              tab={activeTab}
+              dataPane={dataPane}
+              sheetPane={sheetPane}
+            />
+          </TabActionsProvider>
         ) : (
           <ConnectionPicker
             tab={activeTab}

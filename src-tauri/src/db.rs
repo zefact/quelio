@@ -6,6 +6,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
 use sqlx::{ConnectOptions, Connection};
 use tokio::time::{timeout, Duration};
 
+use crate::apperr::{AppError, ErrKind};
 use crate::models::{ConnectionProfile, DbType, TestResult};
 use crate::query_log::QueryLog;
 use crate::ssh_tunnel::{self, SshTunnel};
@@ -167,7 +168,7 @@ pub async fn connect_mysql(
     }
     timeout(CONNECT_TIMEOUT, opts.connect())
         .await
-        .map_err(|_| "DB接続がタイムアウトしました".to_string())?
+        .map_err(|_| crate::apperr::timeout_message("DB接続"))?
         .map_err(format_db_error)
 }
 
@@ -204,7 +205,7 @@ pub async fn connect_pg(
     }
     timeout(CONNECT_TIMEOUT, opts.connect())
         .await
-        .map_err(|_| "DB接続がタイムアウトしました".to_string())?
+        .map_err(|_| crate::apperr::timeout_message("DB接続"))?
         .map_err(format_db_error)
 }
 
@@ -230,7 +231,7 @@ pub async fn connect_sqlite(path: &str, read_only: bool) -> Result<SqliteConnect
         .foreign_keys(true);
     timeout(CONNECT_TIMEOUT, opts.connect())
         .await
-        .map_err(|_| "DB接続がタイムアウトしました".to_string())?
+        .map_err(|_| crate::apperr::timeout_message("DB接続"))?
         .map_err(format_db_error)
 }
 
@@ -413,6 +414,39 @@ fn cancelled_message(e: &dyn sqlx::error::DatabaseError) -> Option<String> {
         return Some(format!("サーバー側で打ち切られました: {msg}"));
     }
     Some(CANCELLED_MSG.to_string())
+}
+
+/// 「そもそもトランザクションが開いていない」という応答か。
+///
+/// COMMIT / ROLLBACK の後始末では、これは失敗ではなく目的達成とみなす。
+/// 文言はDBが返す英語なので、こちらでは変えられない
+pub fn is_no_txn_message(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("no transaction") || m.contains("no active transaction")
+}
+
+/// sqlxのエラーを、種類つきのアプリのエラーにする。
+///
+/// 後始末の分かれ道 (中止・タイムアウト・トランザクション無し) は、
+/// ここで一度だけ見分けて型に持たせる
+pub fn db_error(e: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(db_err) = &e {
+        if let Some(msg) = cancelled_message(db_err.as_ref()) {
+            // 同じSQLSTATEでも、サーバー側のタイムアウトは中止とは別に扱う
+            let kind = if msg == CANCELLED_MSG {
+                ErrKind::Cancelled
+            } else {
+                ErrKind::Timeout
+            };
+            return AppError::new(kind, msg);
+        }
+    }
+    let msg = format_db_error(e);
+    if is_no_txn_message(&msg) {
+        AppError::new(ErrKind::NoTxn, msg)
+    } else {
+        AppError::other(msg)
+    }
 }
 
 pub fn format_db_error(e: sqlx::Error) -> String {

@@ -155,7 +155,7 @@ export function CreateForm({
       {/* 指定は任意なので、名前とは別の行に分けて置く */}
       {withEncoding && (
         <div className="db-admin-opts-row">
-          <label className="db-admin-opt-field">
+          <div className="db-admin-opt-field">
             <span className="db-admin-opt-label">
               {dbType === "mysql" ? "文字コード" : "エンコーディング"}
             </span>
@@ -171,9 +171,9 @@ export function CreateForm({
                 setCollation(DEFAULT);
               }}
             />
-          </label>
+          </div>
           {dbType === "mysql" && (
-            <label className="db-admin-opt-field">
+            <div className="db-admin-opt-field">
               <span className="db-admin-opt-label">照合順序</span>
               <SelectMenu
                 className="select-field mono"
@@ -187,7 +187,7 @@ export function CreateForm({
                 popFixed
                 onChange={setCollation}
               />
-            </label>
+            </div>
           )}
         </div>
       )}

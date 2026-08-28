@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
-import { usePopupPosition } from "../hooks/usePopupPosition";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { kvApply } from "../api";
 import { tryFormatValue } from "../kvFormat";
 import type { KvChange, KvKeyDetail, KvRow } from "../types";
-import { useDismiss } from "../hooks/useDismiss";
+import { GridColumn, GridRow, ResizableGrid } from "./ResizableGrid";
 import {
   useAsyncApply,
   useEscapeCancel,
@@ -97,15 +95,6 @@ export function KvValueGrid({
   const { busy, error, setError, run } = useAsyncApply<KvChange>((change) =>
     kvApply(sessionId, database, change)
   );
-  /** 行の右クリックメニュー */
-  const [menu, setMenu] = useState<{ x: number; y: number; index: number } | null>(
-    null
-  );
-  // メニューが画面の外へはみ出さないように位置を補正する
-  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
-    menu?.x ?? 0,
-    menu?.y ?? 0
-  );
 
   const type = detail.type;
   // stringは値ひとつなので、1列目 (項目) は出さない
@@ -119,7 +108,7 @@ export function KvValueGrid({
     setEdit(null);
     setAdding(null);
     setError(null);
-  }, [detail.key, detail.type]);
+  }, [detail.key, detail.type, setError]);
 
   // 入力欄からフォーカスが外れていてもEscで取り消せるようにする
   useEscapeCancel(
@@ -132,9 +121,6 @@ export function KvValueGrid({
     // 同じEscでキー名の編集まで取り消さない
     { preventDefault: true }
   );
-
-  // メニューは外側クリック・リサイズで閉じる
-  useDismiss(!!menu, () => setMenu(null), { resize: true });
 
   /** 変更を実行する。成功したら詳細を取り直す */
   const apply = async (change: KvChange) => {
@@ -232,6 +218,119 @@ export function KvValueGrid({
   const valueRows = (text: string) =>
     Math.min(Math.max(text.split("\n").length, type === "string" ? 6 : 2), 16);
 
+  /** 追加中の行のキー (行番号と混ざらない文字にする) */
+  const NEW_ROW = "new";
+
+  /** 表示する列 (stringは値ひとつなので項目の列を出さない) */
+  const columns: GridColumn[] = useMemo(() => {
+    const value: GridColumn = {
+      id: "value",
+      label: detail.cols[1],
+      width: 420,
+      wrap: true,
+      cellClass: "kv-cell-b",
+    };
+    return showField
+      ? [
+          {
+            id: "field",
+            label: detail.cols[0],
+            width: 200,
+            wrap: true,
+            cellClass: "kv-cell-a",
+          },
+          value,
+        ]
+      : [value];
+  }, [detail.cols, showField]);
+
+  /** 編集中の行のセル (項目名を書き換えられる型だけ入力欄にする) */
+  const editCells = (): ReactNode[] => {
+    if (!edit) return [];
+    const cells: ReactNode[] = [];
+    if (showField) {
+      cells.push(
+        FIELD_EDITABLE.includes(type) ? (
+          <input
+            className="cell-input mono"
+            autoFocus
+            value={edit.field}
+            onChange={(e) => setEdit({ ...edit, field: e.target.value })}
+            {...editKeys(commitEdit, () => setEdit(null))}
+          />
+        ) : (
+          edit.field
+        )
+      );
+    }
+    cells.push(
+      <textarea
+        className="cell-input cell-textarea mono"
+        autoFocus={!FIELD_EDITABLE.includes(type)}
+        rows={valueRows(edit.value)}
+        value={edit.value}
+        onChange={(e) => setEdit({ ...edit, value: e.target.value })}
+        {...editKeys(commitEdit, () => setEdit(null))}
+      />
+    );
+    return cells;
+  };
+
+  /** 追加中の行のセル */
+  const addCells = (): ReactNode[] => {
+    if (!adding) return [];
+    const cells: ReactNode[] = [];
+    if (showField) {
+      cells.push(
+        needField ? (
+          <input
+            className="cell-input mono"
+            autoFocus
+            placeholder={addFieldLabel(type)}
+            value={adding.field}
+            onChange={(e) => setAdding({ ...adding, field: e.target.value })}
+            {...editKeys(commitAdd, () => setAdding(null))}
+          />
+        ) : (
+          <span className="kv-cell-dim">自動</span>
+        )
+      );
+    }
+    cells.push(
+      <textarea
+        className="cell-input cell-textarea mono"
+        autoFocus={!needField}
+        rows={valueRows(adding.value)}
+        placeholder="値"
+        value={adding.value}
+        onChange={(e) => setAdding({ ...adding, value: e.target.value })}
+        {...editKeys(commitAdd, () => setAdding(null))}
+      />
+    );
+    return cells;
+  };
+
+  /** グリッドに渡す行 (編集中の行は入力欄に差し替え、追加中の行は末尾に足す) */
+  const rows: GridRow[] = detail.rows.map(([a, b], i) => {
+    if (edit?.index === i) {
+      return { key: String(i), className: "row-editing", cells: editCells() };
+    }
+    const cells: ReactNode[] = [];
+    if (showField) cells.push(a);
+    cells.push(pretty ? (formatted[i] ?? b) : b);
+    return { key: String(i), cells };
+  });
+  if (adding) {
+    rows.push({ key: NEW_ROW, className: "row-new", cells: addCells() });
+  }
+
+  /** コピー用の元の値 (整形前の、サーバーから来たそのままの値) */
+  const rowValueOf = (key: string) => {
+    const row = detail.rows[Number(key)];
+    if (!row) return undefined;
+    return showField ? [row[0], row[1]] : [row[1]];
+  };
+
   return (
     <>
       <div className="kv-value-bar">
@@ -261,125 +360,31 @@ export function KvValueGrid({
         </div>
       )}
 
-      <div className="grid-wrap kv-value-wrap">
-        <table className="grid mono kv-value-grid">
-          <thead>
-            <tr>
-              {showField && <th>{detail.cols[0]}</th>}
-              <th>{detail.cols[1]}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detail.rows.map(([a, b], i) =>
-              edit?.index === i ? (
-                <tr key={i} className="row-editing">
-                  {showField && (
-                    <td className="kv-cell-a">
-                      {FIELD_EDITABLE.includes(type) ? (
-                        <input
-                          className="cell-input mono"
-                          autoFocus
-                          value={edit.field}
-                          onChange={(e) =>
-                            setEdit({ ...edit, field: e.target.value })
-                          }
-                          {...editKeys(commitEdit, () => setEdit(null))}
-                        />
-                      ) : (
-                        a
-                      )}
-                    </td>
-                  )}
-                  <td className="kv-cell-b">
-                    <textarea
-                      className="cell-input cell-textarea mono"
-                      autoFocus={!FIELD_EDITABLE.includes(type)}
-                      rows={valueRows(edit.value)}
-                      value={edit.value}
-                      onChange={(e) =>
-                        setEdit({ ...edit, value: e.target.value })
-                      }
-                      {...editKeys(commitEdit, () => setEdit(null))}
-                    />
-                  </td>
-                </tr>
-              ) : (
-                <tr
-                  key={i}
-                  onDoubleClick={() => startEdit(i)}
-                  onContextMenu={(e) => {
-                    if (!canRemove) return;
-                    e.preventDefault();
-                    setMenu({ x: e.clientX, y: e.clientY, index: i });
-                  }}
-                >
-                  {showField && <td className="kv-cell-a">{a}</td>}
-                  <td className="kv-cell-b">
-                    {pretty ? (formatted[i] ?? b) : b}
-                  </td>
-                </tr>
-              )
-            )}
-            {adding && (
-              <tr className="row-new">
-                {showField && (
-                <td className="kv-cell-a">
-                  {needField ? (
-                    <input
-                      className="cell-input mono"
-                      autoFocus
-                      placeholder={addFieldLabel(type)}
-                      value={adding.field}
-                      onChange={(e) =>
-                        setAdding({ ...adding, field: e.target.value })
-                      }
-                      {...editKeys(commitAdd, () => setAdding(null))}
-                    />
-                  ) : (
-                    <span className="kv-cell-dim">自動</span>
-                  )}
-                </td>
-                )}
-                <td className="kv-cell-b">
-                  <textarea
-                    className="cell-input cell-textarea mono"
-                    autoFocus={!needField}
-                    rows={valueRows(adding.value)}
-                    placeholder="値"
-                    value={adding.value}
-                    onChange={(e) =>
-                      setAdding({ ...adding, value: e.target.value })
-                    }
-                    {...editKeys(commitAdd, () => setAdding(null))}
-                  />
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {menu &&
-        createPortal(
-          <div
-            className="context-menu"
-            ref={menuRef}
-            style={menuStyle}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <button
-              className="context-item danger"
-              onClick={() => {
-                const i = menu.index;
-                setMenu(null);
-                removeRow(i);
-              }}
-            >
-              この要素を削除
-            </button>
-          </div>,
-          document.body
-        )}
+      <ResizableGrid
+        columns={columns}
+        rows={rows}
+        wrapClass="kv-value-wrap"
+        emptyText="値がありません"
+        // 編集中は行選択のショートカット (⌘A/⌘C) が入力の邪魔になるので切る
+        selectable={!edit && !adding}
+        rowValues={rowValueOf}
+        // 追加中の行は末尾にあるので、切り詰めても必ず描く
+        pinLastRow={!!adding}
+        onCellDoubleClick={(key) => {
+          if (key !== NEW_ROW) startEdit(Number(key));
+        }}
+        rowMenuItems={(key) =>
+          canRemove && key !== NEW_ROW
+            ? [
+                {
+                  label: "この要素を削除",
+                  danger: true,
+                  onSelect: () => removeRow(Number(key)),
+                },
+              ]
+            : []
+        }
+      />
     </>
   );
 }

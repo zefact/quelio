@@ -1,0 +1,277 @@
+/* カラム変更 (DDL) とインデックスの指定 */
+
+/* ---- データ編集 ---- */
+
+/* null と入力した欄は、値ではなくNULLだと分かるようにする */
+.cell-input.is-null {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* インデックスの対象カラム (順序が分かるよう番号付きのチップで並べる) */
+/* 1カラムずつ縦に並べる (順序が上から読める) */
+.index-col-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+
+.index-col-chip {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 8px 2px 3px;
+  border: 1px solid var(--border);
+  /* 折り返しても不格好にならないよう、角丸は控えめにする */
+  border-radius: var(--radius-xs);
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-all;
+}
+
+/* 単一カラムのときは番号を出さないので、左右の余白をそろえる */
+.index-col-chip:not(:has(.index-col-seq)) {
+  padding-left: 8px;
+}
+
+.index-col-seq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  /* 折り返しても先頭行の高さに合わせる */
+  margin-top: 1px;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.18);
+  color: var(--accent);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+/* インデックスの対象カラムを選ぶボタン (セルいっぱいに広げる) */
+.cell-pick {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 11px;
+  border: none;
+  border-radius: 0;
+  background: var(--input-bg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cell-pick:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.cell-pick.empty {
+  color: var(--text-faint);
+}
+
+.cell-pick:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---- 対象カラムを選ぶダイアログ ---- */
+
+.index-cols-modal {
+  width: min(560px, calc(100vw - 60px));
+}
+
+.index-cols-modal:focus {
+  outline: none;
+}
+
+.index-cols-body {
+  margin-bottom: 14px;
+}
+
+.index-cols-pane + .index-cols-pane {
+  margin-top: 14px;
+}
+
+.index-cols-empty {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-btn);
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+/* 選択済み (順序どおり) */
+.index-cols-picked {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn);
+  overflow: hidden;
+}
+
+.index-cols-picked li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 8px 5px 10px;
+  background: var(--bg-card);
+}
+
+.index-cols-picked li + li {
+  border-top: 1px solid var(--border);
+}
+
+.index-cols-no {
+  flex: none;
+  width: 18px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.index-cols-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 追加できるカラム */
+.index-cols-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  max-height: 190px;
+  overflow-y: auto;
+}
+
+.index-cols-choice {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.index-cols-choice:hover {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.index-cols-type {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+/* 型名の候補ドロップダウン (セルの外に出すので幅で切れない) */
+.type-suggest {
+  /* 高さは画面の余白に合わせてJS側で指定する */
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.type-suggest .context-item {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+/* セルいっぱいに広がる選択欄 (MySQLの属性) */
+.cell-select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 0;
+  background: var(--input-bg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.cell-select:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.cell-select:disabled {
+  opacity: 0.6;
+}
+
+.cell-check {
+  display: block;
+  width: 14px;
+  height: 14px;
+  margin: 9px auto;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* テーブルの既定と違う照合順序 (見落とさないよう濃く出す) */
+.collation-diff {
+  color: var(--text);
+}
+
+/* 編集中は変更できない列 (キー・属性・照合順序など) */
+.cell-locked {
+  color: var(--text-faint);
+  opacity: 0.5;
+}
+
+/* 右クリックメニューの削除項目 */
+.context-item.danger {
+  color: var(--danger);
+}
+
+/* 「カラム追加」ボタン (見出しの右) */
+.ddl-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink), 0.05);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.ddl-add-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: rgba(var(--ink), 0.3);
+}
+
+/* 別の行を編集中は押せない */
+.ddl-add-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

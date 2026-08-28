@@ -41,6 +41,7 @@ export function DdlDialog({ table, onLoad, onClose }: Props) {
     return () => {
       alive = false;
     };
+    // 対象テーブルが変わったときだけ作り直す
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [table]);
 

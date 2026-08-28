@@ -7,8 +7,6 @@ interface Props {
   /** 表に出していないシートも含めた一覧 (表示中は activeId で示す) */
   sheets: QuerySheet[];
   activeId: string;
-  /** 表示中のシートのSQL (見出しを自動で作るのに使う) */
-  activeSql: string;
   /** 実行中はシートを切り替えない (結果の行き先が変わってしまうため) */
   running: boolean;
   onSelect: (id: string) => void;
@@ -36,7 +34,6 @@ function autoTitle(sql: string): string {
 export function SheetTabs({
   sheets,
   activeId,
-  activeSql,
   running,
   onSelect,
   onAdd,
@@ -51,8 +48,8 @@ export function SheetTabs({
   // 表示中のシートは必ず一覧にいる (emptyTab / workspace で1枚は用意する)
   const list = sheets;
 
-  const label = (s: QuerySheet) =>
-    s.title || autoTitle(s.id === activeId ? activeSql : s.sql);
+  // 書きかけのSQLはシート自身が持っているので、表示中かどうかで分けなくてよい
+  const label = (s: QuerySheet) => s.title || autoTitle(s.sql);
 
   return (
     <div className="sheet-tabs">

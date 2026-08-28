@@ -178,7 +178,7 @@ function TableDataViewInner({
     setEditing(null);
     setEditError(null);
     setCellView(null);
-  }, [data]);
+  }, [data, setEditError]);
 
   // フォーカスが外れていてもEscで編集を取り消せるようにする
   useEscapeCancel(
@@ -426,6 +426,20 @@ function TableDataViewInner({
     [data, showRowNumbers, offset]
   );
 
+  /*
+   * コピー用の元の値 (行キー → 表示している列の並び)。
+   * 編集中は入力欄の中身が正なので渡さない (画面から読み取らせる)
+   */
+  const rowValueOf = useMemo(() => {
+    const rows = data?.rows ?? [];
+    return (key: string) => {
+      const cells = rows[Number(key)];
+      if (!cells) return undefined;
+      // 行番号の列はコピー対象外なので、位置合わせの空文字を置く
+      return showRowNumbers ? ["", ...cells] : cells;
+    };
+  }, [data, showRowNumbers]);
+
   const editRowClass =
     "row-editing" + (busy ? " busy" : "") + (editError ? " has-error" : "");
   const rows: GridRow[] = !editing
@@ -470,7 +484,8 @@ function TableDataViewInner({
           onKeyDown={(e) => {
             // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
             if (e.nativeEvent.isComposing) return;
-            if (e.key === "Enter") onApplyWhere();
+            // 取得中は受け付けない (連打すると古い結果が後から表示されうる)
+            if (e.key === "Enter" && !loading) onApplyWhere();
           }}
         />
         <button
@@ -633,6 +648,7 @@ function TableDataViewInner({
             sort={sort}
             onSortSelect={selectSort}
             rows={rows}
+            rowValues={editing ? undefined : rowValueOf}
             clippedRowKeys={clippedRows}
             // まず200行だけ描き、スクロールに合わせて継ぎ足す
             maxRenderRows={200}

@@ -96,6 +96,59 @@ pub fn load(app: &AppHandle) -> Result<ConnectionStore, String> {
     Ok(store)
 }
 
+/// 画面へ渡す前に秘匿値を伏せる。
+///
+/// パスワードとパスフレーズを使うのはバックエンドだけなので、
+/// 一覧を取るたびに全接続分を画面へ送る必要はない。
+/// 「保存済みである」ことだけを目印で伝える
+pub fn mask_secrets(store: &mut ConnectionStore) {
+    for c in &mut store.connections {
+        c.password_saved = !c.password.is_empty();
+        c.password = String::new();
+        if let Some(ssh) = &mut c.ssh {
+            c.passphrase_saved = ssh.passphrase.as_deref().is_some_and(|p| !p.is_empty());
+            ssh.passphrase = None;
+        }
+    }
+}
+
+/// 伏せた秘匿値を、保存済みの内容から戻す。
+///
+/// 画面は「変更していない」ものを目印付きで返してくるので、
+/// そのときだけ保存済みの値を補う (入力し直した値はそのまま使う)
+pub fn restore_secrets(
+    app: &AppHandle,
+    profile: &mut ConnectionProfile,
+) -> Result<(), String> {
+    if !profile.password_saved && !profile.passphrase_saved {
+        return Ok(());
+    }
+    if profile.id.is_empty() {
+        // 新規の接続先には、補える保存済みの値が無い
+        profile.password_saved = false;
+        profile.passphrase_saved = false;
+        return Ok(());
+    }
+    let store = load(app)?;
+    let Some(saved) = store.connections.iter().find(|c| c.id == profile.id) else {
+        profile.password_saved = false;
+        profile.passphrase_saved = false;
+        return Ok(());
+    };
+    if profile.password_saved {
+        profile.password = saved.password.clone();
+        // 保存済みの値が復号できていなければ、その状態も引き継ぐ
+        profile.password_locked = profile.password_locked || saved.password_locked;
+    }
+    if profile.passphrase_saved {
+        if let Some(ssh) = &mut profile.ssh {
+            ssh.passphrase = saved.ssh.as_ref().and_then(|s| s.passphrase.clone());
+        }
+        profile.password_locked = profile.password_locked || saved.password_locked;
+    }
+    Ok(())
+}
+
 /// 接続先一式を保存する (パスワード・SSHパスフレーズは暗号化して書き込む)
 pub fn save(app: &AppHandle, store: &ConnectionStore) -> Result<(), String> {
     let keys = crypto::master_keys(app)?;
@@ -112,6 +165,8 @@ pub fn save(app: &AppHandle, store: &ConnectionStore) -> Result<(), String> {
         }
         // 実行時の目印なので保存はしない
         c.password_locked = false;
+        c.password_saved = false;
+        c.passphrase_saved = false;
     }
     let path = store_path(app)?;
     let text = serde_json::to_string_pretty(&enc)

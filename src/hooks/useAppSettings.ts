@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getAppSettings, saveAppSettings } from "../api";
 import type { Notify } from "../notify";
+import { defaultSqlFormat } from "../types";
 import type { AppSettings } from "../types";
 
 /** 読み込み前に使う既定値 (バックエンドの既定と揃えておく) */
@@ -13,7 +14,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autocompleteEnabled: true,
   autocompleteDelayMs: 100,
   confirmAlter: true,
-  restoreTabs: false,
+  restoreSheets: false,
+  sqlFormat: defaultSqlFormat(),
 };
 
 /**

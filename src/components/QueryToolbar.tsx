@@ -1,7 +1,7 @@
 import { ElapsedTimer } from "./ElapsedTimer";
 import { RevealButton } from "./RevealButton";
 import { RunSplitButton, type RunSplitOption } from "./RunSplitButton";
-import { SqlLibraryMenu } from "./SqlLibraryMenu";
+import { SqlLibraryMenu } from "./sqlLibrary/SqlLibraryMenu";
 import type { EditorOptions } from "../types";
 import { MOD, SHIFT } from "../keyLabel";
 

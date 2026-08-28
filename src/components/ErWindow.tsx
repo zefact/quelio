@@ -21,6 +21,7 @@ import type {
 } from "../types";
 import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
 import { rafThrottle } from "../rafThrottle";
+import { drawErPng } from "../er/exportPng";
 import { usePolling } from "../hooks/usePolling";
 import { useDismiss } from "../hooks/useDismiss";
 import { useErPersistence } from "../hooks/useErPersistence";
@@ -38,12 +39,15 @@ import type { ErCtxMenu } from "./erMenu/types";
 import { ErEdgeLayer } from "./ErEdgeLayer";
 import { ErToolbar } from "./ErToolbar";
 import { ErNodeView } from "./ErNodeView";
+import { ErFrameLayer, type FrameHandlers } from "./ErFrameLayer";
+import { ErPageTabs } from "./ErPageTabs";
+import { useEvent } from "../hooks/useEvent";
+import { useErViewport } from "../er/useErViewport";
+import { useErSelection } from "../er/useErSelection";
 
 import {
   buildEdges,
   buildNodes,
-  charUnits,
-  colMarker,
   edgeKey,
   ErEdge,
   ErNode,
@@ -55,7 +59,6 @@ import {
   anchorY,
   AnchoredPt,
   colSideAnchor,
-  edgePath,
   edgePoints,
   nearestBorderAnchor,
   pathClear,
@@ -64,7 +67,7 @@ import {
   routeAvoid,
   verticalSegments,
 } from "../er/geometry";
-import { FILL_ALPHA, hexAlpha } from "../er/style";
+
 
 /** ER図ウィンドウ (DB全体のテーブルとリレーションを描画・PNG出力) */
 export function ErWindow() {
@@ -88,9 +91,18 @@ export function ErWindow() {
   // ドラッグで動かしたノードの位置 (自動レイアウトへの上書き。state更新は再描画トリガrevで行う)
   const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const [rev, setRev] = useState(0);
-  // 表示変換 (パン・ズーム)
-  const [view, setView] = useState({ x: 40, y: 20, scale: 0.8 });
-  const canvasRef = useRef<HTMLDivElement>(null);
+  // 表示 (パン・ズーム) の扱いはまとめてフックへ
+  const {
+    view,
+    viewRef,
+    canvasRef,
+    toWorld,
+    zoomBy,
+    fitTo,
+    startPan,
+    panBy,
+    useWheel,
+  } = useErViewport();
 
   const session = sessions.find((s) => s.sessionId === sel.sessionId);
   // コメントの区切り文字は設定で変わる (別ウィンドウでの変更にも追従する)
@@ -116,11 +128,6 @@ export function ErWindow() {
   /** 削除確認ダイアログ (タブ・テーブル・線・枠などの削除前に出す)。
    * subを指定するとサブテキストを差し替えられる (既定は「元に戻せません」) */
   const [confirm, setConfirm] = useState<ErConfirm | null>(null);
-  /** タブ名のインライン編集 */
-  const [tabEditingId, setTabEditingId] = useState<string | null>(null);
-  const [tabEditText, setTabEditText] = useState("");
-  /** ドラッグで並べ替え中のタブindex */
-  const dragTabIdxRef = useRef<number | null>(null);
   // 保存用に最新のスキーマを参照できるようにしておく (ドラッグ終了時などに使う)
   const entriesRef = useRef<SchemaEntry[] | null>(null);
   entriesRef.current = entries;
@@ -128,24 +135,20 @@ export function ErWindow() {
   fksRef.current = fks;
   /** 全体フィット表示のトリガ (読み込み/新規作成時に+1する) */
   const [fitTick, setFitTick] = useState(0);
-  /** 選択中のリレーション (edgesのindex。背景クリックで解除) */
-  const [selEdge, setSelEdge] = useState<number | null>(null);
-  /** 複数選択中のリレーション (Shift+ドラッグの矩形選択で入る) */
-  const [selEdges, setSelEdges] = useState<Set<number>>(new Set());
-  /** 選択中のテーブル (複数可。背景クリックで解除) */
-  const [selNodes, setSelNodes] = useState<Set<string>>(new Set());
-  /** 矩形選択中の範囲 (ワールド座標) */
-  const [band, setBand] = useState<{
-    x0: number;
-    y0: number;
-    x1: number;
-    y1: number;
-  } | null>(null);
-  /** 選択中のカラム行 (クリックで選択。もう一度クリック/背景クリックで解除) */
-  const [selCol, setSelCol] = useState<{
-    table: string;
-    column: string;
-  } | null>(null);
+  // 選択 (リレーション・テーブル・カラム行・矩形) はまとめてフックへ
+  const {
+    selEdge,
+    setSelEdge,
+    selEdges,
+    setSelEdges,
+    selNodes,
+    setSelNodes,
+    band,
+    setBand,
+    selCol,
+    setSelCol,
+    clearAll: clearSelection,
+  } = useErSelection();
   /** 削除した自動検出リレーションのキー */
   const [removedEdges, setRemovedEdges] = useState<Set<string>>(new Set());
   /** 図から削除したテーブル名 (リバースしても再追加しない) */
@@ -227,10 +230,7 @@ export function ErWindow() {
     setFrames(d.frames ?? []);
     setEntries(d.entries.length > 0 ? d.entries : null);
     setFks(d.fks ?? []);
-    setSelEdge(null);
-    setSelEdges(new Set());
-    setSelNodes(new Set());
-    setSelCol(null);
+    clearSelection();
     setRev((r) => r + 1);
   };
 
@@ -278,14 +278,6 @@ export function ErWindow() {
   };
 
 
-  /** タブ名の変更を確定する */
-  const commitTabRename = () => {
-    if (tabEditingId === null) return;
-    const name = tabEditText.trim();
-    if (name) store.renamePage(tabEditingId, name);
-    setTabEditingId(null);
-  };
-
   // 通知は右上のトーストとして表示し、5秒で自動的に消す
   useEffect(() => {
     if (!notice) return;
@@ -304,25 +296,11 @@ export function ErWindow() {
       const c = canvas.getBoundingClientRect();
       const dx = c.left + c.width / 2 - (r.left + r.width / 2);
       const dy = c.top + c.height / 2 - (r.top + r.height / 2);
-      setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
+      panBy(dx, dy);
     };
     window.addEventListener("quelio-find-reveal-er", onReveal);
     return () => window.removeEventListener("quelio-find-reveal-er", onReveal);
-  }, []);
-
-  // タブの並べ替えドラッグ終了時に保存する
-  const saveAfterTabDragRef = useRef(() => {});
-  saveAfterTabDragRef.current = store.saveAfterReorder;
-  useEffect(() => {
-    const up = () => {
-      if (dragTabIdxRef.current !== null) {
-        dragTabIdxRef.current = null;
-        saveAfterTabDragRef.current();
-      }
-    };
-    document.addEventListener("mouseup", up);
-    return () => document.removeEventListener("mouseup", up);
-  }, []);
+  }, [canvasRef, panBy]);
 
   // 開いたときに、この接続/DBに対応する図が保存済みなら自動で開く
   // (旧形式の「プロファイルID:DB名」キーも引き続き開ける)
@@ -490,6 +468,52 @@ export function ErWindow() {
     return [...auto, ...manual];
   }, [entries, fks, removedEdges, customEdges]);
 
+  /*
+   * テーブル1つぶんの操作。
+   *
+   * ErNodeView は memo してあるので、描画のたびに新しい関数を渡すと
+   * 意味が無くなる。useEvent で関数を固定し、
+   * どのテーブルかは引数で受け取る
+   */
+  const handleNodeMouseDown = useEvent((e: React.MouseEvent, table: string) => {
+    startNodeDrag(e, table);
+  });
+  const handleNodeHover = useEvent((hovered: boolean, table: string) => {
+    setHoverNode((h) => (hovered ? table : h === table ? null : h));
+  });
+  const handleNodeContextMenu = useEvent(
+    (e: React.MouseEvent, table: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setSelNodes((prev) => (prev.has(table) ? prev : new Set([table])));
+      setCtxMenu({ x: e.clientX, y: e.clientY, kind: "node", table });
+    }
+  );
+  const handleColumnClickAt = useEvent((table: string, column: string) => {
+    handleColumnClick(table, column);
+  });
+  const handleColumnContextMenu = useEvent(
+    (ev: React.MouseEvent, table: string, column: string) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      setCtxMenu({
+        x: ev.clientX,
+        y: ev.clientY,
+        kind: "column",
+        table,
+        column,
+      });
+    }
+  );
+  const handleLinkHandleMouseDown = useEvent(
+    (e: React.MouseEvent, table: string, column: string) => {
+      startLinkDrag(e, table, column);
+    }
+  );
+  const handleNodeResize = useEvent((e: React.MouseEvent, table: string) => {
+    startNodeResize(e, table);
+  });
+
   /** ノードの表示位置 (リバース/読み込みで確定した配置。ドラッグで上書き) */
   const posOf = (name: string): { x: number; y: number } =>
     posRef.current.get(name) ?? { x: 20, y: 20 };
@@ -501,8 +525,6 @@ export function ErWindow() {
     if (fitTick === 0 || nodes.length === 0) return;
     if (doneFitRef.current === fitTick) return;
     doneFitRef.current = fitTick;
-    const el = canvasRef.current;
-    if (!el) return;
     let maxX = 400;
     let maxY = 300;
     for (const nd of nodes) {
@@ -511,44 +533,12 @@ export function ErWindow() {
       maxX = Math.max(maxX, p.x + nd.w);
       maxY = Math.max(maxY, p.y + nd.h);
     }
-    const rect = el.getBoundingClientRect();
-    const scale = Math.min(
-      1,
-      (rect.width - 40) / (maxX + 40),
-      (rect.height - 40) / (maxY + 40)
-    );
-    setView({ x: 20, y: 20, scale: Math.max(0.12, scale) });
+    fitTo(maxX, maxY);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitTick, nodes.length]);
 
-  // ホイール/トラックパッド操作 (passiveでないリスナが必要なためrefに直接付ける)。
-  // キャンバスは読み込み完了後にしかDOMに存在しないため、表示状態が変わるたびに付け直す
-  useEffect(() => {
-    const el = canvasRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      // ピンチ (ctrlKey付きwheel) / ⌘・Ctrl+スクロール = ズーム、通常のスクロール = パン
-      if (e.ctrlKey || e.metaKey) {
-        setView((v) => {
-          const factor = Math.exp(-e.deltaY * 0.01);
-          const scale = Math.min(2.5, Math.max(0.12, v.scale * factor));
-          const rect = el.getBoundingClientRect();
-          const mx = e.clientX - rect.left;
-          const my = e.clientY - rect.top;
-          return {
-            scale,
-            x: mx - ((mx - v.x) * scale) / v.scale,
-            y: my - ((my - v.y) * scale) / v.scale,
-          };
-        });
-      } else {
-        setView((v) => ({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY }));
-      }
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [entries, loading]);
+  // 図が出ているあいだ、ホイール操作を受け付ける
+  useWheel([entries, loading]);
 
   /** テーブルを図から削除する (複数可。リバースしても再追加されない) */
   const removeTables = (names: string[]) => deleteSelection([], names);
@@ -593,8 +583,8 @@ export function ErWindow() {
     // 位置はrefに毎回入れ、再描画だけ1フレーム1回に間引く
     const redraw = rafThrottle<void>(() => setRev((r) => r + 1));
     const move = (ev: MouseEvent) => {
-      const dx = (ev.clientX - start.x) / view.scale;
-      const dy = (ev.clientY - start.y) / view.scale;
+      const dx = (ev.clientX - start.x) / viewRef.current.scale;
+      const dy = (ev.clientY - start.y) / viewRef.current.scale;
       for (const [nm, o] of origs) {
         posRef.current.set(nm, { x: o.x + dx, y: o.y + dy });
       }
@@ -675,13 +665,6 @@ export function ErWindow() {
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    const el = canvasRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const toWorld = (cx: number, cy: number) => ({
-      x: (cx - rect.left - view.x) / view.scale,
-      y: (cy - rect.top - view.y) / view.scale,
-    });
     const p0 = toWorld(e.clientX, e.clientY);
     setLinkDrag({ from: { table, column }, x: p0.x, y: p0.y, target: null });
     const move = (ev: MouseEvent) => {
@@ -715,7 +698,7 @@ export function ErWindow() {
     let latest = tableWidths;
     const applyWidth = (x: number) => {
       const w = Math.round(
-        Math.min(1200, Math.max(120, orig + (x - startX) / view.scale))
+        Math.min(1200, Math.max(120, orig + (x - startX) / viewRef.current.scale))
       );
       if (latest[name] === w) return;
       latest = { ...tableWidths, [name]: w };
@@ -1004,10 +987,7 @@ export function ErWindow() {
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") {
         pasteRef.current();
       } else if (e.key === "Escape") {
-        setSelEdge(null);
-        setSelEdges(new Set());
-        setSelNodes(new Set());
-        setSelCol(null);
+        clearSelection();
         setLinkMode(false);
         setLinkSrc(null);
         setCtxMenu(null);
@@ -1017,7 +997,7 @@ export function ErWindow() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [clearSelection]);
 
   /** 表示オプションを切り替えて自動保存する */
   const toggleOpt = (k: "allCols" | "showLogical" | "showTypes") => {
@@ -1175,8 +1155,8 @@ export function ErWindow() {
         x.id === id
           ? {
               ...x,
-              x: orig.x + (ev.clientX - start.x) / view.scale,
-              y: orig.y + (ev.clientY - start.y) / view.scale,
+              x: orig.x + (ev.clientX - start.x) / viewRef.current.scale,
+              y: orig.y + (ev.clientY - start.y) / viewRef.current.scale,
             }
           : x
       );
@@ -1208,8 +1188,14 @@ export function ErWindow() {
         x.id === id
           ? {
               ...x,
-              w: Math.max(120, orig.w + (ev.clientX - start.x) / view.scale),
-              h: Math.max(80, orig.h + (ev.clientY - start.y) / view.scale),
+              w: Math.max(
+                120,
+                orig.w + (ev.clientX - start.x) / viewRef.current.scale
+              ),
+              h: Math.max(
+                80,
+                orig.h + (ev.clientY - start.y) / viewRef.current.scale
+              ),
             }
           : x
       );
@@ -1246,8 +1232,8 @@ export function ErWindow() {
     let latest = anchors;
     const move = (ev: MouseEvent) => {
       const rect = el.getBoundingClientRect();
-      const wx = (ev.clientX - rect.left - view.x) / view.scale;
-      const wy = (ev.clientY - rect.top - view.y) / view.scale;
+      const wx = (ev.clientX - rect.left - viewRef.current.x) / viewRef.current.scale;
+      const wy = (ev.clientY - rect.top - viewRef.current.y) / viewRef.current.scale;
       const a = nearestBorderAnchor(node, posOf(table), wx, wy);
       latest = { ...anchors, [key]: { ...anchors[key], [which]: a } };
       setAnchors(latest);
@@ -1355,32 +1341,9 @@ export function ErWindow() {
     }
   };
 
-  /** キャンバス中央を基準に拡大/縮小する (右下のズームボタン用) */
-  const zoomBy = (factor: number) => {
-    const el = canvasRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const mx = rect.width / 2;
-    const my = rect.height / 2;
-    setView((v) => {
-      const scale = Math.min(2.5, Math.max(0.12, v.scale * factor));
-      return {
-        scale,
-        x: mx - ((mx - v.x) * scale) / v.scale,
-        y: my - ((my - v.y) * scale) / v.scale,
-      };
-    });
-  };
-
   /** Shift+背景ドラッグで矩形選択 (テーブル・線の複数選択) */
   const startBand = (e: React.MouseEvent) => {
-    const el = canvasRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const toWorld = (cx: number, cy: number) => ({
-      x: (cx - rect.left - view.x) / view.scale,
-      y: (cy - rect.top - view.y) / view.scale,
-    });
+    if (!canvasRef.current) return;
     const p0 = toWorld(e.clientX, e.clientY);
     setBand({ x0: p0.x, y0: p0.y, x1: p0.x, y1: p0.y });
     const move = (ev: MouseEvent) => {
@@ -1437,45 +1400,18 @@ export function ErWindow() {
     document.addEventListener("mouseup", up, { once: true });
   };
 
-  /** 背景ドラッグで範囲選択 (Shift+ドラッグ・中ボタンドラッグはパン) */
-  const startPan = (e: React.MouseEvent) => {
+  /** 背景を押したとき (左ドラッグ=範囲選択、Shift・中ボタン=図の移動) */
+  const handleBackgroundMouseDown = (e: React.MouseEvent) => {
     if (e.target !== e.currentTarget) return;
     if (e.button === 2) return;
     // 背景クリックでリレーション・テーブル・カラム行の選択を解除する
-    setSelEdge(null);
-    setSelEdges(new Set());
-    setSelNodes(new Set());
-    setSelCol(null);
+    clearSelection();
     e.preventDefault();
     if (e.button === 0 && !e.shiftKey) {
       startBand(e);
       return;
     }
-    const start = { x: e.clientX, y: e.clientY };
-    const orig = { ...view };
-    // 表示位置の更新も1フレーム1回に間引く
-    const apply = rafThrottle<[number, number]>(([x, y]) =>
-      setView({ ...orig, x: orig.x + x, y: orig.y + y })
-    );
-    let moved = false;
-    const move = (ev: MouseEvent) => {
-      moved = true;
-      apply.run([ev.clientX - start.x, ev.clientY - start.y]);
-    };
-    const up = (ev: MouseEvent) => {
-      apply.cancel();
-      document.removeEventListener("mousemove", move);
-      // 動かしていなければ何もしない (押しただけで再描画しない)
-      if (!moved) return;
-      // 間引きで取りこぼした最後の位置をここで確定させる
-      setView({
-        ...orig,
-        x: orig.x + (ev.clientX - start.x),
-        y: orig.y + (ev.clientY - start.y),
-      });
-    };
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", up, { once: true });
+    startPan(e);
   };
 
   /** コンテンツ全体のバウンディングボックス */
@@ -1575,188 +1511,19 @@ export function ErWindow() {
     if (nodes.length === 0) return;
     try {
       setNotice("PNG生成中...");
-      const pad = 40;
-      const legendH = 30;
-      const w = bounds.w + pad;
-      const h = bounds.h + pad + legendH;
-      const scale = Math.min(2, 16000 / Math.max(w, h));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.ceil(w * scale);
-      canvas.height = Math.ceil(h * scale);
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("canvasを初期化できません");
-      // 現在のカラーモードに合わせた配色 (ライトはライトのまま出力する)
-      const isLight = document.documentElement.dataset.theme === "light";
-      const pal = isLight
-        ? {
-            bg: "#f2f3f7",
-            title: "#4f46e5",
-            text: "#1f2430",
-            dim: "#5b6478",
-            faint: "#9aa1b5",
-            nodeFill: "#ffffff",
-            nodeStroke: "rgba(17, 24, 39, 0.2)",
-            headFill: "rgba(99, 102, 241, 0.12)",
-            pk: "#4f46e5",
-            edge: "rgba(99, 102, 241, 0.85)",
-            frame: "rgba(91, 100, 120, 0.55)",
-          }
-        : {
-            bg: "#0c0e14",
-            title: "#a5b4fc",
-            text: "#e7eaf2",
-            dim: "#8b93a8",
-            faint: "#5b6275",
-            nodeFill: "#141824",
-            nodeStroke: "rgba(255, 255, 255, 0.18)",
-            headFill: "rgba(99, 102, 241, 0.18)",
-            pk: "#a5b4fc",
-            edge: "rgba(99, 102, 241, 0.8)",
-            frame: "rgba(139, 147, 168, 0.55)",
-          };
-      ctx.scale(scale, scale);
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = pal.bg;
-      ctx.fillRect(0, 0, w, h);
-
-      // 凡例
-      ctx.font = 'bold 14px -apple-system, "Hiragino Sans", sans-serif';
-      ctx.fillStyle = pal.title;
-      ctx.fillText(`Quelio ER図 — ${sel.database}`, 20, 18);
-      ctx.font = '11px "SF Mono", Menlo, Consolas, monospace';
-      ctx.fillStyle = pal.dim;
-      ctx.fillText(
-        "破線 = リレーション ・ ● = NOT NULL / ○ = NULL可 (色付き● = 主キー)",
-        300,
-        18
-      );
-
-      const oy = legendH;
-      /** 注釈枠 (box) を1個描く */
-      const drawBox = (f: ErFrame) => {
-        const r = f.rounded === false ? 3 : 10;
-        if (f.fill) {
-          ctx.fillStyle = hexAlpha(f.fill, FILL_ALPHA);
-          ctx.beginPath();
-          ctx.roundRect(f.x + 20, f.y + oy, f.w, f.h, r);
-          ctx.fill();
-        }
-        if (f.style !== "none") {
-          ctx.strokeStyle = f.color ? hexAlpha(f.color, 0.75) : pal.frame;
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash(
-            f.style === "dashed" ? [8, 5] : f.style === "dotted" ? [2, 4] : []
-          );
-          ctx.beginPath();
-          ctx.roundRect(f.x + 20, f.y + oy, f.w, f.h, r);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-        ctx.font = '12px -apple-system, "Hiragino Sans", sans-serif';
-        ctx.fillStyle = pal.dim;
-        ctx.fillText(f.label, f.x + 20 + 10, f.y + oy + 14);
-      };
-      /** テキスト見出しを1個描く */
-      const drawText = (f: ErFrame) => {
-        const size = f.fontSize ?? 18;
-        ctx.font = `bold ${size}px -apple-system, "Hiragino Sans", sans-serif`;
-        ctx.fillStyle = f.textColor || pal.dim;
-        ctx.fillText(f.label, f.x + 20 + 4, f.y + oy + size * 0.75 + 2);
-      };
-      // 注釈枠 (背面)
-      for (const f of frames) {
-        if (f.kind !== "text" && !f.front) drawBox(f);
-      }
-      // エッジ (カラム行から出る鍵線。交差は半円で飛び越える)
-      ctx.save();
-      ctx.translate(20, oy);
-      for (let i = 0; i < edges.length; i++) {
-        const pts = edgeGeoms[i];
-        if (!pts) continue;
-        const es = edgeStyles[edgeKey(edges[i])];
-        const strokeColor = es?.color ?? pal.edge;
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = 1.2;
-        ctx.setLineDash(
-          es?.style === "solid" ? [] : es?.style === "dotted" ? [2, 4] : [5, 4]
-        );
-        ctx.stroke(new Path2D(edgePath(pts, verticalsExcept(i))));
-        // 両端の接続点
-        ctx.setLineDash([]);
-        ctx.fillStyle = strokeColor;
-        for (const [px2, py2] of [pts[0], pts[pts.length - 1]]) {
-          ctx.beginPath();
-          ctx.arc(px2, py2, 2.5, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      ctx.restore();
-      ctx.setLineDash([]);
-      // ノード
-      for (const n of nodes) {
-        const p = posOf(n.name);
-        const x = p.x + 20;
-        const y = p.y + oy;
-        ctx.fillStyle = pal.nodeFill;
-        ctx.strokeStyle = pal.nodeStroke;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(x, y, n.w, n.h, 8);
-        ctx.fill();
-        ctx.stroke();
-        // ヘッダ
-        ctx.fillStyle = pal.headFill;
-        ctx.beginPath();
-        ctx.roundRect(x, y, n.w, NODE_HEAD_H, [8, 8, 0, 0]);
-        ctx.fill();
-        ctx.font = 'bold 12px "SF Mono", Menlo, Consolas, monospace';
-        ctx.fillStyle = pal.text;
-        ctx.fillText(n.name, x + 9, y + NODE_HEAD_H / 2);
-        if (n.logical) {
-          const nameW = ctx.measureText(n.name).width;
-          ctx.font = '10.5px -apple-system, "Hiragino Sans", sans-serif';
-          ctx.fillStyle = pal.dim;
-          ctx.fillText(n.logical, x + 9 + nameW + 8, y + NODE_HEAD_H / 2);
-        }
-        // カラム (名前 / 型 / 日本語名を画面表示と同じく縦列を揃えて描画)
-        ctx.font = '11px "SF Mono", Menlo, Consolas, monospace';
-        const nameColW = Math.max(
-          0,
-          ...n.columns.map((c) => ctx.measureText(colMarker(c) + c.name).width)
-        );
-        const typeColW = Math.max(
-          0,
-          ...n.columns.map((c) => ctx.measureText(c.type).width)
-        );
-        n.columns.forEach((c, i) => {
-          const cy = y + NODE_HEAD_H + i * ROW_H + ROW_H / 2;
-          const nameText = colMarker(c) + c.name;
-          ctx.fillStyle = c.isPk ? pal.pk : pal.dim;
-          ctx.fillText(nameText, x + 9, cy);
-          if (c.type) {
-            ctx.fillStyle = pal.faint;
-            ctx.fillText(c.type, x + 9 + nameColW + 10, cy);
-          }
-          if (c.logical) {
-            ctx.fillStyle = pal.dim;
-            ctx.fillText(
-              c.logical,
-              x + 9 + nameColW + (typeColW > 0 ? typeColW + 10 : 0) + 10,
-              cy
-            );
-          }
-        });
-      }
-      // 注釈枠 (前面) とテキスト見出し (最前面)
-      for (const f of frames) {
-        if (f.kind !== "text" && f.front) drawBox(f);
-      }
-      for (const f of frames) {
-        if (f.kind === "text") drawText(f);
-      }
-
-      const dataUrl = canvas.toDataURL("image/png");
-      const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      const base64 = drawErPng({
+        database: sel.database,
+        nodes,
+        bounds,
+        frames,
+        edges,
+        edgeGeoms,
+        edgeStyles,
+        posOf,
+        verticalsExcept,
+        // 表示中のテーマのまま出力する
+        light: document.documentElement.dataset.theme === "light",
+      });
       const d = new Date();
       const p2 = (v: number) => String(v).padStart(2, "0");
       const ts = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
@@ -1767,126 +1534,23 @@ export function ErWindow() {
     }
   };
 
-  /** 注釈枠 (box) 1個の描画 */
-  const renderBox = (f: ErFrame) => (
-    <div
-      key={f.id}
-      className={
-        "er-frame " + f.style + (f.rounded === false ? " square" : "")
-      }
-      style={{
-        left: f.x,
-        top: f.y,
-        width: f.w,
-        height: f.h,
-        borderColor:
-          f.style !== "none" && f.color ? hexAlpha(f.color, 0.75) : undefined,
-        background: f.fill ? hexAlpha(f.fill, FILL_ALPHA) : undefined,
-      }}
-    >
-      <div
-        className="er-frame-label"
-        title="ドラッグで移動 / ダブルクリックで編集 / 右クリックでメニュー"
-        onMouseDown={(e) => {
-          if (f.id === editingId) return;
-          startFrameDrag(e, f.id);
-        }}
-        onDoubleClick={() => startEditing(f)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setCtxMenu({
-            x: e.clientX,
-            y: e.clientY,
-            kind: "frame",
-            frameId: f.id,
-          });
-        }}
-      >
-        {f.id === editingId ? (
-          <input
-            className="er-inline-input"
-            value={editText}
-            autoFocus
-            onChange={(e) => setEditText(e.target.value)}
-            onMouseDown={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-              if (e.nativeEvent.isComposing) return;
-              if (e.key === "Enter") commitEdit();
-              else if (e.key === "Escape") setEditingId(null);
-            }}
-            onBlur={commitEdit}
-          />
-        ) : (
-          f.label
-        )}
-      </div>
-      <div
-        className="er-frame-resize"
-        title="ドラッグでサイズ変更"
-        onMouseDown={(e) => startFrameResize(e, f.id)}
-      />
-    </div>
-  );
-
-  /** テキスト見出し1個の描画 (編集中はその場で入力欄になる) */
-  const renderText = (f: ErFrame) => {
-    const size = f.fontSize ?? 18;
-    if (f.id === editingId) {
-      return (
-        <input
-          key={f.id}
-          className="er-text er-text-edit"
-          style={{
-            left: f.x,
-            top: f.y,
-            fontSize: size,
-            color: f.textColor || undefined,
-            width: Math.max(80, charUnits(editText) * size * 0.55 + 40),
-          }}
-          value={editText}
-          autoFocus
-          onChange={(e) => setEditText(e.target.value)}
-          onMouseDown={(e) => e.stopPropagation()}
-          onKeyDown={(e) => {
-            // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-            if (e.nativeEvent.isComposing) return;
-            if (e.key === "Enter") commitEdit();
-            else if (e.key === "Escape") setEditingId(null);
-          }}
-          onBlur={commitEdit}
-        />
-      );
-    }
-    return (
-      <div
-        key={f.id}
-        className="er-text"
-        style={{
-          left: f.x,
-          top: f.y,
-          fontSize: size,
-          color: f.textColor || undefined,
-        }}
-        title="ドラッグで移動 / ダブルクリックで編集 / 右クリックでメニュー"
-        onMouseDown={(e) => startFrameDrag(e, f.id)}
-        onDoubleClick={() => startEditing(f)}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          setCtxMenu({
-            x: e.clientX,
-            y: e.clientY,
-            kind: "frame",
-            frameId: f.id,
-          });
-        }}
-      >
-        {f.label}
-      </div>
-    );
+  /** 注釈 (枠・見出し) への操作をまとめて渡す */
+  const frameHandlers: FrameHandlers = {
+    editingId,
+    editText,
+    onEditText: setEditText,
+    onCommitEdit: commitEdit,
+    onCancelEdit: () => setEditingId(null),
+    onStartDrag: (e, id) => startFrameDrag(e, id),
+    onStartResize: (e, id) => startFrameResize(e, id),
+    onStartEditing: startEditing,
+    onContextMenu: (e, id) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setCtxMenu({ x: e.clientX, y: e.clientY, kind: "frame", frameId: id });
+    },
   };
+
 
   const backBoxes = frames.filter((f) => f.kind !== "text" && !f.front);
   const frontBoxes = frames.filter((f) => f.kind !== "text" && f.front);
@@ -1940,64 +1604,16 @@ export function ErWindow() {
 
 
       {/* ページ (タブ) バー: 1つの保存ファイルに複数のER図を持てる */}
-      <div className="er-tabs">
-        {pages.map((p, i) => (
-          <div
-            key={p.id}
-            className={"er-tab" + (p.id === pageId ? " active" : "")}
-            title="クリックで切替 / ダブルクリックで名前変更 / ドラッグで並べ替え"
-            onMouseDown={(e) => {
-              if (e.button !== 0 || tabEditingId === p.id) return;
-              dragTabIdxRef.current = i;
-              if (p.id !== pageId) store.switchPage(p.id);
-            }}
-            onMouseEnter={() => {
-              const from = dragTabIdxRef.current;
-              if (from === null || from === i) return;
-              store.reorderPages(from, i);
-              dragTabIdxRef.current = i;
-            }}
-            onDoubleClick={() => {
-              setTabEditingId(p.id);
-              setTabEditText(p.name);
-            }}
-          >
-            {tabEditingId === p.id ? (
-              <input
-                className="er-tab-input"
-                value={tabEditText}
-                autoFocus
-                onChange={(e) => setTabEditText(e.target.value)}
-                onMouseDown={(e) => e.stopPropagation()}
-                onKeyDown={(e) => {
-                  // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                  if (e.nativeEvent.isComposing) return;
-                  if (e.key === "Enter") commitTabRename();
-                  else if (e.key === "Escape") setTabEditingId(null);
-                }}
-                onBlur={commitTabRename}
-              />
-            ) : (
-              <>
-                <span className="er-tab-name">{p.name}</span>
-                {pages.length > 1 && (
-                  <span
-                    className="er-tab-close"
-                    title="タブを削除"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={() => askDeletePage(p.id)}
-                  >
-                    ×
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-        ))}
-        <button className="er-tab-add" title="タブを追加" onClick={store.addPage}>
-          ＋
-        </button>
-      </div>
+      <ErPageTabs
+        pages={pages}
+        activeId={pageId}
+        onSwitch={store.switchPage}
+        onAdd={store.addPage}
+        onDelete={askDeletePage}
+        onReorder={store.reorderPages}
+        onRename={store.renamePage}
+        onReorderEnd={store.saveAfterReorder}
+      />
 
       {/* 右上の通知トースト (5秒で自動的に消える) */}
       {notice && (
@@ -2039,18 +1655,18 @@ export function ErWindow() {
             const ae = document.activeElement as HTMLElement | null;
             if (ae && ae.closest(".find-bar")) ae.blur();
           }}
-          onMouseDown={startPan}
+          onMouseDown={handleBackgroundMouseDown}
           onContextMenu={(e) => {
             // 背景の右クリック → 枠の追加メニュー
             if (e.target !== e.currentTarget) return;
             e.preventDefault();
-            const rect = e.currentTarget.getBoundingClientRect();
+            const w = toWorld(e.clientX, e.clientY);
             setCtxMenu({
               x: e.clientX,
               y: e.clientY,
               kind: "canvas",
-              worldX: (e.clientX - rect.left - view.x) / view.scale,
-              worldY: (e.clientY - rect.top - view.y) / view.scale,
+              worldX: w.x,
+              worldY: w.y,
             });
           }}
         >
@@ -2061,7 +1677,7 @@ export function ErWindow() {
             }}
           >
             {/* 注釈枠 (背面) */}
-            {backBoxes.map(renderBox)}
+            <ErFrameLayer frames={backBoxes} h={frameHandlers} />
             <ErEdgeLayer
               edges={edges}
               geoms={edgeGeoms}
@@ -2128,47 +1744,19 @@ export function ErWindow() {
                   showTypes={showTypes}
                   showLogical={showLogical}
                   showHandles={hoverNode === n.name && !linkDrag}
-                  onNodeMouseDown={(e) => startNodeDrag(e, n.name)}
-                  onHoverChange={(hovered) =>
-                    setHoverNode((h) =>
-                      hovered ? n.name : h === n.name ? null : h
-                    )
-                  }
-                  onHeadContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setSelNodes((prev) =>
-                      prev.has(n.name) ? prev : new Set([n.name])
-                    );
-                    setCtxMenu({
-                      x: e.clientX,
-                      y: e.clientY,
-                      kind: "node",
-                      table: n.name,
-                    });
-                  }}
-                  onColumnClick={(column) => handleColumnClick(n.name, column)}
-                  onColumnContextMenu={(ev, column) => {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    setCtxMenu({
-                      x: ev.clientX,
-                      y: ev.clientY,
-                      kind: "column",
-                      table: n.name,
-                      column,
-                    });
-                  }}
-                  onHandleMouseDown={(e, column) =>
-                    startLinkDrag(e, n.name, column)
-                  }
-                  onResizeMouseDown={(e) => startNodeResize(e, n.name)}
+                  onNodeMouseDown={handleNodeMouseDown}
+                  onHoverChange={handleNodeHover}
+                  onHeadContextMenu={handleNodeContextMenu}
+                  onColumnClick={handleColumnClickAt}
+                  onColumnContextMenu={handleColumnContextMenu}
+                  onHandleMouseDown={handleLinkHandleMouseDown}
+                  onResizeMouseDown={handleNodeResize}
                 />
               );
             })}
             {/* 注釈枠 (前面) とテキスト見出し */}
-            {frontBoxes.map(renderBox)}
-            {texts.map(renderText)}
+            <ErFrameLayer frames={frontBoxes} h={frameHandlers} />
+            <ErFrameLayer frames={texts} h={frameHandlers} />
             {/* Shift+ドラッグの矩形選択 */}
             {band && (
               <div

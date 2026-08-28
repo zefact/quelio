@@ -82,6 +82,16 @@ pub struct ConnectionProfile {
     /// 保存時は常にfalseで書き出す
     #[serde(default)]
     pub password_locked: bool,
+    /// パスワードが保存済みで、画面へは渡していない (伏せてある) 状態。
+    ///
+    /// パスワードはバックエンドだけで使うので、一覧では空にして渡す。
+    /// この目印が付いたまま戻ってきたものは「変更していない」とみなし、
+    /// 保存済みの値をこちらで補う。保存時は常にfalseで書き出す
+    #[serde(default)]
+    pub password_saved: bool,
+    /// SSHのパスフレーズについて、password_saved と同じもの
+    #[serde(default)]
+    pub passphrase_saved: bool,
 }
 
 /// 接続先を整理するフォルダ

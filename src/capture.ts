@@ -235,7 +235,7 @@ function renderPlanSheet(
     ctx.fillStyle = COLOR.bg;
     ctx.fillRect(0, 0, width, height);
 
-    let y = drawHeaderAndSql(ctx, sqlLines, index, total, width, contentW);
+    const y = drawHeaderAndSql(ctx, sqlLines, index, total, width, contentW);
     ctx.font = FONT_MONO;
     lines.forEach((line, i) => {
       ctx.fillStyle = COLOR.text;
