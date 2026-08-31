@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 import {
   addSqlHistory,
@@ -22,6 +23,7 @@ import {
   testConnection,
   trustSshHost,
   updateLayout,
+  getTxnState,
 } from "./api";
 import { listen } from "@tauri-apps/api/event";
 import { AboutDialog } from "./components/AboutDialog";
@@ -302,6 +304,56 @@ function App() {
     })();
   }, []);
 
+  /*
+   * ウィンドウを閉じるときの確認。
+   *
+   * 切断するとサーバー側でトランザクションが巻き戻るため、
+   * 未確定の変更が残っていたら一度止めて知らせる。
+   *
+   * この listener を付けた時点で、閉じる操作はアプリ側の責任になる
+   * (Tauri は「止められなかったとき」に destroy を呼ぶだけ)。
+   * そのため必ず自分で止めてから、閉じると決めたときに destroy を呼ぶ。
+   * 途中で何かに失敗しても閉じられるよう、判定は try で包む
+   */
+  useEffect(() => {
+    const win = getCurrentWindow();
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    void win
+      .onCloseRequested(async (e) => {
+        e.preventDefault();
+        try {
+          const names: string[] = [];
+          for (const t of tabsRef.current) {
+            if (!t.connected) continue;
+            if (await hasOpenTxn(t.key)) {
+              names.push(t.profile.name || t.profile.host);
+            }
+          }
+          if (names.length > 0) {
+            setCloseWarn({ kind: "window", names });
+            return;
+          }
+        } catch {
+          /* 読めなかった場合は止めない */
+        }
+        await closeWindow();
+      })
+      .then((f) => {
+        if (disposed) f();
+        else {
+          unlisten = f;
+          unlistenClose.current = f;
+        }
+      });
+    return () => {
+      disposed = true;
+      unlisten?.();
+      unlistenClose.current = null;
+    };
+    // 一度だけ登録する (中で見ているのは ref なので古くならない)
+  }, []);
+
   // タブと書きかけSQLを自動保存する (変化が止まってから書く)
   const savedText = useRef("");
   useEffect(() => {
@@ -347,7 +399,7 @@ function App() {
         addTab();
       } else if (mod && !e.altKey && !e.shiftKey && key === "w") {
         e.preventDefault();
-        closeTab(activeKey);
+        void requestCloseTab(activeKey);
       } else if (mod && !e.shiftKey && key === "k") {
         e.preventDefault();
         setQuickOpen(true);
@@ -472,6 +524,62 @@ function App() {
     const key = newTabKey();
     dispatch({ type: "add", tab: emptyTab(key) });
     setActiveKey(key);
+  };
+
+  /**
+   * 閉じる前に確認するもの。
+   * トランザクションが開いたままだと、切断した時点でサーバー側で
+   * 巻き戻される (＝変更が消える) ので、その前に気づけるようにする
+   */
+  const [closeWarn, setCloseWarn] = useState<
+    | { kind: "tab"; key: string; name: string }
+    | { kind: "window"; names: string[] }
+    | null
+  >(null);
+  /** 閉じる確認の解除 (閉じると決めたら、まずこれを外す) */
+  const unlistenClose = useRef<(() => void) | null>(null);
+
+  /**
+   * ウィンドウを閉じる。
+   *
+   * onCloseRequested を付けている間は、閉じるのはアプリ側の仕事になる
+   * (Tauri は「止められなかったとき」に destroy を呼ぶだけ)。
+   * 先に listener を外しておけば、以降の close は素通しで閉じるので、
+   * destroy が使えない場合でも閉じられなくなることはない
+   */
+  const closeWindow = async () => {
+    unlistenClose.current?.();
+    unlistenClose.current = null;
+    const win = getCurrentWindow();
+    try {
+      await win.destroy();
+    } catch {
+      await win.close().catch(() => {});
+    }
+  };
+
+  /** そのタブに未確定のトランザクションが残っているか (読めなければ false) */
+  const hasOpenTxn = async (key: string): Promise<boolean> => {
+    try {
+      const s = await getTxnState(key);
+      return s === "open" || s === "broken";
+    } catch {
+      return false;
+    }
+  };
+
+  /** タブを閉じる。未確定の変更が残っていれば先に確認する */
+  const requestCloseTab = async (key: string) => {
+    const tab = tabOf(key);
+    if (tab?.connected && (await hasOpenTxn(key))) {
+      setCloseWarn({
+        kind: "tab",
+        key,
+        name: tab.profile.name || tab.profile.host,
+      });
+      return;
+    }
+    await closeTab(key);
   };
 
   /** タブを閉じる。最後の1枚を閉じたら新しい空タブを作る */
@@ -1162,7 +1270,7 @@ function App() {
         tabs={tabs}
         activeKey={activeTab.key}
         onActivate={setActiveKey}
-        onClose={closeTab}
+        onClose={(key) => void requestCloseTab(key)}
         onAdd={addTab}
         onOpenConsole={() =>
           openConsole().catch((e) =>
@@ -1212,6 +1320,37 @@ function App() {
 
       {showShortcuts && (
         <ShortcutHelp onClose={() => setShowShortcuts(false)} />
+      )}
+
+      {closeWarn && (
+        <ConfirmDialog
+          title="未確定の変更が残っています"
+          target={
+            closeWarn.kind === "tab"
+              ? closeWarn.name
+              : closeWarn.names.join(" / ")
+          }
+          confirmLabel={
+            closeWarn.kind === "tab" ? "取り消して閉じる" : "取り消して終了"
+          }
+          onCancel={() => setCloseWarn(null)}
+          onConfirm={async () => {
+            const w = closeWarn;
+            setCloseWarn(null);
+            if (w.kind === "tab") {
+              await closeTab(w.key);
+              return;
+            }
+            await closeWindow();
+          }}
+        >
+          {closeWarn.kind === "tab"
+            ? "このタブではトランザクションが開いたままです。"
+            : "トランザクションが開いたままの接続があります。"}
+          このまま閉じると接続が切れ、確定していない変更はサーバー側で
+          取り消されます。残したい場合は、いったん中止して画面下の
+          「確定」を押してください。
+        </ConfirmDialog>
       )}
 
       {sshTrust && (

@@ -132,17 +132,22 @@ export function ConnectionForm({
         <div className="card-head">
           <h2>基本設定</h2>
           <div className="segmented" role="tablist" aria-label="DB種別">
+            {/* 互換のあるDBは、どれを選べばよいか分かるよう説明を出す */}
             {(
               [
-                ["mysql", "MySQL"],
-                ["postgresql", "PostgreSQL"],
-                ["sqlite", "SQLite"],
-                ["valkey", "Valkey"],
-              ] as [DbType, string][]
-            ).map(([t, label]) => (
+                ["mysql", "MySQL", "MySQL / MariaDB"],
+                ["postgresql", "PostgreSQL", "PostgreSQL (Amazon Aurora等の互換も)"],
+                ["sqlite", "SQLite", "SQLite のデータベースファイル"],
+                ["valkey", "Valkey", "Valkey / Redis 互換 (ElastiCache等)"],
+              ] as [DbType, string, string][]
+            ).map(([t, label, tip]) => (
               <button
                 key={t}
-                className={"segment" + (profile.dbType === t ? " active" : "")}
+                className={
+                  "segment has-tooltip" +
+                  (profile.dbType === t ? " active" : "")
+                }
+                data-tooltip={tip}
                 onClick={() => changeDbType(t)}
               >
                 {label}

@@ -42,6 +42,12 @@ export interface QueryResult {
 export const QUERY_PAGE_SIZE = 1000;
 
 /** 1文ぶんの実行結果 */
+/**
+ * トランザクションの状態 (バックエンドの TxnState と対)。
+ * busy = 実行中で読めなかった (今の表示のままにする)
+ */
+export type TxnStatus = "none" | "open" | "broken" | "busy";
+
 export interface StatementResult {
   sql: string;
   result: QueryResult;
@@ -114,10 +120,15 @@ export interface SavedSqlEntry {
  * 空のフォルダを先に作れるようにするため
  */
 export interface SavedSqlStore {
-  /** フォルダのパス一覧 (同じ親の中では、この並びが表示順) */
+  /** フォルダのパス一覧 */
   folders: string[];
-  /** 保存したSQL (同じフォルダの中では、この並びが表示順) */
+  /** 保存したSQL */
   items: SavedSqlEntry[];
+  /**
+   * 表示順。フォルダと項目を混ぜた1本の並びで持つ。
+   * 中身は "f:<フォルダのパス>" と "i:<項目のID>"
+   */
+  order: string[];
 }
 
 export interface QueryLogEntry {

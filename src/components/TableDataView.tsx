@@ -10,6 +10,7 @@ import { QUERY_PAGE_SIZE } from "../types";
 import type { TableDataPane } from "./panes";
 import { CellDetail } from "./CellDetail";
 import { clipIndex, clippedRowKeys } from "../cellValue";
+import { columnKinds, kindAlign, kindClass } from "../cellKind";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { CellText } from "./CellText";
 import {
@@ -193,12 +194,20 @@ function TableDataViewInner({
   // 編集対象のセルへフォーカスを移す
   useGridFocus(editing ? `${editing.row}:${editing.col}` : "", "data-dcol");
 
+  /** 表示中のページの値から見分けた列の種類 (右寄せ・色に使う) */
+  const colKinds = useMemo(
+    () => columnKinds(data?.rows ?? [], dataColumns.length),
+    [data, dataColumns]
+  );
+
   const columns: GridColumn[] = useMemo(() => {
     const cols: GridColumn[] = dataColumns.map((name, i) => ({
       id: `c${i}`,
       label: name,
       width: Math.min(260, Math.max(90, name.length * 10 + 40)),
       minWidth: 60,
+      align: kindAlign(colKinds[i] ?? "text"),
+      cellClass: kindClass(colKinds[i] ?? "text"),
       // 定義から読み取った論理名・補足をヘッダのツールチップに出す
       description: columnTips[name.toLowerCase()],
     }));
@@ -218,7 +227,7 @@ function TableDataViewInner({
       });
     }
     return cols;
-  }, [data, dataColumns, showRowNumbers, columnTips]);
+  }, [data, dataColumns, showRowNumbers, columnTips, colKinds]);
 
   /** グリッドに表示するソート状態 (サーバーサイドソートの結果をそのまま反映) */
   const sort: SortState | null = useMemo(() => {

@@ -146,6 +146,28 @@ pub async fn cancel_query(
     sessions::cancel_query(&cancel, &qlog, &session_id).await
 }
 
+/// 今のトランザクションの状態を返す ("none" / "open" / "broken" / "busy")。
+/// 画面下のステータスバーが、実行や編集のあとに読み直す
+#[tauri::command]
+pub async fn get_txn_state(
+    sessions: State<'_, Sessions>,
+    session_id: String,
+) -> Result<String, String> {
+    sessions::txn_state(&sessions, &session_id).await
+}
+
+/// 開いているトランザクションを確定 / 取り消しする。
+/// 閉じたあとの状態を返す
+#[tauri::command]
+pub async fn end_txn(
+    sessions: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    commit: bool,
+) -> Result<String, String> {
+    sessions::end_open_txn(&sessions, &qlog, &session_id, commit).await
+}
+
 /// 保存済みのSQLパラメータ値を返す (パラメータ名 → 直近の値と埋め込み方)。
 /// scopeは接続プロファイルID (接続ごとに分けて保持する)
 #[tauri::command]
@@ -250,26 +272,18 @@ pub fn delete_saved_folder(
     crate::saved_sql::delete_folder(&app, &path)
 }
 
-/// 項目をドラッグで移す (フォルダと、そのフォルダ内での位置)
+/// フォルダ・項目をドラッグで移す。
+///
+/// `node` は "f:<フォルダのパス>" か "i:<項目のID>"、
+/// `before` は「この要素の直前へ入れる」指定 (未指定なら末尾)
 #[tauri::command]
-pub fn move_saved_item(
+pub fn move_saved_node(
     app: AppHandle,
-    id: String,
-    folder: String,
-    index: usize,
-) -> Result<crate::saved_sql::SavedSqlStore, String> {
-    crate::saved_sql::move_item(&app, &id, &folder, index)
-}
-
-/// フォルダをドラッグで移す (親フォルダと、その中での位置)
-#[tauri::command]
-pub fn move_saved_folder(
-    app: AppHandle,
-    path: String,
+    node: String,
     parent: String,
-    index: usize,
+    before: Option<String>,
 ) -> Result<crate::saved_sql::SavedSqlStore, String> {
-    crate::saved_sql::move_folder(&app, &path, &parent, index)
+    crate::saved_sql::move_node(&app, &node, &parent, before)
 }
 
 /// 画面に出ている実行計画をCSVへ書き出す。

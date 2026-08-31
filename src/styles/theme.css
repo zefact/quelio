@@ -18,6 +18,9 @@
   --completion-match: #a5b4fc;
   --success: #34d399;
   --danger: #f87171;
+  /* 結果グリッドで値の種類を見分ける色 (読む速さを助ける程度に控えめ) */
+  --cell-date: #93b8e8;
+  --cell-bool: #86c9b0;
   --mysql: #f0a63a;
   --postgres: #5a9bd8;
   --sqlite: #00b09b;
@@ -79,6 +82,8 @@ html[data-theme="light"] {
   --danger: #dc4a4a;
   --completion-sel: #4338ca;
   --completion-match: #4338ca;
+  --cell-date: #2b6cb0;
+  --cell-bool: #0f7a5c;
   --ink: 17, 24, 39;
   --input-bg: #ffffff;
   --menu-bg: #ffffff;

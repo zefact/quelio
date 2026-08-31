@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Quelio（クエリオ）- 軽量なMySQL / PostgreSQL / SQLite / Valkeyクライアント</title>
-  <meta name="description" content="Quelio(クエリオ)は、Tauri製の軽量デスクトップDBクライアント。MySQL / PostgreSQL / SQLite / Valkey対応、SSHトンネル、テーブル構造ビュー、テーブル定義とデータのその場編集、入力補完つきクエリエディタ、クエリ結果のCSVダウンロード、エクスポート/インポートを搭載。" />
+  <meta name="description" content="Quelio(クエリオ)は、Tauri製の軽量デスクトップDBクライアント。MySQL (MariaDB) / PostgreSQL / SQLite / Valkey (Redis互換) 対応、SSHトンネル、テーブル構造ビュー、テーブル定義とデータのその場編集、入力補完つきクエリエディタ、クエリ結果のCSVダウンロード、エクスポート/インポートを搭載。" />
   <meta property="og:title" content="Quelio（クエリオ）- 軽量なMySQL / PostgreSQL / SQLite / Valkeyクライアント" />
   <meta property="og:description" content="スキーマ差分チェック・結果の自動キャプチャ・日本語の論理名表示。現場で欲しかった機能を載せた無料のデスクトップDBクライアント (macOS / Windows)。" />
   <meta property="og:type" content="website" />
@@ -951,7 +951,7 @@
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
           <h3>MySQL / PostgreSQL / SQLite / Valkey</h3>
-          <p>主要なRDBMSに加え、ファイル1つで完結するSQLiteと、Valkey (Redis互換KVS) にも対応。SQLiteはファイルを選ぶだけで開けます。</p>
+          <p>主要なRDBMSに加え、ファイル1つで完結するSQLiteと、Valkey (Redis互換KVS) にも対応。MySQLはMariaDBでも、ValkeyはRedisでもそのまま接続できます。SQLiteはファイルを選ぶだけで開けます。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
@@ -1099,7 +1099,7 @@
         </details>
         <details class="faq-item">
           <summary>対応しているデータベースは?</summary>
-          <div class="a">MySQL・PostgreSQL・SQLiteと、Valkey (Redis互換のKVS) に対応しています。SQLiteはサーバー不要で、データベースファイルを選ぶだけで開けます。1つのアプリ内で複数の接続をタブで同時に開けます。ValkeyはAWS ElastiCache (Serverless含む) へのTLS接続にも対応しています。</div>
+          <div class="a">MySQL・PostgreSQL・SQLiteと、Valkey (Redis互換のKVS) に対応しています。MySQLの接続はMariaDB (10.x / 11.x)、Valkeyの接続はRedis (6.0以降) でもそのまま使えます。SQLiteはサーバー不要で、データベースファイルを選ぶだけで開けます。1つのアプリ内で複数の接続をタブで同時に開けます。ValkeyはAWS ElastiCache (Serverless含む) へのTLS接続にも対応しています。</div>
         </details>
         <details class="faq-item">
           <summary>対応OSは?</summary>

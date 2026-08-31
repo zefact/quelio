@@ -27,6 +27,7 @@ import { KvValueGrid } from "./KvValueGrid";
 import { SelectMenu } from "./SelectMenu";
 import { ConnectionChip, ServerInfo } from "./SessionHeader";
 import { PaneHead, SidePane } from "./SidePane";
+import { StatusBar } from "./StatusBar";
 import { SqlLibraryMenu } from "./sqlLibrary/SqlLibraryMenu";
 import { KvBulkDialog } from "./kvBulk/KvBulkDialog";
 
@@ -924,6 +925,9 @@ export function KvSessionView({
           )}
         </main>
       </div>
+
+      {/* Valkeyにはトランザクションが無いので、接続とDBだけを出す */}
+      <StatusBar profile={profile} database={db} txn="none" />
 
       {/* キー削除の確認 (取り消せないため確認する) */}
       {deleting && (

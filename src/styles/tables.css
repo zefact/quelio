@@ -435,6 +435,18 @@
   text-align: right;
 }
 
+/*
+ * 値の種類が一目で分かるようにする (右寄せは列の指定で行う)。
+ * 色は控えめにして、読む速さだけを助ける
+ */
+.grid td.cell-date {
+  color: var(--cell-date);
+}
+
+.grid td.cell-bool {
+  color: var(--cell-bool);
+}
+
 .grid td.comment {
   color: var(--text-dim);
   max-width: 260px;

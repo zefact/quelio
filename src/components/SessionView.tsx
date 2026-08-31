@@ -27,6 +27,10 @@ import type {
   WorkTab,
 } from "../types";
 import { activeSheetOf } from "../types";
+import { StatusBar } from "./StatusBar";
+import type { LastRun } from "./StatusBar";
+import { useTxnState } from "../hooks/useTxnState";
+import { isExecResult } from "./queryResult";
 import { useTabActions } from "./tabActions";
 import type { SchemaMap } from "./sqlCompletion";
 import { CreateTableModal } from "./createTable/CreateTableModal";
@@ -354,13 +358,19 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
   // 右クリックメニューは外側クリック・リサイズで閉じる
   useDismiss(!!tableMenu, () => setTableMenu(null), { resize: true });
 
-  const filteredTables = useMemo(
-    () =>
-      tables.filter((t) =>
-        tableKey(t).toLowerCase().includes(filter.toLowerCase())
-      ),
-    [tables, filter]
-  );
+  /*
+   * 絞り込みは物理名だけでなく論理名 (テーブルコメントの日本語名) も見る。
+   * 日本語名で探せないと、一覧に日本語名が出ている意味が薄い
+   */
+  const filteredTables = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return tables;
+    return tables.filter(
+      (t) =>
+        tableKey(t).toLowerCase().includes(q) ||
+        logicalOf(t).toLowerCase().includes(q)
+    );
+  }, [tables, filter, logicalOf]);
 
   const showSchema = useMemo(
     () => new Set(tables.map((t) => t.schema ?? "")).size > 1,
@@ -479,6 +489,26 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
   /** 別ウィンドウを開けなかったときの表示 (握りつぶすと無反応に見えるため) */
   const [winError, setWinError] = useState<string | null>(null);
   const dbFilePath = profile.database ?? "";
+
+  /*
+   * トランザクションの状態。
+   * 実行が終わったとき・定義を変えたとき・DBを変えたときに読み直す
+   * (これ以外で開いたり閉じたりすることはない)
+   */
+  const txnWatch = `${tab.editor.running}:${tab.schemaRev}:${selectedDb ?? ""}`;
+  const txnCtl = useTxnState(tab.key, txnWatch, tab.connected);
+
+  /** 直近の実行の要約 (最後の文の結果を出す) */
+  const lastRun: LastRun | null = useMemo(() => {
+    const last = sheet.queryResults?.[sheet.queryResults.length - 1]?.result;
+    if (!last) return null;
+    const affected = isExecResult(last);
+    return {
+      rows: affected ? (last.rowsAffected ?? 0) : last.rows.length,
+      affected,
+      elapsedMs: last.elapsedMs,
+    };
+  }, [sheet.queryResults]);
 
   /** SQLダンプ出力の対象テーブル (PGはスキーマも渡す) */
   const exportNames = useMemo(
@@ -784,7 +814,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
             <>
               <input
                 className="filter-input mono"
-                placeholder="絞り込み..."
+                placeholder="絞り込み (名前・日本語名)..."
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               />
@@ -866,6 +896,16 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
           )}
         </main>
       </div>
+
+      <StatusBar
+        profile={profile}
+        database={selectedDb}
+        txn={txnCtl.txn}
+        txnBusy={txnCtl.busy}
+        txnError={txnCtl.error}
+        onEndTxn={txnCtl.end}
+        lastRun={tab.view === "query" ? lastRun : null}
+      />
 
       {dialog === "export" && selectedDb && (
         <ExportDialog

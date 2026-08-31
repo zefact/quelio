@@ -18,8 +18,7 @@ import {
   deleteSqlHistory,
   getSavedSql,
   getSqlHistory,
-  moveSavedFolder,
-  moveSavedItem,
+  moveSavedNode,
   renameSavedFolder,
   upsertSavedSql,
 } from "../../api";
@@ -46,7 +45,7 @@ interface Props {
   contentLabel?: string;
 }
 
-const EMPTY: SavedSqlStore = { folders: [], items: [] };
+const EMPTY: SavedSqlStore = { folders: [], items: [], order: [] };
 
 export function SqlLibraryMenu({
   currentSql,
@@ -178,11 +177,7 @@ export function SqlLibraryMenu({
   const handleMove = (drag: DragRef, spot: DropSpot) => {
     const r = resolveDrop(store, drag, spot);
     if (!r) return;
-    if (r.kind === "item") {
-      void apply(() => moveSavedItem(r.id, r.folder, r.index));
-      return;
-    }
-    void apply(() => moveSavedFolder(r.path, r.parent, r.index));
+    void apply(() => moveSavedNode(r.node, r.parent, r.before));
   };
 
   /** 削除しようとしているフォルダの中身の数 (確認に出す) */

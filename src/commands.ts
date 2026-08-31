@@ -60,8 +60,7 @@ export interface CommandResults {
   create_saved_folder: SavedSqlStore;
   delete_saved_folder: SavedSqlStore;
   delete_sql_history: SqlHistoryEntry[];
-  move_saved_folder: SavedSqlStore;
-  move_saved_item: SavedSqlStore;
+  move_saved_node: SavedSqlStore;
   rename_saved_folder: SavedSqlStore;
   append_temp_upload: void;
   apply_column_ddl: string[];
@@ -94,6 +93,7 @@ export interface CommandResults {
   disconnect_session: void;
   drop_database: string[];
   drop_table: string[];
+  end_txn: string;
   export_connections: number;
   export_er_diagrams: number;
   export_plan_csv: CsvExportResult;
@@ -108,6 +108,7 @@ export interface CommandResults {
   get_sql_history: SqlHistoryEntry[];
   get_sql_params: Record<string, { value: string; kind: string }>;
   get_tool_settings: ToolSettings;
+  get_txn_state: string;
   get_workspace: unknown | null;
   import_connections: ImportCounts;
   import_csv: ImportResult;
@@ -180,8 +181,7 @@ export const COMMAND_NAMES = [
   "create_saved_folder",
   "delete_saved_folder",
   "delete_sql_history",
-  "move_saved_folder",
-  "move_saved_item",
+  "move_saved_node",
   "rename_saved_folder",
   "append_temp_upload",
   "apply_column_ddl",
@@ -214,6 +214,7 @@ export const COMMAND_NAMES = [
   "disconnect_session",
   "drop_database",
   "drop_table",
+  "end_txn",
   "export_connections",
   "export_er_diagrams",
   "export_plan_csv",
@@ -228,6 +229,7 @@ export const COMMAND_NAMES = [
   "get_sql_history",
   "get_sql_params",
   "get_tool_settings",
+  "get_txn_state",
   "get_workspace",
   "import_connections",
   "import_csv",

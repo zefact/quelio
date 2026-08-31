@@ -1313,8 +1313,12 @@
   font-size: 12px;
 }
 
+/* 文字数の表示が余白を吸い、ボタンは右端にまとめる (2つ並ぶことがある) */
+.cell-meta > .faint {
+  margin-right: auto;
+}
+
 .cell-meta .btn-secondary {
-  margin-left: auto;
   padding: 3px 10px;
   font-size: 12px;
 }

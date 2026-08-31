@@ -56,6 +56,7 @@ import type {
   TestResult,
   ToolSettings,
   ToolStatus,
+  TxnStatus,
   ValueSearchOptions,
   ValueSearchResult,
 } from "./types";
@@ -881,6 +882,19 @@ export function cancelQuery(sessionId: string): Promise<void> {
   return call("cancel_query", { sessionId });
 }
 
+/**
+ * 今のトランザクションの状態を読む。
+ * 実行中は "busy" が返る (待たせないため。実行が終わったら読み直す)
+ */
+export function getTxnState(sessionId: string): Promise<TxnStatus> {
+  return call("get_txn_state", { sessionId }) as Promise<TxnStatus>;
+}
+
+/** 開いているトランザクションを確定 / 取り消しする。閉じたあとの状態を返す */
+export function endTxn(sessionId: string, commit: boolean): Promise<TxnStatus> {
+  return call("end_txn", { sessionId, commit }) as Promise<TxnStatus>;
+}
+
 // ---------- Valkey (KVモード) ----------
 
 /** キー一覧をSCANで1ページぶん取得する */
@@ -1035,29 +1049,16 @@ export function deleteSavedFolder(path: string): Promise<SavedSqlStore> {
 }
 
 /**
- * 項目を移す (ドラッグでの並べ替え)。
+ * フォルダ・項目を移す (ドラッグでの並べ替え)。
  *
- * @param folder 移動先のフォルダ ("" = ルート)
- * @param index そのフォルダの中で何番目に置くか
+ * @param node "f:<フォルダのパス>" か "i:<項目のID>"
+ * @param parent 移動先のフォルダ ("" = ルート)
+ * @param before この要素の直前へ入れる (null なら末尾)
  */
-export function moveSavedItem(
-  id: string,
-  folder: string,
-  index: number
-): Promise<SavedSqlStore> {
-  return call("move_saved_item", { id, folder, index });
-}
-
-/**
- * フォルダを移す (ドラッグでの並べ替え)。
- *
- * @param parent 移動先の親フォルダ ("" = ルート)
- * @param index その中で何番目に置くか
- */
-export function moveSavedFolder(
-  path: string,
+export function moveSavedNode(
+  node: string,
   parent: string,
-  index: number
+  before: string | null
 ): Promise<SavedSqlStore> {
-  return call("move_saved_folder", { path, parent, index });
+  return call("move_saved_node", { node, parent, before });
 }

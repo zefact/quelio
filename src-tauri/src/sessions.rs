@@ -1450,6 +1450,53 @@ fn mark_needs_ping(session: &mut Session) {
         .unwrap_or_else(std::time::Instant::now);
 }
 
+/// 画面に出すトランザクションの状態。
+///
+/// 利用者がSQLに書いた BEGIN も、中断されて残ったものも、
+/// 「開いていて閉じないと確定しない」ことに変わりはないのでまとめて open にする
+pub fn txn_status(txn: TxnState) -> &'static str {
+    match txn {
+        TxnState::None => "none",
+        TxnState::Open | TxnState::User => "open",
+        TxnState::Broken => "broken",
+    }
+}
+
+/// 今のトランザクションの状態を返す (ステータスバーの表示用)。
+///
+/// 実行中はロックが取れないので "busy" を返して今の表示のままにしてもらう。
+/// ここで待つと、長いSQLの間じゅう画面が固まってしまう
+pub async fn txn_state(sessions: &Sessions, session_id: &str) -> Result<String, String> {
+    let arc = get_session(sessions, session_id).await?;
+    // ロックガードを式の途中で持ったままにしない (arc より長生きしてしまう)
+    let state = match arc.try_lock() {
+        Ok(guard) => txn_status(guard.txn),
+        Err(_) => "busy",
+    };
+    Ok(state.to_string())
+}
+
+/// 開いているトランザクションを閉じる (ステータスバーのボタンから呼ぶ)。
+/// 閉じたあとの状態を返す
+pub async fn end_open_txn(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    commit: bool,
+) -> Result<String, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    // 待っている間に別の操作が閉じていることがある (二重に押した場合など)
+    if session.txn == TxnState::None {
+        return Ok("none".to_string());
+    }
+    let label = conn_label(&session.profile);
+    let db_label = session.current_db.clone().unwrap_or_default();
+    end_txn(session, qlog, &label, &db_label, commit).await?;
+    Ok(txn_status(session.txn).to_string())
+}
+
 /// キャンセル用の接続IDを「不明」に戻す (接続を差し替えるのと同じ場所で呼ぶ)。
 ///
 /// await を挟まずに書き換えるので、この後の処理が途中で打ち切られても

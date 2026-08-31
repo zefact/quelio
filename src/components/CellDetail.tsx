@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useModal } from "../hooks/useModal";
 import type { Clip } from "../cellValue";
 import { clippedHead } from "../cellValue";
 import { writeClipboard } from "../gridCopy";
+import { tryFormatValue } from "../kvFormat";
 import type { CellValue } from "../types";
 
 interface Props {
@@ -31,6 +32,12 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /**
+   * 整形して表示するか。
+   * ここは1つの値をじっくり読むための画面なので、整形できるなら最初から整形する
+   * (Valkeyの一覧は行数が多いので既定は素のまま、と使い分けている)
+   */
+  const [pretty, setPretty] = useState(true);
   const boxRef = useModal(onClose);
 
   // 別のセルを開いたときに、前のセルの内容が残らないようにする
@@ -40,6 +47,17 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
     setError(null);
     setCopied(false);
   }, [value, clip]);
+
+  /*
+   * 整形した値 (JSON / PHPシリアライズ)。
+   * 途中までしか無い値は解析できないので、全文がそろってから試す
+   */
+  const formatted = useMemo(
+    () => (full ? tryFormatValue(text) : null),
+    [full, text]
+  );
+  /** 実際に画面へ出す文字列 */
+  const shownText = pretty && formatted !== null ? formatted : text;
 
   const fetchFull = async () => {
     if (!onFetchFull) return null;
@@ -65,8 +83,9 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
   };
 
   const copy = async () => {
-    // 先頭しか持っていない場合は、まず全文を取ってからコピーする
-    const body = full ? text : ((await fetchFull()) ?? text);
+    // 先頭しか持っていない場合は、まず全文を取ってからコピーする。
+    // 整形して見ているときは、見えているとおりの文字列をコピーする
+    const body = full ? shownText : ((await fetchFull()) ?? text);
     try {
       await writeClipboard(body);
       setCopied(true);
@@ -76,7 +95,7 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
     }
   };
 
-  /** 表示中の文字数 (絵文字などを1文字として数える) */
+  /** 表示中の文字数 (絵文字などを1文字として数える。元の値で数える) */
   const shown = [...text].length;
 
   return (
@@ -104,6 +123,15 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
                 ? `${shown.toLocaleString()}文字`
                 : `先頭${shown.toLocaleString()}文字 (全${(clip?.total ?? 0).toLocaleString()}文字)`}
             </span>
+            {formatted !== null && (
+              <button
+                className="btn-secondary"
+                onClick={() => setPretty((v) => !v)}
+                title="JSON・PHPシリアライズを読みやすく折り返して表示します"
+              >
+                {pretty ? "元の表示" : "整形"}
+              </button>
+            )}
             {!full && (
               <button
                 className="btn-secondary"
@@ -126,7 +154,7 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
             )}
           </div>
 
-          <textarea className="cell-text mono" value={text} readOnly />
+          <textarea className="cell-text mono" value={shownText} readOnly />
 
           {error && (
             <div className="result-banner ng column-error">

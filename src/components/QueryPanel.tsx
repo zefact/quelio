@@ -6,6 +6,7 @@ import { captureResults } from "../capture";
 import { CellDetail } from "./CellDetail";
 import type { Clip } from "../cellValue";
 import { clipIndex, clippedRowKeys } from "../cellValue";
+import { columnKinds, kindAlign, kindClass } from "../cellKind";
 import { CellText } from "./CellText";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableHeight } from "../hooks/useResizableHeight";
@@ -387,12 +388,23 @@ export function QueryPanel({
     });
   };
 
+  /**
+   * 表示中のページの値から見分けた列の種類。
+   * 結果は型を持っていないので、右寄せ・色はここから決める
+   */
+  const colKinds = useMemo(
+    () => columnKinds(result?.rows ?? [], result?.columns.length ?? 0),
+    [result]
+  );
+
   const gridColumns: GridColumn[] = useMemo(() => {
     const cols: GridColumn[] = (result?.columns ?? []).map((name, i) => ({
       id: `c${i}`,
       label: name,
       width: Math.min(260, Math.max(90, name.length * 10 + 40)),
       minWidth: 60,
+      align: kindAlign(colKinds[i] ?? "text"),
+      cellClass: kindClass(colKinds[i] ?? "text"),
       // EXPLAIN結果ならカラムの意味を、通常の結果なら
       // 定義から読み取った論理名・補足をヘッダのツールチップに出す
       description: explainKind
@@ -416,7 +428,7 @@ export function QueryPanel({
       });
     }
     return cols;
-  }, [result, showRowNums, explainKind, columnTips]);
+  }, [result, showRowNums, explainKind, columnTips, colKinds]);
 
   /**
    * ヘッダのソートメニューでの選択。

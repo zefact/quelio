@@ -32,9 +32,26 @@ pub struct SavedSqlStore {
     /// フォルダのパス一覧。同じ親を持つもの同士は、この並びが表示順になる
     #[serde(default)]
     pub folders: Vec<String>,
-    /// 保存したSQL。同じフォルダのもの同士は、この並びが表示順になる
+    /// 保存したSQL
     #[serde(default)]
     pub items: Vec<SavedSql>,
+    /// 表示順。フォルダと項目を混ぜた1本の並びで持つ。
+    ///
+    /// 中身は "f:<フォルダのパス>" と "i:<項目のID>"。
+    /// 同じ親を持つもの同士は、この並びがそのまま表示順になる
+    /// (フォルダを項目の下に置く、といった並べ方ができる)。
+    /// 古いファイルには無いので、その場合は読み込み時に組み立てる
+    #[serde(default)]
+    pub order: Vec<String>,
+}
+
+/// 表示順に並べる要素の呼び名
+fn folder_ref(path: &str) -> String {
+    format!("f:{path}")
+}
+
+fn item_ref(id: &str) -> String {
+    format!("i:{id}")
 }
 
 /// 読み込み時だけ使う形。
@@ -102,46 +119,40 @@ fn ensure_ancestors(store: &mut SavedSqlStore, path: &str) {
     }
 }
 
-/// 同じ親を持つフォルダが、一覧の何番目に並んでいるか
-fn sibling_slots(folders: &[String], parent: &str) -> Vec<usize> {
-    folders
+/// 表示順を実体に合わせて整える。
+///
+/// 消えたものを落とし、まだ載っていないものを後ろへ足す。
+/// 表示順を持たない古いファイルは、ここで
+/// 「フォルダが先、その後ろに項目」という今までの見え方になる
+fn ensure_order(store: &mut SavedSqlStore) {
+    let all: Vec<String> = store
+        .folders
         .iter()
-        .enumerate()
-        .filter(|(_, f)| parent_of(f) == parent)
-        .map(|(i, _)| i)
-        .collect()
-}
-
-/// フォルダを「親の直下の index 番目」へ置き直す
-fn place_folder(folders: &mut Vec<String>, path: &str, parent: &str, index: usize) {
-    folders.retain(|f| f != path);
-    let slots = sibling_slots(folders, parent);
-    let at = match slots.get(index) {
-        Some(&i) => i,
-        // 兄弟より後ろ (末尾) へ
-        None => slots.last().map(|&i| i + 1).unwrap_or(folders.len()),
-    };
-    folders.insert(at, path.to_string());
-}
-
-/// 項目を「そのフォルダの index 番目」へ置き直す
-fn place_item(items: &mut Vec<SavedSql>, id: &str, folder: &str, index: usize) {
-    let Some(pos) = items.iter().position(|e| e.id == id) else {
-        return;
-    };
-    let mut entry = items.remove(pos);
-    entry.folder = folder.to_string();
-    let slots: Vec<usize> = items
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| e.folder == folder)
-        .map(|(i, _)| i)
+        .map(|f| folder_ref(f))
+        .chain(store.items.iter().map(|e| item_ref(&e.id)))
         .collect();
-    let at = match slots.get(index) {
-        Some(&i) => i,
-        None => slots.last().map(|&i| i + 1).unwrap_or(items.len()),
-    };
-    items.insert(at, entry);
+    let known: std::collections::HashSet<&str> = all.iter().map(String::as_str).collect();
+    let mut seen = std::collections::HashSet::new();
+    let mut next: Vec<String> = store
+        .order
+        .iter()
+        .filter(|r| known.contains(r.as_str()) && seen.insert(r.as_str().to_string()))
+        .cloned()
+        .collect();
+    next.extend(all.into_iter().filter(|r| !seen.contains(r.as_str())));
+    store.order = next;
+}
+
+/// 表示順の中で `node` を `before` の直前へ動かす (before が無ければ末尾へ)。
+///
+/// 並びは1本だが、表示は親ごとに絞り込んで作るので、
+/// 兄弟でないものを跨いでいても順序は正しく決まる
+fn place_node(order: &mut Vec<String>, node: &str, before: Option<&str>) {
+    order.retain(|r| r != node);
+    let at = before
+        .and_then(|b| order.iter().position(|r| r == b))
+        .unwrap_or(order.len());
+    order.insert(at, node.to_string());
 }
 
 fn now_ms() -> u64 {
@@ -155,12 +166,14 @@ fn now_ms() -> u64 {
 pub fn load(app: &AppHandle) -> Result<SavedSqlStore, String> {
     let path = store_path(app)?;
     let stored: Option<Stored> = json_store::read(&path, "保存SQL")?;
-    Ok(match stored {
+    let mut store = match stored {
         Some(Stored::New(s)) => s,
         // 旧形式: 項目が持っているパスからフォルダを起こす
         Some(Stored::Old(items)) => from_items(items),
         None => SavedSqlStore::default(),
-    })
+    };
+    ensure_order(&mut store);
+    Ok(store)
 }
 
 /// 旧形式 (項目だけ) からフォルダを組み立てる
@@ -168,6 +181,7 @@ fn from_items(items: Vec<SavedSql>) -> SavedSqlStore {
     let mut store = SavedSqlStore {
         folders: Vec::new(),
         items,
+        order: Vec::new(),
     };
     let paths: Vec<String> = store
         .items
@@ -186,7 +200,10 @@ fn from_items(items: Vec<SavedSql>) -> SavedSqlStore {
     store
 }
 
-fn save_all(app: &AppHandle, store: &SavedSqlStore) -> Result<(), String> {
+/// 書き出す。表示順は書く直前に必ず整えるので、
+/// 追加・削除のたびに呼び出し側が気にしなくてよい
+fn save_all(app: &AppHandle, store: &mut SavedSqlStore) -> Result<(), String> {
+    ensure_order(store);
     let path = store_path(app)?;
     let text = serde_json::to_string_pretty(store)
         .map_err(|e| format!("保存SQLのシリアライズに失敗: {e}"))?;
@@ -229,10 +246,13 @@ pub fn upsert(
             entry.updated_at_ms = now_ms();
         }
         None => {
+            let id = uuid::Uuid::new_v4().to_string();
+            // 新しく保存したものは、そのフォルダの先頭に出す
+            store.order.insert(0, item_ref(&id));
             store.items.insert(
                 0,
                 SavedSql {
-                    id: uuid::Uuid::new_v4().to_string(),
+                    id,
                     name,
                     folder,
                     sql,
@@ -241,7 +261,7 @@ pub fn upsert(
             );
         }
     }
-    save_all(app, &store)?;
+    save_all(app, &mut store)?;
     Ok(store)
 }
 
@@ -249,7 +269,7 @@ pub fn upsert(
 pub fn delete(app: &AppHandle, id: &str) -> Result<SavedSqlStore, String> {
     let mut store = load(app)?;
     store.items.retain(|e| e.id != id);
-    save_all(app, &store)?;
+    save_all(app, &mut store)?;
     Ok(store)
 }
 
@@ -265,7 +285,7 @@ pub fn create_folder(app: &AppHandle, path: &str) -> Result<SavedSqlStore, Strin
     }
     ensure_ancestors(&mut store, &path);
     store.folders.push(path);
-    save_all(app, &store)?;
+    save_all(app, &mut store)?;
     Ok(store)
 }
 
@@ -296,7 +316,7 @@ pub fn rename_folder(app: &AppHandle, path: &str, name: &str) -> Result<SavedSql
         return Err("同じ名前のフォルダがあります".into());
     }
     retarget(&mut store, &path, &next);
-    save_all(app, &store)?;
+    save_all(app, &mut store)?;
     Ok(store)
 }
 
@@ -312,6 +332,14 @@ fn retarget(store: &mut SavedSqlStore, from: &str, to: &str) {
             e.folder = format!("{to}{}", &e.folder[from.len()..]);
         }
     }
+    // 表示順もフォルダのパスで覚えているので、一緒に付け替える
+    for r in store.order.iter_mut() {
+        if let Some(path) = r.strip_prefix("f:") {
+            if is_inside(path, from) {
+                *r = folder_ref(&format!("{to}{}", &path[from.len()..]));
+            }
+        }
+    }
 }
 
 /// フォルダを中身ごと削除して全体を返す
@@ -323,45 +351,47 @@ pub fn delete_folder(app: &AppHandle, path: &str) -> Result<SavedSqlStore, Strin
     let mut store = load(app)?;
     store.folders.retain(|f| !is_inside(f, &path));
     store.items.retain(|e| !is_inside(&e.folder, &path));
-    save_all(app, &store)?;
+    save_all(app, &mut store)?;
     Ok(store)
 }
 
-/// 項目を指定のフォルダの指定位置へ移す (ドラッグでの並べ替え)
-pub fn move_item(
+/// ドラッグでの移動。
+///
+/// `node` は "f:<パス>" か "i:<ID>"、`before` は
+/// 「この要素の直前へ入れる」という指定 (None なら末尾)。
+/// 位置を番号で渡すと「自分を除いた何番目か」を画面と保存側の
+/// 両方で数える必要があり、食い違いやすかったのでこの形にしている
+pub fn move_node(
     app: &AppHandle,
-    id: &str,
-    folder: &str,
-    index: usize,
-) -> Result<SavedSqlStore, String> {
-    let folder = normalize_folder(folder);
-    let mut store = load(app)?;
-    if !folder.is_empty() && !store.folders.iter().any(|f| f == &folder) {
-        return Err("フォルダが見つかりません".into());
-    }
-    if !store.items.iter().any(|e| e.id == id) {
-        return Err("保存SQLが見つかりません".into());
-    }
-    place_item(&mut store.items, id, &folder, index);
-    save_all(app, &store)?;
-    Ok(store)
-}
-
-/// フォルダを指定の親の指定位置へ移す (ドラッグでの並べ替え)
-pub fn move_folder(
-    app: &AppHandle,
-    path: &str,
+    node: &str,
     parent: &str,
-    index: usize,
+    before: Option<String>,
 ) -> Result<SavedSqlStore, String> {
-    let path = normalize_folder(path);
     let parent = normalize_folder(parent);
     let mut store = load(app)?;
-    if !store.folders.iter().any(|f| f == &path) {
-        return Err("フォルダが見つかりません".into());
-    }
     if !parent.is_empty() && !store.folders.iter().any(|f| f == &parent) {
         return Err("移動先のフォルダが見つかりません".into());
+    }
+    let before = before.filter(|b| b != node);
+
+    if let Some(id) = node.strip_prefix("i:") {
+        let entry = store
+            .items
+            .iter_mut()
+            .find(|e| e.id == id)
+            .ok_or("保存SQLが見つかりません")?;
+        entry.folder = parent;
+        place_node(&mut store.order, node, before.as_deref());
+        save_all(app, &mut store)?;
+        return Ok(store);
+    }
+
+    let path = node
+        .strip_prefix("f:")
+        .map(normalize_folder)
+        .ok_or("移動できない種類です")?;
+    if !store.folders.iter().any(|f| f == &path) {
+        return Err("フォルダが見つかりません".into());
     }
     // 自分自身の中へは入れられない (行き先が無くなる)
     if is_inside(&parent, &path) {
@@ -378,8 +408,8 @@ pub fn move_folder(
     if next != path {
         retarget(&mut store, &path, &next);
     }
-    place_folder(&mut store.folders, &next, &parent, index);
-    save_all(app, &store)?;
+    place_node(&mut store.order, &folder_ref(&next), before.as_deref());
+    save_all(app, &mut store)?;
     Ok(store)
 }
 
@@ -398,10 +428,28 @@ mod tests {
     }
 
     fn store(folders: &[&str], items: &[(&str, &str)]) -> SavedSqlStore {
-        SavedSqlStore {
+        let mut s = SavedSqlStore {
             folders: folders.iter().map(|s| s.to_string()).collect(),
             items: items.iter().map(|(id, f)| item(id, f)).collect(),
-        }
+            order: Vec::new(),
+        };
+        ensure_order(&mut s);
+        s
+    }
+
+    /// 表示順のうち、その親を持つものだけを並び順のまま取り出す (画面と同じ見え方)
+    fn children(s: &SavedSqlStore, parent: &str) -> Vec<String> {
+        s.order
+            .iter()
+            .filter(|r| match r.strip_prefix("f:") {
+                Some(p) => parent_of(p) == parent,
+                None => s
+                    .items
+                    .iter()
+                    .any(|e| item_ref(&e.id) == **r && e.folder == parent),
+            })
+            .cloned()
+            .collect()
     }
 
     #[test]
@@ -430,26 +478,54 @@ mod tests {
     }
 
     #[test]
-    fn 同じ親の中で並べ替える() {
-        let mut folders = vec!["a".to_string(), "b".to_string(), "c".to_string()];
-        // c を先頭へ
-        place_folder(&mut folders, "c", "", 0);
-        assert_eq!(folders, vec!["c", "a", "b"]);
-        // a を末尾へ (兄弟の数より大きい位置)
-        place_folder(&mut folders, "a", "", 9);
-        assert_eq!(folders, vec!["c", "b", "a"]);
+    fn 表示順が無いファイルは従来の見え方になる() {
+        // フォルダが先、その後ろに項目
+        let s = store(&["箱"], &[("a", ""), ("b", "箱")]);
+        assert_eq!(s.order, vec!["f:箱", "i:a", "i:b"]);
     }
 
     #[test]
-    fn 項目はフォルダを移りつつ位置も決まる() {
-        let mut items = vec![item("a", ""), item("b", "箱"), item("c", "箱")];
-        place_item(&mut items, "a", "箱", 1);
-        let in_box: Vec<&str> = items
-            .iter()
-            .filter(|e| e.folder == "箱")
-            .map(|e| e.id.as_str())
-            .collect();
-        assert_eq!(in_box, vec!["b", "a", "c"]);
+    fn 表示順は実体に合わせて整えられる() {
+        let mut s = store(&["箱"], &[("a", "")]);
+        // 消えたもの・重複・知らないものが混ざっていても直る
+        s.order = vec![
+            "i:a".into(),
+            "i:a".into(),
+            "f:無い".into(),
+            "i:消えた".into(),
+        ];
+        ensure_order(&mut s);
+        assert_eq!(s.order, vec!["i:a", "f:箱"]);
+    }
+
+    #[test]
+    fn フォルダと項目を混ぜて並べられる() {
+        let mut s = store(&["箱", "他"], &[("a", ""), ("b", "")]);
+        assert_eq!(children(&s, ""), vec!["f:箱", "f:他", "i:a", "i:b"]);
+        // 「他」を項目 a の後ろ (= b の直前) へ
+        place_node(&mut s.order, "f:他", Some("i:b"));
+        assert_eq!(children(&s, ""), vec!["f:箱", "i:a", "f:他", "i:b"]);
+        // 「箱」を末尾へ
+        place_node(&mut s.order, "f:箱", None);
+        assert_eq!(children(&s, ""), vec!["i:a", "f:他", "i:b", "f:箱"]);
+    }
+
+    #[test]
+    fn 兄弟でないものを跨いでも順序は正しい() {
+        // 「箱」の中の項目が間に挟まっていても、ルートの並びは変わらない
+        let mut s = store(&["箱"], &[("a", ""), ("in", "箱"), ("b", "")]);
+        place_node(&mut s.order, "i:b", Some("i:a"));
+        // 箱の中の項目が間に挟まっていても、ルートの並びは b → a になる
+        assert_eq!(children(&s, ""), vec!["f:箱", "i:b", "i:a"]);
+        assert_eq!(children(&s, "箱"), vec!["i:in"]);
+    }
+
+    #[test]
+    fn 名前を変えると表示順の呼び名も付け替わる() {
+        let mut s = store(&["集計", "集計/月次"], &[("a", "集計/月次")]);
+        retarget(&mut s, "集計", "レポート");
+        assert_eq!(children(&s, ""), vec!["f:レポート"]);
+        assert_eq!(children(&s, "レポート"), vec!["f:レポート/月次"]);
     }
 
     #[test]
