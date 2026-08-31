@@ -6,7 +6,8 @@
  * ここで気づけるようにしておく
  */
 import type { ConnectionProfile, TxnStatus } from "../types";
-import { badgeStyle, dbBadgeLabel } from "../colors";
+import { envColor, envLabel } from "../types";
+import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
 
 export interface LastRun {
   /** 取得した行数 (更新系は影響行数) */
@@ -44,12 +45,23 @@ export function StatusBar({
   const open = txn === "open" || txn === "broken";
   return (
     <div className={"status-bar" + (open ? " txn-open" : "")}>
-      <span className={`db-badge ${profile.dbType}`} style={badgeStyle(profile.color)}>
+      <span className={`db-badge ${profile.dbType}`} style={badgeStyle(profileColor(profile))}>
         {dbBadgeLabel(profile.dbType)}
       </span>
       <span className="status-name" title={profile.name || "(無名)"}>
         {profile.name || "(無名)"}
       </span>
+      {profile.env && (
+        <span
+          className="status-env"
+          style={{
+            color: envColor(profile.env),
+            borderColor: envColor(profile.env),
+          }}
+        >
+          {envLabel(profile.env)}
+        </span>
+      )}
       {database && (
         <span className="status-db mono" title={database}>
           {database}

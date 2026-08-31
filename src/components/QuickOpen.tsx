@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModal } from "../hooks/useModal";
-import { badgeStyle, dbBadgeLabel } from "../colors";
+import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
 import type { ConnectionProfile, FolderInfo } from "../types";
 
 interface Props {
@@ -109,7 +109,7 @@ export function QuickOpen({ connections, folders, onOpen, onClose }: Props) {
                     onMouseEnter={() => setIndex(i)}
                     onClick={() => choose(c)}
                   >
-                    <span className="db-badge mini" style={badgeStyle(c.color)}>
+                    <span className="db-badge mini" style={badgeStyle(profileColor(c))}>
                       {dbBadgeLabel(c.dbType)}
                     </span>
                     <span className="quick-name">

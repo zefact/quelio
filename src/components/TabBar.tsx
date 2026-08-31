@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { emitAppEvent, FIND_EVENT } from "../appEvents";
-import { dotStyle } from "../colors";
+import { dotStyle, profileColor } from "../colors";
 import type { WorkTab } from "../types";
 import { AppMenu } from "./AppMenu";
 import { DbIcon } from "./DbIcon";
@@ -72,7 +72,7 @@ export function TabBar({
             {t.connected ? (
               <span
                 className={`tab-dot ${t.profile.dbType}`}
-                style={dotStyle(t.profile.color)}
+                style={dotStyle(profileColor(t.profile))}
                 aria-hidden
               />
             ) : (

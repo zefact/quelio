@@ -77,6 +77,12 @@ pub struct ConnectionProfile {
     /// アイコン色 (#rrggbb。NoneならDB種別ごとの既定色)
     #[serde(default)]
     pub color: Option<String>,
+    /// 環境 ("prod" | "staging" | "dev"。Noneなら未設定)。
+    ///
+    /// 見た目の色を決めるだけでなく、"prod" では
+    /// 定義の変更 (ALTER・RENAME) の確認を設定で外せなくする
+    #[serde(default)]
+    pub env: Option<String>,
     /// 保存されたパスワード・パスフレーズを復号できなかった
     /// (マスターキーが変わった等)。画面に注意を出すための実行時の目印で、
     /// 保存時は常にfalseで書き出す

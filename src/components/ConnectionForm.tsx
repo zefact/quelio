@@ -1,8 +1,14 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { defaultSshKeyDir } from "../api";
-import type { ConnectionProfile, DbType, SshConfig, SslMode } from "../types";
-import { DEFAULT_PORTS, SSL_MODES, emptySsh } from "../types";
+import type {
+  ConnectionEnv,
+  ConnectionProfile,
+  DbType,
+  SshConfig,
+  SslMode,
+} from "../types";
+import { DEFAULT_PORTS, ENVS, SSL_MODES, emptySsh } from "../types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SelectMenu } from "./SelectMenu";
 
@@ -347,6 +353,35 @@ export function ConnectionForm({
           )}
             </>
           )}
+          <div className="span2 tls-row">
+            <span className="field-label">環境</span>
+            <div className="env-pick">
+              {/* 未設定のままでも使えるようにする (今までの接続はここに入る) */}
+              <div className="segmented">
+                <button
+                  className={"segment" + (profile.env ? "" : " active")}
+                  onClick={() => set({ env: undefined })}
+                >
+                  未設定
+                </button>
+                {ENVS.map(([e, label, color]) => (
+                  <button
+                    key={e}
+                    className={"segment" + (profile.env === e ? " active" : "")}
+                    onClick={() => set({ env: e as ConnectionEnv })}
+                  >
+                    <span className="env-dot" style={{ background: color }} aria-hidden />
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span className="field-note">
+                {profile.env === "prod"
+                  ? "接続するときに確認を出し、定義の変更 (ALTER・RENAME) の確認は設定で外せなくなります"
+                  : "タブ・画面下の帯・接続一覧の色が環境に合わせて変わります (色を選ぶとそちらが優先)"}
+              </span>
+            </div>
+          </div>
           <div className="span2 tls-row">
             <span className="field-label">読み取り専用</span>
             <label className="switch">

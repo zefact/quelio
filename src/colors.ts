@@ -1,6 +1,7 @@
 /** アイコン色のプリセットとスタイル生成ヘルパー */
 import type { CSSProperties } from "react";
-import type { DbType } from "./types";
+import type { ConnectionProfile, DbType } from "./types";
+import { envColor } from "./types";
 
 /** DB種別バッジの短い表示名 */
 export function dbBadgeLabel(dbType: DbType): string {
@@ -44,6 +45,18 @@ export function badgeStyle(
     background: hexToRgba(color, 0.14),
     borderColor: hexToRgba(color, 0.35),
   };
+}
+
+/**
+ * その接続に使う色。
+ *
+ * 手で選んだ色があればそれを、無ければ環境の色を使う。
+ * どちらも無ければ undefined (DB種別ごとの既定色になる)
+ */
+export function profileColor(
+  profile: Pick<ConnectionProfile, "color" | "env">
+): string | undefined {
+  return profile.color || envColor(profile.env);
 }
 
 /** タブの色ドット用スタイル */

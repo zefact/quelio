@@ -109,7 +109,7 @@ export function SettingsGeneral({ notify }: Props) {
         </SettingRow>
         <SettingRow
           title="定義の変更も確認する"
-          desc="ALTER・RENAME の実行前に確認を出します。マイグレーション用のSQLをまとめて流すときは外してください。DROP・TRUNCATE や WHERE の無い UPDATE / DELETE は、この設定に関わらず必ず確認します。"
+          desc="ALTER・RENAME の実行前に確認を出します。マイグレーション用のSQLをまとめて流すときは外してください。DROP・TRUNCATE や WHERE の無い UPDATE / DELETE は、この設定に関わらず必ず確認します。環境を「本番」にした接続では、外していても確認します。"
         >
           <label className="switch">
             <input

@@ -21,24 +21,50 @@ pub async fn check_dangerous_sql(
         // セッションが見つからない・実行中で読めない場合は、
         // 危険なSQLを見落とさない側 (文を多めに割る側) に倒す
         .unwrap_or_else(|| crate::dialect::fail_closed(db_type));
-    Ok(judge_dangerous(&app, d, &sql))
+    let prod = is_prod(&sessions, &session_id).await;
+    Ok(judge_dangerous(&app, d, &sql, prod))
+}
+
+/// SQLを文単位に分けて返す (「カーソルのある文だけ実行」に使う)。
+///
+/// 区切り方 (引用符・コメント・区切り文字) はサーバーの設定で変わるため、
+/// 実行や危険判定と同じ方言で分ける。画面側で分けると食い違う
+#[tauri::command]
+pub async fn split_sql_statements(
+    sessions: State<'_, Sessions>,
+    session_id: String,
+    sql: String,
+    db_type: crate::models::DbType,
+) -> Result<Vec<String>, String> {
+    let d = sessions::session_dialect(&sessions, &session_id)
+        .await
+        .unwrap_or_else(|| crate::dialect::fail_closed(db_type));
+    Ok(query::split_statements(d, &sql))
+}
+
+/// 「本番」に設定された接続か
+async fn is_prod(sessions: &State<'_, Sessions>, session_id: &str) -> bool {
+    sessions::session_env(sessions, session_id).await.as_deref() == Some("prod")
 }
 
 /// 確認が要るSQLを拾う (設定で外した種類は落とす)
+/// `prod` は「本番」の接続かどうか (本番では設定に関わらず確認する)
 fn judge_dangerous(
     app: &AppHandle,
     d: crate::query::Dialect,
     sql: &str,
+    prod: bool,
 ) -> Vec<query::DangerousStatement> {
     let mut found = query::dangerous_statements(d, sql);
     /*
      * 定義の変更 (ALTER / RENAME) の確認は設定で外せる。
+     * ただし本番の接続では外せない (外したことを忘れて流すのが一番怖い)。
      * 設定が読めないときは確認する側に倒す
      */
     let confirm_alter = crate::app_settings::load(app)
         .map(|s| s.confirm_alter)
         .unwrap_or(true);
-    if !confirm_alter {
+    if !confirm_alter && !prod {
         found.retain(|s| !s.definition_change);
     }
     found
@@ -70,12 +96,13 @@ pub async fn check_dangerous_filled(
     let d = sessions::session_dialect(&sessions, &session_id)
         .await
         .unwrap_or_else(|| crate::dialect::fail_closed(db_type));
+    let prod = is_prod(&sessions, &session_id).await;
     // 埋め込む前から対象なら、そちらで確認済み
-    if !judge_dangerous(&app, d, &sql).is_empty() {
+    if !judge_dangerous(&app, d, &sql, prod).is_empty() {
         return Ok(Vec::new());
     }
     let filled = query::substitute_params(d, &sql, &params);
-    Ok(judge_dangerous(&app, d, &filled))
+    Ok(judge_dangerous(&app, d, &filled, prod))
 }
 
 /// 任意のSQLを実行する

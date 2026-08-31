@@ -5,10 +5,14 @@ import { SqlLibraryMenu } from "./sqlLibrary/SqlLibraryMenu";
 import type { EditorOptions } from "../types";
 import { MOD, SHIFT } from "../keyLabel";
 
-/** 実行モードの選択肢 */
-const RUN_MODES: readonly RunSplitOption<"all" | "selection">[] = [
-  { value: "all", label: "実行 (全体)" },
-  { value: "selection", label: "選択実行 (選択部分のみ)" },
+/**
+ * ▾ から選べる実行の仕方。
+ * モードの切り替えではなく、その場で実行する操作として並べる
+ * (切り替え式は戻し忘れると意図しない範囲が走るため、やめた)
+ */
+const RUN_MENU: readonly RunSplitOption<"here" | "all">[] = [
+  { value: "here", label: "実行 (選択 / カーソル位置の文)" },
+  { value: "all", label: "全体を実行" },
 ];
 
 /** EXPLAINの種類 */
@@ -25,7 +29,6 @@ interface Props {
   /** 直近の実行を始めたボタン (スピナーの表示先) */
   runSource: "run" | "explain";
   runStartedAt: number | null;
-  runMode: "all" | "selection";
   explainMode: "explain" | "analyze";
   /** EXPLAINの種類を選べるか (SQLiteは1種類しかない) */
   hasExplainModes: boolean;
@@ -37,6 +40,8 @@ interface Props {
   captureMsg: string | null;
   capturePath: string | null;
   onRun: () => void;
+  /** 書いてあるSQLを全部実行する (▾ と ⌘⇧Enter) */
+  onRunAll: () => void;
   onExplain: (mode: "explain" | "analyze") => void;
   onCancel: () => void;
   onChangeSql: (sql: string) => void;
@@ -52,7 +57,6 @@ export function QueryToolbar({
   running,
   runSource,
   runStartedAt,
-  runMode,
   explainMode,
   hasExplainModes,
   txnOn,
@@ -61,6 +65,7 @@ export function QueryToolbar({
   captureMsg,
   capturePath,
   onRun,
+  onRunAll,
   onExplain,
   onCancel,
   onChangeSql,
@@ -72,27 +77,26 @@ export function QueryToolbar({
       <RunSplitButton
         mainClass="btn-primary"
         onClick={onRun}
-        disabled={running || (runMode === "all" ? !sql.trim() : !hasSelection)}
+        disabled={running || !sql.trim()}
         title={
-          (runMode === "selection"
-            ? "選択したテキストのみ実行"
-            : "エディタ全体を実行") +
-          " (⌘Enter)\n選択部分だけを実行: ⌘⇧Enter"
+          (hasSelection
+            ? "選択した部分を実行"
+            : "カーソルのある文を実行 (1文だけのときは全体)") +
+          ` (${MOD}Enter)\n全体を実行: ${MOD}${SHIFT}Enter`
         }
-        options={RUN_MODES}
-        value={runMode}
-        onSelect={(runMode) => onChangeOptions({ runMode })}
-        caretTitle="実行モードを切り替え"
+        options={RUN_MENU}
+        onSelect={(v) => (v === "all" ? onRunAll() : onRun())}
+        caretTitle="実行の仕方を選ぶ"
         caretDisabled={running}
       >
         {running && runSource === "run" ? (
           <>
             <span className="spinner light" /> 実行中...
           </>
-        ) : runMode === "all" ? (
-          "実行"
+        ) : hasSelection ? (
+          "選択を実行"
         ) : (
-          "選択実行"
+          "実行"
         )}
       </RunSplitButton>
 

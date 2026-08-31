@@ -7,7 +7,7 @@
  * 中身が完全に同じところだけをここへ集める
  * (データベースの選び方は両者で違うので、それぞれの画面に残す)
  */
-import { badgeStyle, dbBadgeLabel } from "../colors";
+import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
 import type { ConnectionProfile } from "../types";
 
 /** 接続先の見出し (種類のバッジ + 名前 + つなぎ先) */
@@ -25,7 +25,7 @@ export function ConnectionChip({
     <>
       <span
         className={`db-badge ${profile.dbType}`}
-        style={badgeStyle(profile.color)}
+        style={badgeStyle(profileColor(profile))}
       >
         {dbBadgeLabel(profile.dbType)}
       </span>

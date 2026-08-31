@@ -4,7 +4,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { listSessions, saveCapture, schemaWithForeignKeys } from "../api";
+import {
+  listSessions,
+  saveCapture,
+  saveTextFile,
+  schemaWithForeignKeys,
+} from "../api";
+import { writeClipboard } from "../gridCopy";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useWatchedSettings } from "../hooks/useWatchedSettings";
 import { parseComment } from "../comment";
@@ -22,6 +28,7 @@ import type {
 import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
 import { rafThrottle } from "../rafThrottle";
 import { drawErPng } from "../er/exportPng";
+import { toMermaid, toPlantUml } from "../er/exportText";
 import { usePolling } from "../hooks/usePolling";
 import { useDismiss } from "../hooks/useDismiss";
 import { useErPersistence } from "../hooks/useErPersistence";
@@ -1534,6 +1541,44 @@ export function ErWindow() {
     }
   };
 
+  /**
+   * テキスト形式で書き出す (コピー / 保存)。
+   *
+   * 図の見た目 (型や日本語名を隠す指定) に関わらず、テキストには全部入れる。
+   * 幅の制約が無く、Mermaidは型が無いと書けないため。
+   * 「主キーだけ表示」の指定はそのまま反映する (絞って見せている図なので)
+   */
+  const exportText = async (
+    format: "mermaid" | "plantuml",
+    save: boolean
+  ) => {
+    if (!entries || nodes.length === 0) return;
+    try {
+      const full = buildNodes(entries, allCols, true, true, delim);
+      const input = { database: sel.database, nodes: full, edges };
+      const text =
+        format === "mermaid" ? toMermaid(input) : toPlantUml(input);
+      if (!save) {
+        await writeClipboard(text);
+        setNotice(
+          `${format === "mermaid" ? "Mermaid" : "PlantUML"} をコピーしました`
+        );
+        return;
+      }
+      const d = new Date();
+      const p2 = (v: number) => String(v).padStart(2, "0");
+      const ts = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+      const ext = format === "mermaid" ? "mmd" : "puml";
+      const path = await saveTextFile(
+        `quelio_er_${sel.database}_${ts}.${ext}`,
+        text
+      );
+      setNotice(`保存しました → ${path}`);
+    } catch (e) {
+      setNotice(`書き出しに失敗: ${e}`);
+    }
+  };
+
   /** 注釈 (枠・見出し) への操作をまとめて渡す */
   const frameHandlers: FrameHandlers = {
     editingId,
@@ -1594,6 +1639,7 @@ export function ErWindow() {
         options={{ allCols, showLogical, showTypes }}
         onToggleOption={toggleOpt}
         onExportPng={exportPng}
+        onExportText={(f, save) => void exportText(f, save)}
         canExportPng={nodes.length > 0}
         meta={
           entries

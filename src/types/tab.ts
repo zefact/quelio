@@ -18,7 +18,6 @@ export interface EditorOptions {
   /** 実行後にSQLと結果のPNGを保存する */
   capture: boolean;
   /** 実行ボタンの対象 (全体 / 選択部分) */
-  runMode: "all" | "selection";
   /** EXPLAINボタンのモード */
   explainMode: "explain" | "analyze";
   /** エディタを画面いっぱいに広げているか */
@@ -29,7 +28,6 @@ export function defaultEditorOptions(): EditorOptions {
   return {
     txn: false,
     capture: false,
-    runMode: "all",
     explainMode: "explain",
     editorFull: false,
   };

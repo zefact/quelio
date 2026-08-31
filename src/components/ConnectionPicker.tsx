@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { badgeStyle, dbBadgeLabel, PRESET_COLORS } from "../colors";
+import { badgeStyle, dbBadgeLabel, PRESET_COLORS, profileColor } from "../colors";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import type {
@@ -456,7 +456,7 @@ export function ConnectionPicker({
         onContextMenu={(e) => openMenu(e, { kind: "conn", id: c.id })}
         title="クリック: 選択 / ダブルクリック: 接続"
       >
-        <span className={`db-badge ${c.dbType}`} style={badgeStyle(c.color)}>
+        <span className={`db-badge ${c.dbType}`} style={badgeStyle(profileColor(c))}>
           {dbBadgeLabel(c.dbType)}
         </span>
         <span className="connection-info">

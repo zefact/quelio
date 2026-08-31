@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatErrorMessage, formatSql } from "../sqlFormat";
 import { MOD, SHIFT } from "../keyLabel";
-import { checkDangerousSql } from "../api";
+import { checkDangerousSql, splitSqlStatements } from "../api";
 import { captureResults } from "../capture";
 import { CellDetail } from "./CellDetail";
 import type { Clip } from "../cellValue";
 import { clipIndex, clippedRowKeys } from "../cellValue";
+import { spanAt, spansOf } from "../sqlSpans";
 import { columnKinds, kindAlign, kindClass } from "../cellKind";
 import { CellText } from "./CellText";
 import { usePopupPosition } from "../hooks/usePopupPosition";
@@ -169,7 +170,7 @@ export function QueryPanel({
    * ここでローカルstateにすると、定義タブへ切り替えて戻ったときに
    * 既定値へ戻ってしまい、ONにしたつもりが効いていない事故につながるため
    */
-  const { txn: txnOn, capture: captureOn, runMode, explainMode } = options;
+  const { txn: txnOn, capture: captureOn, explainMode } = options;
   const editorFull = options.editorFull;
   const [sort, setSort] = useState<SortState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -269,35 +270,52 @@ export function QueryPanel({
     onRun(0, text, txnOn);
   };
 
-  /** 現在のモードで実行 */
-  const run = () => {
-    if (running) return;
-    if (runMode === "selection") {
-      const text = selectedText();
-      if (!text?.trim()) {
-        // キーボードだけだと無反応に見えるので理由を出す
-        setCaptureMsg(
-          "実行対象が「選択」です。範囲を選ぶか、実行対象を「全体」に変えてください"
-        );
-        return;
-      }
-      setRunSource("run");
-      guardRun(text, () => exec(text));
-    } else {
-      if (!sql.trim()) return;
-      // 選択しているのに全体が走る、を黙って起こさない
-      const hadSelection = !!selectedText()?.trim();
-      setRunSource("run");
-      // 判定に掛けた文をそのまま実行する
-      // (確認している間にエディタが変わっても、別の文が走らないように)
-      guardRun(sql, () => {
-        exec(sql);
-        // execが案内を消すので、そのあとに出す
-        if (hadSelection) {
-          setCaptureMsg("選択範囲ではなく全体を実行しました (選択のみは ⌘⇧Enter)");
-        }
-      });
+  /**
+   * カーソルのある文を探す。
+   *
+   * 区切り方は接続の方言で決まるのでバックエンドに聞く。
+   * 分けられなかったときは null (呼び出し側で全体を流す)
+   */
+  const statementAtCursor = async () => {
+    try {
+      const stmts = await splitSqlStatements(sessionId, sql, dbType);
+      const spans = spansOf(sql, stmts);
+      // 1文しか無いなら、わざわざ光らせず全体として扱う
+      if (spans.length <= 1) return null;
+      return spanAt(spans, editorRef.current?.getCursor() ?? 0);
+    } catch {
+      return null;
     }
+  };
+
+  /**
+   * 実行 (実行ボタン / ⌘Enter)。
+   *
+   * 選択があればその部分、無ければカーソルのある文だけを流す。
+   * 「実行対象」を切り替えてから実行する作りだと、
+   * 戻し忘れて意図しない範囲が走る・無反応になる、が起きていた
+   */
+  const run = async () => {
+    if (running) return;
+    const picked = selectedText();
+    if (picked?.trim()) {
+      setRunSource("run");
+      void guardRun(picked, () => exec(picked));
+      return;
+    }
+    if (!sql.trim()) return;
+    const stmt = await statementAtCursor();
+    setRunSource("run");
+    if (!stmt) {
+      // 分けられない・1文だけのときは、そのまま全部流す
+      void guardRun(sql, () => exec(sql));
+      return;
+    }
+    // 何が走ったか分かるよう、実行した文を短い間だけ光らせる
+    editorRef.current?.flashRange(stmt.from, stmt.to);
+    // 判定に掛けた文をそのまま実行する
+    // (確認している間にエディタが変わっても、別の文が走らないように)
+    void guardRun(stmt.text, () => exec(stmt.text));
   };
 
   // 実行完了後にキャプチャを保存する
@@ -344,19 +362,11 @@ export function QueryPanel({
     onRun(0, text?.trim() ? text : undefined, false, mode);
   };
 
-  /**
-   * ⌘/Ctrl+Shift+Enter: 実行対象の設定によらず、選択部分だけを実行する。
-   * (⌘Enterは実行ボタンと同じ動きにしてあるので、こちらで使い分ける)
-   */
-  const runSelectionViaShortcut = () => {
-    if (running) return;
-    const text = selectedText();
-    if (!text?.trim()) {
-      setCaptureMsg("選択されていません (⌘⇧Enter は選択部分のみ実行します)");
-      return;
-    }
+/** ⌘/Ctrl+Shift+Enter: 書いてあるSQLを全部まとめて実行する */
+  const runAll = () => {
+    if (running || !sql.trim()) return;
     setRunSource("run");
-    guardRun(text, () => exec(text));
+    void guardRun(sql, () => exec(sql));
   };
 
   /** EXPLAIN の種類を選べるDBか (SQLiteは EXPLAIN QUERY PLAN のみ) */
@@ -573,8 +583,8 @@ export function QueryPanel({
           dbType={dbType}
           placeholder="SELECT * FROM ...  (複数のSQLは ; で区切って記述できます)"
           onChange={onChangeSql}
-          onRun={run}
-          onRunSelection={runSelectionViaShortcut}
+          onRun={() => void run()}
+          onRunSelection={runAll}
           onSelectionChange={setHasSelection}
           onContextMenu={(x, y) => setCtxMenu({ x, y })}
         onFormat={handleFormat}
@@ -645,7 +655,6 @@ export function QueryPanel({
         running={running}
         runSource={runSource}
         runStartedAt={runStartedAt}
-        runMode={runMode}
         explainMode={explainMode}
         hasExplainModes={hasExplainModes}
         txnOn={txnOn}
@@ -653,7 +662,8 @@ export function QueryPanel({
         formatError={formatError}
         captureMsg={captureMsg}
         capturePath={capturePath}
-        onRun={run}
+        onRun={() => void run()}
+        onRunAll={runAll}
         onExplain={runExplain}
         onCancel={onCancel}
         onChangeSql={onChangeSql}

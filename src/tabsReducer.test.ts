@@ -64,7 +64,7 @@ describe("tabsReducer", () => {
     expect(opts.txn).toBe(true);
     expect(opts.capture).toBe(true);
     // 触っていない設定はそのまま
-    expect(opts.runMode).toBe("all");
+    expect(opts.explainMode).toBe("explain");
   });
 
   it("データタブとValkeyの状態も入れ子で差し替える", () => {

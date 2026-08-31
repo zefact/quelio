@@ -717,6 +717,11 @@ export function saveCapture(
   return call("save_capture", { fileName, dataBase64 });
 }
 
+/** テキストファイルを保存先フォルダへ書き出し、保存先パスを返す */
+export function saveTextFile(fileName: string, text: string): Promise<string> {
+  return call("save_text_file", { fileName, text });
+}
+
 export function listSessions(): Promise<SessionSummary[]> {
   return call("list_sessions");
 }
@@ -875,6 +880,18 @@ export function jobStatus(jobId: string): Promise<JobStatus> {
 /** スキーマの読み込み (専用接続) を中止する */
 export function cancelSchemaLoad(sessionId: string): Promise<void> {
   return call("cancel_schema_load", { sessionId });
+}
+
+/**
+ * SQLを文単位に分けて返す。
+ * 区切り方は接続の方言で決まるので、画面では分けずにここへ聞く
+ */
+export function splitSqlStatements(
+  sessionId: string,
+  sql: string,
+  dbType: DbType
+): Promise<string[]> {
+  return call("split_sql_statements", { sessionId, sql, dbType });
 }
 
 /** 実行中のSQLをキャンセルする */

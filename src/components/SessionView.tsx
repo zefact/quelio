@@ -26,7 +26,7 @@ import type {
   TableInfo,
   WorkTab,
 } from "../types";
-import { activeSheetOf } from "../types";
+import { activeSheetOf, envColor } from "../types";
 import { StatusBar } from "./StatusBar";
 import type { LastRun } from "./StatusBar";
 import { useTxnState } from "../hooks/useTxnState";
@@ -526,7 +526,15 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
   return (
     <div className="session">
       {/* ツールバー */}
-      <div className="session-toolbar">
+      {/* 環境を決めてある接続は、ツールバーの上端をその色で塗る */}
+      <div
+        className={"session-toolbar" + (profile.env ? " has-env" : "")}
+        style={
+          profile.env
+            ? ({ "--env-color": envColor(profile.env) } as React.CSSProperties)
+            : undefined
+        }
+      >
         <ConnectionChip profile={profile} filePath={dbFilePath} />
 
         {/* SQLiteは1ファイル=1DBなので選択メニューは出さない */}

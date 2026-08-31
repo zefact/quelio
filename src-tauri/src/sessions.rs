@@ -282,6 +282,18 @@ pub async fn session_dialect(sessions: &Sessions, session_id: &str) -> Option<qu
     arc.try_lock().ok().map(|s| s.dialect)
 }
 
+/// セッションの環境ラベル ("prod" 等。未接続・未設定ならNone)。
+///
+/// 実行中は方言と同じくロックが取れないので諦める。
+/// 実行中に別のSQLを流し始めることはできないため、
+/// 確認の判定でこれが読めない場面は実際には起きない
+pub async fn session_env(sessions: &Sessions, session_id: &str) -> Option<String> {
+    let arc = sessions.0.lock().await.get(session_id).cloned()?;
+    // ロックガードを式の途中で持ったままにしない (arc より長生きしてしまう)
+    let env = arc.try_lock().ok().and_then(|s| s.profile.env.clone());
+    env
+}
+
 /// 読み取り専用の接続で変更しようとしたときの案内
 pub const READ_ONLY_MSG: &str = concat!(
     "この接続は読み取り専用です。\n",

@@ -21,8 +21,8 @@ const GROUPS: [string, [string, string][]][] = [
   [
     "SQLエディタ",
     [
-      [`${MOD}Enter`, "実行 (実行対象の設定に従う)"],
-      [`${MOD}${SHIFT}Enter`, "選択した部分だけ実行"],
+      [`${MOD}Enter`, "実行 (選択部分 / カーソルのある文)"],
+      [`${MOD}${SHIFT}Enter`, "全体を実行 (書いてあるSQLすべて)"],
       [`${MOD}S`, "書いているSQLをお気に入りへ保存"],
       [`${MOD}${SHIFT}F`, "SQLを整形 (カンマ先頭)"],
       [`${MOD}F`, "ページ内検索 (F3 / ⇧F3 で次・前へ)"],

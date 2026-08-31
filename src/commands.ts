@@ -148,6 +148,7 @@ export interface CommandResults {
   run_query: RunOutput;
   save_app_settings: void;
   save_capture: string;
+  save_text_file: string;
   save_connection: ConnectionProfile;
   save_er_diagram: void;
   save_sql_params: void;
@@ -159,6 +160,7 @@ export interface CommandResults {
   search_objects: ObjectSearchResult;
   search_values: ValueSearchResult;
   set_table_comment: string[];
+  split_sql_statements: string[];
   start_export: StartedJob;
   start_import: StartedJob;
   system_databases: string[];
@@ -269,6 +271,7 @@ export const COMMAND_NAMES = [
   "run_query",
   "save_app_settings",
   "save_capture",
+  "save_text_file",
   "save_connection",
   "save_er_diagram",
   "save_sql_params",
@@ -280,6 +283,7 @@ export const COMMAND_NAMES = [
   "search_objects",
   "search_values",
   "set_table_comment",
+  "split_sql_statements",
   "start_export",
   "start_import",
   "system_databases",

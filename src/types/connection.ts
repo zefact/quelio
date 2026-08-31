@@ -32,6 +32,26 @@ export function tlsUnverified(mode: SslMode | undefined): boolean {
   return mode === "" || mode === undefined || mode === "disable" || mode === "require";
 }
 
+/** 接続先の環境。色の既定と、本番だけの安全側の扱いに使う */
+export type ConnectionEnv = "prod" | "staging" | "dev";
+
+/** 環境の表示名と既定色 (画面の並び順もこのとおり) */
+export const ENVS: [ConnectionEnv, string, string][] = [
+  ["prod", "本番", "#f87171"],
+  ["staging", "ステージング", "#fbbf24"],
+  ["dev", "開発", "#34d399"],
+];
+
+/** 環境の表示名 (未設定なら空) */
+export function envLabel(env: ConnectionEnv | undefined): string {
+  return ENVS.find(([e]) => e === env)?.[1] ?? "";
+}
+
+/** 環境の既定色 (未設定なら undefined) */
+export function envColor(env: ConnectionEnv | undefined): string | undefined {
+  return ENVS.find(([e]) => e === env)?.[2];
+}
+
 export interface ConnectionProfile {
   id: string;
   name: string;
@@ -59,8 +79,10 @@ export interface ConnectionProfile {
   ssh?: SshConfig;
   /** 所属フォルダID (未設定ならルート直下) */
   folderId?: string;
-  /** アイコン色 (#rrggbb。未設定ならDB種別ごとの既定色) */
+  /** アイコン色 (#rrggbb。未設定なら環境の色、それも無ければDB種別ごとの既定色) */
   color?: string;
+  /** 環境 (未設定なら区別しない) */
+  env?: ConnectionEnv;
   /**
    * 保存されたパスワード・パスフレーズを復号できなかった。
    * (マスターキーが変わった等) この場合は接続できないため、入力し直してもらう

@@ -13,16 +13,23 @@ import {
   completionStatus,
   startCompletion,
 } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  insertNewlineAndIndent,
+} from "@codemirror/commands";
 import { MySQL, PostgreSQL, SQLite } from "@codemirror/lang-sql";
 import {
   HighlightStyle,
   indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language";
-import { Compartment, Prec } from "@codemirror/state";
+import { Compartment, Prec, StateEffect, StateField } from "@codemirror/state";
+import type { Command } from "@codemirror/view";
 import { setEditorFinder } from "../editorSearch";
 import {
+  Decoration,
   drawSelection,
   EditorView,
   highlightActiveLine,
@@ -32,6 +39,7 @@ import {
   placeholder as cmPlaceholder,
   tooltips,
 } from "@codemirror/view";
+import type { DecorationSet } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
 import type { DbType } from "../types";
 import { watchCompletionLayout } from "./completionLayout";
@@ -41,9 +49,73 @@ import {
   type SchemaMap,
 } from "./sqlCompletion";
 
+/*
+ * 「今実行した文」を短い間だけ光らせる仕組み。
+ *
+ * 本物の選択にすると、そのまま入力したときに文が置き換わってしまう。
+ * 見せるだけの飾りとして持つ
+ */
+const flashRangeEffect = StateEffect.define<{ from: number; to: number } | null>();
+
+const flashMark = Decoration.mark({ class: "cm-ran" });
+
+const flashField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    let next = deco.map(tr.changes);
+    for (const e of tr.effects) {
+      if (!e.is(flashRangeEffect)) continue;
+      next =
+        e.value && e.value.to > e.value.from
+          ? Decoration.set([flashMark.range(e.value.from, e.value.to)])
+          : Decoration.none;
+    }
+    return next;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+/** 光らせておく時間 (ミリ秒) */
+const FLASH_MS = 900;
+
+/** 行頭の空白 (字下げ) を取り出す */
+function indentOf(text: string): string {
+  return /^[ \t]*/.exec(text)?.[0] ?? "";
+}
+
+/**
+ * 改行したときの字下げ。
+ *
+ * 標準の動き (言語まかせ) は括弧の中しか見ないため、
+ * 自分で字下げして書いていても改行のたびに行頭へ戻ってしまう。
+ * 標準の結果と「直前の行の字下げ」を比べ、深い方を採る
+ * (括弧の中でさらに下がる動きはそのまま残る)
+ */
+const insertNewlineSmart: Command = (view) => {
+  const sel = view.state.selection;
+  const before = view.state.doc.lineAt(sel.main.from);
+  const prev = indentOf(before.text);
+  if (!insertNewlineAndIndent(view)) return false;
+  // 複数カーソルのときは、標準の結果をそのまま使う
+  if (sel.ranges.length > 1) return true;
+  const line = view.state.doc.lineAt(view.state.selection.main.head);
+  const now = indentOf(line.text);
+  if (now.length >= prev.length) return true;
+  view.dispatch({
+    changes: { from: line.from, to: line.from + now.length, insert: prev },
+    selection: { anchor: line.from + prev.length },
+    userEvent: "input",
+  });
+  return true;
+};
+
 /** 親から選択テキストを取得するためのハンドル */
 export interface SqlEditorHandle {
   getSelectedText(): string | null;
+  /** カーソル位置 (文字数。選択しているときは選択の先頭) */
+  getCursor(): number;
+  /** 今実行した範囲を短い間だけ光らせる (選択はしない) */
+  flashRange(from: number, to: number): void;
 }
 
 interface Props {
@@ -53,7 +125,7 @@ interface Props {
   onChange: (value: string) => void;
   /** ⌘/Ctrl+Enter (実行ボタンと同じ動き) */
   onRun: () => void;
-  /** ⌘/Ctrl+Shift+Enter (選択部分だけを実行) */
+  /** ⌘/Ctrl+Shift+Enter (書いてあるSQLを全部実行) */
   onRunSelection: () => void;
   /** ⌘/Ctrl+Shift+F (SQLを整形) */
   onFormat: () => void;
@@ -191,6 +263,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  /** 実行した範囲の光を消すタイマー */
+  const flashTimer = useRef(0);
   // 補完は候補を出すたびにrefを読むので、スキーマが変わっても作り直し不要
   const schemaRef = useRef(schema);
   schemaRef.current = schema;
@@ -222,6 +296,18 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       if (from === to) return null;
       return view.state.doc.sliceString(from, to);
     },
+    getCursor() {
+      return viewRef.current?.state.selection.main.from ?? 0;
+    },
+    flashRange(from: number, to: number) {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ effects: flashRangeEffect.of({ from, to }) });
+      window.clearTimeout(flashTimer.current);
+      flashTimer.current = window.setTimeout(() => {
+        viewRef.current?.dispatch({ effects: flashRangeEffect.of(null) });
+      }, FLASH_MS);
+    },
   }));
 
   useEffect(() => {
@@ -236,6 +322,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         // 選択の描画を自前で行う。ブラウザ任せだとフォーカスが無いときに
         // 描かれず、検索でヒットした位置が分からなくなる
         drawSelection(),
+        // 実行した範囲を短い間だけ光らせる (選択はしない)
+        flashField,
         highlightActiveLine(),
         highlightActiveLineGutter(),
         history(),
@@ -293,7 +381,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         ),
         keymap.of([
           ...closeBracketsKeymap,
+          // 補完が出ている間のEnterは「確定」なので、その後ろに置く
           ...completionKeymap,
+          { key: "Enter", run: insertNewlineSmart },
           ...defaultKeymap,
           ...historyKeymap,
         ]),

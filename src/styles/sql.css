@@ -496,6 +496,14 @@ html[data-theme="light"] .result-banner.ng {
   min-width: 0;
 }
 
+/*
+ * 環境の帯。ツールバーの上端を環境色で塗る。
+ * 「今どこに繋いでいるか」を、目線がいちばん行く場所で示す
+ */
+.session-toolbar.has-env {
+  box-shadow: inset 0 3px 0 var(--env-color);
+}
+
 .session-toolbar {
   display: flex;
   align-items: center;
@@ -756,6 +764,16 @@ html[data-theme="light"] .result-banner.ng {
   color: var(--danger);
 }
 
+/*
+ * 直前に実行した文。
+ * 本物の選択にすると、そのまま入力したときに消えてしまうので、
+ * 見せるだけの飾りとして短い間だけ光らせる
+ */
+.cm-ran {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 3px;
+}
+
 /* ============ 画面いちばん下の状態表示 ============ */
 
 .status-bar {
@@ -799,6 +817,17 @@ html[data-theme="light"] .result-banner.ng {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 環境 (本番 / ステージング / 開発)。色は環境ごとに変える */
+.status-env {
+  flex-shrink: 0;
+  padding: 0 7px;
+  border: 1px solid;
+  border-radius: var(--radius-xs);
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 15px;
 }
 
 .status-ro {
@@ -1249,6 +1278,11 @@ html[data-theme="light"] .result-banner.ng {
   top: calc(100% + 5px);
   left: 0;
   min-width: 220px;
+}
+
+/* 項目は折り返さない (メニューの方を広げる) */
+.run-menu .context-item {
+  white-space: nowrap;
 }
 
 /* 下に入りきらないときはボタンの上へ出す */

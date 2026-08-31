@@ -40,6 +40,8 @@ interface Props {
   onToggleOption: (key: ErOptionKey) => void;
 
   onExportPng: () => void;
+  /** テキスト形式の書き出し (コピー / 保存) */
+  onExportText: (format: "mermaid" | "plantuml", save: boolean) => void;
   canExportPng: boolean;
   /** 右端に出す「Nテーブル / Mリレーション」 */
   meta: string;
@@ -66,13 +68,16 @@ export function ErToolbar({
   options,
   onToggleOption,
   onExportPng,
+  onExportText,
   canExportPng,
   meta,
 }: Props) {
   const diagMenuRef = useRef<HTMLDivElement>(null);
   const optsRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLDivElement>(null);
   const [diagOpen, setDiagOpen] = useState(false);
   const [optsOpen, setOptsOpen] = useState(false);
+  const [textOpen, setTextOpen] = useState(false);
 
   // どちらのプルダウンも外側クリックで閉じる。
   // テーブル等がmousedownをstopPropagationするため、キャプチャ段階で検知する
@@ -83,6 +88,10 @@ export function ErToolbar({
   useDismiss(optsOpen, () => setOptsOpen(false), {
     capture: true,
     ref: optsRef,
+  });
+  useDismiss(textOpen, () => setTextOpen(false), {
+    capture: true,
+    ref: textRef,
   });
 
   return (
@@ -230,6 +239,52 @@ export function ErToolbar({
       >
         PNG保存
       </button>
+
+      {/* テキスト形式。図をそのままリポジトリやWikiへ貼れるようにする */}
+      <div className="er-opts" ref={textRef}>
+        <button
+          className="btn-secondary has-tooltip tooltip-left tooltip-wrap"
+          data-tooltip={
+            "Mermaid / PlantUML で書き出します\n(GitHubやNotionはMermaidをそのまま図にします)"
+          }
+          disabled={!canExportPng}
+          onClick={() => setTextOpen(!textOpen)}
+        >
+          テキスト <span className="er-opts-caret">▾</span>
+        </button>
+        {textOpen && (
+          <div className="er-opts-pop er-text-pop">
+            {(
+              [
+                ["mermaid", "Mermaid"],
+                ["plantuml", "PlantUML"],
+              ] as const
+            ).map(([format, label]) => (
+              <div key={format} className="er-text-row">
+                <span className="er-text-name">{label}</span>
+                <button
+                  className="context-item"
+                  onClick={() => {
+                    setTextOpen(false);
+                    onExportText(format, false);
+                  }}
+                >
+                  コピー
+                </button>
+                <button
+                  className="context-item"
+                  onClick={() => {
+                    setTextOpen(false);
+                    onExportText(format, true);
+                  }}
+                >
+                  保存
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       <span className="er-meta mono">{meta}</span>
     </div>
   );

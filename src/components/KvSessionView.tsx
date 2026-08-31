@@ -20,7 +20,7 @@ import type {
   StatementResult,
   WorkTab,
 } from "../types";
-import { activeSheetOf } from "../types";
+import { activeSheetOf, envColor } from "../types";
 import { KvCommandEditor } from "./KvCommandEditor";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { KvValueGrid } from "./KvValueGrid";
@@ -424,7 +424,15 @@ export function KvSessionView({
   return (
     <div className="session">
       {/* ツールバー */}
-      <div className="session-toolbar">
+      {/* 環境を決めてある接続は、ツールバーの上端をその色で塗る */}
+      <div
+        className={"session-toolbar" + (profile.env ? " has-env" : "")}
+        style={
+          profile.env
+            ? ({ "--env-color": envColor(profile.env) } as React.CSSProperties)
+            : undefined
+        }
+      >
         <ConnectionChip profile={profile} />
 
         <div className="db-select-wrap">

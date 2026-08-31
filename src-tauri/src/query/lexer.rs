@@ -371,8 +371,8 @@ pub fn split_sql(d: Dialect, sql: &str) -> SplitSql {
     }
 }
 
-/// 文単位に分割した結果だけを返す (テスト用)
-#[cfg(test)]
+/// 文単位に分割した結果だけを返す。
+/// 画面側の「カーソルのある文だけ実行」でも使う
 pub fn split_statements(d: Dialect, sql: &str) -> Vec<String> {
     split_sql(d, sql).stmts
 }

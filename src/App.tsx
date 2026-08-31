@@ -658,6 +658,24 @@ function App() {
   };
 
   /** 接続してこのタブをセッション画面に切り替える */
+  /** 本番へ繋ぐ前の確認 (押した時点の接続先を覚えておく) */
+  const [prodConfirm, setProdConfirm] = useState<{
+    key: string;
+    profile: ConnectionProfile;
+  } | null>(null);
+
+  /**
+   * 接続する。環境が「本番」の接続先は一度確認してから繋ぐ。
+   * (SSHホスト鍵の確認からのやり直しは、確認済みなので直接 handleConnect を呼ぶ)
+   */
+  const requestConnect = async (key: string, profile: ConnectionProfile) => {
+    if (profile.env === "prod") {
+      setProdConfirm({ key, profile });
+      return;
+    }
+    await handleConnect(key, profile);
+  };
+
   const handleConnect = async (key: string, profile: ConnectionProfile) => {
     updateTab(key, {
       busy: "connect",
@@ -1312,7 +1330,7 @@ function App() {
             tab.profile = structuredClone(p);
             dispatch({ type: "add", tab });
             setActiveKey(key);
-            void handleConnect(key, p);
+            void requestConnect(key, p);
           }}
           onClose={() => setQuickOpen(false)}
         />
@@ -1320,6 +1338,25 @@ function App() {
 
       {showShortcuts && (
         <ShortcutHelp onClose={() => setShowShortcuts(false)} />
+      )}
+
+      {prodConfirm && (
+        <ConfirmDialog
+          title="本番環境へ接続します"
+          target={prodConfirm.profile.name || prodConfirm.profile.host}
+          confirmLabel="接続する"
+          onCancel={() => setProdConfirm(null)}
+          onConfirm={async () => {
+            const req = prodConfirm;
+            setProdConfirm(null);
+            await handleConnect(req.key, req.profile);
+          }}
+        >
+          この接続先は環境が「本番」に設定されています。
+          {prodConfirm.profile.readOnly
+            ? "読み取り専用なので、変更する操作はすべて拒否されます。"
+            : "更新も実行できる設定です。流すSQLを確かめてから接続してください。"}
+        </ConfirmDialog>
       )}
 
       {closeWarn && (
@@ -1456,7 +1493,7 @@ function App() {
             onSave={() => handleSave(activeTab.key)}
             onDelete={() => handleDelete(activeTab.key)}
             onTest={() => handleTest(activeTab.key)}
-            onConnect={(p) => handleConnect(activeTab.key, p)}
+            onConnect={(p) => requestConnect(activeTab.key, p)}
           />
         )}
       </div>

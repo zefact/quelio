@@ -275,6 +275,23 @@ pub async fn save_capture(
     Ok(path.to_string_lossy().to_string())
 }
 
+/// テキストを保存先フォルダへ書き出し、保存先パスを返す。
+/// ER図のMermaid / PlantUML出力など、画像ではない書き出しに使う
+#[tauri::command]
+pub async fn save_text_file(
+    app: AppHandle,
+    file_name: String,
+    text: String,
+) -> Result<String, String> {
+    // 設定の「保存先フォルダ」に従う (未設定ならOSのダウンロードフォルダ)
+    let dir = crate::app_settings::download_dir(&app)?;
+    // パス区切り等を除去した安全なファイル名にする (拡張子は残す)
+    let path = dir.join(crate::filename::safe_file_name(&file_name));
+    crate::outfile::write(&path, text.into_bytes())
+        .map_err(|e| format!("ファイルを書き込めません: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// アプリ全般の設定を返す
 #[tauri::command]
 pub fn get_app_settings(app: AppHandle) -> Result<crate::app_settings::AppSettings, String> {
