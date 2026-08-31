@@ -6,6 +6,7 @@ import {
 } from "react";
 import {
   listSessions,
+  listTables,
   saveCapture,
   saveTextFile,
   schemaWithForeignKeys,
@@ -24,10 +25,13 @@ import type {
   FkInfo,
   SchemaEntry,
   SessionSummary,
+  TableInfo,
 } from "../types";
 import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
 import { rafThrottle } from "../rafThrottle";
 import { drawErPng } from "../er/exportPng";
+import { drawErSvg } from "../er/exportSvg";
+import type { ErDrawInput } from "../er/drawing";
 import { toMermaid, toPlantUml } from "../er/exportText";
 import { usePolling } from "../hooks/usePolling";
 import { useDismiss } from "../hooks/useDismiss";
@@ -37,6 +41,7 @@ import {
   type ErConfirm,
   type ErNameDialog,
 } from "./ErDialogs";
+import { ErTablePicker } from "./ErTablePicker";
 import { CanvasMenu } from "./erMenu/CanvasMenu";
 import { ColumnMenu } from "./erMenu/ColumnMenu";
 import { EdgeMenu } from "./erMenu/EdgeMenu";
@@ -44,7 +49,11 @@ import { FrameMenu } from "./erMenu/FrameMenu";
 import { NodeMenu } from "./erMenu/NodeMenu";
 import type { ErCtxMenu } from "./erMenu/types";
 import { ErEdgeLayer } from "./ErEdgeLayer";
-import { ErToolbar } from "./ErToolbar";
+import {
+  ErToolbar,
+  textFormatLabel,
+  type ErTextFormat,
+} from "./ErToolbar";
 import { ErNodeView } from "./ErNodeView";
 import { ErFrameLayer, type FrameHandlers } from "./ErFrameLayer";
 import { ErPageTabs } from "./ErPageTabs";
@@ -128,10 +137,14 @@ export function ErWindow() {
   // どの接続からでも同じ図を開ける
   /** 図の名前入力ダイアログ (名前を付けて保存 / 名前変更) */
   const [nameDialog, setNameDialog] = useState<ErNameDialog | null>(null);
-  /** リバース時の確認ダイアログ (既存の図がある場合のみ表示) */
-  const [reverseDialog, setReverseDialog] = useState(false);
-  /** リバース時に削除済みテーブルも復活させるか (ダイアログのチェック) */
-  const [reviveTables, setReviveTables] = useState(false);
+  /** テーブルを選ぶ画面 (開いている間だけ一覧を持つ) */
+  const [picker, setPicker] = useState<{
+    tables: TableInfo[];
+    initial: Set<string>;
+    /** すでに図にあるテーブル (印を付けるだけ) */
+    existing: Set<string>;
+    loading: boolean;
+  } | null>(null);
   /** 削除確認ダイアログ (タブ・テーブル・線・枠などの削除前に出す)。
    * subを指定するとサブテキストを差し替えられる (既定は「元に戻せません」) */
   const [confirm, setConfirm] = useState<ErConfirm | null>(null);
@@ -346,22 +359,34 @@ export function ErWindow() {
     });
   };
 
-  /** リバース: DBからスキーマを読み込んでER図を作成/更新する。
-   * 既存の図がある場合はテーブルの配置を維持し、新規テーブルは右側へ追加する。
-   * addNew: 図に無い新規テーブルを追加するか (既存図でundefinedなら確認ダイアログを出す)
-   * revive: 図から削除したテーブルも復活させるか */
-  const doReverse = async (addNew?: boolean, revive?: boolean) => {
+  /** リバースするテーブルを選ぶ画面を開く。
+   * 一覧は開いてから取りに行く (件数が多いと時間がかかるため先に画面を出す)。
+   * 新規なら全部を選んだ状態、更新なら何も選んでいない状態から始める
+   * (更新では、チェックしたものだけをDBから読み直す) */
+  const openPicker = async (preselect?: Set<string>) => {
     if (!sel.sessionId || !sel.database) return;
-    // 既にテーブルがある場合は、新規テーブルの扱いを確認してから実行する
-    if (
-      addNew === undefined &&
-      entriesRef.current !== null &&
-      posRef.current.size > 0
-    ) {
-      setReviveTables(false);
-      setReverseDialog(true);
-      return;
+    const keep = new Set(entriesRef.current?.map((e) => e.table.name) ?? []);
+    const first = preselect ?? new Set<string>();
+    setPicker({ tables: [], initial: first, existing: keep, loading: true });
+    try {
+      const tables = await listTables(sel.sessionId, sel.database);
+      setPicker({
+        tables,
+        initial: keep.size > 0 ? first : new Set(tables.map((t) => t.name)),
+        existing: keep,
+        loading: false,
+      });
+    } catch (e) {
+      setPicker(null);
+      setError(String(e));
     }
+  };
+
+  /** リバース: 選んだテーブルをDBから読み込んでER図を作成/更新する。
+   * 既存の図がある場合はテーブルの配置を維持し、新規テーブルは右側へ追加する。
+   * only: DBから読み直すテーブル。図にあってここに無いテーブルは今のまま残る */
+  const doReverse = async (only: Set<string>) => {
+    if (!sel.sessionId || !sel.database) return;
     setLoading(true);
     setError(null);
     try {
@@ -370,18 +395,31 @@ export function ErWindow() {
         sel.sessionId,
         sel.database
       );
-      // 図から削除したテーブルはリバースしても再追加しない
-      // (reviveチェック時は削除の記憶を解除して復活させる)
-      const removedNow = revive ? new Set<string>() : removedTables;
-      if (revive && removedTables.size > 0) setRemovedTables(new Set());
-      let snap = snapAll.filter((e) => !removedNow.has(e.table.name));
-      // 「いいえ」= 図にあるテーブルだけ更新 (カラムの増減は反映、新規テーブルは追加しない)
-      // reviveチェック時は削除済みだったテーブルも対象に含める
-      if (addNew === false && entriesRef.current) {
-        const allowed = new Set(entriesRef.current.map((e) => e.table.name));
-        if (revive) for (const n of removedTables) allowed.add(n);
-        snap = snap.filter((e) => allowed.has(e.table.name));
-      }
+      // 今の図にあるテーブル (これを残したまま、選んだものを足す)
+      const prevEntries = entriesRef.current ?? [];
+      // 図に置くテーブル =「今の図 + 選んだもの」
+      const wanted = new Set([
+        ...prevEntries.map((e) => e.table.name),
+        ...only,
+      ]);
+      // 図に入らなかったテーブルは「図から外した」ものとして覚えておく
+      const removedNow = new Set(
+        snapAll.map((e) => e.table.name).filter((n) => !wanted.has(n))
+      );
+      setRemovedTables(removedNow);
+      // チェックしたテーブルだけDBの内容で入れ替え、
+      // それ以外の既存テーブルは今の図の内容をそのまま残す
+      const prevByName = new Map(
+        prevEntries.map((e) => [e.table.name, e] as const)
+      );
+      const inDb = new Set(snapAll.map((e) => e.table.name));
+      const snap: SchemaEntry[] = snapAll
+        .filter((e) => wanted.has(e.table.name))
+        .map((e) =>
+          only.has(e.table.name) ? e : (prevByName.get(e.table.name) ?? e)
+        );
+      // DBから消えたが図には残っているテーブルはそのまま置いておく
+      for (const e of prevEntries) if (!inDb.has(e.table.name)) snap.push(e);
       const freshNodes = buildNodes(snap, allCols, showTypes, showLogical, delim);
       const freshEdges = buildEdges(snap, fk);
       const prev = posRef.current;
@@ -423,7 +461,7 @@ export function ErWindow() {
         entries: snap,
         fks: fk,
         positions,
-        ...(revive ? { removedTables: removedNow } : {}),
+        removedTables: removedNow,
       });
       store.refreshDiagList();
       // 追加されたテーブル名を通知する (多い場合は先頭数件+件数)
@@ -550,16 +588,10 @@ export function ErWindow() {
   /** テーブルを図から削除する (複数可。リバースしても再追加されない) */
   const removeTables = (names: string[]) => deleteSelection([], names);
 
-  /** 削除したテーブルの記憶を解除する (次のリバースで再追加される) */
+  /** 図から外したテーブルを選んだ状態で、テーブルの選択画面を開く */
   const restoreRemovedTables = () => {
     if (removedTables.size === 0) return;
-    setRemovedTables(new Set());
-    setNotice("削除したテーブルを戻しました。リバースすると再表示されます");
-    if (entriesRef.current) {
-      persist({
-        removedTables: new Set(),
-      });
-    }
+    void openPicker(new Set(removedTables));
   };
 
   /** ノードのドラッグ移動 (ヘッダ・カラム部どこからでも掴める)。
@@ -1514,23 +1546,26 @@ export function ErWindow() {
   })();
 
   /** PNG出力 (現在の配置をcanvasに描き直して保存) */
+  /** PNG・SVGへ描き直すときの入力 (画面に出ているものをそのまま渡す) */
+  const drawInput = (): ErDrawInput => ({
+    database: sel.database,
+    nodes,
+    bounds,
+    frames,
+    edges,
+    edgeGeoms,
+    edgeStyles,
+    posOf,
+    verticalsExcept,
+    // 表示中のテーマのまま出力する
+    light: document.documentElement.dataset.theme === "light",
+  });
+
   const exportPng = async () => {
     if (nodes.length === 0) return;
     try {
       setNotice("PNG生成中...");
-      const base64 = drawErPng({
-        database: sel.database,
-        nodes,
-        bounds,
-        frames,
-        edges,
-        edgeGeoms,
-        edgeStyles,
-        posOf,
-        verticalsExcept,
-        // 表示中のテーマのまま出力する
-        light: document.documentElement.dataset.theme === "light",
-      });
+      const base64 = drawErPng(drawInput());
       const d = new Date();
       const p2 = (v: number) => String(v).padStart(2, "0");
       const ts = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
@@ -1548,27 +1583,29 @@ export function ErWindow() {
    * 幅の制約が無く、Mermaidは型が無いと書けないため。
    * 「主キーだけ表示」の指定はそのまま反映する (絞って見せている図なので)
    */
-  const exportText = async (
-    format: "mermaid" | "plantuml",
-    save: boolean
-  ) => {
+  const exportText = async (format: ErTextFormat, save: boolean) => {
     if (!entries || nodes.length === 0) return;
     try {
-      const full = buildNodes(entries, allCols, true, true, delim);
-      const input = { database: sel.database, nodes: full, edges };
+      // SVGは「見たままの図」なので、画面と同じノード・配置から描く。
+      // Mermaid / PlantUML は幅の制約が無いので全部の情報を入れる
       const text =
-        format === "mermaid" ? toMermaid(input) : toPlantUml(input);
+        format === "svg"
+          ? drawErSvg(drawInput())
+          : (() => {
+              const full = buildNodes(entries, allCols, true, true, delim);
+              const input = { database: sel.database, nodes: full, edges };
+              return format === "mermaid" ? toMermaid(input) : toPlantUml(input);
+            })();
       if (!save) {
         await writeClipboard(text);
-        setNotice(
-          `${format === "mermaid" ? "Mermaid" : "PlantUML"} をコピーしました`
-        );
+        setNotice(`${textFormatLabel(format)} をコピーしました`);
         return;
       }
       const d = new Date();
       const p2 = (v: number) => String(v).padStart(2, "0");
       const ts = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
-      const ext = format === "mermaid" ? "mmd" : "puml";
+      const ext =
+        format === "mermaid" ? "mmd" : format === "plantuml" ? "puml" : "svg";
       const path = await saveTextFile(
         `quelio_er_${sel.database}_${ts}.${ext}`,
         text
@@ -1635,7 +1672,7 @@ export function ErWindow() {
         }}
         onChangeDatabase={(v) => setSel({ ...sel, database: v })}
         loading={loading}
-        onReverse={() => doReverse()}
+        onReverse={() => void openPicker()}
         options={{ allCols, showLogical, showTypes }}
         onToggleOption={toggleOpt}
         onExportPng={exportPng}
@@ -2064,13 +2101,6 @@ export function ErWindow() {
       <ErDialogs
         confirm={confirm}
         onCloseConfirm={() => setConfirm(null)}
-        reverseOpen={reverseDialog}
-        onCloseReverse={() => setReverseDialog(false)}
-        reverseTarget={`${session?.name ?? ""} / ${sel.database}`}
-        removedCount={removedTables.size}
-        reviveTables={reviveTables}
-        onChangeRevive={setReviveTables}
-        onReverse={doReverse}
         nameDialog={nameDialog}
         onChangeName={(value) =>
           setNameDialog((d) => (d ? { ...d, value } : d))
@@ -2078,6 +2108,23 @@ export function ErWindow() {
         onCloseName={() => setNameDialog(null)}
         onCommitName={commitNameDialog}
       />
+
+      {picker && (
+        // 一覧が届いた時点で初期選択が決まるため、keyを変えて選択状態を作り直す
+        <ErTablePicker
+          key={picker.loading ? "loading" : "ready"}
+          tables={picker.tables}
+          initial={picker.initial}
+          existing={picker.existing}
+          target={`${session?.name ?? ""} / ${sel.database}`}
+          loading={picker.loading}
+          onClose={() => setPicker(null)}
+          onSubmit={(names) => {
+            setPicker(null);
+            void doReverse(names);
+          }}
+        />
+      )}
     </div>
   );
 }

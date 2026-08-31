@@ -827,7 +827,8 @@
             <li><b>配置は自由、更新は追従</b> — テーブルはドラッグで自由配置。再リバースしても配置を維持したまま、カラムの増減だけを反映できます。</li>
             <li><b>リレーションも編集できる</b> — カラムからドラッグで線を接続。複合キーの対応付けや線種・色の変更、交差の飛び越え表示にも対応します。</li>
             <li><b>注釈とグルーピング</b> — 枠やテキストで補足を書き込めます。1つの図の中にタブで複数のER図を整理でき、接続をまたいで開けます。</li>
-            <li><b>共有はPNGで</b> — 日本語の論理名を表示したまま、ライト/ダークに合わせた配色で画像出力できます。</li>
+            <li><b>共有は画像でもテキストでも</b> — 日本語の論理名を表示したまま、ライト/ダークに合わせた配色で PNG・SVG に出力。Mermaid / PlantUML でも書き出せるので、GitHubやNotionにそのまま貼れます。</li>
+            <li><b>要るテーブルだけ読む</b> — リバースは読み込むテーブルを選ぶところから始まります。数百テーブルのDBでも、必要な範囲だけの図を作れます。</li>
           </ul>
         </div>
         <div class="deep-visual">
@@ -936,7 +937,7 @@
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="5.5" rx="1.2"/><rect x="14" y="9.5" width="7" height="5.5" rx="1.2"/><rect x="3" y="16" width="7" height="5.5" rx="1.2"/><path d="M10 5.8h5.5v3.7M10 18.8h5.5v-3.8"/></svg></div>
           <h3>ER図作成</h3>
-          <p>DBからリバースしてER図を自動作成。配置や線をマウスで編集でき、注釈・タブでの複数管理・PNG出力に対応。</p>
+          <p>DBからリバースしてER図を自動作成。読み込むテーブルは選べます。配置や線をマウスで編集でき、注釈・タブでの複数管理と、PNG / SVG / Mermaid / PlantUML での書き出しに対応。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8a2 2 0 0 1 2-2h1.5l1.5-2h6l1.5 2H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.2"/></svg></div>

@@ -9,7 +9,11 @@ import type { QuerySheet, TabTableData } from "../types";
 export interface TableDataPane extends TabTableData {
   onChangeWhere: (where: string) => void;
   /** 絞り込みを適用して先頭ページから取得し直す */
-  onApplyWhere: () => void;
+  /**
+   * 条件を適用して先頭ページから取り直す。
+   * whereを渡すとその条件で取る (画面の状態が反映されるのを待たずに済む)
+   */
+  onApplyWhere: (where?: string) => void;
   /** 表示中のページを取得し直す */
   onReload: () => void;
   onPage: (offset: number) => void;

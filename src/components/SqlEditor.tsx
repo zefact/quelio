@@ -41,7 +41,7 @@ import {
 } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
-import type { DbType } from "../types";
+import type { DbType, SqlIndent } from "../types";
 import { watchCompletionLayout } from "./completionLayout";
 import {
   completionCells,
@@ -77,6 +77,12 @@ const flashField = StateField.define<DecorationSet>({
 
 /** 光らせておく時間 (ミリ秒) */
 const FLASH_MS = 900;
+
+/** 字下げ1段ぶんの文字 (整形の設定と同じものを、エディタの入力でも使う) */
+function indentText(indent: SqlIndent | undefined): string {
+  if (indent === "tab") return "\t";
+  return indent === "4" ? "    " : "  ";
+}
 
 /** 行頭の空白 (字下げ) を取り出す */
 function indentOf(text: string): string {
@@ -140,6 +146,8 @@ interface Props {
   autocomplete?: boolean;
   /** 入力補完が自動で開くまでの待ち時間 (ミリ秒)。0なら自動では開かない */
   autocompleteDelayMs?: number;
+  /** 字下げ1段ぶん (設定 > エディタ > SQLの整形 の「字下げ」) */
+  indent?: SqlIndent;
 }
 
 /** 入力補完の拡張 (無効なら何も入れない) */
@@ -258,6 +266,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     schema,
     autocomplete = true,
     autocompleteDelayMs = 100,
+    indent,
   },
   ref
 ) {
@@ -270,6 +279,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   schemaRef.current = schema;
   /** 設定変更で入れ替えられるよう、補完の拡張は入れ替え可能にしておく */
   const acRef = useRef(new Compartment());
+  /** 字下げも設定で変わるので入れ替え可能にしておく */
+  const indentRef = useRef(new Compartment());
+  /** キー操作から読む字下げ (エディタを作り直さずに追従させる) */
+  const indentTextRef = useRef(indentText(indent));
+  indentTextRef.current = indentText(indent);
   // コールバックはrefで持ち、エディタの再生成を避ける
   const cbRef = useRef({
     onChange,
@@ -327,7 +341,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         highlightActiveLine(),
         highlightActiveLineGutter(),
         history(),
-        indentUnit.of("  "),
+        indentRef.current.of(indentUnit.of(indentTextRef.current)),
         // sql()ではなくlanguageだけ入れる。
         // sql()は予約語の補完候補も一緒に登録してしまうため
         dialectOf(dbType).language,
@@ -373,7 +387,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
               run: (v) => {
                 // 補完の候補が出ているときはTabで確定する
                 if (completionStatus(v.state) !== null) return acceptCompletion(v);
-                v.dispatch(v.state.replaceSelection("  "));
+                v.dispatch(v.state.replaceSelection(indentTextRef.current));
                 return true;
               },
             },
@@ -470,6 +484,15 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       ),
     });
   }, [autocomplete, autocompleteDelayMs]);
+
+  // 字下げの設定が変わったら、その拡張だけ入れ替える
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: indentRef.current.reconfigure(
+        indentUnit.of(indentText(indent))
+      ),
+    });
+  }, [indent]);
 
   // 外部からのvalue変更 (整形など) をエディタへ反映
   useEffect(() => {

@@ -514,3 +514,151 @@
   font-size: 11px;
   color: var(--text-faint);
 }
+
+/* 接続先が1つも無いときの「サンプルDBで試す」 */
+.sample-db-btn {
+  display: block;
+  margin: 12px auto 6px;
+}
+
+/* ---- 未接続タブのホーム ---- */
+.picker-home {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.home-group {
+  min-width: 0;
+}
+
+.home-group-title {
+  margin: 0 0 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 8px;
+}
+
+/* カードは「本体 (押すと接続)」と「ピン留め」の2つのボタンで作る
+   (ボタンの中にボタンは置けないため) */
+.home-card {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  overflow: hidden;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.home-card:hover {
+  border-color: var(--accent);
+  background: rgba(var(--ink), 0.05);
+}
+
+.home-card-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.home-card-main:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.home-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.home-card-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-card-env {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+}
+
+.home-card-sub {
+  min-width: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-card-since {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.home-pin {
+  flex: none;
+  width: 32px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: none;
+  color: var(--text-faint);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.home-pin:hover {
+  background: rgba(var(--ink), 0.06);
+  color: var(--text);
+}
+
+.home-pin.on {
+  color: var(--accent-2, #a5b4fc);
+}
+
+.home-empty {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.home-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

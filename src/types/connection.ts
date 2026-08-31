@@ -83,6 +83,10 @@ export interface ConnectionProfile {
   color?: string;
   /** 環境 (未設定なら区別しない) */
   env?: ConnectionEnv;
+  /** ホームの先頭に固定する (よく使う接続) */
+  pinned?: boolean;
+  /** 最後に接続した時刻 (ISO8601。一度も繋いでいなければ未設定) */
+  lastUsedAt?: string;
   /**
    * 保存されたパスワード・パスフレーズを復号できなかった。
    * (マスターキーが変わった等) この場合は接続できないため、入力し直してもらう

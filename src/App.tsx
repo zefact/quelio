@@ -6,6 +6,7 @@ import {
   cancelQuery,
   connectSession,
   createFolder,
+  createSampleDatabase,
   deleteConnection,
   deleteFolder,
   disconnectSession,
@@ -15,6 +16,8 @@ import {
   listTables,
   openConsole,
   openDiff,
+  openEr,
+  openSchema,
   runQuery,
   saveConnection,
   saveSqlParams,
@@ -30,6 +33,7 @@ import { AboutDialog } from "./components/AboutDialog";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ConnectionPicker } from "./components/ConnectionPicker";
 import { QuickOpen } from "./components/QuickOpen";
+import type { QuickAction } from "./quickActions";
 import { ShortcutHelp } from "./components/ShortcutHelp";
 import { KvSessionView } from "./components/KvSessionView";
 import { SessionView } from "./components/SessionView";
@@ -216,6 +220,36 @@ function App() {
       await reload();
     } catch {
       /* 無視 */
+    }
+  };
+
+  /** ホームのピン留めを付け外しする */
+  const handleSetConnPinned = async (id: string, pinned: boolean) => {
+    const conn = store.connections.find((c) => c.id === id);
+    if (!conn) return;
+    try {
+      await saveConnection({ ...conn, pinned });
+      await reload();
+    } catch {
+      /* 無視 */
+    }
+  };
+
+  /**
+   * 「最後に繋いだ時刻」を記録する (ホームの並びに使う)。
+   *
+   * 画面が持っているプロファイルは編集中かもしれないので、
+   * 保存済みのほうを読んで時刻だけ足す
+   */
+  const touchConnection = async (id: string) => {
+    if (!id) return;
+    const conn = store.connections.find((c) => c.id === id);
+    if (!conn) return;
+    try {
+      await saveConnection({ ...conn, lastUsedAt: new Date().toISOString() });
+      await reload();
+    } catch {
+      /* 記録できなくても接続には影響しないので黙って諦める */
     }
   };
 
@@ -608,6 +642,39 @@ function App() {
     dispatch({ type: "close", key });
   };
 
+  /**
+   * お試し用のサンプルSQLite DBを開く。
+   *
+   * 何も繋いでいない状態だと、このアプリで何ができるのか分からないため、
+   * すぐ触れるDBを1クリックで用意する。
+   * 2回目からは同じファイル・同じ接続先を使い回す (中身を作り直さない)
+   */
+  const openSampleDb = async (key: string) => {
+    updateTab(key, { busy: "connect", error: null });
+    try {
+      const path = await createSampleDatabase();
+      const list = await listConnections();
+      setStore(list);
+      // すでに同じファイルの接続先があれば、それを使う (毎回増やさない)
+      const found = list.connections.find(
+        (c) => c.dbType === "sqlite" && c.database === path
+      );
+      const profile =
+        found ??
+        (await saveConnection({
+          ...emptyProfile(),
+          name: "サンプル (SQLite)",
+          dbType: "sqlite",
+          database: path,
+        }));
+      if (!found) await reload();
+      updateTab(key, { profile, busy: null });
+      await requestConnect(key, profile);
+    } catch (e) {
+      updateTab(key, { error: String(e), busy: null });
+    }
+  };
+
   // ---------- 未接続タブ(接続選択)の操作 ----------
 
   const handleSave = async (key: string): Promise<ConnectionProfile | null> => {
@@ -701,6 +768,8 @@ function App() {
         loadingTables: profile.dbType !== "valkey" && selectedDb !== null,
         busy: null,
       });
+      // ホームに「最近つないだ接続」として出せるよう、時刻を控えておく
+      void touchConnection(profile.id);
       // Valkeyはテーブルの概念が無いため一覧取得しない
       if (selectedDb && profile.dbType !== "valkey") {
         await loadTables(key, selectedDb);
@@ -930,7 +999,9 @@ function App() {
   const reloadTableData = (
     key: string,
     offset: number | "keep",
-    order?: { by: string | null; dir: "asc" | "desc" }
+    order?: { by: string | null; dir: "asc" | "desc" },
+    /** 絞り込み条件の差し替え (画面の状態が反映される前に使う) */
+    whereOverride?: string
   ) => {
     const tab = tabOf(key);
     const table = currentTable(key);
@@ -941,7 +1012,7 @@ function App() {
     return loadTableData(
       key,
       table,
-      tab.tableData.where,
+      whereOverride ?? tab.tableData.where,
       offset === "keep" ? (cur?.offset ?? 0) : offset,
       by,
       dir
@@ -1194,6 +1265,107 @@ function App() {
   const activeTab = tabs.find((t) => t.key === activeKey) ?? tabs[0];
   const activeKeyNow = activeTab.key;
 
+  /**
+   * ⌘K から呼べる操作。
+   *
+   * ツールバーやメニューを探さずに名前で呼び出せるようにする。
+   * 接続が要るものは、繋がっていない間は理由を出して押せなくする
+   */
+  const quickActions: QuickAction[] = [
+    {
+      id: "new-tab",
+      label: "新しいタブ",
+      hint: "⌘T",
+      keywords: "new tab connection",
+      run: addTab,
+    },
+    {
+      id: "close-tab",
+      label: "このタブを閉じる",
+      hint: "⌘W",
+      keywords: "close tab",
+      run: () => void requestCloseTab(activeKeyNow),
+    },
+    {
+      id: "er",
+      label: "ER図を開く",
+      keywords: "er diagram relation",
+      disabledReason: activeTab.connected ? undefined : "接続してから使えます",
+      run: () =>
+        void openEr(activeKeyNow, activeTab.selectedDb ?? "").catch((e) =>
+          setWinError(`ER図を開けませんでした: ${e}`)
+        ),
+    },
+    {
+      id: "schema",
+      label: "スキーマ一覧を開く",
+      keywords: "schema table column index",
+      disabledReason: activeTab.selectedDb
+        ? undefined
+        : "データベースを選んでから使えます",
+      run: () => {
+        const db = activeTab.selectedDb;
+        if (!db) return;
+        void openSchema(activeKeyNow, db, activeTab.profile.name).catch((e) =>
+          setWinError(`スキーマ一覧を開けませんでした: ${e}`)
+        );
+      },
+    },
+    {
+      id: "diff",
+      label: "スキーマ差分を開く",
+      keywords: "diff schema compare alter",
+      run: () =>
+        void openDiff().catch((e) =>
+          setWinError(`スキーマ差分を開けませんでした: ${e}`)
+        ),
+    },
+    {
+      id: "console",
+      label: "コンソールを開く",
+      keywords: "console log history",
+      run: () =>
+        void openConsole().catch((e) =>
+          setWinError(`コンソールを開けませんでした: ${e}`)
+        ),
+    },
+    {
+      id: "reload-tables",
+      label: "テーブル一覧を読み直す",
+      keywords: "reload refresh tables",
+      disabledReason: activeTab.selectedDb
+        ? undefined
+        : "データベースを選んでから使えます",
+      run: () => void reloadTables(activeKeyNow),
+    },
+    {
+      id: "sample-db",
+      label: "サンプルDBを開く",
+      hint: "SQLite",
+      keywords: "sample demo sqlite try",
+      run: () => void openSampleDb(activeKeyNow),
+    },
+    {
+      id: "settings",
+      label: "設定を開く",
+      keywords: "settings preferences config",
+      run: () => setShowSettings(true),
+    },
+    {
+      id: "shortcuts",
+      label: "ショートカット一覧",
+      hint: "⌘/",
+      keywords: "shortcut help key",
+      run: () => setShowShortcuts(true),
+    },
+    {
+      id: "about",
+      label: "バージョン情報",
+      keywords: "about version",
+      run: () => setShowAbout(true),
+    },
+  ];
+
   /*
    * データタブ・シートの受け渡しはまとめてメモ化する。
    * 中の関数は tabsRef から最新のタブを見るので、
@@ -1204,7 +1376,7 @@ function App() {
     () => ({
       ...activeTab.tableData,
       onChangeWhere: (where) => patchData(activeKeyNow, { where }),
-      onApplyWhere: () => reloadTableData(activeKeyNow, 0),
+      onApplyWhere: (where) => reloadTableData(activeKeyNow, 0, undefined, where),
       onReload: () => reloadTableData(activeKeyNow, "keep"),
       onPage: (offset) => reloadTableData(activeKeyNow, offset),
       onSort: (by, dir) => reloadTableData(activeKeyNow, 0, { by, dir }),
@@ -1323,6 +1495,7 @@ function App() {
         <QuickOpen
           connections={store.connections}
           folders={store.folders}
+          actions={quickActions}
           onOpen={(p) => {
             // 新しいタブで開く (今のタブの作業は残す)
             const key = newTabKey();
@@ -1471,6 +1644,10 @@ function App() {
           <ConnectionPicker
             tab={activeTab}
             store={store}
+            onOpenSample={() => void openSampleDb(activeTab.key)}
+            onSetConnPinned={(id, pinned) =>
+              void handleSetConnPinned(id, pinned)
+            }
             onCreateFolder={handleCreateFolder}
             onDeleteFolder={handleDeleteFolder}
             onLayout={handleLayout}

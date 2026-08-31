@@ -15,8 +15,11 @@ import type {
   DangerousStatement,
   DbType,
   EditorOptions,
+  QueryResult,
   StatementResult,
 } from "../types";
+import { isExecResult, statementLabel } from "./queryResult";
+import { isPlanResult } from "./PlanView";
 import { useWatchedSettings } from "../hooks/useWatchedSettings";
 import { SheetTabs } from "./SheetTabs";
 import type { SchemaMap } from "./sqlCompletion";
@@ -30,6 +33,9 @@ import type {
 import { QueryToolbar } from "./QueryToolbar";
 import { QueryResultBar } from "./QueryResultBar";
 import { QueryResultView } from "./QueryResultView";
+import { ResultCompare, toComparePane } from "./ResultCompare";
+import { ResultChart } from "./ResultChart";
+import { numericColumns } from "../chart/chartData";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
 import { useDismiss } from "../hooks/useDismiss";
 import { useCsvExport } from "../hooks/useCsvExport";
@@ -375,6 +381,48 @@ export function QueryPanel({
   const active = results?.[activeIdx] ?? null;
   const result = active?.result ?? null;
 
+  /*
+   * 取っておいた結果 (ピン留め)。
+   *
+   * 実行のたびに結果が流れてしまうので、直す前の結果を残せるようにする。
+   * 接続タブ・シートをまたいで見えてしまわないよう、どこで留めたかを持つ
+   */
+  const pinScope = `${sessionId}:${sheetPane.activeId}`;
+  const [pinned, setPinned] = useState<{
+    scope: string;
+    label: string;
+    sql: string;
+    result: QueryResult;
+  } | null>(null);
+  const [comparing, setComparing] = useState(false);
+  /** グラフの画面を出しているか */
+  const [charting, setCharting] = useState(false);
+  /** 今のシートのピン留め (別のシートのものは出さない) */
+  const pinHere = pinned?.scope === pinScope ? pinned : null;
+  /** 表になる結果だけ見比べられる (実行完了メッセージや実行計画は対象外) */
+  const canPin =
+    !!result && !isExecResult(result) && !isPlanResult(result.columns);
+  const compareOn = comparing && pinHere !== null && canPin;
+  /** 数値の列が1つも無い結果はグラフにできない */
+  const canChart =
+    canPin &&
+    !!result &&
+    result.rows.length > 0 &&
+    numericColumns(result.columns, result.rows).length > 0;
+
+  const pinCurrent = () => {
+    if (!active || !result || !canPin) return;
+    const t = new Date();
+    const p2 = (v: number) => String(v).padStart(2, "0");
+    setPinned({
+      scope: pinScope,
+      label: `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())} ${statementLabel(active.sql, activeIdx)}`,
+      sql: active.sql,
+      result,
+    });
+    setComparing(true);
+  };
+
   /** 表示中の結果タブをCSVへ書き出す */
   const handleExportCsv = () => {
     if (!active || csv.job || running) return;
@@ -591,6 +639,8 @@ export function QueryPanel({
           schema={schema}
           autocomplete={autocomplete}
           autocompleteDelayMs={autocompleteDelayMs}
+          // 整形の「字下げ」は、エディタのTabや改行の字下げにも使う
+          indent={appSettings.sqlFormat.indent}
         />
         {/* エディタを画面いっぱいに広げる / 元に戻す (アイコンは開閉で反転) */}
         <button
@@ -690,9 +740,30 @@ export function QueryPanel({
           csv={csv}
           onExportCsv={handleExportCsv}
           onPage={onPage}
+          canPin={canPin}
+          pinnedLabel={pinHere?.label ?? null}
+          comparing={compareOn}
+          onPin={pinCurrent}
+          onUnpin={() => {
+            setPinned(null);
+            setComparing(false);
+          }}
+          onToggleCompare={() => setComparing((v) => !v)}
+          canChart={canChart}
+          onOpenChart={() => setCharting(true)}
         />
       )}
 
+      {compareOn && pinHere && result ? (
+        <ResultCompare
+          left={toComparePane(pinHere.label, pinHere.sql, pinHere.result)}
+          right={toComparePane(
+            active ? statementLabel(active.sql, activeIdx) : "今の結果",
+            active?.sql ?? "",
+            result
+          )}
+        />
+      ) : (
       <QueryResultView
         result={result}
         error={error}
@@ -706,6 +777,15 @@ export function QueryPanel({
         // (シートIDを入れないと、別シートの結果に前の幅と選択が残る)
         fitKey={`${sheetPane.activeId}:${runStartedAt ?? 0}:${activeIdx}`}
       />
+      )}
+
+      {charting && result && (
+        <ResultChart
+          columns={result.columns}
+          rows={result.rows}
+          onClose={() => setCharting(false)}
+        />
+      )}
 
       {cellView && (
         <CellDetail

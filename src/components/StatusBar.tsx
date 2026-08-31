@@ -63,8 +63,11 @@ export function StatusBar({
         </span>
       )}
       {database && (
-        <span className="status-db mono" title={database}>
-          {database}
+        // 等幅は内側のspanにだけ掛ける。
+        // 外側 (行の高さの基準) を帯と同じフォントに揃えることで、
+        // 等幅フォントの高さの違いでDB名だけ下にずれるのを防ぐ
+        <span className="status-db" title={database}>
+          <span className="mono">{database}</span>
         </span>
       )}
       {profile.readOnly && (

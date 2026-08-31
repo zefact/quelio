@@ -25,7 +25,7 @@ export function CanvasMenu({
         <>
           <div className="context-sep" />
           <button className="context-item" onClick={onRestoreRemoved}>
-            削除したテーブルを戻す ({removedCount})
+            図から外したテーブルを戻す ({removedCount})...
           </button>
         </>
       )}

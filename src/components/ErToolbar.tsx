@@ -12,6 +12,20 @@ const OPTIONS = [
 
 export type ErOptionKey = (typeof OPTIONS)[number]["key"];
 
+/** テキストで書き出せる形式 (SVGも文字列なのでここに並べる) */
+const TEXT_FORMATS = [
+  ["mermaid", "Mermaid"],
+  ["plantuml", "PlantUML"],
+  ["svg", "SVG"],
+] as const;
+
+export type ErTextFormat = (typeof TEXT_FORMATS)[number][0];
+
+/** 通知に出す表示名 */
+export function textFormatLabel(format: ErTextFormat): string {
+  return TEXT_FORMATS.find(([f]) => f === format)?.[1] ?? format;
+}
+
 interface Props {
   /** 開いている図の名前 (未保存はnull) */
   diagName: string | null;
@@ -41,7 +55,7 @@ interface Props {
 
   onExportPng: () => void;
   /** テキスト形式の書き出し (コピー / 保存) */
-  onExportText: (format: "mermaid" | "plantuml", save: boolean) => void;
+  onExportText: (format: ErTextFormat, save: boolean) => void;
   canExportPng: boolean;
   /** 右端に出す「Nテーブル / Mリレーション」 */
   meta: string;
@@ -198,7 +212,7 @@ export function ErToolbar({
       <button
         className="btn-primary has-tooltip tooltip-left tooltip-wrap"
         data-tooltip={
-          "DBからスキーマを読み込んでER図を作成/更新します\n(既存の配置は維持されます)"
+          "読み込むテーブルを選んでER図を作成/更新します\n(既存の配置は維持されます)"
         }
         disabled={loading || !sessionId}
         onClick={onReverse}
@@ -245,7 +259,7 @@ export function ErToolbar({
         <button
           className="btn-secondary has-tooltip tooltip-left tooltip-wrap"
           data-tooltip={
-            "Mermaid / PlantUML で書き出します\n(GitHubやNotionはMermaidをそのまま図にします)"
+            "Mermaid / PlantUML / SVG で書き出します\n(GitHubやNotionはMermaidをそのまま図にします。SVGは見たままの図)"
           }
           disabled={!canExportPng}
           onClick={() => setTextOpen(!textOpen)}
@@ -254,12 +268,7 @@ export function ErToolbar({
         </button>
         {textOpen && (
           <div className="er-opts-pop er-text-pop">
-            {(
-              [
-                ["mermaid", "Mermaid"],
-                ["plantuml", "PlantUML"],
-              ] as const
-            ).map(([format, label]) => (
+            {TEXT_FORMATS.map(([format, label]) => (
               <div key={format} className="er-text-row">
                 <span className="er-text-name">{label}</span>
                 <button

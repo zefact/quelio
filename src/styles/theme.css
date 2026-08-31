@@ -21,6 +21,10 @@
   /* 結果グリッドで値の種類を見分ける色 (読む速さを助ける程度に控えめ) */
   --cell-date: #93b8e8;
   --cell-bool: #86c9b0;
+  /* JSONツリーで値の型を見分ける色 */
+  --json-str: #86c9b0;
+  --json-num: #93b8e8;
+  --json-bool: #e0b872;
   --mysql: #f0a63a;
   --postgres: #5a9bd8;
   --sqlite: #00b09b;
@@ -84,6 +88,9 @@ html[data-theme="light"] {
   --completion-match: #4338ca;
   --cell-date: #2b6cb0;
   --cell-bool: #0f7a5c;
+  --json-str: #0f7a5c;
+  --json-num: #2b6cb0;
+  --json-bool: #8a5a00;
   --ink: 17, 24, 39;
   --input-bg: #ffffff;
   --menu-bg: #ffffff;

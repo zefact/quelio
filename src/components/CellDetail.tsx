@@ -3,8 +3,12 @@ import { useModal } from "../hooks/useModal";
 import type { Clip } from "../cellValue";
 import { clippedHead } from "../cellValue";
 import { writeClipboard } from "../gridCopy";
-import { tryFormatValue } from "../kvFormat";
+import { tryParseValue } from "../kvFormat";
 import type { CellValue } from "../types";
+import { JsonTree } from "./JsonTree";
+
+/** 表示の切り替え (ツリー / 整形 / 元の表示) */
+type CellView = "tree" | "pretty" | "raw";
 
 interface Props {
   /** 見出しに出すカラム名 */
@@ -32,12 +36,14 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /** 直前にコピーしたパス (ツリーで印を出す) */
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
   /**
-   * 整形して表示するか。
-   * ここは1つの値をじっくり読むための画面なので、整形できるなら最初から整形する
+   * 表示の仕方。
+   * ここは1つの値をじっくり読むための画面なので、読める形があれば最初からそれを出す
    * (Valkeyの一覧は行数が多いので既定は素のまま、と使い分けている)
    */
-  const [pretty, setPretty] = useState(true);
+  const [view, setView] = useState<CellView>("tree");
   const boxRef = useModal(onClose);
 
   // 別のセルを開いたときに、前のセルの内容が残らないようにする
@@ -46,18 +52,36 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
     setFull(clip === null);
     setError(null);
     setCopied(false);
+    setCopiedPath(null);
   }, [value, clip]);
 
   /*
-   * 整形した値 (JSON / PHPシリアライズ)。
+   * 解析した値 (JSON / PHPシリアライズ)。
    * 途中までしか無い値は解析できないので、全文がそろってから試す
    */
-  const formatted = useMemo(
-    () => (full ? tryFormatValue(text) : null),
+  const parsed = useMemo(
+    () => (full ? tryParseValue(text) : null),
     [full, text]
   );
-  /** 実際に画面へ出す文字列 */
-  const shownText = pretty && formatted !== null ? formatted : text;
+  /** 整形した文字列 */
+  const formatted = useMemo(
+    () => (parsed === null ? null : JSON.stringify(parsed.value, null, 2)),
+    [parsed]
+  );
+  /** ツリーにできるか (入れ子のある値だけ) */
+  const canTree =
+    parsed !== null && typeof parsed.value === "object" && parsed.value !== null;
+  /** 選べない表示になっていたら、出せるものへ落とす */
+  const shownView: CellView =
+    view === "tree" && !canTree
+      ? formatted === null
+        ? "raw"
+        : "pretty"
+      : view === "pretty" && formatted === null
+        ? "raw"
+        : view;
+  /** 実際に画面へ出す文字列 (ツリーのときもコピーはこの内容) */
+  const shownText = shownView === "raw" ? text : (formatted ?? text);
 
   const fetchFull = async () => {
     if (!onFetchFull) return null;
@@ -95,6 +119,17 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
     }
   };
 
+  /** ツリーで選んだ位置のパスをコピーする (JSON_EXTRACT にそのまま貼れる) */
+  const copyPath = async (path: string) => {
+    try {
+      await writeClipboard(path);
+      setCopiedPath(path);
+      window.setTimeout(() => setCopiedPath(null), 1600);
+    } catch {
+      setError("コピーできませんでした");
+    }
+  };
+
   /** 表示中の文字数 (絵文字などを1文字として数える。元の値で数える) */
   const shown = [...text].length;
 
@@ -124,13 +159,31 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
                 : `先頭${shown.toLocaleString()}文字 (全${(clip?.total ?? 0).toLocaleString()}文字)`}
             </span>
             {formatted !== null && (
-              <button
-                className="btn-secondary"
-                onClick={() => setPretty((v) => !v)}
-                title="JSON・PHPシリアライズを読みやすく折り返して表示します"
+              <div
+                className="cell-view-switch"
+                title="JSON・PHPシリアライズを読みやすく表示します"
               >
-                {pretty ? "元の表示" : "整形"}
-              </button>
+                {canTree && (
+                  <button
+                    className={shownView === "tree" ? "on" : ""}
+                    onClick={() => setView("tree")}
+                  >
+                    ツリー
+                  </button>
+                )}
+                <button
+                  className={shownView === "pretty" ? "on" : ""}
+                  onClick={() => setView("pretty")}
+                >
+                  整形
+                </button>
+                <button
+                  className={shownView === "raw" ? "on" : ""}
+                  onClick={() => setView("raw")}
+                >
+                  元の表示
+                </button>
+              </div>
             )}
             {!full && (
               <button
@@ -154,7 +207,15 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
             )}
           </div>
 
-          <textarea className="cell-text mono" value={shownText} readOnly />
+          {shownView === "tree" && parsed !== null ? (
+            <JsonTree
+              value={parsed.value}
+              onPickPath={copyPath}
+              pickedPath={copiedPath}
+            />
+          ) : (
+            <textarea className="cell-text mono" value={shownText} readOnly />
+          )}
 
           {error && (
             <div className="result-banner ng column-error">

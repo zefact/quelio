@@ -57,6 +57,7 @@ import type {
 export interface CommandResults {
   add_sql_history: void;
   clear_sql_history: SqlHistoryEntry[];
+  create_sample_database: string;
   create_saved_folder: SavedSqlStore;
   delete_saved_folder: SavedSqlStore;
   delete_sql_history: SqlHistoryEntry[];
@@ -127,6 +128,7 @@ export interface CommandResults {
   list_column_types: string[];
   list_connections: ConnectionStore;
   list_er_diagrams: string[];
+  list_pinned_tables: string[];
   list_processes: ProcessInfo[];
   list_routines: RoutineInfo[];
   list_schemas: string[];
@@ -159,6 +161,7 @@ export interface CommandResults {
   schema_with_foreign_keys: { entries: SchemaEntry[]; foreignKeys: FkInfo[] };
   search_objects: ObjectSearchResult;
   search_values: ValueSearchResult;
+  set_pinned_table: string[];
   set_table_comment: string[];
   split_sql_statements: string[];
   start_export: StartedJob;
@@ -180,6 +183,7 @@ export interface CommandResults {
 export const COMMAND_NAMES = [
   "add_sql_history",
   "clear_sql_history",
+  "create_sample_database",
   "create_saved_folder",
   "delete_saved_folder",
   "delete_sql_history",
@@ -250,6 +254,7 @@ export const COMMAND_NAMES = [
   "list_column_types",
   "list_connections",
   "list_er_diagrams",
+  "list_pinned_tables",
   "list_processes",
   "list_routines",
   "list_schemas",
@@ -282,6 +287,7 @@ export const COMMAND_NAMES = [
   "schema_with_foreign_keys",
   "search_objects",
   "search_values",
+  "set_pinned_table",
   "set_table_comment",
   "split_sql_statements",
   "start_export",

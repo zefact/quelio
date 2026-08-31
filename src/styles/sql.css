@@ -796,11 +796,14 @@ html[data-theme="light"] .result-banner.ng {
   border-top-color: rgba(245, 158, 11, 0.45);
 }
 
+/* 26pxの帯に収まるよう、接続一覧より小さいバッジにする
+   (拡大縮小で寄せると上下の余白が無くなり、帯からはみ出して見える) */
 .status-bar .db-badge {
   flex-shrink: 0;
-  transform: scale(0.85);
-  transform-origin: left center;
-  margin-right: -4px;
+  width: 21px;
+  height: 18px;
+  border-radius: var(--radius-xs);
+  font-size: 9.5px;
 }
 
 .status-name {
@@ -817,6 +820,13 @@ html[data-theme="light"] .result-banner.ng {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 中の等幅の文字は高さを持たせず、行の基準線を外側 (帯と同じフォント) に任せる。
+   等幅フォントは通常のフォントと高さが違うため、
+   そのまま指定すると DB名だけ上下にずれて見える */
+.status-db > .mono {
+  line-height: 0;
 }
 
 /* 環境 (本番 / ステージング / 開発)。色は環境ごとに変える */
@@ -1038,6 +1048,23 @@ html[data-theme="light"] .result-banner.ng {
     rgba(34, 211, 238, 0.08)
   );
   color: var(--text);
+}
+
+/* ピン留め / すべて の見出し */
+.side-table-group {
+  padding: 8px 8px 3px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* ピン留め中の印 */
+.side-table-pin {
+  flex: none;
+  margin-left: -4px;
+  color: var(--accent-2, #a5b4fc);
+  font-size: 10px;
 }
 
 .side-table-name {

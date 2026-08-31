@@ -22,8 +22,10 @@ mod known_hosts;
 mod kv;
 mod models;
 mod outfile;
+mod pinned;
 mod query;
 mod query_log;
+mod sample_db;
 mod saved_sql;
 mod sessions;
 mod sql_history;
@@ -274,6 +276,9 @@ pub fn run() {
             commands::get_er_diagram,
             commands::save_er_diagram,
             commands::list_er_diagrams,
+            commands::create_sample_database,
+            commands::list_pinned_tables,
+            commands::set_pinned_table,
             commands::delete_er_diagram,
             commands::disconnect_session,
             commands::check_dangerous_sql,

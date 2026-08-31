@@ -18,33 +18,16 @@ interface Props {
   confirm: ErConfirm | null;
   onCloseConfirm: () => void;
 
-  reverseOpen: boolean;
-  onCloseReverse: () => void;
-  /** リバース元の表示名 (接続名 / DB名) */
-  reverseTarget: string;
-  /** 図から削除したテーブルの数 (0なら復活のチェックは出さない) */
-  removedCount: number;
-  reviveTables: boolean;
-  onChangeRevive: (revive: boolean) => void;
-  onReverse: (withNewTables: boolean, revive: boolean) => void;
-
   nameDialog: ErNameDialog | null;
   onChangeName: (value: string) => void;
   onCloseName: () => void;
   onCommitName: () => void;
 }
 
-/** ER図ウィンドウのダイアログ3種 (削除確認 / リバース / 名前入力) */
+/** ER図ウィンドウのダイアログ2種 (削除確認 / 名前入力) */
 export function ErDialogs({
   confirm,
   onCloseConfirm,
-  reverseOpen,
-  onCloseReverse,
-  reverseTarget,
-  removedCount,
-  reviveTables,
-  onChangeRevive,
-  onReverse,
   nameDialog,
   onChangeName,
   onCloseName,
@@ -74,54 +57,6 @@ export function ErDialogs({
           }
         >
           <p className="er-modal-body">{confirm.message}</p>
-        </ErModal>
-      )}
-
-      {reverseOpen && (
-        <ErModal
-          icon="⟳"
-          title="リバース"
-          sub={reverseTarget}
-          subMono
-          onClose={onCloseReverse}
-          actions={
-            <>
-              <button
-                className="btn-secondary"
-                onClick={() => {
-                  onCloseReverse();
-                  onReverse(false, reviveTables);
-                }}
-              >
-                読み込まない
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => {
-                  onCloseReverse();
-                  onReverse(true, reviveTables);
-                }}
-              >
-                読み込む
-              </button>
-            </>
-          }
-        >
-          <p className="er-modal-body">
-            図に無い新規のテーブルも読み込みますか？
-            <br />
-            「読み込まない」でも既存テーブルのカラムの増減は反映されます。
-          </p>
-          {removedCount > 0 && (
-            <label className="er-modal-check">
-              <input
-                type="checkbox"
-                checked={reviveTables}
-                onChange={(e) => onChangeRevive(e.target.checked)}
-              />
-              図から削除したテーブル ({removedCount}件) も復活させる
-            </label>
-          )}
         </ErModal>
       )}
 

@@ -18,6 +18,18 @@ interface Props {
   csv: ReturnType<typeof useCsvExport>;
   onExportCsv: () => void;
   onPage: (index: number, offset: number) => void;
+  /** ピン留めできるか (表になる結果のときだけ) */
+  canPin: boolean;
+  /** ピン留め中の見出し (していなければnull) */
+  pinnedLabel: string | null;
+  /** 見比べ中か */
+  comparing: boolean;
+  onPin: () => void;
+  onUnpin: () => void;
+  onToggleCompare: () => void;
+  /** グラフにできるか (表になる結果で、数値の列があるとき) */
+  canChart: boolean;
+  onOpenChart: () => void;
 }
 
 /**
@@ -34,6 +46,14 @@ export function QueryResultBar({
   csv,
   onExportCsv,
   onPage,
+  canPin,
+  pinnedLabel,
+  comparing,
+  onPin,
+  onUnpin,
+  onToggleCompare,
+  canChart,
+  onOpenChart,
 }: Props) {
   return (
     <div className="result-bar">
@@ -51,6 +71,49 @@ export function QueryResultBar({
           ))}
         </div>
       )}
+
+      {/* 結果を取っておいて次の実行結果と見比べる */}
+      <div className="result-pin">
+        <button
+          className="btn-secondary pin-btn has-tooltip tooltip-wrap"
+          data-tooltip={"この結果を棒・折れ線・円グラフで見ます\n(集計クエリの確認用)"}
+          disabled={!canChart}
+          onClick={onOpenChart}
+        >
+          グラフ
+        </button>
+        {pinnedLabel === null ? (
+          <button
+            className="btn-secondary pin-btn has-tooltip tooltip-wrap"
+            data-tooltip={"この結果を取っておきます\n次に実行した結果と並べて見比べられます"}
+            disabled={!canPin}
+            onClick={onPin}
+          >
+            結果をピン留め
+          </button>
+        ) : (
+          <>
+            <span className="pinned-chip mono" title={pinnedLabel}>
+              📌 {pinnedLabel}
+            </span>
+            <button
+              className={"btn-secondary pin-btn" + (comparing ? " on" : "")}
+              disabled={!canPin}
+              title="ピン留めした結果と、今の結果を横に並べます"
+              onClick={onToggleCompare}
+            >
+              {comparing ? "比較をやめる" : "比較"}
+            </button>
+            <button
+              className="btn-ghost pin-btn"
+              title="ピン留めを解除する"
+              onClick={onUnpin}
+            >
+              ✕
+            </button>
+          </>
+        )}
+      </div>
 
       {/* 右側: CSV出力 / 件数 / ページ送り (いずれも表示中の結果タブの情報) */}
       <div className="result-bar-right">

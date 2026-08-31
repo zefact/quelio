@@ -10,6 +10,8 @@ interface Props {
   sub?: ReactNode;
   /** 説明を等幅で出す (接続名やDB名) */
   subMono?: boolean;
+  /** 一覧など、中身が広い画面で枠を広げる */
+  wide?: boolean;
   /** 本文 */
   children: ReactNode;
   /** 右下のボタン列 (「キャンセル」は呼び出し側が置く) */
@@ -27,13 +29,17 @@ export function ErModal({
   title,
   sub,
   subMono,
+  wide,
   children,
   actions,
   onClose,
 }: Props) {
   return (
     <div className="er-modal-overlay" onMouseDown={onClose}>
-      <div className="er-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className={"er-modal" + (wide ? " er-modal-wide" : "")}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="er-modal-head">
           <div className={"er-modal-icon" + (danger ? " danger" : "")}>
             {icon}

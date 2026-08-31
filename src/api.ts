@@ -778,6 +778,29 @@ export function saveErDiagram(key: string, data: ErDiagramData): Promise<void> {
   return call("save_er_diagram", { key, data });
 }
 
+/** お試し用のサンプルSQLite DBを用意して、ファイルのパスを受け取る */
+export function createSampleDatabase(): Promise<string> {
+  return call("create_sample_database");
+}
+
+/** ピン留めしているテーブルの一覧 (接続・DBごと) */
+export function listPinnedTables(
+  profileId: string,
+  database: string
+): Promise<string[]> {
+  return call("list_pinned_tables", { profileId, database });
+}
+
+/** テーブルのピンを付け外しして、そのあとの一覧を受け取る */
+export function setPinnedTable(
+  profileId: string,
+  database: string,
+  table: string,
+  pinned: boolean
+): Promise<string[]> {
+  return call("set_pinned_table", { profileId, database, table, pinned });
+}
+
 /** 保存済みER図の名前一覧を取得する */
 export function listErDiagrams(): Promise<string[]> {
   return call("list_er_diagrams");

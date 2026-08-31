@@ -49,6 +49,8 @@ import { TableView } from "./TableView";
 import { ExportDialog, ImportDialog } from "./TransferDialog";
 import { useDismiss } from "../hooks/useDismiss";
 import { useMultiSelect } from "../hooks/useMultiSelect";
+import { usePinnedTables } from "../hooks/usePinnedTables";
+import { orderByPinned } from "../pinnedTables";
 import { useToast } from "../hooks/useToast";
 
 import type { SheetPane, TableDataPane } from "./panes";
@@ -377,10 +379,16 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     [tables]
   );
 
+  /** よく見るテーブルのピン留め (接続・DBごとに覚える) */
+  const { pinned: pinnedKeys, toggleMany: togglePins } = usePinnedTables(
+    profile.id,
+    selectedDb
+  );
+
   /** 複数選択 (SQLダンプ出力・まとめて削除の対象)。Shiftの範囲は表示中の並びで決まる */
   const filteredKeys = useMemo(
-    () => filteredTables.map((t) => tableKey(t)),
-    [filteredTables]
+    () => orderByPinned(filteredTables, tableKey, pinnedKeys).map(tableKey),
+    [filteredTables, pinnedKeys]
   );
   const {
     selected: multiSel,
@@ -829,14 +837,15 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               {/* 右クリックにしか無い操作なので、一覧の上に案内を置く */}
               <p className="side-table-hint">
                 {readOnly
-                  ? "読み取り専用の接続です (変更はできません)"
-                  : "右クリックで 作成・名前の変更・削除"}
+                  ? "読み取り専用の接続です (ピン留めはできます)"
+                  : "右クリックで ピン留め・作成・名前の変更・削除"}
               </p>
               <TableList
                 tables={filteredTables}
                 emptyLabel={tables.length === 0 ? "テーブルなし" : "該当なし"}
                 selectedKey={tab.selectedTable}
                 multiSel={multiSel}
+                pinnedKeys={pinnedKeys}
                 counts={counts}
                 showSchema={showSchema}
                 logicalOf={logicalOf}
@@ -1060,6 +1069,25 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                   <div className="grid-sort-head mono">
                     {multi ? `${n}件を選択中` : tableMenu.table.name}
                   </div>
+                  {(() => {
+                    // 選んだものが全部ピン留め済みなら「外す」にする
+                    const keys = targets.map((t) => tableKey(t));
+                    const allPinned = keys.every((k) => pinnedKeys.has(k));
+                    return (
+                      <button
+                        className="context-item"
+                        onClick={() => {
+                          setTableMenu(null);
+                          togglePins(keys, !allPinned);
+                        }}
+                      >
+                        {allPinned
+                          ? label("ピン留めを外す", "のピン留めを外す")
+                          : label("ピン留めする", "をピン留めする")}
+                      </button>
+                    );
+                  })()}
+                  <div className="context-sep" />
                   <button
                     className="context-item"
                     onClick={() =>

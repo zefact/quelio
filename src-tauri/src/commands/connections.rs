@@ -221,3 +221,10 @@ pub fn default_ssh_key_dir(app: AppHandle) -> Result<String, String> {
     let dir = if ssh.is_dir() { ssh } else { home };
     Ok(dir.to_string_lossy().to_string())
 }
+
+/// お試し用のサンプルSQLite DBを用意して、そのファイルのパスを返す。
+/// すでにあれば作り直さない
+#[tauri::command]
+pub async fn create_sample_database(app: AppHandle) -> Result<String, String> {
+    crate::sample_db::ensure(&app).await
+}

@@ -83,6 +83,12 @@ pub struct ConnectionProfile {
     /// 定義の変更 (ALTER・RENAME) の確認を設定で外せなくする
     #[serde(default)]
     pub env: Option<String>,
+    /// ホームの先頭に固定するか (よく使う接続)
+    #[serde(default)]
+    pub pinned: bool,
+    /// 最後に接続した時刻 (ISO8601)。ホームの「最近つないだ接続」の並びに使う
+    #[serde(default)]
+    pub last_used_at: Option<String>,
     /// 保存されたパスワード・パスフレーズを復号できなかった
     /// (マスターキーが変わった等)。画面に注意を出すための実行時の目印で、
     /// 保存時は常にfalseで書き出す

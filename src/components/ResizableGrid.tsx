@@ -80,6 +80,11 @@ interface Props {
   sort?: SortState | null;
   /** 指定するとヘッダクリックでソートメニューを開き、選択結果を通知する */
   onSortSelect?: (id: string, dir: SortDir) => void;
+  /**
+   * 列ヘッダのメニューに足す項目 (並べ替えの下に並ぶ)。
+   * 「この列で絞り込む」のような、列に対する操作を置くのに使う
+   */
+  headerMenuItems?: (columnId: string) => RowMenuItem[];
   /** trueなら初期表示時に全列を内容にフィットさせる */
   autoFit?: boolean;
   /** autoFit時、この値が変わったときだけ測り直す (未指定なら描画のたびに測る) */
@@ -190,6 +195,7 @@ export function ResizableGrid({
   emptyText,
   sort,
   onSortSelect,
+  headerMenuItems,
   autoFit,
   fitKey,
   selectable,
@@ -902,6 +908,19 @@ export function ResizableGrid({
                 </button>
               );
             })}
+            {(headerMenuItems?.(sortMenu.id) ?? []).map((item) => (
+              <button
+                key={item.label}
+                className={"context-item" + (item.danger ? " danger" : "")}
+                disabled={item.disabled}
+                onClick={() => {
+                  setSortMenu(null);
+                  item.onSelect();
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>,
           document.body
         )}

@@ -9,6 +9,7 @@
  */
 import { memo } from "react";
 import { tableKey } from "../tableSql";
+import { splitPinned } from "../pinnedTables";
 import type { TableInfo } from "../types";
 
 /** テーブル種別の短い印 (T / V / MV / F) */
@@ -28,6 +29,8 @@ export interface TableListProps {
   selectedKey: string | null;
   /** 複数選択中のテーブルキー */
   multiSel: Set<string>;
+  /** ピン留めしているテーブルキー (先頭にまとめて出す) */
+  pinnedKeys: Set<string>;
   /** 右クリックから数えた件数 (キーごとの表示用文字列) */
   counts: Record<string, string>;
   /** スキーマ名も並べて出すか (複数スキーマがあるときだけ) */
@@ -120,6 +123,7 @@ function TableRow({
   count,
   showSchema,
   logical,
+  pinned,
   onClick,
   onContextMenu,
 }: {
@@ -129,6 +133,8 @@ function TableRow({
   count: string | undefined;
   showSchema: boolean;
   logical: string;
+  /** ピン留めしているか (印を出す) */
+  pinned: boolean;
   onClick: (e: React.MouseEvent, t: TableInfo) => void;
   onContextMenu: (e: React.MouseEvent, t: TableInfo) => void;
 }) {
@@ -144,6 +150,11 @@ function TableRow({
       title={table.schema ? `${table.schema}.${table.name}` : table.name}
     >
       <span className={`type-chip mini ${badge.cls}`}>{badge.label}</span>
+      {pinned && (
+        <span className="side-table-pin" title="ピン留め中" aria-hidden>
+          ★
+        </span>
+      )}
       <span className="side-table-name mono">
         {showSchema && table.schema && (
           <span className="table-schema">{table.schema}.</span>
@@ -172,6 +183,7 @@ function TableListInner({
   emptyLabel,
   selectedKey,
   multiSel,
+  pinnedKeys,
   counts,
   showSchema,
   logicalOf,
@@ -183,36 +195,49 @@ function TableListInner({
   onItemClick,
   onItemContextMenu,
 }: TableListProps) {
+  // ピン留めしたものを先頭にまとめる (見出しを挟んで区切る)
+  const { pinned, rest } = splitPinned(tables, tableKey, pinnedKeys);
+
+  const renderRow = (t: TableInfo) => {
+    const key = tableKey(t);
+    return (
+      <li key={key}>
+        {renaming?.key === key ? (
+          <RenameRow
+            table={t}
+            value={renaming.value}
+            error={renameError}
+            onInput={onRenameInput}
+            onCommit={onRenameCommit}
+            onCancel={onRenameCancel}
+          />
+        ) : (
+          <TableRow
+            table={t}
+            selected={selectedKey === key}
+            multi={multiSel.has(key)}
+            count={counts[key]}
+            showSchema={showSchema}
+            logical={logicalOf(t)}
+            pinned={pinnedKeys.has(key)}
+            onClick={onItemClick}
+            onContextMenu={onItemContextMenu}
+          />
+        )}
+      </li>
+    );
+  };
+
   return (
     <ul className="side-table-list">
-      {tables.map((t) => {
-        const key = tableKey(t);
-        return (
-          <li key={key}>
-            {renaming?.key === key ? (
-              <RenameRow
-                table={t}
-                value={renaming.value}
-                error={renameError}
-                onInput={onRenameInput}
-                onCommit={onRenameCommit}
-                onCancel={onRenameCancel}
-              />
-            ) : (
-              <TableRow
-                table={t}
-                selected={selectedKey === key}
-                multi={multiSel.has(key)}
-                count={counts[key]}
-                showSchema={showSchema}
-                logical={logicalOf(t)}
-                onClick={onItemClick}
-                onContextMenu={onItemContextMenu}
-              />
-            )}
-          </li>
-        );
-      })}
+      {pinned.length > 0 && (
+        <>
+          <li className="side-table-group">ピン留め</li>
+          {pinned.map(renderRow)}
+          {rest.length > 0 && <li className="side-table-group">すべて</li>}
+        </>
+      )}
+      {rest.map(renderRow)}
       {tables.length === 0 && <li className="table-pane-empty">{emptyLabel}</li>}
     </ul>
   );

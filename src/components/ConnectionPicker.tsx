@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { badgeStyle, dbBadgeLabel, PRESET_COLORS, profileColor } from "../colors";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableWidth } from "../hooks/useResizableWidth";
@@ -11,12 +11,17 @@ import type {
 } from "../types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ConnectionForm } from "./ConnectionForm";
+import { PickerHome } from "./PickerHome";
 import { useDismiss } from "../hooks/useDismiss";
 
 interface Props {
   tab: WorkTab;
   store: ConnectionStore;
   onCreateFolder: () => Promise<FolderInfo | null>;
+  /** お試し用のサンプルSQLite DBを作って開く */
+  onOpenSample: () => void;
+  /** ホームでのピン留めの付け外し */
+  onSetConnPinned: (id: string, pinned: boolean) => void;
   /** フォルダを削除する (確認はこのコンポーネントで出す。失敗したら例外を投げること) */
   onDeleteFolder: (id: string) => void | Promise<void>;
   onLayout: (
@@ -82,6 +87,8 @@ export function ConnectionPicker({
   tab,
   store,
   onCreateFolder,
+  onOpenSample,
+  onSetConnPinned,
   onDeleteFolder,
   onLayout,
   onSetConnColor,
@@ -95,6 +102,19 @@ export function ConnectionPicker({
 }: Props) {
   const { profile, testResult, error, busy } = tab;
   const [sideWidth, startResize] = useResizableWidth(272, 200, 480);
+  /**
+   * 「新しい接続を作る」を押したか。
+   *
+   * 何も選んでいないときはホームを出すので、
+   * 新規作成の画面はここを立ててから見せる
+   */
+  const [newForm, setNewForm] = useState(false);
+  // 一覧から接続先を選んだら、新規作成の状態は解除する
+  useEffect(() => {
+    if (profile.id) setNewForm(false);
+  }, [profile.id]);
+  /** 何も選んでおらず、新規作成でもないならホームを出す */
+  const showHome = !profile.id && !newForm;
 
   const [menu, setMenu] = useState<MenuState | null>(null);
   // メニューが画面の外へはみ出さないように位置を補正する
@@ -556,7 +576,10 @@ export function ConnectionPicker({
           <button
             className="pane-icon-btn has-tooltip tooltip-left"
             data-tooltip="新規接続先を作成"
-            onClick={onNewFavorite}
+            onClick={() => {
+              onNewFavorite();
+              setNewForm(true);
+            }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
               <path
@@ -593,6 +616,13 @@ export function ConnectionPicker({
                 右のフォームから作成してください。
                 <br />
                 <span className="hint">右クリックでフォルダを作成できます</span>
+                {/* 接続情報が手元に無くても中身のあるDBを触れるようにする */}
+                <button className="btn-secondary sample-db-btn" onClick={onOpenSample}>
+                  サンプルDBで試す
+                </button>
+                <span className="hint">
+                  受注まわりの小さなSQLiteを作って開きます
+                </span>
               </li>
             )}
           </ul>
@@ -618,8 +648,22 @@ export function ConnectionPicker({
 
       <div className="pane-splitter" onMouseDown={startResize} />
 
-      {/* 編集フォーム */}
+      {/* 何も選んでいないときはホーム、選んだら編集フォーム */}
       <div className="picker-main">
+        {showHome ? (
+          <PickerHome
+            connections={connections}
+            onConnect={onConnect}
+            onTogglePin={onSetConnPinned}
+            onNew={() => {
+              onNewFavorite();
+              setNewForm(true);
+            }}
+            onOpenSample={onOpenSample}
+            connecting={busy === "connect"}
+          />
+        ) : (
+          <>
         <header className="main-head">
           <h1>{profile.id ? "接続の編集" : "新しい接続"}</h1>
           {profile.id && <span className="profile-id mono">{profile.name}</span>}
@@ -657,6 +701,8 @@ export function ConnectionPicker({
             <span className="result-detail">{error}</span>
           </div>
         )}
+          </>
+        )}
       </div>
 
       {/* 右クリックメニュー */}
@@ -672,6 +718,7 @@ export function ConnectionPicker({
             onClick={() => {
               setMenu(null);
               onNewFavorite();
+              setNewForm(true);
             }}
           >
             新規接続先

@@ -239,3 +239,25 @@ pub async fn schema_with_foreign_keys(
         foreign_keys,
     })
 }
+
+/// ピン留めしているテーブルの一覧を返す (接続・DBごと)
+#[tauri::command]
+pub fn list_pinned_tables(
+    app: AppHandle,
+    profile_id: String,
+    database: String,
+) -> Result<Vec<String>, String> {
+    crate::pinned::list(&app, &profile_id, &database)
+}
+
+/// テーブルのピンを付け外しして、そのあとの一覧を返す
+#[tauri::command]
+pub fn set_pinned_table(
+    app: AppHandle,
+    profile_id: String,
+    database: String,
+    table: String,
+    pinned: bool,
+) -> Result<Vec<String>, String> {
+    crate::pinned::set(&app, &profile_id, &database, &table, pinned)
+}

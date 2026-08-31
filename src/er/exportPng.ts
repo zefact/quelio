@@ -6,37 +6,22 @@
  * ここはReactに依存しない (canvasだけを使う) 純粋な処理
  */
 import { edgePath } from "./geometry";
-
-/** 他の線との交差判定に使う縦区間 (geometry.ts の verticalSegments が返す形) */
-type VerticalSegment = { x: number; y1: number; y2: number };
-import type { ErEdge, ErNode } from "./model";
 import { colMarker, edgeKey, NODE_HEAD_H, ROW_H } from "./model";
 import { FILL_ALPHA, hexAlpha } from "./style";
-import type { ErEdgeStyle, ErFrame } from "../types";
-
-/** PNGを描くのに要るもの (すべて画面が持っている今の状態) */
-export interface ErPngInput {
-  /** 図の見出しに出すデータベース名 */
-  database: string;
-  nodes: ErNode[];
-  /** 図全体の大きさ */
-  bounds: { w: number; h: number };
-  frames: ErFrame[];
-  edges: ErEdge[];
-  /** 各エッジの折れ線 (画面に出ているものと同じ経路) */
-  edgeGeoms: ([number, number][] | null)[];
-  /** エッジごとの線種・色 */
-  edgeStyles: Record<string, ErEdgeStyle>;
-  /** テーブルの位置 */
-  posOf: (name: string) => { x: number; y: number };
-  /** i番目のエッジを描くときに飛び越える、他の線の縦区間 */
-  verticalsExcept: (i: number) => VerticalSegment[];
-  /** ライトテーマで出力するか */
-  light: boolean;
-}
+import type { ErFrame } from "../types";
+import {
+  erPalette,
+  FONT_MONO,
+  FONT_UI,
+  LEGEND_H,
+  LEGEND_NOTE,
+  OX,
+  PAD,
+  type ErDrawInput,
+} from "./drawing";
 
 /** 現在の配置をcanvasへ描き直し、PNGをbase64で返す */
-export function drawErPng(v: ErPngInput): string {
+export function drawErPng(v: ErDrawInput): string {
   const {
     database,
     nodes,
@@ -49,10 +34,8 @@ export function drawErPng(v: ErPngInput): string {
     verticalsExcept,
     light,
   } = v;
-  const pad = 40;
-  const legendH = 30;
-  const w = bounds.w + pad;
-  const h = bounds.h + pad + legendH;
+  const w = bounds.w + PAD;
+  const h = bounds.h + PAD + LEGEND_H;
   const scale = Math.min(2, 16000 / Math.max(w, h));
   const canvas = document.createElement("canvas");
   canvas.width = Math.ceil(w * scale);
@@ -60,58 +43,28 @@ export function drawErPng(v: ErPngInput): string {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvasを初期化できません");
   // 呼び出し側で見た表示テーマに合わせる (ライトはライトのまま出力する)
-  const pal = light
-    ? {
-        bg: "#f2f3f7",
-        title: "#4f46e5",
-        text: "#1f2430",
-        dim: "#5b6478",
-        faint: "#9aa1b5",
-        nodeFill: "#ffffff",
-        nodeStroke: "rgba(17, 24, 39, 0.2)",
-        headFill: "rgba(99, 102, 241, 0.12)",
-        pk: "#4f46e5",
-        edge: "rgba(99, 102, 241, 0.85)",
-        frame: "rgba(91, 100, 120, 0.55)",
-      }
-    : {
-        bg: "#0c0e14",
-        title: "#a5b4fc",
-        text: "#e7eaf2",
-        dim: "#8b93a8",
-        faint: "#5b6275",
-        nodeFill: "#141824",
-        nodeStroke: "rgba(255, 255, 255, 0.18)",
-        headFill: "rgba(99, 102, 241, 0.18)",
-        pk: "#a5b4fc",
-        edge: "rgba(99, 102, 241, 0.8)",
-        frame: "rgba(139, 147, 168, 0.55)",
-      };
+  const pal = erPalette(light);
   ctx.scale(scale, scale);
   ctx.textBaseline = "middle";
   ctx.fillStyle = pal.bg;
   ctx.fillRect(0, 0, w, h);
 
   // 凡例
-  ctx.font = 'bold 14px -apple-system, "Hiragino Sans", sans-serif';
+  ctx.font = `bold 14px ${FONT_UI}`;
   ctx.fillStyle = pal.title;
-  ctx.fillText(`Quelio ER図 — ${database}`, 20, 18);
-  ctx.font = '11px "SF Mono", Menlo, Consolas, monospace';
+  ctx.fillText(`Quelio ER図 — ${database}`, OX, 18);
+  ctx.font = `11px ${FONT_MONO}`;
   ctx.fillStyle = pal.dim;
-  ctx.fillText(
-    "破線 = リレーション ・ ● = NOT NULL / ○ = NULL可 (色付き● = 主キー)",
-    300,
-    18
-  );
+  ctx.fillText(LEGEND_NOTE, 300, 18);
 
-  const oy = legendH;
+  const oy = LEGEND_H;
   /** 注釈枠 (box) を1個描く */
   const drawBox = (f: ErFrame) => {
     const r = f.rounded === false ? 3 : 10;
     if (f.fill) {
       ctx.fillStyle = hexAlpha(f.fill, FILL_ALPHA);
       ctx.beginPath();
-      ctx.roundRect(f.x + 20, f.y + oy, f.w, f.h, r);
+      ctx.roundRect(f.x + OX, f.y + oy, f.w, f.h, r);
       ctx.fill();
     }
     if (f.style !== "none") {
@@ -121,20 +74,20 @@ export function drawErPng(v: ErPngInput): string {
         f.style === "dashed" ? [8, 5] : f.style === "dotted" ? [2, 4] : []
       );
       ctx.beginPath();
-      ctx.roundRect(f.x + 20, f.y + oy, f.w, f.h, r);
+      ctx.roundRect(f.x + OX, f.y + oy, f.w, f.h, r);
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    ctx.font = '12px -apple-system, "Hiragino Sans", sans-serif';
+    ctx.font = `12px ${FONT_UI}`;
     ctx.fillStyle = pal.dim;
-    ctx.fillText(f.label, f.x + 20 + 10, f.y + oy + 14);
+    ctx.fillText(f.label, f.x + OX + 10, f.y + oy + 14);
   };
   /** テキスト見出しを1個描く */
   const drawText = (f: ErFrame) => {
     const size = f.fontSize ?? 18;
-    ctx.font = `bold ${size}px -apple-system, "Hiragino Sans", sans-serif`;
+    ctx.font = `bold ${size}px ${FONT_UI}`;
     ctx.fillStyle = f.textColor || pal.dim;
-    ctx.fillText(f.label, f.x + 20 + 4, f.y + oy + size * 0.75 + 2);
+    ctx.fillText(f.label, f.x + OX + 4, f.y + oy + size * 0.75 + 2);
   };
   // 注釈枠 (背面)
   for (const f of frames) {
@@ -142,7 +95,7 @@ export function drawErPng(v: ErPngInput): string {
   }
   // エッジ (カラム行から出る鍵線。交差は半円で飛び越える)
   ctx.save();
-  ctx.translate(20, oy);
+  ctx.translate(OX, oy);
   for (let i = 0; i < edges.length; i++) {
     const pts = edgeGeoms[i];
     if (!pts) continue;
@@ -168,7 +121,7 @@ export function drawErPng(v: ErPngInput): string {
   // ノード
   for (const n of nodes) {
     const p = posOf(n.name);
-    const x = p.x + 20;
+    const x = p.x + OX;
     const y = p.y + oy;
     ctx.fillStyle = pal.nodeFill;
     ctx.strokeStyle = pal.nodeStroke;
@@ -182,17 +135,17 @@ export function drawErPng(v: ErPngInput): string {
     ctx.beginPath();
     ctx.roundRect(x, y, n.w, NODE_HEAD_H, [8, 8, 0, 0]);
     ctx.fill();
-    ctx.font = 'bold 12px "SF Mono", Menlo, Consolas, monospace';
+    ctx.font = `bold 12px ${FONT_MONO}`;
     ctx.fillStyle = pal.text;
     ctx.fillText(n.name, x + 9, y + NODE_HEAD_H / 2);
     if (n.logical) {
       const nameW = ctx.measureText(n.name).width;
-      ctx.font = '10.5px -apple-system, "Hiragino Sans", sans-serif';
+      ctx.font = `10.5px ${FONT_UI}`;
       ctx.fillStyle = pal.dim;
       ctx.fillText(n.logical, x + 9 + nameW + 8, y + NODE_HEAD_H / 2);
     }
     // カラム (名前 / 型 / 日本語名を画面表示と同じく縦列を揃えて描画)
-    ctx.font = '11px "SF Mono", Menlo, Consolas, monospace';
+    ctx.font = `11px ${FONT_MONO}`;
     const nameColW = Math.max(
       0,
       ...n.columns.map((c) => ctx.measureText(colMarker(c) + c.name).width)

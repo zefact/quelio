@@ -107,7 +107,10 @@ export function SettingsSqlFormat({ app, saveApp }: Props) {
         />
       </SettingRow>
 
-      <SettingRow title="字下げ" desc="1段ぶんの幅です。">
+      <SettingRow
+        title="字下げ"
+        desc="1段ぶんの幅です。整形だけでなく、エディタで Tab を押したときと、改行したときの字下げにも使います。"
+      >
         <Choice
           value={fmt.indent}
           options={[

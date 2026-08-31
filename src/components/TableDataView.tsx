@@ -9,6 +9,7 @@ import type {
 import { QUERY_PAGE_SIZE } from "../types";
 import type { TableDataPane } from "./panes";
 import { CellDetail } from "./CellDetail";
+import { WhereBuilder } from "./WhereBuilder";
 import { clipIndex, clippedRowKeys } from "../cellValue";
 import { columnKinds, kindAlign, kindClass } from "../cellKind";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -126,6 +127,11 @@ function TableDataViewInner({
   } = useAsyncApply<RowChange>(onApplyRow);
   /** 削除の確認中の行 (データ内の位置) */
   const [deleting, setDeleting] = useState<number | null>(null);
+  /**
+   * 条件を組み立てる画面。
+   * openのときだけ出し、列ヘッダから開いたときはその列を選んでおく
+   */
+  const [building, setBuilding] = useState<{ column?: string } | null>(null);
   /** 全文表示中のセル (カラム番号・行・表示中の値) */
   const [cellView, setCellView] = useState<{
     column: number;
@@ -481,6 +487,12 @@ function TableDataViewInner({
           .join(", ")
       : "";
 
+  /** 組み立てた条件を入力欄へ入れて、そのまま取得し直す */
+  const applyBuilt = (built: string) => {
+    onChangeWhere(built);
+    onApplyWhere(built);
+  };
+
   return (
     <div className="table-data">
       {/* 絞り込み + ページ操作 */}
@@ -499,7 +511,7 @@ function TableDataViewInner({
         />
         <button
           className="btn-primary"
-          onClick={onApplyWhere}
+          onClick={() => onApplyWhere()}
           disabled={loading}
           title="条件を適用して先頭ページから取得し直す (Enter)"
         >
@@ -510,6 +522,14 @@ function TableDataViewInner({
           ) : (
             "適用"
           )}
+        </button>
+        <button
+          className="btn-secondary explain-btn"
+          onClick={() => setBuilding({})}
+          disabled={loading || dataColumns.length === 0}
+          title="列と演算子を選んで WHERE句を組み立てます (列ヘッダからも開けます)"
+        >
+          条件を作る
         </button>
         <button
           className="btn-secondary explain-btn"
@@ -656,6 +676,17 @@ function TableDataViewInner({
             columns={columns}
             sort={sort}
             onSortSelect={selectSort}
+            headerMenuItems={(id) =>
+              id.startsWith("c")
+                ? [
+                    {
+                      label: "この列で絞り込む...",
+                      onSelect: () =>
+                        setBuilding({ column: dataColumns[Number(id.slice(1))] }),
+                    },
+                  ]
+                : []
+            }
             rows={rows}
             rowValues={editing ? undefined : rowValueOf}
             clippedRowKeys={clippedRows}
@@ -689,6 +720,16 @@ function TableDataViewInner({
           />
         )}
       </div>
+
+      {building && (
+        <WhereBuilder
+          columns={dataColumns}
+          initialColumn={building.column}
+          quoteName={(n) => quoteName?.(n) ?? n}
+          onApply={applyBuilt}
+          onClose={() => setBuilding(null)}
+        />
+      )}
 
       {cellView && (
         <CellDetail

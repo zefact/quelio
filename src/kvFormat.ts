@@ -3,14 +3,19 @@
  * JSONとPHPシリアライズ (Laravelのセッション等) に対応する。
  */
 
-/** 整形できれば整形後の文字列、できなければnullを返す */
-export function tryFormatValue(raw: string): string | null {
+/**
+ * 解析できれば中身を返す (できなければnull)。
+ *
+ * ツリー表示のように「値そのもの」が要る画面で使う。
+ * undefined と「解析できなかった」を区別したいので、包んで返す
+ */
+export function tryParseValue(raw: string): { value: unknown } | null {
   const t = raw.trim();
 
   // JSON
   if (t.startsWith("{") || t.startsWith("[")) {
     try {
-      return JSON.stringify(deepParseStrings(JSON.parse(t)), null, 2);
+      return { value: deepParseStrings(JSON.parse(t)) };
     } catch {
       // 整形できないだけなのでフォールバックへ
     }
@@ -18,10 +23,14 @@ export function tryFormatValue(raw: string): string | null {
 
   // PHPシリアライズ
   const parsed = tryPhpUnserialize(t);
-  if (parsed !== undefined) {
-    return JSON.stringify(parsed, null, 2);
-  }
+  if (parsed !== undefined) return { value: parsed };
   return null;
+}
+
+/** 整形できれば整形後の文字列、できなければnullを返す */
+export function tryFormatValue(raw: string): string | null {
+  const parsed = tryParseValue(raw);
+  return parsed === null ? null : JSON.stringify(parsed.value, null, 2);
 }
 
 /** PHPシリアライズ形式らしければパースする (失敗時はundefined) */
