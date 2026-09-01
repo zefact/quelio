@@ -72,10 +72,12 @@ export function QueryResultBar({
         </div>
       )}
 
-      {/* 結果を取っておいて次の実行結果と見比べる */}
+      {/* 結果を取っておいて次の実行結果と見比べる。
+          画面の左寄りに並ぶボタンなので、説明は左端を起点に右へ伸ばす
+          (既定の右端起点だと、説明の左側が画面の外へ出て読めなくなる) */}
       <div className="result-pin">
         <button
-          className="btn-secondary pin-btn has-tooltip tooltip-wrap"
+          className="btn-secondary pin-btn has-tooltip tooltip-wrap tooltip-left"
           data-tooltip={"この結果を棒・折れ線・円グラフで見ます\n(集計クエリの確認用)"}
           disabled={!canChart}
           onClick={onOpenChart}
@@ -84,7 +86,7 @@ export function QueryResultBar({
         </button>
         {pinnedLabel === null ? (
           <button
-            className="btn-secondary pin-btn has-tooltip tooltip-wrap"
+            className="btn-secondary pin-btn has-tooltip tooltip-wrap tooltip-left"
             data-tooltip={"この結果を取っておきます\n次に実行した結果と並べて見比べられます"}
             disabled={!canPin}
             onClick={onPin}

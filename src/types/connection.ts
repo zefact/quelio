@@ -77,6 +77,8 @@ export interface ConnectionProfile {
   /** 読み取り専用で接続する (更新系の操作をすべて拒否する) */
   readOnly?: boolean;
   ssh?: SshConfig;
+  /** 外部CLI経由の接続 (AWS SSM / Cloud SQL Auth Proxy)。SSHとは排他 */
+  proxy?: ProxyConfig;
   /** 所属フォルダID (未設定ならルート直下) */
   folderId?: string;
   /** アイコン色 (#rrggbb。未設定なら環境の色、それも無ければDB種別ごとの既定色) */
@@ -153,6 +155,41 @@ export function emptyProfile(): ConnectionProfile {
     database: "",
     tls: false,
     ssh: emptySsh(),
+  };
+}
+
+/** 外部CLIを起動して行うポート転送の設定 */
+export interface ProxyConfig {
+  enabled: boolean;
+  /** 経路の種類 */
+  kind: "ssm" | "cloudsql";
+  /** SSM: 接続先のインスタンスID (i-...) */
+  target: string;
+  /** SSM: リージョン (空ならCLIの既定) */
+  region: string;
+  /** SSM: 使うAWSプロファイル (空ならCLIの既定) */
+  profile: string;
+  /** Cloud SQL: インスタンス接続名 (プロジェクト:リージョン:インスタンス) */
+  instance: string;
+  /** Cloud SQL: サービスアカウントキー (JSON) のパス */
+  credentialsPath: string;
+  /** Cloud SQL: IAM認証を使う */
+  autoIam: boolean;
+  /** 使う実行ファイルのパス (空ならPATHと決まった場所から探す) */
+  commandPath: string;
+}
+
+export function emptyProxy(): ProxyConfig {
+  return {
+    enabled: false,
+    kind: "ssm",
+    target: "",
+    region: "",
+    profile: "",
+    instance: "",
+    credentialsPath: "",
+    autoIam: false,
+    commandPath: "",
   };
 }
 

@@ -141,9 +141,9 @@ struct SchemaConn {
     label: String,
     cancel: CancelRegistry,
     key: String,
-    /// 自前で張ったSSHトンネル。
+    /// 自前で張ったトンネル。
     /// セッション側の張り直しに巻き込まれないよう、収集用は別に張る
-    tunnel: Option<SshTunnel>,
+    tunnel: Option<Forwarder>,
 }
 
 impl SchemaConn {

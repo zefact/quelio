@@ -22,6 +22,8 @@ export interface CompletionColumn {
   logical: string;
   /** 型名 (無ければ空) */
   dataType: string;
+  /** 主キーの一部か (候補に「PK」と出す) */
+  pk: boolean;
 }
 
 /** 補完に出すテーブル1件 */
@@ -34,8 +36,8 @@ export interface CompletionTable {
 /** "テーブル名" → テーブルの情報 */
 export type SchemaMap = Record<string, CompletionTable>;
 
-/** 候補の2列目以降 (テーブル名 / 日本語名 / 型) */
-type Cells = [string, string, string];
+/** 候補の2列目以降 (主キーの印 / テーブル名 / 日本語名 / 型) */
+type Cells = [string, string, string, string];
 
 /** 表示用の列を持たせた候補 */
 type SqlOption = Completion & { cells?: Cells };
@@ -62,14 +64,45 @@ function cell(index: number, className: string, position: number, last = false) 
 }
 
 /**
- * 候補を「名前 / テーブル名 / 日本語名 / 型」の4列で表示する。
- * autocompletion() の addToOptions に渡す (名前の列は標準の描画のまま)
+ * 候補を「名前 / PK / テーブル名 / 日本語名 / 型」の5列で表示する。
+ * autocompletion() の addToOptions に渡す (名前の列は標準の描画のまま)。
+ *
+ * PKの列は中身が無くても作る (幅はCSSで固定してあり、
+ * 行によって出したり消したりすると右の列がずれるため)
  */
 export const completionCells = [
-  cell(0, "ac-table", 60),
-  cell(1, "ac-logical", 70),
-  cell(2, "ac-type", 80, true),
+  cell(0, "ac-pk", 55),
+  cell(1, "ac-table", 60),
+  cell(2, "ac-logical", 70),
+  cell(3, "ac-type", 80, true),
 ];
+
+/**
+ * 定義順を保つための重み。
+ *
+ * CodeMirrorは点数が同じ候補をa→z順に並べ替えてしまうので、
+ * 先に定義されたカラムほど高い重みを付けて元の並びに戻す。
+ * 幅を±99に収めるのは、絞り込みの一致度 (100点刻み) を
+ * 追い越して「関係ない候補が上に来る」のを防ぐため
+ */
+const BOOST_SPAN = 99;
+
+/** index番目 (全total件) の重み */
+export function orderBoost(index: number, total: number): number {
+  if (total <= 1) return BOOST_SPAN;
+  const at = Math.min(Math.max(index, 0), total - 1);
+  return BOOST_SPAN - (at * BOOST_SPAN * 2) / (total - 1);
+}
+
+/** 並べた順を保つ重みを付ける (組み立てた並びがそのまま候補の並びになる) */
+export function keepOrder<T extends Completion>(
+  options: T[]
+): (T & { boost: number })[] {
+  return options.map((o, at) => ({
+    ...o,
+    boost: orderBoost(at, options.length),
+  }));
+}
 
 /** 識別子 (バッククォート・ダブルクォート囲みも許す) */
 const ID = '(?:[A-Za-z_$#][\\w$#]*|`[^`]*`|"[^"]*")';
@@ -177,16 +210,20 @@ function tableOption(
   return {
     label,
     type: "type",
-    cells: ["table", schema[key]?.logical ?? "", ""],
+    cells: ["", "table", schema[key]?.logical ?? "", ""],
   };
 }
 
-/** カラム名の候補 (名前の右にテーブル名・日本語名・型をこの順で出す) */
+/**
+ * カラム名の候補 (名前の右にPK・テーブル名・日本語名・型をこの順で出す)。
+ * 並びはテーブルの定義順のまま出す (a→z順に直されないよう重みを付ける)
+ */
 function columnOptions(schema: SchemaMap, table: string): SqlOption[] {
-  return (schema[table]?.columns ?? []).map((c) => ({
+  const columns = schema[table]?.columns ?? [];
+  return columns.map((c) => ({
     label: c.name,
     type: "property",
-    cells: [table, c.logical, c.dataType],
+    cells: [c.pk ? "PK" : "", table, c.logical, c.dataType],
   }));
 }
 
@@ -201,10 +238,14 @@ export function sqlCompletion(getSchema: () => SchemaMap): CompletionSource {
     const before = doc.slice(stmtFrom, from);
     const statement = doc.slice(stmtFrom, stmtTo);
     const { tables, aliases } = collectSources(statement);
+    /*
+     * 候補を返す。
+     * 並びはここで作った順 (テーブルの定義順) を保つ
+     */
     const done = (options: Completion[]): CompletionResult | null =>
       options.length === 0
         ? null
-        : { from, options, validFor: /^[\w$#]*$/ };
+        : { from, options: keepOrder(options), validFor: /^[\w$#]*$/ };
 
     // 1. `別名.` / `テーブル名.` の直後 → そのテーブルのカラムだけ
     const qualifier = QUALIFIER.exec(before);

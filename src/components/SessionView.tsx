@@ -11,6 +11,12 @@ import {
 } from "../api";
 import { writeClipboard } from "../gridCopy";
 import { parseComment } from "../comment";
+import {
+  closeCsvImport,
+  csvImportStore,
+  openCsvImport,
+} from "../csvImportStore";
+import { useKeyedStore } from "../hooks/useKeyedStore";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import {
@@ -38,6 +44,7 @@ import { DropTableConfirm } from "./DropTableConfirm";
 import { QueryPanel } from "./QueryPanel";
 import { ProcessDialog } from "./ProcessDialog";
 import { CsvImportDialog } from "./csvImport/CsvImportDialog";
+import { TestDataDialog } from "./testData/TestDataDialog";
 import { DbAdminDialog } from "./dbAdmin/DbAdminDialog";
 import { SearchDialog } from "./search/SearchDialog";
 import { RoutineDialog } from "./RoutineDialog";
@@ -120,8 +127,17 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
   /** 検索の画面を出すか */
   const [showSearch, setShowSearch] = useState(false);
 
-  /** CSVを取り込む対象のテーブル (nullなら取り込み画面を出さない) */
-  const [csvTarget, setCsvTarget] = useState<TableInfo | null>(null);
+  /** テストデータを作る対象のテーブル (nullなら画面を出さない) */
+  const [genTarget, setGenTarget] = useState<TableInfo | null>(null);
+
+  /*
+   * CSVを取り込む対象のテーブル (nullなら取り込み画面を出さない)。
+   *
+   * この部品はタブごとに作り直さず使い回すので、状態は接続タブごとに
+   * 画面の外 (csvImportStore) へ置く。取り込み中にタブを移っても
+   * 戻ってくれば進捗と中止ボタンが出せる
+   */
+  const csvTarget = useKeyedStore(csvImportStore, tab.key).target;
 
   /** 削除の確認中のテーブル (nullなら確認していない) */
   const [dropping, setDropping] = useState<TableInfo[] | null>(null);
@@ -139,7 +155,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     schemaMap[t.name]?.columns.map((c) => c.name) ?? [];
 
   /** CSV取り込みの画面を閉じる (毎回作り直さないよう固定する) */
-  const closeCsv = useCallback(() => setCsvTarget(null), []);
+  const closeCsv = useCallback(() => closeCsvImport(tab.key), [tab.key]);
 
   /**
    * 右クリックメニューが効く対象。
@@ -230,8 +246,9 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
    * ここに tables を入れると成功の表示ごと消えてしまう
    */
   useEffect(() => {
-    setCsvTarget(null);
-  }, [selectedDb]);
+    closeCsvImport(tab.key);
+    setGenTarget(null);
+  }, [selectedDb, tab.key]);
 
   // 接続タブを切り替えたら、開いていた画面は閉じる
   // (この部品はタブごとに作り直さず使い回すため、明示的に消す)
@@ -240,7 +257,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     setDialog(null);
     setTableMenu(null);
     setDropping(null);
-    setCsvTarget(null);
+    setGenTarget(null);
     setShowDbAdmin(false);
     setShowSearch(false);
     setPendingSelect(null);
@@ -339,6 +356,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                   name: c.name,
                   logical: parseComment(c.comment ?? "", commentDelim)[0],
                   dataType: c.dataType,
+                  pk: c.pk ?? false,
                 })),
               },
             ])
@@ -1041,6 +1059,21 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
         />
       )}
 
+      {genTarget && selectedDb && (
+        <TestDataDialog
+          sessionId={tab.key}
+          database={selectedDb}
+          schema={genTarget.schema ?? undefined}
+          table={genTarget.name}
+          onClose={() => setGenTarget(null)}
+          onGenerated={() => {
+            void onReloadTables();
+            // 入れたテーブルを開いていれば、表示中のデータも取り直す
+            if (tab.selectedTable === tableKey(genTarget)) dataPane.onReload();
+          }}
+        />
+      )}
+
       {toast &&
         createPortal(<div className="grid-toast">{toast}</div>, document.body)}
 
@@ -1211,10 +1244,29 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                         onClick={() => {
                           const t = tableMenu.table;
                           setTableMenu(null);
-                          setCsvTarget(t);
+                          openCsvImport(tab.key, t);
                         }}
                       >
                         CSVを取り込む
+                      </button>
+                      <button
+                        className="context-item"
+                        title={
+                          oneOnly ??
+                          "日本語のテストデータを作ってこのテーブルへ追加します"
+                        }
+                        // 入れ先は1つに決まっていないと選べない
+                        disabled={
+                          multi ||
+                          tableMenu.table.tableType.toUpperCase().includes("VIEW")
+                        }
+                        onClick={() => {
+                          const t = tableMenu.table;
+                          setTableMenu(null);
+                          setGenTarget(t);
+                        }}
+                      >
+                        テストデータを作る
                       </button>
                       <button
                         className="context-item danger"

@@ -3,6 +3,15 @@
    ============================================================ */
 
 :root {
+  /*
+   * 等幅フォント。
+   *
+   * macOSは SF Mono / Menlo、Windowsは Cascadia Mono / Consolas を使う。
+   * 最後の monospace だけだと Windows では Courier New になり、
+   * アンダースコアが細くて見えないなど、小さい字で読みにくくなる
+   */
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo,
+    "Cascadia Mono", Consolas, monospace;
   --bg: #0c0e14;
   --bg-panel: #12151d;
   --bg-card: rgba(var(--ink), 0.03);
@@ -147,7 +156,7 @@ select,
 }
 
 .mono {
-  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .app {

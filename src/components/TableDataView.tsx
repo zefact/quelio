@@ -44,8 +44,8 @@ interface Props {
   insertTable?: string;
   /** カラム名をDBの書き方でクォートする (INSERT文のコピー用) */
   quoteName?: (name: string) => string;
-  /** 接続の種類 (INSERT文の文字列の書き方に使う) */
-  dbType?: DbType;
+  /** 接続の種類 (INSERT文の書き方と、条件を作るときの引用の要否に使う) */
+  dbType: DbType;
   /** 1行分の変更を実行する。失敗したら例外を投げること */
   onApplyRow: (change: RowChange) => Promise<void>;
   /** 切り詰められたセルの全文を読み直す (主キーで行を特定する) */
@@ -725,7 +725,7 @@ function TableDataViewInner({
         <WhereBuilder
           columns={dataColumns}
           initialColumn={building.column}
-          quoteName={(n) => quoteName?.(n) ?? n}
+          dbType={dbType}
           onApply={applyBuilt}
           onClose={() => setBuilding(null)}
         />

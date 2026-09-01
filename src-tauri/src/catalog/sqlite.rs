@@ -10,7 +10,7 @@ pub async fn sqlite_schema_columns(
     conn: &mut SqliteConnection,
     ctx: &LogCtx<'_>,
 ) -> Result<SchemaColumns, AppError> {
-    let sql = "SELECT m.name AS tbl, p.name AS col, p.\"type\" AS typ \
+    let sql = "SELECT m.name AS tbl, p.name AS col, p.\"type\" AS typ, p.pk AS pk \
              FROM sqlite_master m \
              JOIN pragma_table_info(m.name) p \
              WHERE m.type IN ('table', 'view') AND m.name NOT LIKE 'sqlite_%' \
@@ -30,6 +30,8 @@ pub async fn sqlite_schema_columns(
                     name: r.try_get::<String, _>("col").map_err(db_error)?,
                     data_type: r.try_get::<String, _>("typ").map_err(db_error)?,
                     comment: String::new(),
+                    // pragma_table_info の pk は主キー内の位置 (0なら主キーでない)
+                    pk: r.try_get::<i64, _>("pk").map_err(db_error)? > 0,
                 },
             ))
         })

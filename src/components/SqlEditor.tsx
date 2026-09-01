@@ -206,7 +206,8 @@ const highlight = HighlightStyle.define([
   { tag: [t.punctuation, t.paren, t.bracket], color: "var(--text-dim)" },
 ]);
 
-const MONO = '"SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace';
+/* 等幅フォントは1か所 (theme.css の --font-mono) で決める */
+const MONO = "var(--font-mono)";
 
 /** エディタ共通テーマ (KvCommandEditorでも使う) */
 export const editorTheme = EditorView.theme({

@@ -190,7 +190,7 @@ pub async fn import_csv(
                         let _ = end_txn(session, qlog, &label, &db_label, false).await;
                         return Err(format!(
                             "行数が上限 ({}行) を超えました。ファイルを分けてください",
-                            crate::csv_import::MAX_ROWS
+                            crate::csv_import::fmt_count(crate::csv_import::MAX_ROWS)
                         ));
                     }
                     params.extend(row);
@@ -277,14 +277,14 @@ pub async fn import_csv(
 }
 
 /// 取り消しに入ったことを進捗に出す (ジョブが無いときは何もしない)
-fn mark_rolling_back(job: Option<&crate::csv_job::CsvJob>) {
+pub(super) fn mark_rolling_back(job: Option<&crate::csv_job::CsvJob>) {
     if let Some(j) = job {
         j.set_phase(crate::csv_job::JobPhase::RollingBack);
     }
 }
 
 /// 値を渡してSQLを実行する (ログに出さない版。CSV取り込みのように何度も呼ぶ用)
-async fn exec_bound_quiet(
+pub(super) async fn exec_bound_quiet(
     conn: &mut DbConn,
     sql: &str,
     params: &[Option<String>],

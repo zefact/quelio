@@ -12,6 +12,65 @@ export function quoteIdent(dbType: DbType, name: string): string {
     : `"${name.replace(/"/g, '""')}"`;
 }
 
+/** そのまま書ける識別子の形 (英字か_で始まり、英数字と_だけ) */
+const PLAIN_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * 引用符を外すと意味が変わる語。
+ *
+ * 網羅はしない (DB・バージョンで違う)。よく列名に使われて、
+ * かつ裸で書くと構文エラーになりうるものを入れてある。
+ * 迷ったら引用する側に倒す (引用しても動作は変わらないため)
+ */
+const RESERVED = new Set([
+  "add", "all", "alter", "and", "any", "as", "asc", "before", "between",
+  "binary", "both", "by", "call", "case", "cast", "char", "character",
+  "check", "collate", "column", "condition", "constraint", "create",
+  "cross", "current_date", "current_time", "current_timestamp",
+  "current_user", "database", "databases", "day", "dec", "decimal",
+  "declare", "default", "delete", "desc", "describe", "distinct", "div",
+  "double", "drop", "dual", "each", "else", "elseif", "end", "escape",
+  "except", "exists", "explain", "false", "fetch", "float", "for", "force",
+  "foreign", "from", "full", "function", "grant", "group", "having", "hour",
+  "if", "ignore", "in", "index", "infile", "inner", "insert", "int",
+  "integer", "intersect", "interval", "into", "is", "join", "key", "keys",
+  "kill", "leading", "leave", "left", "like", "limit", "lines", "load",
+  "lock", "long", "loop", "match", "minute", "mod", "month", "natural",
+  "not", "null", "numeric", "offset", "on", "only", "optimize", "option",
+  "or", "order", "outer", "over", "partition", "precision", "primary",
+  "procedure", "range", "rank", "read", "real", "references", "regexp",
+  "release", "rename", "repeat", "replace", "require", "restrict", "return",
+  "revoke", "right", "rlike", "row", "rows", "schema", "second", "select",
+  "session_user", "set", "show", "smallint", "some", "table", "then", "time",
+  "timestamp", "tinyint", "to", "trailing", "trigger", "true", "union",
+  "unique", "unlock", "update", "usage", "use", "user", "using", "values",
+  "varchar", "varying", "when", "where", "while", "window", "with", "write",
+  "xor", "year", "zerofill",
+]);
+
+/**
+ * 引用符を付けないと困る名前か。
+ *
+ * PostgreSQLは引用符なしの識別子を小文字として扱うので、
+ * 大文字を含む名前は引用符が要る
+ * (MySQLとSQLiteは裸でも大文字小文字を気にしない)
+ */
+export function needsQuote(dbType: DbType, name: string): boolean {
+  if (!PLAIN_IDENT.test(name)) return true;
+  if (RESERVED.has(name.toLowerCase())) return true;
+  return dbType === "postgresql" && name !== name.toLowerCase();
+}
+
+/**
+ * 必要なときだけ引用符を付ける。
+ *
+ * 画面で組み立てたSQLをそのまま人が読む場所 (絞り込みの条件など) では、
+ * 付けなくてよい引用符が付いていると読みにくいため
+ */
+export function quoteIdentIfNeeded(dbType: DbType, name: string): string {
+  return needsQuote(dbType, name) ? quoteIdent(dbType, name) : name;
+}
+
 /** スキーマ付きテーブル名をクォートして返す (schemaが無ければテーブル名のみ) */
 export function quoteTable(dbType: DbType, table: TableInfo): string {
   const name = quoteIdent(dbType, table.name);

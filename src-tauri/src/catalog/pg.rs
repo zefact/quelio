@@ -299,7 +299,12 @@ pub async fn pg_schema_columns(
     let sql = "SELECT n.nspname AS schema, c.relname AS tbl, a.attname AS col, \
                     format_type(a.atttypid, a.atttypmod) AS typ, \
                     COALESCE(col_description(c.oid, a.attnum), '') AS cmt, \
-                    COALESCE(obj_description(c.oid, 'pg_class'), '') AS tbl_cmt \
+                    COALESCE(obj_description(c.oid, 'pg_class'), '') AS tbl_cmt, \
+                    EXISTS ( \
+                      SELECT 1 FROM pg_index i \
+                      WHERE i.indrelid = c.oid AND i.indisprimary \
+                        AND a.attnum = ANY(i.indkey) \
+                    ) AS pk \
              FROM pg_attribute a \
              JOIN pg_class c ON c.oid = a.attrelid \
              JOIN pg_namespace n ON n.oid = c.relnamespace \
@@ -324,6 +329,7 @@ pub async fn pg_schema_columns(
         let typ: String = r.try_get("typ").map_err(db_error)?;
         let cmt: String = r.try_get("cmt").map_err(db_error)?;
         let tbl_cmt: String = r.try_get("tbl_cmt").map_err(db_error)?;
+        let pk: bool = r.try_get("pk").map_err(db_error)?;
         plain.push((
             table.clone(),
             tbl_cmt.clone(),
@@ -331,6 +337,7 @@ pub async fn pg_schema_columns(
                 name: col.clone(),
                 data_type: typ.clone(),
                 comment: cmt.clone(),
+                pk,
             },
         ));
         qualified.push((
@@ -340,6 +347,7 @@ pub async fn pg_schema_columns(
                 name: col,
                 data_type: typ,
                 comment: cmt,
+                pk,
             },
         ));
     }

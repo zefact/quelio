@@ -9,20 +9,37 @@ use tokio::time::{timeout, Duration};
 use crate::apperr::{AppError, ErrKind};
 use crate::models::{ConnectionProfile, DbType, TestResult};
 use crate::query_log::QueryLog;
-use crate::ssh_tunnel::{self, SshTunnel};
+use crate::proxy::{self, Forwarder};
+use crate::ssh_tunnel;
 
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// 実際に接続するホスト・ポート(SSHトンネル経由の場合はローカル転送先)
+/// 実際に接続するホスト・ポート(トンネル経由の場合はローカル転送先)
 pub struct Endpoint {
     pub host: String,
     pub port: u16,
     /// トンネルを使う場合は生存させ続ける必要がある
-    pub tunnel: Option<SshTunnel>,
+    pub tunnel: Option<Forwarder>,
 }
 
-/// プロファイルから接続先エンドポイントを解決する(必要ならSSHトンネルを張る)
+/// ローカル転送を使うときのエンドポイント
+fn local(f: Forwarder) -> Endpoint {
+    Endpoint {
+        host: "127.0.0.1".into(),
+        port: f.local_port(),
+        tunnel: Some(f),
+    }
+}
+
+/// プロファイルから接続先エンドポイントを解決する。
+///
+/// 外部CLI経由 (SSM / Cloud SQL) とSSHトンネルは同時には使わない。
+/// 設定が両方あってもCLI側を優先する (画面ではどちらか一方しか立たない)
 pub async fn resolve_endpoint(p: &ConnectionProfile) -> Result<Endpoint, String> {
+    if let Some(px) = p.proxy.as_ref().filter(|x| x.enabled) {
+        let proc = proxy::start(px, &p.host, p.port).await?;
+        return Ok(local(Forwarder::Cli(proc)));
+    }
     match &p.ssh {
         Some(ssh) if ssh.enabled => {
             let t = timeout(
@@ -31,11 +48,7 @@ pub async fn resolve_endpoint(p: &ConnectionProfile) -> Result<Endpoint, String>
             )
             .await
             .map_err(|_| "SSH接続がタイムアウトしました".to_string())??;
-            Ok(Endpoint {
-                host: "127.0.0.1".into(),
-                port: t.local_port,
-                tunnel: Some(t),
-            })
+            Ok(local(Forwarder::Ssh(t)))
         }
         _ => Ok(Endpoint {
             host: p.host.clone(),

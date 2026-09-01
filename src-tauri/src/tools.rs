@@ -114,8 +114,9 @@ fn search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// 設定パス優先でツールの実体を探す
-fn find_tool(configured: &str, name: &str) -> (Option<PathBuf>, bool) {
+/// 設定パス優先でツールの実体を探す。
+/// 接続経路のCLI (aws / cloud-sql-proxy) を探すのにも使う
+pub fn find_tool(configured: &str, name: &str) -> (Option<PathBuf>, bool) {
     let c = configured.trim();
     if !c.is_empty() {
         let p = PathBuf::from(c);

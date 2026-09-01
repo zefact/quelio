@@ -442,6 +442,7 @@ pub async fn mysql_schema_columns(
 ) -> Result<SchemaColumns, AppError> {
     // ビューのTABLE_COMMENTは 'VIEW' が入るだけなので、日本語名としては使わない
     let sql = "SELECT c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_TYPE, c.COLUMN_COMMENT, \
+                    c.COLUMN_KEY, \
                     CASE WHEN t.TABLE_TYPE = 'VIEW' THEN '' ELSE t.TABLE_COMMENT END AS TBL_COMMENT \
              FROM information_schema.COLUMNS c \
              JOIN information_schema.TABLES t \
@@ -471,6 +472,13 @@ pub async fn mysql_schema_columns(
                     comment: r
                         .try_get::<String, _>("COLUMN_COMMENT")
                         .map_err(db_error)?,
+                    // 主キーは COLUMN_KEY が 'PRI' (複合キーでも各列に付く)。
+                    // 補完が丸ごと止まるのは惜しいので、読めない場合は主キー無しとして扱う
+                    pk: r
+                        .try_get::<Option<String>, _>("COLUMN_KEY")
+                        .unwrap_or_default()
+                        .as_deref()
+                        == Some("PRI"),
                 },
             ))
         })

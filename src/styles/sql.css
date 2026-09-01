@@ -483,7 +483,7 @@ html[data-theme="light"] .result-banner.ng {
   margin-left: 8px;
   font-size: 11px;
   opacity: 0.65;
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 /* ============ セッション画面(接続済みタブ) ============ */
@@ -639,7 +639,7 @@ html[data-theme="light"] .result-banner.ng {
   padding: 5px;
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
   animation: slide-in 0.1s ease;
-  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-family: var(--font-mono);
 }
 
 .select-menu-item {
@@ -959,6 +959,12 @@ html[data-theme="light"] .result-banner.ng {
 .filter-input {
   width: 100%;
   font-size: 12px;
+  /*
+   * 行の高さを明示する。
+   * 既定 (normal) だとフォントによっては下端が入力欄に収まりきらず、
+   * Windowsでアンダースコアが切れて見えなくなる
+   */
+  line-height: 1.5;
   padding: 7px 10px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);

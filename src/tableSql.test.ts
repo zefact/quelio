@@ -7,6 +7,7 @@ import {
   buildTruncateStatement,
   normalizeWhere,
   quoteIdent,
+  quoteIdentIfNeeded,
   quoteTable,
   tableKey,
 } from "./tableSql";
@@ -32,6 +33,39 @@ describe("quoteIdent", () => {
     expect(quoteIdent("mysql", "a` , DROP TABLE x -- ")).toBe(
       "`a`` , DROP TABLE x -- `"
     );
+  });
+});
+
+describe("quoteIdentIfNeeded", () => {
+  it("普通の名前は引用しない", () => {
+    expect(quoteIdentIfNeeded("mysql", "id")).toBe("id");
+    expect(quoteIdentIfNeeded("postgresql", "created_at")).toBe("created_at");
+    expect(quoteIdentIfNeeded("sqlite", "user_id2")).toBe("user_id2");
+  });
+
+  it("記号・空白・日本語を含む名前は引用する", () => {
+    expect(quoteIdentIfNeeded("mysql", "user name")).toBe("`user name`");
+    expect(quoteIdentIfNeeded("mysql", "顧客名")).toBe("`顧客名`");
+    expect(quoteIdentIfNeeded("postgresql", "a-b")).toBe('"a-b"');
+    // 数字始まりも裸では書けない
+    expect(quoteIdentIfNeeded("mysql", "1st")).toBe("`1st`");
+  });
+
+  it("予約語は引用する", () => {
+    expect(quoteIdentIfNeeded("mysql", "order")).toBe("`order`");
+    expect(quoteIdentIfNeeded("mysql", "Group")).toBe("`Group`");
+    expect(quoteIdentIfNeeded("postgresql", "user")).toBe('"user"');
+  });
+
+  it("PostgreSQLは大文字を含むと引用する (裸だと小文字になるため)", () => {
+    expect(quoteIdentIfNeeded("postgresql", "userName")).toBe('"userName"');
+    // MySQLとSQLiteは裸でも大文字小文字を気にしない
+    expect(quoteIdentIfNeeded("mysql", "userName")).toBe("userName");
+    expect(quoteIdentIfNeeded("sqlite", "userName")).toBe("userName");
+  });
+
+  it("引用したときの中身は quoteIdent と同じ (逃がし方も同じ)", () => {
+    expect(quoteIdentIfNeeded("mysql", "a`b")).toBe("`a``b`");
   });
 });
 

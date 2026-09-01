@@ -34,11 +34,11 @@ html body .cm-tooltip.cm-tooltip-autocomplete > ul {
   min-width: 0;
   max-width: none;
   overflow: auto;
-  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
 }
 
-/* 候補は「名前 / テーブル名 / 日本語名 / 型」の4列。
+/* 候補は「名前 / PK / テーブル名 / 日本語名 / 型」の5列。
  * 最小幅だけ決めて縦を揃え、はみ出す行はその行だけ広がるようにする
  * (途中で切ってしまうより読めるほうを優先) */
 html body .cm-tooltip.cm-tooltip-autocomplete > ul > li {
@@ -74,6 +74,23 @@ html body .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
 
 html body .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionCell {
   color: rgba(255, 255, 255, 0.85);
+}
+
+/*
+ * 主キーの印。
+ *
+ * 中身が無い行でも列は残す (行ごとに出したり消したりすると右の列がずれる)。
+ * 幅は決め打ちにして、幅そろえ (completionLayout.ts) の対象から外している
+ */
+.cm-completionCell.ac-pk {
+  /* 等幅なので文字数で決める (フォントが変わってもPKが収まる) */
+  width: 2.4ch;
+  color: var(--accent-2);
+  font-weight: 700;
+}
+
+html body .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionCell.ac-pk {
+  color: #fff;
 }
 
 /* 入力中の文字に一致した部分 */

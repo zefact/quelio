@@ -200,6 +200,45 @@ pub async fn export_schema_csv(
     Ok(paths)
 }
 
+/// 選択中DBのテーブル定義書をExcelで書き出し、パスを返す。
+///
+/// connection は表紙に出す接続の表示名。
+/// tables は出力するテーブル名 (指定しなければDB全体)
+#[tauri::command]
+pub async fn export_schema_xlsx(
+    app: AppHandle,
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+    connection: String,
+    tables: Option<Vec<String>>,
+) -> Result<String, String> {
+    let delim = crate::app_settings::load(&app)?.comment_delimiter;
+    let mut items = sessions::schema_snapshot(&state, &qlog, &session_id, &database).await?;
+    if let Some(pick) = tables {
+        let want: std::collections::HashSet<String> = pick.into_iter().collect();
+        items.retain(|e| want.contains(&e.table.name));
+    }
+    if items.is_empty() {
+        return Err("出力するテーブルがありません".into());
+    }
+    let now = chrono::Local::now();
+    let meta = crate::export_xlsx::DocMeta {
+        connection,
+        database: database.clone(),
+        generated_at: now.format("%Y-%m-%d %H:%M").to_string(),
+    };
+    let bytes = crate::export_xlsx::build(&items, &meta, &delim)?;
+
+    // 設定の「保存先フォルダ」に従う (未設定ならOSのダウンロードフォルダ)
+    let dir = crate::app_settings::download_dir(&app)?;
+    let stem = crate::filename::safe_stem(&database);
+    let path = dir.join(format!("{stem}_定義書_{}.xlsx", now.format("%Y%m%d_%H%M%S")));
+    crate::outfile::write(&path, bytes).map_err(|e| format!("Excelを書き込めません: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// テーブル名・カラム名・コメントから探す
 #[tauri::command]
 pub async fn search_objects(

@@ -97,7 +97,7 @@ fn row(fields: &[String]) -> String {
 }
 
 /// スキーマ付きのテーブル名 (MySQLはテーブル名のみ)
-fn full_name(t: &TableInfo) -> String {
+pub fn full_name(t: &TableInfo) -> String {
     match &t.schema {
         Some(s) => format!("{s}.{}", t.name),
         None => t.name.clone(),
@@ -105,7 +105,7 @@ fn full_name(t: &TableInfo) -> String {
 }
 
 /// テーブル情報 (ラベル,値) からラベル指定で値を取り出す
-fn info_get(info: &[(String, String)], label: &str) -> String {
+pub fn info_get(info: &[(String, String)], label: &str) -> String {
     info.iter()
         .find(|(l, _)| l == label)
         .map(|(_, v)| v.clone())
@@ -113,7 +113,7 @@ fn info_get(info: &[(String, String)], label: &str) -> String {
 }
 
 /// "varchar(100)" → ("varchar", "100") に分離
-fn split_type(t: &str) -> (String, String) {
+pub fn split_type(t: &str) -> (String, String) {
     if let (Some(open), Some(close)) = (t.find('('), t.rfind(')')) {
         if open < close {
             let base = format!("{}{}", &t[..open], &t[close + 1..])
@@ -141,7 +141,7 @@ fn closing_for(delim: &str) -> Option<&'static str> {
 
 /// カラムコメントを 論理名＋補足 に分解する (区切り文字は設定で変更可)。
 /// 例: 区切り"（" のとき "会社CD（YYMMXX）" → ("会社CD", "YYMMXX")
-fn parse_comment(comment: &str, delim: &str) -> (String, String) {
+pub fn parse_comment(comment: &str, delim: &str) -> (String, String) {
     if delim.is_empty() {
         return (comment.to_string(), String::new());
     }

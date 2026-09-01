@@ -1,0 +1,128 @@
+/* テストデータ生成ダイアログ */
+
+/* ============================================================
+   テストデータ生成ダイアログ
+   (外枠・本文の枠はCSV取り込みと同じものを使う)
+   ============================================================ */
+
+/* 行数とNULLの割合 (横に並べて、補足は次の行へ回す) */
+.gen-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+}
+
+.gen-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.gen-label {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.gen-hint {
+  flex-basis: 100%;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* 列の一覧 */
+.gen-columns {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+/* 見出しは縦スクロールしても残す */
+.gen-columns th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--modal-bg);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.gen-columns td {
+  padding: var(--space-2) var(--space-3);
+  vertical-align: middle;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 入れない列は薄くして、対象外だと分かるようにする */
+.gen-columns tr.off td {
+  opacity: 0.5;
+}
+
+.gen-columns .gen-pick {
+  width: 34px;
+  padding-right: 0;
+  text-align: center;
+}
+
+/* 論理名 (日本語コメント) はカラム名の右に控えめに置く */
+.gen-logical {
+  margin-left: var(--space-2);
+  color: var(--text-dim);
+}
+
+/* 「必須」「一意」の小さな印 */
+.gen-tag {
+  margin-left: var(--space-2);
+  padding: 1px 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* 行数・NULLの割合の選択は幅をそろえる */
+.gen-field .select-menu-wrap {
+  width: 150px;
+}
+
+/* 種類の選択も幅をそろえる (選ぶたびに幅が変わると読みにくい) */
+.gen-columns .select-menu-wrap {
+  width: 180px;
+}
+
+/*
+ * 選択欄は入力欄と同じ枠・同じ高さに揃える。
+ * .db-select は「枠を持つ入れ物の中に置く」前提で
+ * 既定では枠も背景も付かないため、ここで指定する
+ */
+.gen-settings .db-select,
+.gen-columns .db-select {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  padding: 7px 24px 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background-color: var(--input-bg);
+  /* 枠を付けたぶん、矢印を内側へ寄せる */
+  background-position: right 8px center;
+  font-size: 12px;
+  text-align: left;
+}
+
+.gen-settings .db-select:hover:not(:disabled),
+.gen-columns .db-select:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.gen-settings .select-menu-label,
+.gen-columns .select-menu-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

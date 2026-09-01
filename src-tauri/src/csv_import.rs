@@ -17,8 +17,11 @@ const SNIFF_BYTES: usize = 64 * 1024;
 /// 1回のINSERTにまとめる行数の上限
 const BATCH_ROWS: usize = 500;
 
-/// 取り込みの上限行数 (誤って巨大なファイルを流し込まないための歯止め)
-pub const MAX_ROWS: usize = 1_000_000;
+/// 取り込みの上限行数 (誤って巨大なファイルを流し込まないための歯止め)。
+///
+/// 1行ずつ読んでバッチ単位でINSERTするので、行数が増えても使うメモリは変わらない。
+/// ここは「桁を間違えたファイルを流し込んでしまった」ときに止めるための値
+pub const MAX_ROWS: usize = 10_000_000;
 
 /// プレビューで返す行数
 const PREVIEW_ROWS: usize = 20;
@@ -660,6 +663,19 @@ pub fn dedupe_rows(
     keep.len()
 }
 
+/// 桁を3つずつカンマで区切る (行数をメッセージに出すときに使う)
+pub fn fmt_count(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (at, ch) in digits.chars().enumerate() {
+        if at > 0 && (digits.len() - at).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
+}
+
 /// 1回のINSERTにまとめる行数。
 ///
 /// 列数が多いテーブルでは、行数×列数がプレースホルダの上限を超えて
@@ -840,6 +856,14 @@ mod tests {
         // 括弧の中に数字以外を書けない (副問い合わせを紛れ込ませない)
         assert!(!safe_cast_type("int), (SELECT id FROM users"));
         assert!(!safe_cast_type("int(1) AS x(2)"));
+    }
+
+    #[test]
+    fn 桁をカンマで区切る() {
+        assert_eq!(fmt_count(0), "0");
+        assert_eq!(fmt_count(999), "999");
+        assert_eq!(fmt_count(1_000), "1,000");
+        assert_eq!(fmt_count(10_000_000), "10,000,000");
     }
 
     #[test]

@@ -191,7 +191,13 @@ export function QueryPanel({
    * CSV出力 (進捗・結果メッセージ・保存先をまとめて持つ)。
    * 保存先はキャプチャとは別に持つ (取り違えると別のファイルを開いてしまう)
    */
-  const csv = useCsvExport();
+  /**
+   * このシートを見分けるキー。
+   * タブを切り替えるとこの画面は一度消えるので、
+   * 画面の外に置いておく状態 (CSV出力の進捗) をこのキーで結び付ける
+   */
+  const sheetScope = `${sessionId}:${sheetPane.activeId}`;
+  const csv = useCsvExport(sheetScope);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   // エディタの右クリックメニューは画面外へ出ないよう位置を補正する
   const [ctxPosRef, ctxStyle] = usePopupPosition<HTMLDivElement>(
@@ -387,7 +393,6 @@ export function QueryPanel({
    * 実行のたびに結果が流れてしまうので、直す前の結果を残せるようにする。
    * 接続タブ・シートをまたいで見えてしまわないよう、どこで留めたかを持つ
    */
-  const pinScope = `${sessionId}:${sheetPane.activeId}`;
   const [pinned, setPinned] = useState<{
     scope: string;
     label: string;
@@ -398,7 +403,7 @@ export function QueryPanel({
   /** グラフの画面を出しているか */
   const [charting, setCharting] = useState(false);
   /** 今のシートのピン留め (別のシートのものは出さない) */
-  const pinHere = pinned?.scope === pinScope ? pinned : null;
+  const pinHere = pinned?.scope === sheetScope ? pinned : null;
   /** 表になる結果だけ見比べられる (実行完了メッセージや実行計画は対象外) */
   const canPin =
     !!result && !isExecResult(result) && !isPlanResult(result.columns);
@@ -415,7 +420,7 @@ export function QueryPanel({
     const t = new Date();
     const p2 = (v: number) => String(v).padStart(2, "0");
     setPinned({
-      scope: pinScope,
+      scope: sheetScope,
       label: `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())} ${statementLabel(active.sql, activeIdx)}`,
       sql: active.sql,
       result,

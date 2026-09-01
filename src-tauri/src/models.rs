@@ -71,6 +71,10 @@ pub struct ConnectionProfile {
     /// SSHトンネル設定(任意)
     #[serde(default)]
     pub ssh: Option<SshConfig>,
+    /// 外部CLI経由の接続設定 (AWS SSM / Cloud SQL Auth Proxy)。
+    /// SSHトンネルとは同時に使わない (画面でどちらか一方を選ぶ)
+    #[serde(default)]
+    pub proxy: Option<ProxyConfig>,
     /// 所属フォルダのID (Noneならルート直下)
     #[serde(default)]
     pub folder_id: Option<String>,
@@ -104,6 +108,42 @@ pub struct ConnectionProfile {
     /// SSHのパスフレーズについて、password_saved と同じもの
     #[serde(default)]
     pub passphrase_saved: bool,
+}
+
+/// 外部CLIを起動して行うポート転送の設定。
+///
+/// 踏み台へのSSHを禁じている環境向け。
+/// AWS Systems Manager と Cloud SQL Auth Proxy に対応する
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyConfig {
+    /// この経路を使うか
+    #[serde(default)]
+    pub enabled: bool,
+    /// 経路の種類 ("ssm" | "cloudsql")
+    #[serde(default)]
+    pub kind: String,
+    /// SSM: 接続先のインスタンスID (i-...)
+    #[serde(default)]
+    pub target: String,
+    /// SSM: リージョン (空ならCLIの既定)
+    #[serde(default)]
+    pub region: String,
+    /// SSM: 使うAWSプロファイル (空ならCLIの既定)
+    #[serde(default)]
+    pub profile: String,
+    /// Cloud SQL: インスタンス接続名 (プロジェクト:リージョン:インスタンス)
+    #[serde(default)]
+    pub instance: String,
+    /// Cloud SQL: サービスアカウントキー (JSON) のパス。空なら既定の認証を使う
+    #[serde(default)]
+    pub credentials_path: String,
+    /// Cloud SQL: IAM認証を使う
+    #[serde(default)]
+    pub auto_iam: bool,
+    /// 使う実行ファイルのパス。空ならPATHと決まった場所から探す
+    #[serde(default)]
+    pub command_path: String,
 }
 
 /// 接続先を整理するフォルダ

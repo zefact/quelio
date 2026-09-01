@@ -1,24 +1,29 @@
 /**
- * リバースするテーブルを選ぶ画面。
+ * テーブルを選ぶ画面 (ER図のリバース・定義書の出力で使う)。
  *
- * テーブルが数百あるDBで全部を読み込むと、図が使い物にならない。
+ * テーブルが数百あるDBで全部を対象にすると、出来上がったものが使い物にならない。
  * 先に必要なものだけ選べるようにする。
- * 選ばなかったテーブルとの関連は図に出ない (選んだもの同士だけを結ぶ)。
  *
- * 既存の図を更新するときは、チェックしたものだけをDBから読み直す。
- * すでに図にあるテーブル (existing) はチェックを外したままなら今のまま残る
+ * 見出し・ボタンの文言・説明は使う側から渡す。
+ * ER図の更新のように、すでに入っているものへ印を付けたい場合は existing を渡す
  */
 import { useMemo, useState } from "react";
 import type { TableInfo } from "../types";
 import { ErModal } from "./ErModal";
 
-export interface ErTablePickerProps {
+export interface TablePickerProps {
   /** 選べるテーブル (接続先から取得したもの) */
   tables: TableInfo[];
   /** 最初から選んでおくテーブル名 */
   initial: Set<string>;
-  /** すでに図にあるテーブル名 (印を付けるだけ。チェックすると更新される) */
+  /** すでに入っているテーブル名 (「図にあり」の印を付ける。空でよい) */
   existing: Set<string>;
+  /** 画面の見出し */
+  title: string;
+  /** 決定ボタンの文言を作る (選んだ件数を受け取る) */
+  submitLabel: (count: number) => string;
+  /** 一覧の下に出す説明 */
+  note: string;
   /** 見出しの下に出す接続名 / DB名 */
   target: string;
   /** 読み込み中か (一覧の取得待ち) */
@@ -37,15 +42,18 @@ function labelOf(t: TableInfo): string {
   return t.schema ? `${t.schema}.${t.name}` : t.name;
 }
 
-export function ErTablePicker({
+export function TablePicker({
   tables,
   initial,
   existing,
+  title,
+  submitLabel,
+  note,
   target,
   loading,
   onClose,
   onSubmit,
-}: ErTablePickerProps) {
+}: TablePickerProps) {
   const [picked, setPicked] = useState<Set<string>>(() => new Set(initial));
   const [filter, setFilter] = useState("");
 
@@ -77,7 +85,7 @@ export function ErTablePicker({
   return (
     <ErModal
       icon="⟳"
-      title="リバースするテーブルを選ぶ"
+      title={title}
       sub={target}
       subMono
       wide
@@ -88,14 +96,14 @@ export function ErTablePicker({
           disabled={loading || picked.size === 0}
           onClick={() => onSubmit(picked)}
         >
-          {picked.size > 0 ? `${picked.size}件を読み込む` : "読み込む"}
+          {submitLabel(picked.size)}
         </button>
       }
     >
-      <div className="er-pick">
-        <div className="er-pick-head">
+      <div className="table-pick">
+        <div className="table-pick-head">
           <input
-            className="er-pick-filter mono"
+            className="table-pick-filter mono"
             placeholder="絞り込み..."
             value={filter}
             autoFocus
@@ -110,38 +118,34 @@ export function ErTablePicker({
         </div>
 
         {loading ? (
-          <div className="er-pick-empty">
+          <div className="table-pick-empty">
             <span className="spinner accent" /> テーブル一覧を読み込み中...
           </div>
         ) : shown.length === 0 ? (
-          <div className="er-pick-empty">
+          <div className="table-pick-empty">
             {tables.length === 0 ? "テーブルがありません" : "該当なし"}
           </div>
         ) : (
-          <div className="er-pick-list">
+          <div className="table-pick-list">
             {shown.map((t) => {
               const name = keyOf(t);
               const inDiagram = existing.has(name);
               return (
-                <label key={labelOf(t)} className="er-pick-item">
+                <label key={labelOf(t)} className="table-pick-item">
                   <input
                     type="checkbox"
                     checked={picked.has(name)}
                     onChange={() => toggle(name)}
                   />
                   <span className="mono">{labelOf(t)}</span>
-                  {inDiagram && <span className="er-pick-tag">図にあり</span>}
+                  {inDiagram && <span className="table-pick-tag">図にあり</span>}
                 </label>
               );
             })}
           </div>
         )}
 
-        <p className="er-pick-note">
-          {existing.size > 0
-            ? "チェックしたテーブルを図に足します。「図にあり」はチェックすると最新の内容に更新し、外したままなら今のまま残ります"
-            : "選んだテーブル同士の関連だけを図にします。あとからリバースし直せば足せます"}
-        </p>
+        <p className="table-pick-note">{note}</p>
       </div>
     </ErModal>
   );

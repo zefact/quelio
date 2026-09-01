@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
 import { RevealButton } from "./RevealButton";
-import { exportSchemaCsv, getAppSettings, listSessions, schemaSnapshot } from "../api";
+import {
+  exportSchemaCsv,
+  exportSchemaXlsx,
+  getAppSettings,
+  listSessions,
+  schemaSnapshot,
+} from "../api";
+import { TablePicker } from "./TablePicker";
 import { parseComment } from "../comment";
 import { usePolling } from "../hooks/usePolling";
 import type { SchemaEntry, SessionSummary, TableInfo } from "../types";
@@ -115,6 +122,32 @@ export function SchemaWindow() {
 
   /** 直近に保存したファイル (「フォルダを開く」の対象) */
   const [savedPath, setSavedPath] = useState<string | null>(null);
+  /** 定義書に入れるテーブルを選ぶ画面を出しているか */
+  const [picking, setPicking] = useState(false);
+
+  /** 選んだテーブルでExcelの定義書を書き出す */
+  const handleExportXlsx = async (tables: string[]) => {
+    if (!sel.sessionId || !sel.database || exporting) return;
+    setPicking(false);
+    setExporting(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const path = await exportSchemaXlsx(
+        sel.sessionId,
+        sel.database,
+        connName,
+        tables
+      );
+      setNotice(`${path.split("/").pop()} を保存しました: ${path}`);
+      setSavedPath(path);
+      setTimeout(() => setNotice(null), 10000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleExport = async () => {
     if (!sel.sessionId || !sel.database || exporting) return;
@@ -290,6 +323,15 @@ export function SchemaWindow() {
         />
 
         <button
+          className="btn-secondary diff-compare"
+          onClick={() => setPicking(true)}
+          disabled={exporting || !entries}
+          title="表紙・テーブル一覧・テーブルごとのシートを作ります"
+        >
+          Excel定義書
+        </button>
+
+        <button
           className="btn-primary diff-compare"
           onClick={handleExport}
           disabled={exporting || !entries}
@@ -316,7 +358,7 @@ export function SchemaWindow() {
       {notice && (
         <div className="result-banner ok diff-error">
           <span className="dot" aria-hidden />
-          <strong>CSV出力</strong>
+          <strong>出力</strong>
           <span className="result-detail">{notice}</span>
           {savedPath && (
             <>
@@ -382,6 +424,21 @@ export function SchemaWindow() {
             )}
           </div>
         </div>
+      )}
+
+      {picking && entries && (
+        <TablePicker
+          tables={entries.map((e) => e.table)}
+          initial={new Set(entries.map((e) => e.table.name))}
+          existing={new Set()}
+          title="定義書に入れるテーブルを選ぶ"
+          submitLabel={(n) => (n > 0 ? `${n}件で出力` : "出力")}
+          note="選んだテーブルごとに1シートを作ります。表紙とテーブル一覧は必ず付きます"
+          target={`${connName} / ${sel.database}`}
+          loading={false}
+          onClose={() => setPicking(false)}
+          onSubmit={(names) => void handleExportXlsx([...names])}
+        />
       )}
     </div>
   );

@@ -45,6 +45,10 @@ pub use kv::*;
 mod transfer;
 pub use transfer::*;
 
+/// 日本語のテストデータ生成
+mod testdata;
+pub use testdata::*;
+
 /// 別ウィンドウ (スキーマ・ER図・差分・コンソール) と、
 mod windows;
 pub use windows::*;

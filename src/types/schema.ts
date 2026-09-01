@@ -60,6 +60,8 @@ export interface SchemaColumn {
   dataType: string;
   /** カラムコメント (日本語名の取り出しに使う。SQLiteは常に空) */
   comment: string;
+  /** 主キーの一部か */
+  pk: boolean;
 }
 
 /** SQLエディタの補完に使うテーブル */

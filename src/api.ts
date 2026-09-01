@@ -54,6 +54,9 @@ import type {
   TableDetail,
   TableInfo,
   TestResult,
+  TestDataColumn,
+  TestDataResult,
+  TestDataSpec,
   ToolSettings,
   ToolStatus,
   TxnStatus,
@@ -378,6 +381,51 @@ export function importCsv(
     mapping,
     mode,
     emptyAsNull,
+    jobId,
+  });
+}
+
+// ---------- テストデータ生成 ----------
+
+/**
+ * テーブルの列を見て、テストデータの作り方の案を返す。
+ * 種類は論理名 (日本語コメント)・カラム名・型から推測する
+ */
+export function planTestData(
+  sessionId: string,
+  database: string | undefined,
+  schema: string | undefined,
+  table: string
+): Promise<TestDataColumn[]> {
+  return call("plan_test_data", { sessionId, database, schema, table });
+}
+
+/**
+ * テストデータを作ってテーブルへ入れる。
+ *
+ * 進捗の取得・中止はCSVと同じ仕組み (csvExportStatus / cancelCsvExport) を使う。
+ *
+ * @param nullRate NULLにする割合 (0〜100。NULL可の列だけが対象)
+ * @param jobId 進捗の取得・中止に使うID
+ */
+export function generateTestData(
+  sessionId: string,
+  database: string | undefined,
+  schema: string | undefined,
+  table: string,
+  rows: number,
+  nullRate: number,
+  columns: TestDataSpec[],
+  jobId: string
+): Promise<TestDataResult> {
+  return call("generate_test_data", {
+    sessionId,
+    database,
+    schema,
+    table,
+    rows,
+    nullRate,
+    columns,
     jobId,
   });
 }
@@ -776,6 +824,24 @@ export function getErDiagram(key: string): Promise<ErDiagramData | null> {
 /** ER図を保存する (キーごとに上書き) */
 export function saveErDiagram(key: string, data: ErDiagramData): Promise<void> {
   return call("save_er_diagram", { key, data });
+}
+
+/**
+ * テーブル定義書をExcelで書き出し、保存したパスを受け取る。
+ * tables を省くとDB全体を出力する
+ */
+export function exportSchemaXlsx(
+  sessionId: string,
+  database: string,
+  connection: string,
+  tables?: string[]
+): Promise<string> {
+  return call("export_schema_xlsx", {
+    sessionId,
+    database,
+    connection,
+    tables: tables ?? null,
+  });
 }
 
 /** お試し用のサンプルSQLite DBを用意して、ファイルのパスを受け取る */

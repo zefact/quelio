@@ -1219,7 +1219,7 @@
   padding: 5px 12px;
   font-size: 11.5px;
   font-weight: 700;
-  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--font-mono);
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }
@@ -1294,6 +1294,99 @@
 .cell-more:hover {
   border-color: var(--accent);
   color: var(--accent-2, #a5b4fc);
+}
+
+/* テーブルを選ぶ画面 (ER図のリバース・定義書の出力で共通) */
+.table-pick {
+  margin-bottom: 16px;
+}
+
+.table-pick-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.table-pick-filter {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-btn);
+  outline: none;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.table-pick-filter:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.table-pick-list {
+  height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+  background: rgba(var(--ink), 0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.table-pick-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 5px 8px;
+  border-radius: var(--radius-btn);
+  font-size: 12px;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+.table-pick-item:hover {
+  background: rgba(var(--ink), 0.06);
+  color: var(--text);
+}
+
+.table-pick-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* すでに図にあるテーブルの印 */
+.table-pick-tag {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 10px;
+  color: var(--text-faint);
+  background: rgba(var(--ink), 0.08);
+  border-radius: 999px;
+}
+
+.table-pick-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  height: 300px;
+  font-size: 12px;
+  color: var(--text-faint);
+  background: rgba(var(--ink), 0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.table-pick-note {
+  margin: 9px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-faint);
 }
 
 /* 列と演算子を選んで作る絞り込み条件 */

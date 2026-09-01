@@ -131,6 +131,8 @@ pub struct SchemaColumn {
     pub data_type: String,
     /// カラムコメント (日本語名の取り出しに使う。SQLiteは常に空)
     pub comment: String,
+    /// 主キーの一部か (補完の候補に印を出すのに使う)
+    pub pk: bool,
 }
 
 /// SQLエディタの補完に出すテーブル

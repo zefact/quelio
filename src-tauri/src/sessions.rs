@@ -29,7 +29,7 @@ use crate::models::{
 };
 use crate::query;
 use crate::query_log::QueryLog;
-use crate::ssh_tunnel::SshTunnel;
+use crate::proxy::Forwarder;
 
 
 pub enum DbConn {
@@ -188,6 +188,10 @@ pub use rows::*;
 mod csv;
 pub use csv::*;
 
+/// 日本語のテストデータを作って入れる
+mod testdata;
+pub use testdata::*;
+
 /// キャンセル用の接続IDが分からない状態を表す値。
 ///
 /// サーバーが割り当てないIDにしておけば、この値のまま中止を送ろうとしても
@@ -225,8 +229,8 @@ pub struct Session {
     /// キャンセル用レジストリ (PG再接続時にconn_idを更新する)
     cancel: CancelRegistry,
     profile: ConnectionProfile,
-    /// SSHトンネル。セッションが生きている間は保持し続ける
-    tunnel: Option<SshTunnel>,
+    /// トンネル (SSH または外部CLI)。セッションが生きている間は保持し続ける
+    tunnel: Option<Forwarder>,
     /// 解決済みの接続先(トンネル使用時は127.0.0.1:ローカルポート)
     host: String,
     port: u16,

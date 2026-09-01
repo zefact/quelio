@@ -48,6 +48,8 @@ import type {
   TableDetail,
   TableInfo,
   TestResult,
+  TestDataColumn,
+  TestDataResult,
   ToolSettings,
   ToolStatus,
   ValueSearchResult,
@@ -101,7 +103,9 @@ export interface CommandResults {
   export_query_csv: CsvExportResult;
   export_query_log: ExportedLog;
   export_schema_csv: string[];
+  export_schema_xlsx: string;
   fetch_cell: CellValue;
+  generate_test_data: TestDataResult;
   get_app_settings: AppSettings;
   get_er_diagram: ErDiagramData | null;
   get_query_log: QueryLogEntry[];
@@ -138,6 +142,7 @@ export interface CommandResults {
   open_diff: void;
   open_er: void;
   open_schema: void;
+  plan_test_data: TestDataColumn[];
   preview_column_ddl: string[];
   preview_create_database: string;
   preview_create_schema: string;
@@ -227,7 +232,9 @@ export const COMMAND_NAMES = [
   "export_query_csv",
   "export_query_log",
   "export_schema_csv",
+  "export_schema_xlsx",
   "fetch_cell",
+  "generate_test_data",
   "get_app_settings",
   "get_er_diagram",
   "get_query_log",
@@ -264,6 +271,7 @@ export const COMMAND_NAMES = [
   "open_diff",
   "open_er",
   "open_schema",
+  "plan_test_data",
   "preview_column_ddl",
   "preview_create_database",
   "preview_create_schema",

@@ -41,7 +41,7 @@ import {
   type ErConfirm,
   type ErNameDialog,
 } from "./ErDialogs";
-import { ErTablePicker } from "./ErTablePicker";
+import { TablePicker } from "./TablePicker";
 import { CanvasMenu } from "./erMenu/CanvasMenu";
 import { ColumnMenu } from "./erMenu/ColumnMenu";
 import { EdgeMenu } from "./erMenu/EdgeMenu";
@@ -2111,11 +2111,18 @@ export function ErWindow() {
 
       {picker && (
         // 一覧が届いた時点で初期選択が決まるため、keyを変えて選択状態を作り直す
-        <ErTablePicker
+        <TablePicker
           key={picker.loading ? "loading" : "ready"}
           tables={picker.tables}
           initial={picker.initial}
           existing={picker.existing}
+          title="リバースするテーブルを選ぶ"
+          submitLabel={(n) => (n > 0 ? `${n}件を読み込む` : "読み込む")}
+          note={
+            picker.existing.size > 0
+              ? "チェックしたテーブルを図に足します。「図にあり」はチェックすると最新の内容に更新し、外したままなら今のまま残ります"
+              : "選んだテーブル同士の関連だけを図にします。あとからリバースし直せば足せます"
+          }
           target={`${session?.name ?? ""} / ${sel.database}`}
           loading={picker.loading}
           onClose={() => setPicker(null)}

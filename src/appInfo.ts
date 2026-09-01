@@ -5,8 +5,8 @@ export const APP_NAME = "Quelio";
 
 /** 説明 (対応DBと種別で行を分けて表示する) */
 export const APP_TAGLINE_LINES = [
-  "MySQL / PostgreSQL / SQLite / Valkey",
-  "対応のデータベースクライアント",
+  "MySQL (MariaDB) / PostgreSQL / SQLite",
+  "Valkey (Redis) 対応のデータベースクライアント",
 ];
 
 export const COPYRIGHT = "© ZEFACT Co., Ltd.";

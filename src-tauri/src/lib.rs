@@ -16,6 +16,7 @@ mod dialect;
 mod dml;
 mod er_store;
 mod export;
+mod export_xlsx;
 mod filename;
 mod json_store;
 mod known_hosts;
@@ -23,6 +24,7 @@ mod kv;
 mod models;
 mod outfile;
 mod pinned;
+mod proxy;
 mod query;
 mod query_log;
 mod sample_db;
@@ -32,6 +34,7 @@ mod sql_history;
 mod sql_params;
 mod ssh_tunnel;
 mod storage;
+mod testdata;
 mod tools;
 mod uploads;
 mod workspace;
@@ -199,6 +202,7 @@ pub fn run() {
             commands::check_kv_destructive,
             commands::kv_apply,
             commands::export_schema_csv,
+            commands::export_schema_xlsx,
             commands::export_query_csv,
             commands::export_plan_csv,
             commands::list_collations,
@@ -229,6 +233,8 @@ pub fn run() {
             commands::list_processes,
             commands::preview_csv,
             commands::import_csv,
+            commands::plan_test_data,
+            commands::generate_test_data,
             commands::kill_process,
             commands::table_ddl,
             commands::reveal_path,

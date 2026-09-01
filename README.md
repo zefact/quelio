@@ -16,6 +16,7 @@ macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です�
 
 - MySQL / PostgreSQL / SQLite / Valkey への接続 (SSH踏み台トンネル対応・鍵認証)
   - MySQLの接続はMariaDB、Valkeyの接続はRedisでもそのまま使えます
+  - SSHの代わりに AWS Systems Manager (SSM) のポート転送 / Cloud SQL Auth Proxy も使えます
 - 接続先のプロファイル管理 (フォルダ分け・並び替え・アイコン色)
 - タブ式セッション、テーブル構造表示 (カラム / インデックス / テーブル情報)
 - カラムコメントから「論理名 (日本語名)」を取り出して表示
@@ -27,7 +28,8 @@ macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です�
 - EXPLAIN / EXPLAIN ANALYZE の実行計画ビュー (時間バー・ボトルネック強調)
 - 実行結果のキャプチャ保存 (SQL＋全行をPNG化)・クエリ結果のCSV出力
 - SQLコンソール (実行した全SQLの履歴)
-- スキーマ一覧・定義書CSV出力、スキーマ差分ビューア (2接続の比較)
+- スキーマ一覧・定義書の出力 (CSV / Excel)、スキーマ差分ビューア (2接続の比較)
+- 日本語のテストデータ生成 (氏名・住所・電話番号など。外部キーの整合を保ちます)
 - ER図の自動生成 (リバース・手動編集・PNG出力)
 - テーブル選択式エクスポート / SQLファイルのインポート (mysqldump / pg_dump / mysql / psql 連携)
 - アプリ内アップデート (新しいバージョンの確認とインストール)

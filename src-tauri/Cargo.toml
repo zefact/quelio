@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.7.0"
+version = "0.7.1"
 description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -49,4 +49,10 @@ tauri-plugin-process = "2.3.1"
 csv = "1"
 encoding_rs = "0.8"
 encoding_rs_io = "0.1"
+# テーブル定義書のExcel出力 (純Rust。Cのライブラリを持ち込まない)
+rust_xlsxwriter = "0.95"
+
+# 外部CLI (SSM / Cloud SQL Proxy) をプロセスグループごと終わらせるため
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 

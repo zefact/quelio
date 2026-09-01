@@ -205,7 +205,7 @@
         Quelio が未実装のものの2種類があります。理由も併記しています。
       </p>
       <div class="meta-row">
-        <span class="chip">対象バージョン: Quelio v0.7.0</span>
+        <span class="chip">対象バージョン: Quelio v0.7.1</span>
         <span class="chip">最終更新: 2026-08-31</span>
         <span class="chip">ベータ版のため今後変更されることがあります</span>
       </div>
@@ -301,6 +301,13 @@
               <td class="c"><span class="mark y">✓</span></td>
             </tr>
             <tr>
+              <td>SSM / Cloud SQL Auth Proxy 経由<span class="note">外部CLIが必要（AWS CLI + Session Manager プラグイン / cloud-sql-proxy）</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">ローカルファイル</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">SSMのポート転送</span></td>
+            </tr>
+            <tr>
               <td>TLS接続</td>
               <td class="c"><span class="mark y">✓</span><span class="note">検証あり/なしを選択</span></td>
               <td class="c"><span class="mark y">✓</span><span class="note">検証あり/なしを選択</span></td>
@@ -380,7 +387,7 @@
               <td class="c"><span class="mark n">—</span></td>
             </tr>
             <tr>
-              <td>スキーマ比較・定義書CSV出力</td>
+              <td>スキーマ比較・定義書の出力（CSV / Excel）</td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
@@ -518,6 +525,13 @@
             </tr>
             <tr>
               <td>CSV / TSVファイルの取り込み</td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>日本語のテストデータ生成<span class="note">氏名・住所・電話番号など。外部キーは参照先の値から選びます</span></td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>

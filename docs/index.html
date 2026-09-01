@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Quelio（クエリオ）- 軽量なMySQL / PostgreSQL / SQLite / Valkeyクライアント</title>
+  <title>Quelio（クエリオ）- MySQL / MariaDB / PostgreSQL / SQLite / Valkey (Redis) クライアント</title>
   <meta name="description" content="Quelio(クエリオ)は、Tauri製の軽量デスクトップDBクライアント。MySQL (MariaDB) / PostgreSQL / SQLite / Valkey (Redis互換) 対応、SSHトンネル、テーブル構造ビュー、テーブル定義とデータのその場編集、入力補完つきクエリエディタ、クエリ結果のCSVダウンロード、エクスポート/インポートを搭載。" />
-  <meta property="og:title" content="Quelio（クエリオ）- 軽量なMySQL / PostgreSQL / SQLite / Valkeyクライアント" />
+  <meta property="og:title" content="Quelio（クエリオ）- MySQL / MariaDB / PostgreSQL / SQLite / Valkey (Redis) クライアント" />
   <meta property="og:description" content="スキーマ差分チェック・結果の自動キャプチャ・日本語の論理名表示。現場で欲しかった機能を載せた無料のデスクトップDBクライアント (macOS / Windows)。" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="https://zefact.github.io/quelio/" />
@@ -526,7 +526,7 @@
 
   <header class="hero">
     <div class="container">
-      <span class="badge"><i></i>MySQL / PostgreSQL / SQLite / Valkey 対応 · 無料 · ベータ版公開中</span>
+      <span class="badge"><i></i>MySQL (MariaDB) / PostgreSQL / SQLite / Valkey (Redis) 対応 · 無料 · ベータ版公開中</span>
       <h1>データベース作業を、<br /><span class="grad">軽く、速く。</span></h1>
       <p class="hero-name"><b>Quelio</b>（クエリオ）</p>
       <p class="sub">
@@ -925,6 +925,11 @@
       <h2 class="sec-title">機能一覧</h2>
       <div class="features">
         <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 12h6M9 15h6M9 18h3" stroke-width="1.6"/></svg></div>
+          <h3>テーブル定義書のExcel出力</h3>
+          <p>スキーマ一覧から、出力するテーブルを選んで .xlsx を作成。表紙・テーブル一覧・テーブルごとのシート (カラム / インデックス / 外部キー) の構成で、一覧とシートは相互にリンクします。CSVでの出力にも対応。</p>
+        </div>
+        <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="7.5" height="14" rx="1.5"/><rect x="13.5" y="5" width="7.5" height="14" rx="1.5"/><path d="M6.75 9h0M17.25 9h0M6.75 12.5h0M17.25 12.5h0" stroke-width="2.2"/></svg></div>
           <h3>スキーマ比較</h3>
           <p>2つの環境を並べてテーブル・カラム・インデックスの差異を検出。差異部分は文字単位でハイライトします。</p>
@@ -951,13 +956,13 @@
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
-          <h3>MySQL / PostgreSQL / SQLite / Valkey</h3>
+          <h3>MySQL・MariaDB / PostgreSQL / SQLite / Valkey・Redis</h3>
           <p>主要なRDBMSに加え、ファイル1つで完結するSQLiteと、Valkey (Redis互換KVS) にも対応。MySQLはMariaDBでも、ValkeyはRedisでもそのまま接続できます。SQLiteはファイルを選ぶだけで開けます。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
-          <h3>SSHトンネル / TLS</h3>
-          <p>踏み台サーバー経由の接続をビルトインで対応（鍵認証・パスフレーズ可）。TLSは検証レベルと証明書を接続ごとに指定できます。</p>
+          <h3>SSH / SSM / Cloud SQL 経由の接続</h3>
+          <p>踏み台サーバー経由の接続をビルトインで対応（鍵認証・パスフレーズ可）。踏み台へのSSHを禁じている環境向けに、AWS Systems Manager のポート転送と Cloud SQL Auth Proxy にも対応します。TLSは検証レベルと証明書を接続ごとに指定できます。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.7-7 8.5-4.1-.8-7-4.3-7-8.5V6z"/><path d="m9 12 2 2 4-4" stroke-width="1.6"/></svg></div>
@@ -1013,6 +1018,11 @@
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6m0 0-2.5 2.5M12 11l2.5 2.5" stroke-width="1.6"/></svg></div>
           <h3>CSV / TSVの取り込み</h3>
           <p>ファイルをドロップして、先頭20行を見ながら列の対応を決めて取り込み。区切り文字と文字コードは自動判定、進捗表示と中止に対応します。</p>
+        </div>
+        <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6h14M5 12h14M5 18h9"/><circle cx="18.5" cy="18" r="2.5" stroke-width="1.6"/></svg></div>
+          <h3>日本語のテストデータ生成</h3>
+          <p>カラムの論理名・名前・型から中身を推測して、氏名 (漢字/カナ)・住所・電話番号・会社名などを作って投入。自動採番はDBに任せ、外部キーは参照先にある値から選ぶので整合は崩れません。件数とNULLの割合も指定できます。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v12H4zM8 21h8M12 17v4"/><path d="m7 9 2.5 2.5L7 14" stroke-width="1.6"/></svg></div>
@@ -1174,7 +1184,7 @@
   <footer>
     <div class="container foot-inner">
       <svg viewBox="0 0 1024 1024"><use href="#quelio-mark"/></svg>
-      <span>Quelio（クエリオ）— MySQL / PostgreSQL / SQLite / Valkeyクライアント</span>
+      <span>Quelio（クエリオ）— MySQL / MariaDB / PostgreSQL / SQLite / Valkey (Redis) クライアント</span>
       <span class="foot-right">
         <a href="https://github.com/zefact/quelio/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a>
         &nbsp;·&nbsp; © <span id="copy-year">2026</span> <a href="https://zefact.co.jp" target="_blank" rel="noopener">Zefact</a>

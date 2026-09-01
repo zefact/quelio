@@ -11,6 +11,7 @@ import type {
 } from "../types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ConnectionForm } from "./ConnectionForm";
+import { routeChip } from "../connectRoute";
 import { PickerHome } from "./PickerHome";
 import { useDismiss } from "../hooks/useDismiss";
 
@@ -487,7 +488,9 @@ export function ConnectionPicker({
               (c.database ?? "(ファイル未設定)")
             ) : (
               <>
-                {c.ssh?.enabled && <span className="ssh-chip">SSH</span>}
+                {routeChip(c) && (
+                  <span className="ssh-chip">{routeChip(c)}</span>
+                )}
                 {c.host}:{c.port}
               </>
             )}

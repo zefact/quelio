@@ -5,11 +5,21 @@ import type {
   ConnectionEnv,
   ConnectionProfile,
   DbType,
+  ProxyConfig,
   SshConfig,
   SslMode,
 } from "../types";
-import { DEFAULT_PORTS, ENVS, SSL_MODES, emptySsh } from "../types";
+import {
+  DEFAULT_PORTS,
+  ENVS,
+  SSL_MODES,
+  emptyProxy,
+  emptySsh,
+} from "../types";
+import { applyRoute, ROUTES, routeOf } from "../connectRoute";
+import type { ConnectRoute } from "../connectRoute";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ConnectionProxyFields } from "./ConnectionProxyFields";
 import { SelectMenu } from "./SelectMenu";
 
 interface Props {
@@ -37,6 +47,9 @@ export function ConnectionForm({
   connecting,
 }: Props) {
   const ssh: SshConfig = profile.ssh ?? emptySsh();
+  const proxy: ProxyConfig = profile.proxy ?? emptyProxy();
+  /** 直接つなぐか、SSH踏み台か、外部CLI経由か */
+  const route = routeOf(profile);
   /** 削除の確認を出しているか (接続先は消すと元に戻せない) */
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -56,6 +69,8 @@ export function ConnectionForm({
     });
   const setSsh = (patch: Partial<SshConfig>) =>
     onChange({ ...profile, ssh: { ...ssh, ...patch } });
+  const setProxy = (patch: Partial<ProxyConfig>) =>
+    onChange({ ...profile, proxy: { ...proxy, ...patch } });
   /** パスフレーズを入れ直したときも「復号できない」状態を解除する */
   const setSshSecret = (patch: Partial<SshConfig>) =>
     onChange({
@@ -402,23 +417,23 @@ export function ConnectionForm({
       </section>
 
       {!isSqlite && (
-      <section className={"card" + (ssh.enabled ? "" : " collapsed")}>
+      <section className={"card" + (route === "none" ? " collapsed" : "")}>
         <div className="card-head">
-          <h2>SSH踏み台</h2>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={ssh.enabled}
-              onChange={(e) => setSsh({ enabled: e.target.checked })}
-            />
-            <span className="track" aria-hidden />
-            <span className="switch-label">
-              {ssh.enabled ? "経由する" : "経由しない"}
-            </span>
-          </label>
+          <h2>接続経路</h2>
+          <SelectMenu
+            value={route}
+            options={ROUTES.map(([value, label]) => ({ value, label }))}
+            onChange={(v) => onChange(applyRoute(profile, v as ConnectRoute))}
+          />
         </div>
 
-        {ssh.enabled && (
+        <ConnectionProxyFields
+          route={route}
+          proxy={proxy}
+          onChange={setProxy}
+        />
+
+        {route === "ssh" && (
           <div className="form-grid">
             <label className="grow">
               <span className="field-label">SSHホスト</span>

@@ -1,18 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { cancelCsvExport, importCsv, previewCsv, tableDetail } from "../../api";
+import { csvImportStore, patchCsvImportForm } from "../../csvImportStore";
+import { useKeyedStore } from "../../hooks/useKeyedStore";
 import { useModal } from "../../hooks/useModal";
 import { CsvProgress } from "../CsvProgress";
-import { CsvFilePicker, type PickedFile } from "./CsvFilePicker";
+import { CsvFilePicker } from "./CsvFilePicker";
 import { CsvMapping } from "./CsvMapping";
 import { CsvSettings } from "./CsvSettings";
 import { autoMap, checkMapping } from "./mapping";
-import type {
-  ColumnInfo,
-  CsvOptions,
-  CsvPreview,
-  DbType,
-  ImportMode,
-} from "../../types";
+import type { ColumnInfo, CsvPreview, DbType } from "../../types";
 
 /** 進捗の取得・中止に使うIDを作る */
 function newJobId(): string {
@@ -48,10 +44,21 @@ export function CsvImportDialog({
   onClose,
   onImported,
 }: Props) {
-  const [file, setFile] = useState<PickedFile | null>(null);
-  const [options, setOptions] = useState<CsvOptions>({ hasHeader: true });
-  const [mode, setMode] = useState<ImportMode>("append");
-  const [emptyAsNull, setEmptyAsNull] = useState(true);
+  /*
+   * 選んだ内容と実行中のジョブは、接続タブごとに画面の外へ置く。
+   * タブを切り替えるとこの画面は外れるが、取り込みは裏で続くため、
+   * 戻ってきたときに進捗と中止ボタンを出し直せるようにする
+   */
+  const state = useKeyedStore(csvImportStore, sessionId);
+  const { form, job, cancelling, result, error } = state;
+  const { file, options, mode, emptyAsNull, mapping, imported } = form;
+  const patchForm = (patch: Partial<typeof form>) =>
+    patchCsvImportForm(sessionId, patch);
+  // 効果の中からも呼ぶので、タブが同じなら作り直さない
+  const setError = useCallback(
+    (next: string | null) => csvImportStore.patch(sessionId, { error: next }),
+    [sessionId]
+  );
 
   /** 取り込み先テーブルの列 (読み込み前はnull) */
   const [columns, setColumns] = useState<ColumnInfo[] | null>(null);
@@ -63,20 +70,9 @@ export function CsvImportDialog({
     data: CsvPreview;
     hasHeader: boolean;
   } | null>(null);
-  const [mapping, setMapping] = useState<(string | null)[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
-  /** 実行中のジョブ (未実行はnull) */
-  const [job, setJob] = useState<{ id: string; startedAt: number } | null>(
-    null
-  );
-  /** 中止を要求済みか (二重に押させない) */
-  const [cancelling, setCancelling] = useState(false);
   /** D&Dしたファイルを転送中か (終わるまで取り込みを始めさせない) */
   const [staging, setStaging] = useState(false);
-  /** 取り込み済みか (同じ内容を続けて2回入れてしまわないように) */
-  const [imported, setImported] = useState(false);
 
   const busy = !!job || staging;
 
@@ -96,7 +92,7 @@ export function CsvImportDialog({
     return () => {
       alive = false;
     };
-  }, [sessionId, database, schema, table]);
+  }, [sessionId, database, schema, table, setError]);
 
   /**
    * 先頭だけ読み直す。
@@ -132,17 +128,16 @@ export function CsvImportDialog({
     return () => {
       seqRef.current++;
     };
-  }, [file, options]);
+  }, [file, options, setError]);
 
-  /**
-   * 自動で割り当てたときの「ファイルと列の並び」。
-   * これが変わらないうちは、手で直した対応を上書きしない
+  /*
+   * 自動で割り当てたときの「ファイルと列の並び」(form.mappedFor) が
+   * 変わらないうちは、手で直した対応を上書きしない。
+   * 目印を画面の外に置いてあるので、タブを戻ってきても割り当て直さない
    */
-  const mappedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!preview || !columns) {
-      setMapping([]);
-      mappedFor.current = null;
+      patchCsvImportForm(sessionId, { mapping: [], mappedFor: null });
       return;
     }
     // 読み取り直しても列が同じなら、手で直した対応をそのまま残す
@@ -158,16 +153,16 @@ export function CsvImportDialog({
       "\u0002",
       ...preview.data.columns,
     ].join("\u0000");
-    if (sig === mappedFor.current) return;
-    mappedFor.current = sig;
-    setMapping(
-      autoMap(
+    if (sig === csvImportStore.get(sessionId).form.mappedFor) return;
+    patchCsvImportForm(sessionId, {
+      mappedFor: sig,
+      mapping: autoMap(
         preview.data.columns,
         columns.map((c) => c.name),
         preview.hasHeader
-      )
-    );
-  }, [preview, columns, file, schema, table]);
+      ),
+    });
+  }, [preview, columns, file, schema, table, sessionId]);
 
   /* 読み取り直した直後の1描画だけ、前のファイルの長さが残ることがある */
   const sized =
@@ -187,10 +182,12 @@ export function CsvImportDialog({
       if (m !== null) pairs.push([i, m]);
     });
     const started = { id: newJobId(), startedAt: Date.now() };
-    setJob(started);
-    setCancelling(false);
-    setError(null);
-    setResult(null);
+    csvImportStore.patch(sessionId, {
+      job: started,
+      cancelling: false,
+      error: null,
+      result: null,
+    });
     try {
       const r = await importCsv(
         sessionId,
@@ -205,23 +202,28 @@ export function CsvImportDialog({
         started.id
       );
       if (r.cancelled) {
-        setResult("取り込みを中止しました (何も取り込んでいません)");
+        csvImportStore.patch(sessionId, {
+          result: "取り込みを中止しました (何も取り込んでいません)",
+        });
       } else {
-        setResult(`${r.rows.toLocaleString()}行を取り込みました`);
-        setImported(true);
-        onImported();
+        csvImportStore.patch(sessionId, {
+          result: `${r.rows.toLocaleString()}行を取り込みました`,
+        });
         /*
          * D&Dで預けたファイルは、取り込みに成功するとバックエンドが消す。
          * 消えたファイルのまま実行し直せないよう選択を外す
          * (中止・失敗のときは残るので、選択はそのままにする)
          */
-        if (file.staged) setFile(null);
+        patchCsvImportForm(sessionId, {
+          imported: true,
+          ...(file.staged ? { file: null } : {}),
+        });
+        onImported();
       }
     } catch (e) {
       setError(String(e));
     } finally {
-      setJob(null);
-      setCancelling(false);
+      csvImportStore.patch(sessionId, { job: null, cancelling: false });
     }
   };
 
@@ -253,10 +255,8 @@ export function CsvImportDialog({
         <CsvFilePicker
           file={file}
           onFile={(f) => {
-            setFile(f);
-            setResult(null);
-            setError(null);
-            setImported(false);
+            csvImportStore.patch(sessionId, { result: null, error: null });
+            patchForm({ file: f, imported: false });
           }}
           onError={setError}
           disabled={!!job}
@@ -265,20 +265,13 @@ export function CsvImportDialog({
 
         <CsvSettings
           options={options}
-          onOptions={(next) => {
-            setOptions(next);
-            setImported(false);
-          }}
+          onOptions={(next) => patchForm({ options: next, imported: false })}
           mode={mode}
-          onMode={(next) => {
-            setMode(next);
-            setImported(false);
-          }}
+          onMode={(next) => patchForm({ mode: next, imported: false })}
           emptyAsNull={emptyAsNull}
-          onEmptyAsNull={(next) => {
-            setEmptyAsNull(next);
-            setImported(false);
-          }}
+          onEmptyAsNull={(next) =>
+            patchForm({ emptyAsNull: next, imported: false })
+          }
           detected={
             preview
               ? {
@@ -332,10 +325,12 @@ export function CsvImportDialog({
               preview={preview.data}
               targets={columns}
               mapping={mapping}
-              onChange={(i, target) => {
-                setMapping((cur) => cur.map((m, at) => (at === i ? target : m)));
-                setImported(false);
-              }}
+              onChange={(i, target) =>
+                patchForm({
+                  mapping: mapping.map((m, at) => (at === i ? target : m)),
+                  imported: false,
+                })
+              }
               disabled={!!job}
             />
           ) : (
@@ -357,10 +352,12 @@ export function CsvImportDialog({
                 className="btn-secondary"
                 disabled={cancelling}
                 onClick={() => {
-                  setCancelling(true);
+                  csvImportStore.patch(sessionId, { cancelling: true });
                   cancelCsvExport(job.id).catch((e) => {
-                    setCancelling(false);
-                    setError(`中止できませんでした: ${e}`);
+                    csvImportStore.patch(sessionId, {
+                      cancelling: false,
+                      error: `中止できませんでした: ${e}`,
+                    });
                   });
                 }}
               >

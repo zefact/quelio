@@ -1,5 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { cancelCsvExport, exportPlanCsv, exportQueryCsv } from "../api";
+import {
+  clearCsvExportTimer,
+  getCsvExport,
+  patchCsvExport,
+  scheduleCsvExportClear,
+  subscribeCsvExport,
+} from "../csvExportStore";
 import type { QueryResult } from "../types";
 
 /** 完了メッセージを出しておく時間 */
@@ -21,45 +28,34 @@ export interface CsvExportRequest {
  * SQLの結果を全件CSVへ書き出す。
  *
  * 画面は1000行ずつだが、CSVは同じSQLを流し直して全行を出力する。
- * 進捗と結果は「出力を始めた結果タブ」でだけ出す (別のタブに出さない)
+ * 進捗と結果は「出力を始めた結果タブ」でだけ出す (別のタブに出さない)。
+ *
+ * 状態は `csvExportStore` (画面の外) に置く。
+ * 出力中に別のタブへ移ると、このフックを使う画面は一度消えるが、
+ * 戻ってきたときに進捗とキャンセルボタンをそのまま出せるようにするため
+ *
+ * @param key シートを見分けるキー (セッションID + シートID)
  */
-export function useCsvExport() {
-  /** 出力中のジョブ (対象の結果タブ・ID・開始時刻。未実行はnull) */
-  const [job, setJob] = useState<{
-    id: string;
-    index: number;
-    startedAt: number;
-  } | null>(null);
-  /** 結果メッセージ (出力した結果タブでのみ表示する) */
-  const [message, setMessage] = useState<{
-    index: number;
-    text: string;
-  } | null>(null);
-  /** 保存先 (「フォルダを開く」用) */
-  const [path, setPath] = useState<string | null>(null);
-
-  /** 完了メッセージを消すタイマー */
-  const msgTimer = useRef<number | null>(null);
-  useEffect(
-    () => () => {
-      if (msgTimer.current) window.clearTimeout(msgTimer.current);
-    },
-    []
+export function useCsvExport(key: string) {
+  const subscribe = useCallback(
+    (fn: () => void) => subscribeCsvExport(key, fn),
+    [key]
   );
+  const state = useSyncExternalStore(subscribe, () => getCsvExport(key));
+  const { job, message, path } = state;
 
   /** 出力を始める。すでに走っていれば何もしない */
   const start = async (req: CsvExportRequest) => {
-    if (job) return;
+    if (getCsvExport(key).job) return;
     const started = {
       id: `csv-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       index: req.index,
       startedAt: Date.now(),
     };
-    setJob(started);
-    setMessage(null);
-    setPath(null);
-    if (msgTimer.current) window.clearTimeout(msgTimer.current);
-    const show = (text: string) => setMessage({ index: started.index, text });
+    clearCsvExportTimer(key);
+    patchCsvExport(key, { job: started, message: null, path: null });
+    const show = (text: string) =>
+      patchCsvExport(key, { message: { index: started.index, text } });
     try {
       const out = await exportQueryCsv(
         req.sessionId,
@@ -75,18 +71,14 @@ export function useCsvExport() {
         );
       } else {
         show(`${out.rows.toLocaleString()}行を保存: ${out.path}`);
-        setPath(out.path);
+        patchCsvExport(key, { path: out.path });
       }
       // 続けてもう一度出力したときに、前のタイマーで消されないようにする
-      if (msgTimer.current) window.clearTimeout(msgTimer.current);
-      msgTimer.current = window.setTimeout(() => {
-        setMessage(null);
-        setPath(null);
-      }, MSG_TIMEOUT_MS);
+      scheduleCsvExportClear(key, MSG_TIMEOUT_MS);
     } catch (e) {
       show(`CSV出力に失敗: ${e}`);
     } finally {
-      setJob(null);
+      patchCsvExport(key, { job: null });
     }
   };
 
@@ -99,19 +91,16 @@ export function useCsvExport() {
    * 実測時間も画面に出ている値とは別のものになる
    */
   const savePlan = async (result: QueryResult | null, index: number) => {
-    if (job || !result) return;
-    setMessage(null);
-    setPath(null);
-    if (msgTimer.current) window.clearTimeout(msgTimer.current);
-    const show = (text: string) => setMessage({ index, text });
+    if (getCsvExport(key).job || !result) return;
+    clearCsvExportTimer(key);
+    patchCsvExport(key, { message: null, path: null });
+    const show = (text: string) =>
+      patchCsvExport(key, { message: { index, text } });
     try {
       const out = await exportPlanCsv(result.columns, result.rows);
       show(`${out.rows.toLocaleString()}行を保存: ${out.path}`);
-      setPath(out.path);
-      msgTimer.current = window.setTimeout(() => {
-        setMessage(null);
-        setPath(null);
-      }, MSG_TIMEOUT_MS);
+      patchCsvExport(key, { path: out.path });
+      scheduleCsvExportClear(key, MSG_TIMEOUT_MS);
     } catch (e) {
       show(`CSV出力に失敗: ${e}`);
     }
@@ -119,8 +108,9 @@ export function useCsvExport() {
 
   /** キャンセル要求 (書き出し済みのファイルは破棄される) */
   const cancel = () => {
-    if (!job) return;
-    cancelCsvExport(job.id).catch(() => {});
+    const cur = getCsvExport(key).job;
+    if (!cur) return;
+    cancelCsvExport(cur.id).catch(() => {});
   };
 
   return { job, message, path, start, savePlan, cancel };
