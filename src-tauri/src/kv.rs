@@ -1211,6 +1211,51 @@ fn is_secret_config(name: &str) -> bool {
     SECRET_CONFIGS.iter().any(|s| name.eq_ignore_ascii_case(s))
 }
 
+/**
+ * クエリログに残す前に、コマンドの中の資格情報を伏せる。
+ *
+ * `AUTH <パスワード>` や `CONFIG SET requirepass <パスワード>` を
+ * そのまま記録すると、コンソールの履歴と、その書き出しファイルに
+ * パスワードが平文で残ってしまう。
+ * 応答側 (`CONFIG GET requirepass`) は既に伏せているので、要求側もそろえる
+ */
+pub fn mask_secrets(line: &str) -> String {
+    let args = split_args(line);
+    let Some(name) = args.first() else {
+        return line.to_string();
+    };
+    // 何番目の引数から先を伏せるか (伏せる必要が無ければ None)
+    let from = if name.eq_ignore_ascii_case("AUTH") {
+        // AUTH <パスワード> / AUTH <ユーザー> <パスワード>
+        Some(args.len().saturating_sub(1).max(1))
+    } else if args.len() >= 4
+        && name.eq_ignore_ascii_case("CONFIG")
+        && args[1].eq_ignore_ascii_case("SET")
+        && is_secret_config(&args[2])
+    {
+        Some(3)
+    } else if args.len() >= 3 && name.eq_ignore_ascii_case("ACL") {
+        // ACL SETUSER <ユーザー> ... の中にパスワード (>pw / #ハッシュ) が混ざる
+        if args[1].eq_ignore_ascii_case("SETUSER") {
+            Some(3)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    match from {
+        None => line.to_string(),
+        Some(at) => {
+            let mut out: Vec<String> = args.iter().take(at).cloned().collect();
+            if args.len() > at {
+                out.push(MASKED_CONFIG.to_string());
+            }
+            out.join(" ")
+        }
+    }
+}
+
 /// `CONFIG GET` かどうか
 fn is_config_get(args: &[String]) -> bool {
     args.len() >= 2
@@ -1553,5 +1598,55 @@ mod tests {
         assert!(ok("get k"));
         assert!(ok("client list"));
         assert!(!ok("set k v"));
+    }
+
+    #[test]
+    fn 認証コマンドのパスワードを伏せる() {
+        assert_eq!(mask_secrets("AUTH hunter2"), "AUTH (値は伏せています)");
+        assert_eq!(
+            mask_secrets("auth alice hunter2"),
+            "auth alice (値は伏せています)"
+        );
+        // 引数が無ければそのまま (伏せるものが無い)
+        assert_eq!(mask_secrets("AUTH"), "AUTH");
+    }
+
+    #[test]
+    fn 設定のパスワードを伏せる() {
+        assert_eq!(
+            mask_secrets("CONFIG SET requirepass hunter2"),
+            "CONFIG SET requirepass (値は伏せています)"
+        );
+        assert_eq!(
+            mask_secrets("config set masterauth hunter2"),
+            "config set masterauth (値は伏せています)"
+        );
+        // 秘密でない設定は読めるままにする (何をしたか分からなくなるため)
+        assert_eq!(
+            mask_secrets("CONFIG SET maxmemory 100mb"),
+            "CONFIG SET maxmemory 100mb"
+        );
+        assert_eq!(
+            mask_secrets("CONFIG GET requirepass"),
+            "CONFIG GET requirepass"
+        );
+    }
+
+    #[test]
+    fn aclのパスワード指定を伏せる() {
+        assert_eq!(
+            mask_secrets("ACL SETUSER alice on >hunter2 ~* +@all"),
+            "ACL SETUSER alice (値は伏せています)"
+        );
+        // 参照系はそのまま
+        assert_eq!(mask_secrets("ACL LIST"), "ACL LIST");
+        assert_eq!(mask_secrets("ACL WHOAMI"), "ACL WHOAMI");
+    }
+
+    #[test]
+    fn 普通のコマンドは変えない() {
+        for line in ["GET k", "SET k v", "DEL a b c", ""] {
+            assert_eq!(mask_secrets(line), line);
+        }
     }
 }

@@ -927,7 +927,7 @@
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 12h6M9 15h6M9 18h3" stroke-width="1.6"/></svg></div>
           <h3>テーブル定義書のExcel出力</h3>
-          <p>スキーマ一覧から、出力するテーブルを選んで .xlsx を作成。表紙・テーブル一覧・テーブルごとのシート (カラム / インデックス / 外部キー) の構成で、一覧とシートは相互にリンクします。CSVでの出力にも対応。</p>
+          <p>スキーマ一覧から、出力するテーブルを選んで .xlsx を作成。日本の定義書の様式に合わせ、表紙 (文書情報・改訂履歴) / テーブル一覧 / テーブルごとのシートの構成です。カラムは論理名・物理名・データ型・桁・小数・必須・既定値・自動採番・備考と、PK / UQ / FK の別を並べます。CSVでの出力にも対応。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="7.5" height="14" rx="1.5"/><rect x="13.5" y="5" width="7.5" height="14" rx="1.5"/><path d="M6.75 9h0M17.25 9h0M6.75 12.5h0M17.25 12.5h0" stroke-width="2.2"/></svg></div>
@@ -962,7 +962,7 @@
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
           <h3>SSH / SSM / Cloud SQL 経由の接続</h3>
-          <p>踏み台サーバー経由の接続をビルトインで対応（鍵認証・パスフレーズ可）。踏み台へのSSHを禁じている環境向けに、AWS Systems Manager のポート転送と Cloud SQL Auth Proxy にも対応します。TLSは検証レベルと証明書を接続ごとに指定できます。</p>
+          <p>踏み台サーバー経由の接続をビルトインで対応（鍵認証・パスフレーズ可）。踏み台へのSSHを禁じている環境向けに、AWS Systems Manager のポート転送と Cloud SQL Auth Proxy にも対応します。TLSは検証レベルと証明書を接続ごとに指定できます。証明書を検証しない設定のときは画面に注意を出し、mysqldump / pg_dump にも同じTLS設定を引き継ぎます。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.7-7 8.5-4.1-.8-7-4.3-7-8.5V6z"/><path d="m9 12 2 2 4-4" stroke-width="1.6"/></svg></div>

@@ -21,6 +21,7 @@ use tokio::time::{timeout, Duration};
 use crate::apperr::AppError;
 use crate::catalog::{self, LogCtx};
 use crate::db;
+use crate::ddl;
 use crate::export;
 use crate::kv;
 use crate::models::{
@@ -284,6 +285,22 @@ pub async fn session_dialect(sessions: &Sessions, session_id: &str) -> Option<qu
     // 方言を1つ読むためだけに待つと画面が止まるので、取れなければ諦める
     // (呼び出し側が安全側の方言で判定し直す)
     arc.try_lock().ok().map(|s| s.dialect)
+}
+
+/// 定義変更のSQLを組み立てるときの書き方 (文字列の逃がし方が接続で変わる)。
+///
+/// 方言を読めなかったときは、そのDBの出荷時の設定にしておく。
+/// MySQLは既定でバックスラッシュがエスケープなので、
+/// 読めない場合も `\` を重ねる側 (＝文字列が閉じる側) に倒れる
+pub async fn session_sql_style(
+    sessions: &Sessions,
+    session_id: &str,
+) -> Result<ddl::SqlStyle, String> {
+    let db = session_db_type(sessions, session_id).await?;
+    Ok(match session_dialect(sessions, session_id).await {
+        Some(d) => ddl::SqlStyle::from_dialect(db, &d),
+        None => ddl::SqlStyle::of(db),
+    })
 }
 
 /// セッションの環境ラベル ("prod" 等。未接続・未設定ならNone)。
@@ -1439,6 +1456,10 @@ pub async fn endpoint_info(
     let s = &mut *guard;
     // SSHトンネルが切れているとローカルポートが無効なため、先に生存確認する
     ensure_alive(s, qlog).await?;
+    // 画面で選んだTLSの設定を外部ツールにも渡す。
+    // トンネル経由では接続先が127.0.0.1になるので、
+    // アプリ本体と同じくホスト名の検証はCA検証まで落ちる
+    let tls = db::TlsConfig::from_profile(&s.profile, s.tunnel.is_some());
     Ok(crate::tools::Endpoint {
         db_type: s.profile.db_type,
         host: s.host.clone(),
@@ -1446,6 +1467,7 @@ pub async fn endpoint_info(
         user: s.profile.user.clone(),
         password: s.profile.password.clone(),
         read_only: s.profile.read_only,
+        tls,
     })
 }
 /// タイムアウトで打ち切ったときは、次の操作で必ず生存確認 (ping) を走らせる。

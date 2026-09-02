@@ -17,15 +17,26 @@ export function dbBadgeLabel(dbType: DbType): string {
   }
 }
 
+/**
+ * 色の選択肢 (接続・フォルダ・ER図で共通)。
+ *
+ * 色相順に12色。明るさをそろえてあるので、
+ * ダーク・ライトのどちらでも同じように見分けられる。
+ * 今まで選べた8色はそのまま残してある (保存済みの色が外れないように)
+ */
 export const PRESET_COLORS: string[] = [
   "#f87171", // 赤
   "#fb923c", // オレンジ
   "#fbbf24", // 黄
+  "#a3e635", // 黄緑
   "#34d399", // 緑
+  "#2dd4bf", // 青緑
   "#22d3ee", // シアン
   "#60a5fa", // 青
+  "#6366f1", // 藍
   "#a78bfa", // 紫
   "#f472b6", // ピンク
+  "#94a3b8", // 灰
 ];
 
 function hexToRgba(hex: string, alpha: number): string {

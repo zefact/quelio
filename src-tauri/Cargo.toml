@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.7.1"
+version = "0.7.2"
 description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -43,6 +43,9 @@ rust_decimal = "1.42.1"
 base64 = "0.22"
 tauri-plugin-dialog = "2.7.2"
 aes-gcm = "0.10"
+# OSのキーチェーンに保存時暗号化の鍵を置く。
+# 対応環境は macOS / Windows のみなので、Linuxのバックエンドは入れていない
+# (Linuxで動かすと鍵が設定フォルダに平文で置かれ、暗号化の意味が薄くなる)
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"

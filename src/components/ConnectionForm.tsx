@@ -15,8 +15,10 @@ import {
   SSL_MODES,
   emptyProxy,
   emptySsh,
+  tlsUnverified,
 } from "../types";
 import { applyRoute, ROUTES, routeOf } from "../connectRoute";
+import { viaTunnel } from "../tlsWarning";
 import type { ConnectRoute } from "../connectRoute";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ConnectionProxyFields } from "./ConnectionProxyFields";
@@ -327,6 +329,16 @@ export function ConnectionForm({
                   }))}
                   onChange={(v) => set({ sslMode: v as SslMode })}
                 />
+                {/* 「検証しない」を選んでいることに気づけるようにする */}
+                {tlsUnverified(sslMode) && (
+                  <span className="field-note warn">
+                    サーバー証明書を検証しません。通信の相手が本物かを確かめないため、
+                    途中で差し替えられても気づけません。
+                    {viaTunnel(profile)
+                      ? " (この接続はSSH / SSM経由なので、経路そのものは守られます)"
+                      : " 社内・クラウドのDBへ直接つなぐ場合は「必須 + CA証明書とホスト名を検証」を選んでください"}
+                  </span>
+                )}
               </div>
               {sslMode !== "" && sslMode !== "disable" && (
                 <>

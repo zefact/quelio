@@ -1,15 +1,11 @@
 /** ER図の枠 (グループ) の色。ErWindowから切り出したもの */
+import { PRESET_COLORS } from "../colors";
 
-/** 枠線の色プリセット (先頭の空文字は既定のグレー) */
-export const FRAME_COLORS = [
-  "",
-  "#6366f1",
-  "#22d3ee",
-  "#34d399",
-  "#fbbf24",
-  "#f87171",
-  "#f472b6",
-] as const;
+/**
+ * 枠線の色プリセット (先頭の空文字は既定の色)。
+ * 選べる色は接続・フォルダと同じものにそろえる
+ */
+export const FRAME_COLORS: readonly string[] = ["", ...PRESET_COLORS];
 
 /** 背景塗りの透明度 */
 export const FILL_ALPHA = 0.25;

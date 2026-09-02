@@ -80,11 +80,19 @@ pub fn build_args(
             if target_host.trim().is_empty() {
                 return Err("接続先のホスト名を入力してください".into());
             }
-            // 転送先はDBのホスト:ポート。ローカルの待ち受けポートはこちらで決める
-            let params = format!(
-                r#"{{"host":["{}"],"portNumber":["{}"],"localPortNumber":["{}"]}}"#,
-                target_host, target_port, local_port
-            );
+            /*
+             * 転送先はDBのホスト:ポート。ローカルの待ち受けポートはこちらで決める。
+             *
+             * 手で組み立てると、ホスト名に `"` が入ったときにJSONが壊れる。
+             * (シェルは経由していないのでコマンドは足せないが、
+             *  読めないパラメータをCLIへ渡すことになる)
+             */
+            let params = serde_json::json!({
+                "host": [target_host.trim()],
+                "portNumber": [target_port.to_string()],
+                "localPortNumber": [local_port.to_string()],
+            })
+            .to_string();
             let mut args = vec![
                 "ssm".into(),
                 "start-session".into(),
@@ -379,6 +387,19 @@ mod tests {
         assert!(params.contains(r#""host":["db.internal"]"#), "{params}");
         assert!(params.contains(r#""portNumber":["3306"]"#), "{params}");
         assert!(params.contains(r#""localPortNumber":["54321"]"#), "{params}");
+    }
+
+    #[test]
+    fn ssmのパラメータはjsonとして壊れない() {
+        // ホスト名に " が入っても、JSONとして読める形になる
+        let args = build_args(&ssm(), r#"db".internal"#, 3306, 1).unwrap();
+        let params = args.last().unwrap();
+        let v: serde_json::Value =
+            serde_json::from_str(params).expect("JSONとして読める");
+        assert_eq!(v["host"][0], r#"db".internal"#);
+        assert_eq!(v["portNumber"][0], "3306");
+        // 余計なキーが混ざらない
+        assert_eq!(v.as_object().unwrap().len(), 3);
     }
 
     #[test]

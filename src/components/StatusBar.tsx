@@ -8,6 +8,7 @@
 import type { ConnectionProfile, TxnStatus } from "../types";
 import { envColor, envLabel } from "../types";
 import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
+import { tlsWarning } from "../tlsWarning";
 
 export interface LastRun {
   /** 取得した行数 (更新系は影響行数) */
@@ -76,6 +77,22 @@ export function StatusBar({
           title="読み取り専用の接続です (更新・定義の変更はできません)"
         >
           読み取り専用
+        </span>
+      )}
+      {/*
+        * 相手が本物か確かめていない接続は、気づけるようにしておく。
+        * 手元のDBとSSH/SSM経由には出さない (読み飛ばされる印にしないため)
+        */}
+      {tlsWarning(profile) && (
+        <span
+          className="status-tls"
+          title={
+            "サーバー証明書を検証していません。" +
+            "通信の相手が本物かを確かめないため、途中で差し替えられても気づけません。" +
+            "接続設定のTLSで「必須 + CA証明書とホスト名を検証」を選ぶと確かめられます"
+          }
+        >
+          TLS未検証
         </span>
       )}
 

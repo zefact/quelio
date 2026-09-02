@@ -94,8 +94,9 @@ pub async fn kv_exec(
     ensure_alive(session, qlog).await?;
     ensure_kv_db(session, database, qlog).await?;
     let label = conn_label(&session.profile);
+    // 履歴に残す前にパスワードを伏せる (AUTH / CONFIG SET requirepass など)
     for c in &commands {
-        qlog.add(&label, database, c);
+        qlog.add(&label, database, &kv::mask_secrets(c));
     }
     let read_only = session.profile.read_only;
     match &mut session.conn {

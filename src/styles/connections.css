@@ -359,8 +359,11 @@
   background: rgba(248, 113, 113, 0.15);
 }
 
+/* 色見本は7個ずつの格子に並べる (1行に並べるとメニューが横に伸びるため) */
 .color-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(7, 18px);
+  justify-content: start;
   align-items: center;
   gap: var(--space-2);
   padding: 7px 12px 8px;

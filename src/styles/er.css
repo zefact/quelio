@@ -742,8 +742,11 @@
 }
 
 /* 枠線の色パレット (右クリックメニュー内) */
+/* 色見本は7個ずつの格子に並べる (1行に並べるとメニューが横に伸びるため) */
 .er-frame-colors {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(7, 18px);
+  justify-content: start;
   gap: 7px;
   padding: 6px 12px;
 }

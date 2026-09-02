@@ -134,6 +134,14 @@ pub fn find_tool(configured: &str, name: &str) -> (Option<PathBuf>, bool) {
     (None, false)
 }
 
+/// クライアントの系統を確かめる (聞けなければMySQLとして扱う)
+async fn detect_flavor(path: &Path) -> MysqlFlavor {
+    match tool_version(path).await {
+        Some(v) => mysql_flavor(&v),
+        None => MysqlFlavor::Mysql,
+    }
+}
+
 async fn tool_version(path: &Path) -> Option<String> {
     let out = Command::new(path).arg("--version").output().await.ok()?;
     let text = String::from_utf8_lossy(&out.stdout);
@@ -237,6 +245,94 @@ pub struct Endpoint {
     pub password: String,
     /// 読み取り専用の接続か (インポートを止めるために見る)
     pub read_only: bool,
+    /// TLSの使い方。画面で選んだ設定を外部ツールにも同じように渡す
+    /// (渡さないとツールの既定 = 証明書を検証しない接続に落ちる)
+    pub tls: crate::db::TlsConfig,
+}
+
+/// MySQL系クライアントの系統。TLSの指定方法が違う
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MysqlFlavor {
+    /// `--ssl-mode=…` を受け付ける (MySQL 5.6以降)
+    Mysql,
+    /// `--ssl-mode` が無い。`--ssl` と `--ssl-verify-server-cert` を使う
+    Mariadb,
+}
+
+/// `--version` の出力から系統を見分ける
+pub fn mysql_flavor(version_line: &str) -> MysqlFlavor {
+    if version_line.to_lowercase().contains("mariadb") {
+        MysqlFlavor::Mariadb
+    } else {
+        MysqlFlavor::Mysql
+    }
+}
+
+/// mysqldump / mysql に渡すTLSの引数。
+///
+/// 「既定」のときは何も渡さない。利用者の my.cnf に書いた指定を
+/// こちらで上書きしてしまわないようにするため
+pub fn mysql_tls_args(flavor: MysqlFlavor, tls: &crate::db::TlsConfig) -> Vec<String> {
+    use crate::db::SslMode;
+    let mut out: Vec<String> = Vec::new();
+    match (tls.effective_mode(), flavor) {
+        (SslMode::Default, _) => return out,
+        (SslMode::Disable, MysqlFlavor::Mysql) => out.push("--ssl-mode=DISABLED".into()),
+        (SslMode::Disable, MysqlFlavor::Mariadb) => out.push("--skip-ssl".into()),
+        (SslMode::Require, MysqlFlavor::Mysql) => out.push("--ssl-mode=REQUIRED".into()),
+        (SslMode::VerifyCa, MysqlFlavor::Mysql) => out.push("--ssl-mode=VERIFY_CA".into()),
+        (SslMode::VerifyFull, MysqlFlavor::Mysql) => {
+            out.push("--ssl-mode=VERIFY_IDENTITY".into())
+        }
+        // MariaDBは段階指定が無い。TLSを必須にしたうえで、
+        // CA証明書の指定と「ホスト名を確かめる」指定を足す
+        (SslMode::Require | SslMode::VerifyCa | SslMode::VerifyFull, MysqlFlavor::Mariadb) => {
+            out.push("--ssl".into());
+        }
+    }
+    if tls.effective_mode() == SslMode::VerifyFull && flavor == MysqlFlavor::Mariadb {
+        out.push("--ssl-verify-server-cert".into());
+    }
+    // 証明書のファイルはどちらの系統でも同じ書き方
+    if tls.effective_mode() != SslMode::Disable {
+        if let Some(ca) = &tls.ca {
+            out.push(format!("--ssl-ca={ca}"));
+        }
+        if let (Some(cert), Some(key)) = (&tls.client_cert, &tls.client_key) {
+            out.push(format!("--ssl-cert={cert}"));
+            out.push(format!("--ssl-key={key}"));
+        }
+    }
+    out
+}
+
+/// pg_dump / psql に渡すTLSの環境変数。
+///
+/// `-d` に接続文字列を渡す方法もあるが、DB名と紛れるので環境変数にする
+/// (パスワードを PGPASSWORD で渡しているのと同じやり方)
+pub fn pg_tls_env(tls: &crate::db::TlsConfig) -> Vec<(&'static str, String)> {
+    use crate::db::SslMode;
+    let mut out: Vec<(&'static str, String)> = Vec::new();
+    let mode = match tls.effective_mode() {
+        // 既定は libpq の設定 (PGSSLMODE等) をそのまま使う
+        SslMode::Default => return out,
+        SslMode::Disable => "disable",
+        SslMode::Require => "require",
+        SslMode::VerifyCa => "verify-ca",
+        SslMode::VerifyFull => "verify-full",
+    };
+    out.push(("PGSSLMODE", mode.to_string()));
+    if tls.effective_mode() == SslMode::Disable {
+        return out;
+    }
+    if let Some(ca) = &tls.ca {
+        out.push(("PGSSLROOTCERT", ca.clone()));
+    }
+    if let (Some(cert), Some(key)) = (&tls.client_cert, &tls.client_key) {
+        out.push(("PGSSLCERT", cert.clone()));
+        out.push(("PGSSLKEY", key.clone()));
+    }
+    out
 }
 
 /// エクスポート/インポートの共通スポーン処理。
@@ -360,7 +456,12 @@ pub async fn start_export(
         DbType::Valkey | DbType::Sqlite => unreachable!(),
         DbType::Mysql => {
             let tool = require_tool(app, "mysqldump")?;
-            let mut c = Command::new(tool);
+            // TLSの書き方が系統で違うので、先にどちらのクライアントか確かめる
+            let flavor = detect_flavor(&tool).await;
+            let mut c = Command::new(&tool);
+            for a in mysql_tls_args(flavor, &ep.tls) {
+                c.arg(a);
+            }
             c.arg("-h")
                 .arg(&ep.host)
                 .arg("-P")
@@ -393,6 +494,9 @@ pub async fn start_export(
         DbType::Postgresql => {
             let tool = require_tool(app, "pg_dump")?;
             let mut c = Command::new(tool);
+            for (k, v) in pg_tls_env(&ep.tls) {
+                c.env(k, v);
+            }
             c.arg("-h")
                 .arg(&ep.host)
                 .arg("-p")
@@ -482,7 +586,11 @@ pub async fn start_import(
         DbType::Valkey | DbType::Sqlite => unreachable!(),
         DbType::Mysql => {
             let tool = require_tool(app, "mysql").map_err(&fail)?;
-            let mut c = Command::new(tool);
+            let flavor = detect_flavor(&tool).await;
+            let mut c = Command::new(&tool);
+            for a in mysql_tls_args(flavor, &ep.tls) {
+                c.arg(a);
+            }
             c.arg("-h")
                 .arg(&ep.host)
                 .arg("-P")
@@ -497,6 +605,9 @@ pub async fn start_import(
         DbType::Postgresql => {
             let tool = require_tool(app, "psql").map_err(&fail)?;
             let mut c = Command::new(tool);
+            for (k, v) in pg_tls_env(&ep.tls) {
+                c.env(k, v);
+            }
             c.arg("-h")
                 .arg(&ep.host)
                 .arg("-p")
@@ -623,4 +734,112 @@ pub async fn cancel_job(jobs: &Jobs, job_id: &str) -> Result<(), String> {
         let _ = c.lock().await.kill().await;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{SslMode, TlsConfig};
+
+    fn tls(mode: SslMode) -> TlsConfig {
+        TlsConfig {
+            mode,
+            ca: None,
+            client_cert: None,
+            client_key: None,
+            via_tunnel: false,
+        }
+    }
+
+    #[test]
+    fn クライアントの系統を見分ける() {
+        assert_eq!(
+            mysql_flavor("mysqldump  Ver 8.0.36 for macos14 on arm64 (MySQL Community Server)"),
+            MysqlFlavor::Mysql
+        );
+        assert_eq!(
+            mysql_flavor("mysqldump from 11.4.2-MariaDB, client 10.19"),
+            MysqlFlavor::Mariadb
+        );
+        // 読めない出力はMySQL扱い (今までと同じ動き)
+        assert_eq!(mysql_flavor(""), MysqlFlavor::Mysql);
+    }
+
+    #[test]
+    fn 既定では何も渡さない() {
+        // 利用者の my.cnf / PGSSLMODE の指定を上書きしない
+        assert!(mysql_tls_args(MysqlFlavor::Mysql, &tls(SslMode::Default)).is_empty());
+        assert!(mysql_tls_args(MysqlFlavor::Mariadb, &tls(SslMode::Default)).is_empty());
+        assert!(pg_tls_env(&tls(SslMode::Default)).is_empty());
+    }
+
+    #[test]
+    fn mysqlのtls指定() {
+        let a = |m| mysql_tls_args(MysqlFlavor::Mysql, &tls(m));
+        assert_eq!(a(SslMode::Disable), ["--ssl-mode=DISABLED"]);
+        assert_eq!(a(SslMode::Require), ["--ssl-mode=REQUIRED"]);
+        assert_eq!(a(SslMode::VerifyCa), ["--ssl-mode=VERIFY_CA"]);
+        assert_eq!(a(SslMode::VerifyFull), ["--ssl-mode=VERIFY_IDENTITY"]);
+    }
+
+    #[test]
+    fn mariadbには別の書き方で渡す() {
+        // MariaDBのクライアントには --ssl-mode が無い
+        let a = |m| mysql_tls_args(MysqlFlavor::Mariadb, &tls(m));
+        assert_eq!(a(SslMode::Disable), ["--skip-ssl"]);
+        assert_eq!(a(SslMode::Require), ["--ssl"]);
+        assert_eq!(a(SslMode::VerifyCa), ["--ssl"]);
+        assert_eq!(a(SslMode::VerifyFull), ["--ssl", "--ssl-verify-server-cert"]);
+        for args in [a(SslMode::Require), a(SslMode::VerifyFull)] {
+            assert!(!args.iter().any(|x| x.starts_with("--ssl-mode")));
+        }
+    }
+
+    #[test]
+    fn 証明書のパスも渡す() {
+        let mut t = tls(SslMode::VerifyFull);
+        t.ca = Some("/etc/ca.pem".into());
+        t.client_cert = Some("/etc/c.pem".into());
+        t.client_key = Some("/etc/k.pem".into());
+        let args = mysql_tls_args(MysqlFlavor::Mysql, &t);
+        assert!(args.contains(&"--ssl-ca=/etc/ca.pem".to_string()));
+        assert!(args.contains(&"--ssl-cert=/etc/c.pem".to_string()));
+        assert!(args.contains(&"--ssl-key=/etc/k.pem".to_string()));
+
+        let env = pg_tls_env(&t);
+        assert!(env.contains(&("PGSSLMODE", "verify-full".to_string())));
+        assert!(env.contains(&("PGSSLROOTCERT", "/etc/ca.pem".to_string())));
+        assert!(env.contains(&("PGSSLCERT", "/etc/c.pem".to_string())));
+        assert!(env.contains(&("PGSSLKEY", "/etc/k.pem".to_string())));
+    }
+
+    #[test]
+    fn 片方だけのクライアント証明書は渡さない() {
+        // アプリ本体は片方だけならエラーにする。ツールへは黙って落とす
+        let mut t = tls(SslMode::Require);
+        t.client_cert = Some("/etc/c.pem".into());
+        let args = mysql_tls_args(MysqlFlavor::Mysql, &t);
+        assert!(!args.iter().any(|x| x.starts_with("--ssl-cert")));
+        assert!(!pg_tls_env(&t).iter().any(|(k, _)| *k == "PGSSLCERT"));
+    }
+
+    #[test]
+    fn 使わない設定なら証明書は渡さない() {
+        let mut t = tls(SslMode::Disable);
+        t.ca = Some("/etc/ca.pem".into());
+        assert_eq!(mysql_tls_args(MysqlFlavor::Mysql, &t), ["--ssl-mode=DISABLED"]);
+        assert_eq!(pg_tls_env(&t), [("PGSSLMODE", "disable".to_string())]);
+    }
+
+    #[test]
+    fn トンネル経由ではホスト名の検証まで求めない() {
+        // 接続先が127.0.0.1になるため、アプリ本体と同じくCA検証までに落とす
+        let mut t = tls(SslMode::VerifyFull);
+        t.via_tunnel = true;
+        assert_eq!(
+            mysql_tls_args(MysqlFlavor::Mysql, &t),
+            ["--ssl-mode=VERIFY_CA"]
+        );
+        assert_eq!(pg_tls_env(&t), [("PGSSLMODE", "verify-ca".to_string())]);
+    }
 }

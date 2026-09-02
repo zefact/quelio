@@ -24,20 +24,26 @@ pub struct DocMeta {
 
 // ---------- 配色と書体 ----------
 
-/// 見出しの地の色 (濃紺)
-const INK: Color = Color::RGB(0x2F3A56);
-/// 見出しの文字色
+/// 帯と見出しの地の色 (濃いスレート)
+const INK: Color = Color::RGB(0x1E2833);
+/// 濃い地の上に置く文字色
 const ON_INK: Color = Color::RGB(0xFFFFFF);
+/// 差し色 (見出しの下線・記号)。青緑にして事務的になりすぎないようにする
+const ACCENT: Color = Color::RGB(0x2E9E8F);
+/// 主キーの記号の色 (鍵のイメージで金色寄せ)
+const GOLD: Color = Color::RGB(0xC08A17);
 /// 罫線の色 (黒より薄くして表を軽く見せる)
-const RULE: Color = Color::RGB(0xC9CEDA);
+const RULE: Color = Color::RGB(0xDCE1E8);
 /// 1行おきの地の色
-const STRIPE: Color = Color::RGB(0xF4F6FA);
+const STRIPE: Color = Color::RGB(0xF6F8FA);
 /// 見出しラベルの地の色
-const LABEL_BG: Color = Color::RGB(0xE8ECF4);
+const LABEL_BG: Color = Color::RGB(0xEDF1F5);
 /// リンクの文字色
-const LINK: Color = Color::RGB(0x2A5DB0);
+const LINK: Color = Color::RGB(0x1F6FB2);
 /// 補足など、控えめに出す文字色
-const MUTED: Color = Color::RGB(0x7B8394);
+const MUTED: Color = Color::RGB(0x7A8595);
+/// 本文の文字色 (真っ黒より少し弱めて読みやすくする)
+const TEXT: Color = Color::RGB(0x2B3440);
 
 /// 本文の書体 (WindowsとmacOSの両方に入っているものを先に置く)
 const FONT: &str = "Yu Gothic";
@@ -96,6 +102,64 @@ pub fn display_width(text: &str) -> f64 {
         .sum()
 }
 
+/**
+ * 型を「基本型 / 桁 / 小数」に分ける。
+ *
+ * 日本の定義書は桁と小数点以下を別の列に書くのが普通なので、
+ * `decimal(12,2)` を `decimal` `12` `2` に割る。
+ * `enum('a','b')` のように数でない指定は割らずに型へ残す
+ * (無理に桁の欄へ入れると読めなくなる)
+ */
+pub fn type_parts(col_type: &str) -> (String, String, String) {
+    let (base, inside) = split_type(col_type);
+    if inside.is_empty() {
+        return (base, String::new(), String::new());
+    }
+    let numeric = |v: &str| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit());
+    let mut it = inside.split(',').map(|v| v.trim());
+    let len = it.next().unwrap_or("");
+    let scale = it.next().unwrap_or("");
+    // 3つ以上に割れるもの・数でないものは、型の一部として残す
+    if it.next().is_some() || !numeric(len) || (!scale.is_empty() && !numeric(scale)) {
+        return (col_type.to_string(), String::new(), String::new());
+    }
+    (base, len.to_string(), scale.to_string())
+}
+
+/// ユニーク制約の掛かっている列の名前 (複合ユニークは構成する列すべて)
+fn unique_column_names(d: &crate::models::TableDetail) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for ix in &d.indexes {
+        if !ix.unique {
+            continue;
+        }
+        for c in ix.columns.split(',') {
+            let name = c.trim().trim_matches(['`', '"']);
+            if !name.is_empty() {
+                out.insert(name.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// 外部キーに使われている列の名前
+fn fk_column_names(d: &crate::models::TableDetail) -> HashSet<String> {
+    d.foreign_keys
+        .iter()
+        .flat_map(|fk| fk.columns.iter().cloned())
+        .collect()
+}
+
+/// 自動採番の列か (DBによって書き方が違う)
+pub fn is_auto_number(extra: &str, default: &str, col_type: &str) -> bool {
+    let e = extra.to_lowercase();
+    e.contains("auto_increment")
+        || e.contains("identity")
+        || col_type.to_lowercase().contains("serial")
+        || default.to_lowercase().starts_with("nextval(")
+}
+
 /// 列幅の下限 (見出しだけの列がつぶれないように)
 const MIN_WIDTH: f64 = 6.0;
 /// 列幅の上限 (長い備考で横に伸びすぎないように)
@@ -129,6 +193,11 @@ impl Widths {
         self.0[col] = width;
     }
 
+    /// いま決まっている幅 (折り返しの行数を見積もるのに使う)
+    fn width(&self, col: usize) -> f64 {
+        self.0.get(col).copied().unwrap_or(MIN_WIDTH)
+    }
+
     fn apply(&self, sheet: &mut Worksheet) -> Result<(), String> {
         for (i, w) in self.0.iter().enumerate() {
             sheet
@@ -145,24 +214,36 @@ struct Body {
     center: [Format; 2],
     mono: [Format; 2],
     wrap: [Format; 2],
+    key: [Format; 2],
+    mark: [Format; 2],
 }
 
 impl Body {
     fn new() -> Self {
+        /*
+         * 縦線は薄く、横線だけを見せる。
+         * 全部を同じ濃さで囲うと方眼紙のようになって古く見えるので、
+         * 上下の罫線で行を数えられるようにして、左右は極力目立たせない
+         */
         let base = || {
             Format::new()
                 .set_font_name(FONT)
                 .set_font_size(10)
+                .set_font_color(TEXT)
                 .set_align(FormatAlign::VerticalCenter)
                 .set_border(FormatBorder::Thin)
                 .set_border_color(RULE)
+                .set_indent(1)
         };
         let pair = |f: Format| [f.clone(), f.set_background_color(STRIPE)];
+        let centered = || base().set_align(FormatAlign::Center).set_indent(0);
         Self {
             plain: pair(base()),
-            center: pair(base().set_align(FormatAlign::Center)),
+            center: pair(centered()),
             mono: pair(base().set_font_name(FONT_MONO)),
             wrap: pair(base().set_text_wrap()),
+            key: pair(centered().set_font_color(GOLD).set_bold()),
+            mark: pair(centered().set_font_color(ACCENT).set_bold()),
         }
     }
 }
@@ -178,57 +259,100 @@ enum Cell {
     Mono,
     /// 折り返す (備考・補足)
     Wrap,
+    /// 主キーの印 (金色)
+    Key,
+    /// その他の印 (差し色)
+    Mark,
 }
 
 /// 書式の一式 (使い回すのでまとめて作る)
 struct Styles {
+    /// 表紙の題字
     cover_title: Format,
+    /// 表紙の副題 (データベース名)
     cover_sub: Format,
-    cover_label: Format,
-    cover_value: Format,
+    /// 差し色の細い帯 (題字の上下に敷く)
+    accent_bar: Format,
+    /// シート上部の帯に置くテーブル名
+    band_title: Format,
+    /// 帯の右端に置く戻りリンク
+    band_link: Format,
+    /// 帯の下に置く論理名の行
+    band_sub: Format,
+    /// 「文書情報」などの小見出し (下に差し色の線を引く)
     section: Format,
+    /// 項目名 (左の枠)
+    label: Format,
+    /// 項目の中身 (右の枠)
+    value: Format,
+    /// 表の見出し行
     head: Format,
     body: Body,
     link: Format,
-    /// 表の外に置くリンク (枠を付けない)
-    link_plain: Format,
-    meta_label: Format,
-    meta_value: Format,
     none: Format,
 }
 
 impl Styles {
     fn new() -> Self {
-        let text = || Format::new().set_font_name(FONT).set_font_size(10);
+        let text = || {
+            Format::new()
+                .set_font_name(FONT)
+                .set_font_size(10)
+                .set_font_color(TEXT)
+        };
+        let boxed = || {
+            text()
+                .set_align(FormatAlign::VerticalCenter)
+                .set_border(FormatBorder::Thin)
+                .set_border_color(RULE)
+                .set_indent(1)
+        };
         Self {
             cover_title: Format::new()
                 .set_font_name(FONT)
-                .set_font_size(22)
+                .set_font_size(24)
                 .set_bold()
                 .set_font_color(ON_INK)
                 .set_background_color(INK)
                 .set_align(FormatAlign::VerticalCenter)
-                .set_indent(1),
+                .set_indent(2),
             cover_sub: Format::new()
-                .set_font_name(FONT)
+                .set_font_name(FONT_MONO)
                 .set_font_size(11)
+                .set_font_color(Color::RGB(0xA9B6C4))
+                .set_background_color(INK)
+                .set_align(FormatAlign::VerticalCenter)
+                .set_indent(2),
+            accent_bar: Format::new().set_background_color(ACCENT),
+            band_title: Format::new()
+                .set_font_name(FONT_MONO)
+                .set_font_size(15)
+                .set_bold()
                 .set_font_color(ON_INK)
                 .set_background_color(INK)
                 .set_align(FormatAlign::VerticalCenter)
                 .set_indent(1),
-            cover_label: text()
-                .set_bold()
+            band_link: text()
+                .set_font_color(LINK)
+                .set_underline(FormatUnderline::Single)
+                .set_background_color(LABEL_BG)
+                .set_align(FormatAlign::Right)
+                .set_align(FormatAlign::VerticalCenter)
+                .set_indent(1),
+            band_sub: text()
+                .set_font_size(10)
                 .set_background_color(LABEL_BG)
                 .set_align(FormatAlign::VerticalCenter)
-                .set_border(FormatBorder::Thin)
-                .set_border_color(RULE)
                 .set_indent(1),
-            cover_value: text()
-                .set_align(FormatAlign::VerticalCenter)
-                .set_border(FormatBorder::Thin)
-                .set_border_color(RULE)
-                .set_indent(1),
-            section: text().set_bold().set_font_size(11).set_font_color(INK),
+            section: text()
+                .set_bold()
+                .set_font_size(11)
+                .set_font_color(INK)
+                .set_align(FormatAlign::Bottom)
+                .set_border_bottom(FormatBorder::Medium)
+                .set_border_bottom_color(ACCENT),
+            label: boxed().set_bold().set_background_color(LABEL_BG),
+            value: boxed(),
             head: text()
                 .set_bold()
                 .set_font_color(ON_INK)
@@ -237,28 +361,18 @@ impl Styles {
                 .set_align(FormatAlign::VerticalCenter)
                 .set_text_wrap()
                 .set_border(FormatBorder::Thin)
-                .set_border_color(INK),
+                .set_border_color(INK)
+                .set_border_bottom(FormatBorder::Medium)
+                .set_border_bottom_color(ACCENT),
             body: Body::new(),
             link: text()
                 .set_font_color(LINK)
                 .set_underline(FormatUnderline::Single)
                 .set_align(FormatAlign::VerticalCenter)
                 .set_border(FormatBorder::Thin)
-                .set_border_color(RULE),
-            link_plain: text()
-                .set_font_color(LINK)
-                .set_underline(FormatUnderline::Single)
-                .set_align(FormatAlign::VerticalCenter),
-            meta_label: text()
-                .set_bold()
-                .set_font_color(MUTED)
-                .set_align(FormatAlign::VerticalCenter),
-            meta_value: text()
-                .set_font_name(FONT_MONO)
-                .set_font_size(11)
-                .set_bold()
-                .set_align(FormatAlign::VerticalCenter),
-            none: text().set_font_color(MUTED),
+                .set_border_color(RULE)
+                .set_indent(1),
+            none: text().set_font_color(MUTED).set_indent(1),
         }
     }
 
@@ -270,8 +384,31 @@ impl Styles {
             Cell::Center => &self.body.center[i],
             Cell::Mono => &self.body.mono[i],
             Cell::Wrap => &self.body.wrap[i],
+            Cell::Key => &self.body.key[i],
+            Cell::Mark => &self.body.mark[i],
         }
     }
+}
+
+/// 1行ぶんの高さ (本文)
+const ROW_HEIGHT: f64 = 19.0;
+/// 折り返して2行目以降が増えるぶんの高さ
+const LINE_HEIGHT: f64 = 14.0;
+
+/**
+ * 折り返す文字を入れた行の高さを見積もる。
+ *
+ * Excelの自動調整は結合セルや明示した高さと相性が悪く、
+ * 備考が1行に潰れて読めなくなる。列幅から行数を割り出して自分で決める
+ */
+fn wrapped_height(text: &str, width: f64) -> f64 {
+    if text.is_empty() {
+        return ROW_HEIGHT;
+    }
+    // 左右の余白ぶんを引いた、実際に文字が乗る幅
+    let usable = (width - 2.0).max(4.0);
+    let lines = (display_width(text) / usable).ceil().max(1.0);
+    ROW_HEIGHT + (lines - 1.0) * LINE_HEIGHT
 }
 
 /// 表の1列の決め方 (見出しと見せ方)
@@ -312,15 +449,84 @@ fn write_row(
     s: &Styles,
     w: &mut Widths,
 ) -> Result<(), String> {
+    let mut height = ROW_HEIGHT;
     for (i, (Col(_, kind), text)) in cols.iter().zip(values).enumerate() {
         let col = start + i as u16;
         sheet
             .write_string_with_format(row, col, *text, s.cell(*kind, striped))
             .map_err(|e| e.to_string())?;
         // 折り返す列は中身で幅を決めない (縦に伸ばして読ませる)
-        if *kind != Cell::Wrap {
+        if *kind == Cell::Wrap {
+            height = height.max(wrapped_height(text, w.width(col as usize)));
+        } else {
             w.see(col as usize, text);
         }
+    }
+    sheet
+        .set_row_height(row, height)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/**
+ * 幅を共有するシートに、下の方へ置く小さい表を書く。
+ *
+ * 列幅はシート全体で1つなので、カラム表の細い列に
+ * 「インデックス名」のような長い見出しを置くと、カラム表まで太くなる。
+ * そこで、論理的な1列を「カラム表の何列ぶんか」で表して結合する
+ * (結合したセルは、個々の列の幅を広げない)
+ */
+struct Span(u16, u16, &'static str, Cell);
+
+/// カラム一覧の右端の列 (下の表はここまでで折り返す)
+const LAST_COL: u16 = 12;
+
+/// 結合したセルに書く (1列ぶんなら結合しない)
+fn write_span(
+    sheet: &mut Worksheet,
+    row: u32,
+    from: u16,
+    to: u16,
+    text: &str,
+    fmt: &Format,
+) -> Result<(), String> {
+    if from == to {
+        sheet
+            .write_string_with_format(row, from, text, fmt)
+            .map_err(|e| e.to_string())?;
+    } else {
+        sheet
+            .merge_range(row, from, row, to, text, fmt)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 結合ありの見出し行
+fn write_span_head(
+    sheet: &mut Worksheet,
+    row: u32,
+    spans: &[Span],
+    s: &Styles,
+) -> Result<(), String> {
+    sheet.set_row_height(row, 22).map_err(|e| e.to_string())?;
+    for Span(from, to, label, _) in spans {
+        write_span(sheet, row, *from, *to, label, &s.head)?;
+    }
+    Ok(())
+}
+
+/// 結合ありの本文1行
+fn write_span_row(
+    sheet: &mut Worksheet,
+    row: u32,
+    spans: &[Span],
+    values: &[&str],
+    striped: bool,
+    s: &Styles,
+) -> Result<(), String> {
+    for (Span(from, to, _, kind), text) in spans.iter().zip(values) {
+        write_span(sheet, row, *from, *to, text, s.cell(*kind, striped))?;
     }
     Ok(())
 }
@@ -328,23 +534,73 @@ fn write_row(
 /// 表のあとに置く「(なし)」
 fn write_none(sheet: &mut Worksheet, row: u32, s: &Styles) -> Result<(), String> {
     sheet
-        .write_string_with_format(row, 1, "(なし)", &s.none)
+        .write_string_with_format(row, 0, "(なし)", &s.none)
         .map_err(|e| e.to_string())?;
     Ok(())
 }
 
-/// セクションの見出し
+/// 小見出し。表の幅いっぱいに差し色の下線を引いて、区切りを見せる
 fn write_section(
     sheet: &mut Worksheet,
     row: u32,
+    from: u16,
+    to: u16,
     label: &str,
     s: &Styles,
 ) -> Result<(), String> {
-    sheet.set_row_height(row, 24).map_err(|e| e.to_string())?;
-    sheet
-        .write_string_with_format(row, 0, label, &s.section)
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    sheet.set_row_height(row, 26).map_err(|e| e.to_string())?;
+    write_span(sheet, row, from, to, label, &s.section)
+}
+
+/// ラベルと中身を左右2組ずつ並べる場所の決め方
+struct Grid {
+    label_l: (u16, u16),
+    value_l: (u16, u16),
+    label_r: (u16, u16),
+    value_r: (u16, u16),
+}
+
+/**
+ * 項目を2列組で並べる。
+ *
+ * 1項目1行で縦に積むと間延びして読みにくいので、左右に振り分ける。
+ * 奇数個で余ったときは、最後の中身を右端まで伸ばして枠を揃える
+ */
+fn write_info_grid(
+    sheet: &mut Worksheet,
+    mut row: u32,
+    g: &Grid,
+    items: &[(String, String)],
+    s: &Styles,
+) -> Result<u32, String> {
+    for pair in items.chunks(2) {
+        sheet.set_row_height(row, 22).map_err(|e| e.to_string())?;
+        write_span(sheet, row, g.label_l.0, g.label_l.1, &pair[0].0, &s.label)?;
+        match pair.get(1) {
+            Some(right) => {
+                write_span(sheet, row, g.value_l.0, g.value_l.1, &pair[0].1, &s.value)?;
+                write_span(sheet, row, g.label_r.0, g.label_r.1, &right.0, &s.label)?;
+                write_span(sheet, row, g.value_r.0, g.value_r.1, &right.1, &s.value)?;
+            }
+            None => write_span(sheet, row, g.value_l.0, g.value_r.1, &pair[0].1, &s.value)?,
+        }
+        row += 1;
+    }
+    Ok(row)
+}
+
+/// 項目1つを1行まるごと使って書く (概要のように長いもの)
+fn write_info_wide(
+    sheet: &mut Worksheet,
+    row: u32,
+    g: &Grid,
+    label: &str,
+    value: &str,
+    s: &Styles,
+) -> Result<(), String> {
+    sheet.set_row_height(row, 22).map_err(|e| e.to_string())?;
+    write_span(sheet, row, g.label_l.0, g.label_l.1, label, &s.label)?;
+    write_span(sheet, row, g.value_l.0, g.value_r.1, value, &s.value)
 }
 
 /// 印刷の設定 (納品物としてそのまま刷れるように)
@@ -389,49 +645,119 @@ pub fn build(
     book.save_to_buffer().map_err(|e| e.to_string())
 }
 
-/// 表紙
+/// 表紙の改訂履歴に、あらかじめ用意しておく空欄の数
+const HISTORY_ROWS: u32 = 6;
+
+/// 種別を日本語にする (DBによって "BASE TABLE" などまちまちなので)
+fn table_kind(table_type: &str) -> &'static str {
+    if table_type.to_uppercase().contains("VIEW") {
+        "ビュー"
+    } else {
+        "テーブル"
+    }
+}
+
+/// 表紙のレイアウト (ラベル14 + 中身36 を左右に2組)
+const COVER_GRID: Grid = Grid {
+    label_l: (1, 1),
+    value_l: (2, 3),
+    label_r: (4, 4),
+    value_r: (5, 6),
+};
+
+/// 表紙 (題字の帯 + 文書情報 + 改訂履歴)
 fn cover(book: &mut Workbook, meta: &DocMeta, tables: usize, s: &Styles) -> Result<(), String> {
     let sheet = book.add_worksheet();
     sheet.set_name("表紙").map_err(|e| e.to_string())?;
+    // 行に少し余白を持たせる (折り返す行は自動で伸びる)
+    sheet.set_default_row_height(19);
     sheet.set_screen_gridlines(false);
     sheet.set_tab_color(INK);
-    sheet.set_column_width(0, 3.0).map_err(|e| e.to_string())?;
-    sheet.set_column_width(1, 20.0).map_err(|e| e.to_string())?;
-    sheet.set_column_width(2, 56.0).map_err(|e| e.to_string())?;
-
-    // 上部の帯 (タイトル)
-    sheet.set_row_height(1, 46).map_err(|e| e.to_string())?;
-    sheet.set_row_height(2, 24).map_err(|e| e.to_string())?;
-    sheet
-        .merge_range(1, 0, 1, 2, "テーブル定義書", &s.cover_title)
-        .map_err(|e| e.to_string())?;
-    sheet
-        .merge_range(2, 0, 2, 2, &meta.database, &s.cover_sub)
-        .map_err(|e| e.to_string())?;
-
-    let count = tables.to_string();
-    let rows = [
-        ("データベース", meta.database.as_str()),
-        ("接続", meta.connection.as_str()),
-        ("テーブル数", count.as_str()),
-        ("出力日時", meta.generated_at.as_str()),
-    ];
-    for (i, (label, value)) in rows.iter().enumerate() {
-        let r = 5 + i as u32;
-        sheet.set_row_height(r, 22).map_err(|e| e.to_string())?;
+    // 左端は余白にして、紙面の端に文字が貼り付かないようにする
+    for (col, width) in [
+        (0u16, 2.5),
+        (1, 14.0),
+        (2, 18.0),
+        (3, 18.0),
+        (4, 14.0),
+        (5, 18.0),
+        (6, 18.0),
+    ] {
         sheet
-            .write_string_with_format(r, 1, *label, &s.cover_label)
-            .map_err(|e| e.to_string())?;
-        sheet
-            .write_string_with_format(r, 2, *value, &s.cover_value)
+            .set_column_width(col, width)
             .map_err(|e| e.to_string())?;
     }
-    sheet
-        .write_string_with_format(10, 1, "Quelio が出力しました", &s.none)
-        .map_err(|e| e.to_string())?;
+
+    /*
+     * 題字の帯。
+     *
+     * 濃い地を大きく敷いて、その下に差し色の細い線を引く。
+     * 表紙で色を使うのはここだけにして、あとは白と罫線で見せる
+     */
+    sheet.set_row_height(1, 52).map_err(|e| e.to_string())?;
+    sheet.set_row_height(2, 24).map_err(|e| e.to_string())?;
+    sheet.set_row_height(3, 4).map_err(|e| e.to_string())?;
+    write_span(sheet, 1, 1, 6, "テーブル定義書", &s.cover_title)?;
+    write_span(sheet, 2, 1, 6, &meta.database, &s.cover_sub)?;
+    write_span(sheet, 3, 1, 6, "", &s.accent_bar)?;
+
+    // 文書情報 (空欄は枠だけ作って、手で書き足せるようにする)
+    let count = format!("{tables} テーブル");
+    let items: Vec<(String, String)> = [
+        ("システム名", ""),
+        ("サブシステム名", ""),
+        ("データベース", meta.database.as_str()),
+        ("接続先", meta.connection.as_str()),
+        ("対象テーブル", count.as_str()),
+        ("作成日", meta.generated_at.as_str()),
+        ("作成者", ""),
+        ("版数", ""),
+    ]
+    .iter()
+    .map(|(a, b)| (a.to_string(), b.to_string()))
+    .collect();
+    let mut r = 5;
+    write_section(sheet, r, 1, 6, "文書情報", s)?;
+    r += 1;
+    r = write_info_grid(sheet, r, &COVER_GRID, &items, s)?;
+
+    // 改訂履歴 (1行目だけ埋め、あとは書き足せるよう枠を用意する)
+    r += 1;
+    write_section(sheet, r, 1, 6, "改訂履歴", s)?;
+    r += 1;
+    let spans = [
+        Span(1, 1, "版", Cell::Center),
+        Span(2, 2, "日付", Cell::Center),
+        Span(3, 5, "改訂内容", Cell::Text),
+        Span(6, 6, "担当", Cell::Center),
+    ];
+    write_span_head(sheet, r, &spans, s)?;
+    r += 1;
+    write_span_row(
+        sheet,
+        r,
+        &spans,
+        &[
+            "",
+            meta.generated_at.as_str(),
+            "新規作成 (Quelio で出力)",
+            "",
+        ],
+        false,
+        s,
+    )?;
+    for i in 0..HISTORY_ROWS {
+        r += 1;
+        write_span_row(sheet, r, &spans, &["", "", "", ""], i % 2 == 0, s)?;
+    }
+
+    // 幅は列ごとに決め打ちにしてある (空欄が多く、中身から決められないため)
     sheet.set_landscape();
     Ok(())
 }
+
+/// テーブル一覧で、見出し行を置く位置 (上に帯があるぶん下げる)
+const HEAD_ROW: u32 = 4;
 
 /// テーブル一覧 (各シートへのリンク付き)
 fn table_list(
@@ -444,9 +770,20 @@ fn table_list(
 ) -> Result<(), String> {
     let sheet = book.add_worksheet();
     sheet.set_name("テーブル一覧").map_err(|e| e.to_string())?;
+    // 行に少し余白を持たせる (折り返す行は自動で伸びる)
+    sheet.set_default_row_height(19);
     sheet.set_screen_gridlines(false);
     sheet.set_tab_color(INK);
-    setup_print(sheet, meta, Some(0));
+    setup_print(sheet, meta, Some(HEAD_ROW));
+
+    // 表紙と同じ帯を頭に置いて、ページのつながりを見せる
+    sheet.set_row_height(0, 30).map_err(|e| e.to_string())?;
+    sheet.set_row_height(1, 21).map_err(|e| e.to_string())?;
+    sheet.set_row_height(2, 4).map_err(|e| e.to_string())?;
+    write_span(sheet, 0, 0, 5, "テーブル一覧", &s.band_title)?;
+    let sub = format!("{}  ／  {} テーブル", meta.database, items.len());
+    write_span(sheet, 1, 0, 5, &sub, &s.band_sub)?;
+    write_span(sheet, 2, 0, 5, "", &s.accent_bar)?;
 
     let cols = [
         Col("No", Cell::Center),
@@ -457,10 +794,12 @@ fn table_list(
         Col("備考", Cell::Wrap),
     ];
     let mut w = Widths::default();
-    write_head(sheet, 0, 0, &cols, s, &mut w)?;
+    // 備考は折り返して読ませるので、先に幅を決めておく
+    w.fix(5, 30.0);
+    write_head(sheet, HEAD_ROW, 0, &cols, s, &mut w)?;
 
     for (i, (e, name)) in items.iter().zip(names).enumerate() {
-        let r = 1 + i as u32;
+        let r = HEAD_ROW + 1 + i as u32;
         let striped = i % 2 == 1;
         let comment = info_get(&e.detail.info, "コメント");
         let (logical, note) = parse_comment(&comment, delim);
@@ -475,7 +814,7 @@ fn table_list(
                 no.as_str(),
                 full_name(&e.table).as_str(),
                 logical.as_str(),
-                e.table.table_type.as_str(),
+                table_kind(&e.table.table_type),
                 count.as_str(),
                 note.as_str(),
             ],
@@ -496,15 +835,28 @@ fn table_list(
 
     if !items.is_empty() {
         sheet
-            .autofilter(0, 0, items.len() as u32, cols.len() as u16 - 1)
+            .autofilter(
+                HEAD_ROW,
+                0,
+                HEAD_ROW + items.len() as u32,
+                cols.len() as u16 - 1,
+            )
             .map_err(|e| e.to_string())?;
     }
-    sheet.set_freeze_panes(1, 0).map_err(|e| e.to_string())?;
-    // 備考は折り返して読ませる
-    w.fix(5, 30.0);
+    sheet
+        .set_freeze_panes(HEAD_ROW + 1, 0)
+        .map_err(|e| e.to_string())?;
     w.apply(sheet)?;
     Ok(())
 }
+
+/// テーブルのシートで、テーブル情報を左右2組に振り分ける場所
+const SHEET_GRID: Grid = Grid {
+    label_l: (0, 3),
+    value_l: (4, 6),
+    label_r: (7, 9),
+    value_r: (10, LAST_COL),
+};
 
 /// テーブル1つぶんのシート (見出し + カラム + インデックス + 外部キー)
 fn table_sheet(
@@ -517,59 +869,126 @@ fn table_sheet(
 ) -> Result<(), String> {
     let sheet = book.add_worksheet();
     sheet.set_name(name).map_err(|x| x.to_string())?;
+    // 行に少し余白を持たせる (折り返す行は自動で伸びる)
+    sheet.set_default_row_height(19);
     sheet.set_screen_gridlines(false);
     setup_print(sheet, meta, None);
     let mut w = Widths::default();
+    // 折り返す列は中身で測れないので、先に読みやすい幅を決め打ちする
+    w.fix(LAST_COL as usize, 34.0);
     let d = &e.detail;
     let comment = info_get(&d.info, "コメント");
     let (logical, note) = parse_comment(&comment, delim);
 
-    // 見出し (テーブル名を大きく、その下に論理名と備考)
-    sheet.set_row_height(0, 26).map_err(|x| x.to_string())?;
-    sheet
-        .write_string_with_format(0, 0, full_name(&e.table).as_str(), &s.meta_value)
-        .map_err(|x| x.to_string())?;
-    let head_line = if note.is_empty() {
-        logical.clone()
+    let kind = table_kind(&e.table.table_type);
+
+    /*
+     * シートの頭の帯。
+     *
+     * 表紙と同じ濃い地に物理名を大きく置き、下に論理名の行を敷く。
+     * 何のテーブルのページかが、開いた瞬間に分かるようにする
+     */
+    sheet.set_row_height(0, 30).map_err(|x| x.to_string())?;
+    sheet.set_row_height(1, 21).map_err(|x| x.to_string())?;
+    sheet.set_row_height(2, 4).map_err(|x| x.to_string())?;
+    write_span(
+        sheet,
+        0,
+        0,
+        LAST_COL,
+        full_name(&e.table).as_str(),
+        &s.band_title,
+    )?;
+    let sub = if logical.is_empty() {
+        kind.to_string()
     } else {
-        format!("{logical}   {note}")
+        format!("{logical}  ／  {kind}")
     };
-    sheet
-        .write_string_with_format(1, 0, head_line.as_str(), &s.meta_label)
-        .map_err(|x| x.to_string())?;
+    write_span(sheet, 1, 0, LAST_COL - 3, &sub, &s.band_sub)?;
+    // 戻りリンクは薄い地の右端へ (濃い地の上だと文字色が沈む)
+    write_span(sheet, 1, LAST_COL - 2, LAST_COL, "", &s.band_link)?;
     let back = Url::new("internal:'テーブル一覧'!A1").set_text("← テーブル一覧へ");
     sheet
-        .write_url_with_format(0, 8, back, &s.link_plain)
+        .write_url_with_format(1, LAST_COL - 2, back, &s.band_link)
         .map_err(|x| x.to_string())?;
+    write_span(sheet, 2, 0, LAST_COL, "", &s.accent_bar)?;
 
-    // カラム
+    /*
+     * テーブル情報。
+     *
+     * 決まった項目のあとに、接続先から取れた情報 (エンジン・文字コード・
+     * 行数など) を並べる。DBによって取れるものが違うため。
+     * 縦に積むと間延びするので2列組にし、概要だけ1行まるごと使う
+     */
+    let mut r = 4;
+    write_section(sheet, r, 0, LAST_COL, "テーブル情報", s)?;
+    r += 1;
+    let mut info: Vec<(String, String)> = vec![
+        ("論理名".to_string(), logical.clone()),
+        ("物理名".to_string(), e.table.name.clone()),
+        (
+            "スキーマ".to_string(),
+            e.table.schema.clone().unwrap_or_default(),
+        ),
+        ("種別".to_string(), kind.to_string()),
+    ];
+    for (label, value) in &d.info {
+        if label != "コメント" {
+            info.push((label.clone(), value.clone()));
+        }
+    }
+    r = write_info_grid(sheet, r, &SHEET_GRID, &info, s)?;
+    if !note.is_empty() {
+        write_info_wide(sheet, r, &SHEET_GRID, "概要", &note, s)?;
+        r += 1;
+    }
+
+    /*
+     * カラム一覧。
+     *
+     * 日本の定義書でよく使われる並びにする。
+     * 主キー・ユニーク・外部キーは、まとめて1列に書くより
+     * 別々の列で●を付けたほうが一目で読める
+     */
     let cols = [
         Col("No", Cell::Center),
+        Col("PK", Cell::Key),
+        Col("UQ", Cell::Mark),
+        Col("FK", Cell::Mark),
         Col("論理名", Cell::Text),
-        Col("カラム名", Cell::Mono),
-        Col("型", Cell::Mono),
-        Col("サイズ", Cell::Center),
-        Col("NOT NULL", Cell::Center),
-        Col("キー", Cell::Center),
-        Col("デフォルト", Cell::Mono),
-        Col("属性", Cell::Text),
-        Col("補足", Cell::Wrap),
+        Col("物理名", Cell::Mono),
+        Col("データ型", Cell::Mono),
+        Col("桁", Cell::Center),
+        Col("小数", Cell::Center),
+        Col("必須", Cell::Mark),
+        Col("既定値", Cell::Mono),
+        Col("自動採番", Cell::Mark),
+        Col("備考", Cell::Wrap),
     ];
-    let mut r = 3;
-    write_section(sheet, r, "カラム", s)?;
+    r += 1;
+    write_section(sheet, r, 0, LAST_COL, "カラム", s)?;
     r += 1;
     write_head(sheet, r, 0, &cols, s, &mut w)?;
     let head_row = r;
+    // ユニーク・外部キーは、インデックスと制約の側から引く
+    let unique_cols = unique_column_names(d);
+    let fk_cols = fk_column_names(d);
     for (i, c) in d.columns.iter().enumerate() {
         r += 1;
-        let (base, size) = split_type(&c.col_type);
+        let (base, len, scale) = type_parts(&c.col_type);
         let (col_logical, col_note) = parse_comment(c.comment.as_deref().unwrap_or(""), delim);
         let default = match &c.default {
             None => String::new(),
             Some(v) if v.is_empty() => "''".to_string(),
             Some(v) => v.clone(),
         };
+        let auto = is_auto_number(
+            c.extra.as_deref().unwrap_or(""),
+            c.default.as_deref().unwrap_or(""),
+            &c.col_type,
+        );
         let no = (i + 1).to_string();
+        let mark = |on: bool| if on { "●" } else { "" };
         write_row(
             sheet,
             r,
@@ -577,14 +996,17 @@ fn table_sheet(
             &cols,
             &[
                 no.as_str(),
+                mark(c.key.as_deref() == Some("PRI")),
+                mark(unique_cols.contains(&c.name)),
+                mark(fk_cols.contains(&c.name)),
                 col_logical.as_str(),
                 c.name.as_str(),
                 base.as_str(),
-                size.as_str(),
-                if c.nullable { "" } else { "●" },
-                c.key.as_deref().unwrap_or(""),
+                len.as_str(),
+                scale.as_str(),
+                mark(!c.nullable),
                 default.as_str(),
-                c.extra.as_deref().unwrap_or(""),
+                mark(auto),
                 col_note.as_str(),
             ],
             i % 2 == 1,
@@ -592,61 +1014,68 @@ fn table_sheet(
             &mut w,
         )?;
     }
-    // カラムの見出しまでは常に見えるようにする
+    // カラムの見出しは、画面でも紙でも常に見えるようにする
     sheet
         .set_freeze_panes(head_row + 1, 0)
         .map_err(|x| x.to_string())?;
+    let _ = sheet.set_repeat_rows(head_row, head_row);
 
     // インデックス
     r += 2;
-    write_section(sheet, r, "インデックス", s)?;
+    write_section(sheet, r, 0, LAST_COL, "インデックス", s)?;
     r += 1;
     if d.indexes.is_empty() {
         write_none(sheet, r, s)?;
     } else {
-        let cols = [
-            Col("インデックス名", Cell::Mono),
-            Col("ユニーク", Cell::Center),
-            Col("カラム", Cell::Mono),
-            Col("種類", Cell::Center),
+        let spans = [
+            Span(0, 0, "No", Cell::Center),
+            Span(1, 3, "インデックス名", Cell::Mono),
+            Span(4, 4, "UQ", Cell::Mark),
+            Span(5, 8, "対象カラム", Cell::Mono),
+            Span(9, 10, "種類", Cell::Center),
+            Span(11, LAST_COL, "備考", Cell::Text),
         ];
-        write_head(sheet, r, 1, &cols, s, &mut w)?;
+        write_span_head(sheet, r, &spans, s)?;
         for (i, ix) in d.indexes.iter().enumerate() {
             r += 1;
-            write_row(
+            let no = (i + 1).to_string();
+            write_span_row(
                 sheet,
                 r,
-                1,
-                &cols,
+                &spans,
                 &[
+                    no.as_str(),
                     ix.name.as_str(),
                     if ix.unique { "●" } else { "" },
                     ix.columns.as_str(),
                     ix.index_type.as_deref().unwrap_or(""),
+                    "",
                 ],
                 i % 2 == 1,
                 s,
-                &mut w,
             )?;
         }
     }
 
     // 外部キー
     r += 2;
-    write_section(sheet, r, "外部キー", s)?;
+    write_section(sheet, r, 0, LAST_COL, "外部キー", s)?;
     r += 1;
     if d.foreign_keys.is_empty() {
         write_none(sheet, r, s)?;
     } else {
-        let cols = [
-            Col("制約名", Cell::Mono),
-            Col("カラム", Cell::Mono),
-            Col("参照先", Cell::Mono),
-            Col("参照カラム", Cell::Mono),
-            Col("ON DELETE", Cell::Center),
-            Col("ON UPDATE", Cell::Center),
+        let spans = [
+            Span(0, 0, "No", Cell::Center),
+            Span(1, 4, "制約名", Cell::Mono),
+            Span(5, 5, "カラム", Cell::Mono),
+            Span(6, 7, "参照先", Cell::Mono),
+            Span(8, 10, "参照カラム", Cell::Mono),
+            Span(11, 11, "ON DELETE", Cell::Center),
+            Span(12, LAST_COL, "ON UPDATE", Cell::Center),
         ];
-        write_head(sheet, r, 1, &cols, s, &mut w)?;
+        // 見出しが折り返さないだけの幅は要る (結合していない列なので)
+        w.see(11, "ON DELETE");
+        write_span_head(sheet, r, &spans, s)?;
         for (i, fk) in d.foreign_keys.iter().enumerate() {
             r += 1;
             let ref_table = if fk.ref_schema.is_empty() {
@@ -656,12 +1085,13 @@ fn table_sheet(
             };
             let cols_text = fk.columns.join(", ");
             let ref_cols = fk.ref_columns.join(", ");
-            write_row(
+            let no = (i + 1).to_string();
+            write_span_row(
                 sheet,
                 r,
-                1,
-                &cols,
+                &spans,
                 &[
+                    no.as_str(),
                     fk.name.as_str(),
                     cols_text.as_str(),
                     ref_table.as_str(),
@@ -671,13 +1101,10 @@ fn table_sheet(
                 ],
                 i % 2 == 1,
                 s,
-                &mut w,
             )?;
         }
     }
 
-    // 列数の違う表を並べるので、最後に中身から幅を合わせる
-    w.fix(9, 40.0);
     w.apply(sheet)?;
     Ok(())
 }

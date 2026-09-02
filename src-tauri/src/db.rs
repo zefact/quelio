@@ -124,8 +124,9 @@ impl TlsConfig {
         }
     }
 
-    /// SSHトンネル経由ではホスト名を検証できないため、CA検証までに落とす
-    fn effective_mode(&self) -> SslMode {
+    /// SSHトンネル経由ではホスト名を検証できないため、CA検証までに落とす。
+    /// 外部ツール (mysqldump 等) に渡す指定でも同じ扱いにする
+    pub(crate) fn effective_mode(&self) -> SslMode {
         if self.via_tunnel && self.mode == SslMode::VerifyFull {
             SslMode::VerifyCa
         } else {

@@ -151,6 +151,11 @@
   line-height: 1.6;
 }
 
+/* 気づいてほしい補足 (危険ではないが、選んだ結果を知らせるもの) */
+.field-note.warn {
+  color: var(--warn);
+}
+
 /* 右クリックメニューに出す注記 (操作できない理由) */
 .context-note {
   padding: 6px 12px;

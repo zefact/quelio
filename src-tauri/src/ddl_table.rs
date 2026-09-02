@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use serde::Deserialize;
 
 use crate::ddl::{
-    literal, mysql_column_def, pg_collate, quote, quote_table, some_trimmed, validate,
+    literal, mysql_column_def, pg_collate, quote, quote_table, some_trimmed, validate, SqlStyle,
     validate_collation, validate_table_name, validate_type, ColumnSpec,
 };
 use crate::models::DbType;
@@ -69,7 +69,12 @@ fn create_table_sql(head: &str, lines: &[String]) -> String {
 /// 入力内容を確かめてからCREATE TABLE文を組み立てる。
 ///
 /// `types` はそのサーバーで使える型名 (空ならチェックしない)
-pub fn build(db: DbType, t: &NewTable, types: &[String]) -> Result<Vec<String>, String> {
+pub fn build(
+    style: SqlStyle,
+    t: &NewTable,
+    types: &[String],
+) -> Result<Vec<String>, String> {
+    let db = style.db;
     if db == DbType::Valkey {
         return Err("Valkey接続ではテーブルを作成できません".into());
     }
@@ -112,8 +117,8 @@ pub fn build(db: DbType, t: &NewTable, types: &[String]) -> Result<Vec<String>, 
     }
 
     match db {
-        DbType::Mysql => mysql(t),
-        DbType::Postgresql => Ok(postgres(t)),
+        DbType::Mysql => mysql(style, t),
+        DbType::Postgresql => Ok(postgres(style, t)),
         DbType::Sqlite => Ok(sqlite(t)),
         DbType::Valkey => unreachable!("先頭で弾いている"),
     }
@@ -124,7 +129,7 @@ fn schema_of(t: &NewTable) -> Option<String> {
     some_trimmed(&t.schema)
 }
 
-fn mysql(t: &NewTable) -> Result<Vec<String>, String> {
+fn mysql(style: SqlStyle, t: &NewTable) -> Result<Vec<String>, String> {
     let db = DbType::Mysql;
     // 文字コードと照合順序はクォートせずそのまま書くので、名前の形を確かめる
     let charset = some_trimmed(&t.charset);
@@ -142,7 +147,7 @@ fn mysql(t: &NewTable) -> Result<Vec<String>, String> {
                 after: None,
                 ..c.clone()
             };
-            mysql_column_def(&spec)
+            mysql_column_def(style, &spec)
         })
         .collect();
     if !t.primary_key.is_empty() {
@@ -157,7 +162,7 @@ fn mysql(t: &NewTable) -> Result<Vec<String>, String> {
         sql.push_str(&format!(" COLLATE = {co}"));
     }
     if let Some(c) = some_trimmed(&t.comment) {
-        sql.push_str(&format!(" COMMENT = {}", literal(&c)));
+        sql.push_str(&format!(" COMMENT = {}", literal(style, &c)));
     }
     Ok(vec![sql])
 }
@@ -177,7 +182,7 @@ fn pg_type(spec: &ColumnSpec) -> String {
     }
 }
 
-fn postgres(t: &NewTable) -> Vec<String> {
+fn postgres(style: SqlStyle, t: &NewTable) -> Vec<String> {
     let db = DbType::Postgresql;
     let table = quote_table(db, schema_of(t).as_deref(), t.name.trim());
 
@@ -204,14 +209,14 @@ fn postgres(t: &NewTable) -> Vec<String> {
     // コメントは別の文になる
     let mut out = vec![create_table_sql(&table, &lines)];
     if let Some(c) = some_trimmed(&t.comment) {
-        out.push(format!("COMMENT ON TABLE {table} IS {}", literal(&c)));
+        out.push(format!("COMMENT ON TABLE {table} IS {}", literal(style, &c)));
     }
     for col in &t.columns {
         if let Some(c) = some_trimmed(&col.comment) {
             out.push(format!(
                 "COMMENT ON COLUMN {table}.{} IS {}",
                 quote(db, col.name.trim()),
-                literal(&c)
+                literal(style, &c)
             ));
         }
     }
@@ -295,7 +300,7 @@ mod tests {
         t.charset = Some("utf8mb4".to_string());
         t.collation = Some("utf8mb4_0900_ai_ci".to_string());
         t.comment = Some("利用者".to_string());
-        let sql = build(DbType::Mysql, &t, &[]).unwrap();
+        let sql = build(SqlStyle::of(DbType::Mysql), &t, &[]).unwrap();
         assert_eq!(sql.len(), 1);
         assert!(sql[0].contains("`id` int NOT NULL AUTO_INCREMENT"), "{}", sql[0]);
         assert!(sql[0].contains("`name` varchar(100) NULL COMMENT '氏名'"), "{}", sql[0]);
@@ -319,7 +324,7 @@ mod tests {
         ]);
         t.schema = Some("app".to_string());
         t.comment = Some("利用者".to_string());
-        let sql = build(DbType::Postgresql, &t, &[]).unwrap();
+        let sql = build(SqlStyle::of(DbType::Postgresql), &t, &[]).unwrap();
         // 自動採番は serial に読み替える
         assert!(sql[0].contains("\"id\" serial NOT NULL"), "{}", sql[0]);
         assert!(sql[0].starts_with("CREATE TABLE \"app\".\"users\""), "{}", sql[0]);
@@ -339,7 +344,7 @@ mod tests {
             },
             col("name", "text"),
         ]);
-        let sql = build(DbType::Sqlite, &t, &[]).unwrap();
+        let sql = build(SqlStyle::of(DbType::Sqlite), &t, &[]).unwrap();
         assert!(
             sql[0].contains("\"id\" integer PRIMARY KEY AUTOINCREMENT"),
             "{}",
@@ -353,14 +358,14 @@ mod tests {
     fn sqliteの複合主キーは表の最後に書く() {
         let mut t = table(vec![col("a", "integer"), col("b", "integer")]);
         t.primary_key = vec!["a".to_string(), "b".to_string()];
-        let sql = build(DbType::Sqlite, &t, &[]).unwrap();
+        let sql = build(SqlStyle::of(DbType::Sqlite), &t, &[]).unwrap();
         assert!(sql[0].contains("PRIMARY KEY (\"a\", \"b\")"), "{}", sql[0]);
     }
 
     #[test]
     fn 同じ名前のカラムは作れない() {
         let t = table(vec![col("id", "int"), col("ID", "int")]);
-        let err = build(DbType::Mysql, &t, &[]).unwrap_err();
+        let err = build(SqlStyle::of(DbType::Mysql), &t, &[]).unwrap_err();
         assert!(err.contains("重複"), "{err}");
     }
 
@@ -368,7 +373,7 @@ mod tests {
     fn 主キーに無いカラムは指定できない() {
         let mut t = table(vec![col("id", "int")]);
         t.primary_key = vec!["missing".to_string()];
-        let err = build(DbType::Mysql, &t, &[]).unwrap_err();
+        let err = build(SqlStyle::of(DbType::Mysql), &t, &[]).unwrap_err();
         assert!(err.contains("主キー"), "{err}");
     }
 
@@ -382,14 +387,14 @@ mod tests {
             },
         ]);
         t.primary_key = vec!["id".to_string()];
-        let err = build(DbType::Mysql, &t, &[]).unwrap_err();
+        let err = build(SqlStyle::of(DbType::Mysql), &t, &[]).unwrap_err();
         assert!(err.contains("自動採番"), "{err}");
     }
 
     #[test]
     fn カラムが無いと作れない() {
         let t = table(vec![]);
-        assert!(build(DbType::Mysql, &t, &[]).is_err());
+        assert!(build(SqlStyle::of(DbType::Mysql), &t, &[]).is_err());
     }
 
     #[test]
@@ -398,21 +403,21 @@ mod tests {
             default: Some("0, ADD COLUMN evil int".to_string()),
             ..col("id", "int")
         }]);
-        assert!(build(DbType::Mysql, &t, &[]).is_err());
+        assert!(build(SqlStyle::of(DbType::Mysql), &t, &[]).is_err());
     }
 
     #[test]
     fn 使えない型は弾く() {
         let t = table(vec![col("id", "nosuchtype")]);
         let types = vec!["int".to_string(), "varchar".to_string()];
-        assert!(build(DbType::Mysql, &t, &types).is_err());
+        assert!(build(SqlStyle::of(DbType::Mysql), &t, &types).is_err());
         // 一覧が空のときはチェックしない (取れないサーバーで作れなくならないように)
-        assert!(build(DbType::Mysql, &t, &[]).is_ok());
+        assert!(build(SqlStyle::of(DbType::Mysql), &t, &[]).is_ok());
     }
 
     #[test]
     fn valkeyでは作れない() {
         let t = table(vec![col("id", "int")]);
-        assert!(build(DbType::Valkey, &t, &[]).is_err());
+        assert!(build(SqlStyle::of(DbType::Valkey), &t, &[]).is_err());
     }
 }

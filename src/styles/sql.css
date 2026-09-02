@@ -850,6 +850,19 @@ html[data-theme="light"] .result-banner.ng {
   font-weight: 700;
 }
 
+/* 証明書を検証していない接続の印。読み取り専用より一段強く出す */
+.status-tls {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-xs);
+  color: var(--warn);
+  font-size: 10.5px;
+  font-weight: 700;
+  /* 説明はツールチップで出すので、押せるようには見せない */
+  cursor: default;
+}
+
 .status-spacer {
   flex: 1;
   min-width: var(--space-2);

@@ -27,6 +27,8 @@
   --completion-match: #a5b4fc;
   --success: #34d399;
   --danger: #f87171;
+  /* 注意 (危険ではないが気づいてほしいもの) */
+  --warn: #fbbf24;
   /* 結果グリッドで値の種類を見分ける色 (読む速さを助ける程度に控えめ) */
   --cell-date: #93b8e8;
   --cell-bool: #86c9b0;
@@ -93,6 +95,8 @@ html[data-theme="light"] {
   --text-faint: #9aa1b5;
   --success: #0c9e6e;
   --danger: #dc4a4a;
+  /* 白地でも読める濃さにする */
+  --warn: #a16207;
   --completion-sel: #4338ca;
   --completion-match: #4338ca;
   --cell-date: #2b6cb0;

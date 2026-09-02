@@ -12,9 +12,9 @@ pub async fn create_table(
     database: Option<String>,
     table: ddl_table::NewTable,
 ) -> Result<Vec<String>, String> {
-    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let style = sessions::session_sql_style(&state, &session_id).await?;
     let types = column_types(&state, &qlog, &session_id, database.as_deref()).await;
-    let statements = ddl_table::build(db_type, &table, &types)?;
+    let statements = ddl_table::build(style, &table, &types)?;
     sessions::exec_ddl(&state, &qlog, &session_id, database, &statements).await?;
     Ok(statements)
 }
@@ -28,9 +28,9 @@ pub async fn preview_create_table(
     database: Option<String>,
     table: ddl_table::NewTable,
 ) -> Result<String, String> {
-    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let style = sessions::session_sql_style(&state, &session_id).await?;
     let types = column_types(&state, &qlog, &session_id, database.as_deref()).await;
-    let statements = ddl_table::build(db_type, &table, &types)?;
+    let statements = ddl_table::build(style, &table, &types)?;
     Ok(statements.join(";\n") + ";")
 }
 
@@ -81,9 +81,9 @@ pub async fn set_table_comment(
     table: String,
     comment: String,
 ) -> Result<Vec<String>, String> {
-    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let style = sessions::session_sql_style(&state, &session_id).await?;
     let statements =
-        ddl::build_set_table_comment(db_type, schema.as_deref(), &table, &comment)?;
+        ddl::build_set_table_comment(style, schema.as_deref(), &table, &comment)?;
     sessions::exec_ddl(&state, &qlog, &session_id, database, &statements).await?;
     Ok(statements)
 }
@@ -132,9 +132,9 @@ pub async fn preview_column_ddl(
     table: String,
     change: ddl::ColumnChange,
 ) -> Result<Vec<String>, String> {
-    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let style = sessions::session_sql_style(&state, &session_id).await?;
     // プレビューは削除の確認だけに使うので、型チェックは不要
-    ddl::build(db_type, schema.as_deref(), &table, &change, &[])
+    ddl::build(style, schema.as_deref(), &table, &change, &[])
 }
 
 /// 型チェック用の一覧を取る (取れなければ空を返し、チェックを省く)
@@ -160,9 +160,9 @@ pub async fn apply_column_ddl(
     table: String,
     change: ddl::ColumnChange,
 ) -> Result<Vec<String>, String> {
-    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    let style = sessions::session_sql_style(&state, &session_id).await?;
     let types = column_types(&state, &qlog, &session_id, database.as_deref()).await;
-    let statements = ddl::build(db_type, schema.as_deref(), &table, &change, &types)?;
+    let statements = ddl::build(style, schema.as_deref(), &table, &change, &types)?;
     sessions::exec_ddl(&state, &qlog, &session_id, database, &statements).await?;
     Ok(statements)
 }

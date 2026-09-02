@@ -205,7 +205,7 @@
         Quelio が未実装のものの2種類があります。理由も併記しています。
       </p>
       <div class="meta-row">
-        <span class="chip">対象バージョン: Quelio v0.7.1</span>
+        <span class="chip">対象バージョン: Quelio v0.7.2</span>
         <span class="chip">最終更新: 2026-08-31</span>
         <span class="chip">ベータ版のため今後変更されることがあります</span>
       </div>
@@ -539,8 +539,8 @@
             </tr>
             <tr>
               <td>エクスポート／インポート（外部ツール連携）</td>
-              <td class="c"><span class="mark y">✓</span><span class="note">mysqldump / mysql</span></td>
-              <td class="c"><span class="mark y">✓</span><span class="note">pg_dump / psql</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">mysqldump / mysql<br>接続設定のTLSを引き継ぎます</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">pg_dump / psql<br>接続設定のTLSを引き継ぎます</span></td>
               <td class="c"><span class="mark n">—</span></td>
               <td class="c"><span class="mark n">—</span></td>
             </tr>
@@ -707,11 +707,11 @@
             </tr>
             <tr>
               <td>TLSの検証</td>
-              <td>MySQL / PostgreSQL は接続ごとにTLSの使い方を選べます（既定 / 使わない / 必須 / CA検証 / CA+ホスト名検証）。CA証明書とクライアント証明書のファイルも指定できます。<span class="note">SSH踏み台を経由する場合は接続先が 127.0.0.1 になるため、ホスト名の検証はできません（CA証明書の検証までを行います）。</span></td>
+              <td>MySQL / PostgreSQL は接続ごとにTLSの使い方を選べます（既定 / 使わない / 必須 / CA検証 / CA+ホスト名検証）。CA証明書とクライアント証明書のファイルも指定できます。証明書を検証しない設定のときは、接続設定と画面下の帯に「TLS未検証」の注意が出ます。<span class="note">SSH踏み台を経由する場合は接続先が 127.0.0.1 になるため、ホスト名の検証はできません（CA証明書の検証までを行います）。手元のDBとSSH / SSM経由の接続には注意を出しません。</span></td>
             </tr>
             <tr>
               <td>対応OS・言語</td>
-              <td>macOS（Apple Silicon）／ Windows（x64）。UIは日本語のみです。</td>
+              <td>macOS（Apple Silicon）／ Windows（x64）。UIは日本語のみです。<span class="note">保存したパスワードの暗号鍵をOSのキーチェーン（Windowsは資格情報マネージャー）に預ける作りのため、Linux版は配布していません。</span></td>
             </tr>
           </tbody>
         </table>

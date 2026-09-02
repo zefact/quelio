@@ -4,6 +4,7 @@ import "./App.css";
 import {
   addSqlHistory,
   cancelQuery,
+  checkDangerousSql,
   connectSession,
   createFolder,
   createSampleDatabase,
@@ -40,6 +41,7 @@ import { SessionView } from "./components/SessionView";
 import { TabBar } from "./components/TabBar";
 import { SettingsModal } from "./components/SettingsModal";
 import { SqlParamModal } from "./components/SqlParamModal";
+import { DangerousSqlConfirm } from "./components/DangerousSqlConfirm";
 import { UpdateBanner } from "./components/UpdateBanner";
 import {
   extractParams,
@@ -52,6 +54,7 @@ import { buildTableSelect, tableKey } from "./tableSql";
 import type {
   ConnectionProfile,
   ConnectionStore,
+  DangerousStatement,
   EditorOptions,
   FolderInfo,
   LayoutEntry,
@@ -140,6 +143,17 @@ function App() {
     then: "connect" | "test";
   } | null>(null);
   /** SQLパラメータ入力モーダルの状態 (実行を保留した内容) */
+  /*
+   * データタブの絞り込み条件に、取り返しのつかないSQLが混ざっていたときの確認待ち。
+   *
+   * 「条件」の欄に書いた文字列も、SQLエディタに書いたときと同じように扱う。
+   * 経路によって守りが変わると、同じ文字列でも確認が出たり出なかったりする
+   */
+  const [dataDanger, setDataDanger] = useState<{
+    key: string;
+    stmts: DangerousStatement[];
+    go: () => void;
+  } | null>(null);
   const [paramReq, setParamReq] = useState<{
     key: string;
     /** 値を保存する単位 (接続プロファイルID) */
@@ -945,11 +959,43 @@ function App() {
     return tab.tables.find((t) => tableKey(t) === tab.selectedTable) ?? null;
   };
 
-  /** テーブルのデータを1ページぶん取得する (SQL実行と同じページング機構を使う) */
+  /**
+   * テーブルのデータを1ページぶん取得する (SQL実行と同じページング機構を使う)。
+   *
+   * 絞り込み条件は利用者が書いた文字列なので、実行の前に
+   * SQLエディタと同じ「取り返しのつかないSQL」の判定を通す。
+   * ページ送りや並べ替えでも同じ条件で流し直すため、判定は毎回行う
+   */
   const loadTableData = async (
     key: string,
     table: TableInfo,
     where: string,
+    offset: number,
+    orderBy?: string,
+    orderDir?: string
+  ) => {
+    const tab = tabOf(key);
+    if (!tab?.selectedDb) return;
+    const sql = buildTableSelect(tab.profile.dbType, table, where);
+    const run = () => runTableData(key, sql, offset, orderBy, orderDir);
+    // 条件が空なら、SQLはこちらで組み立てたSELECTだけなので確かめる必要がない
+    if (where.trim() === "") return run();
+    try {
+      const stmts = await checkDangerousSql(key, sql, tab.profile.dbType);
+      if (stmts.length > 0) {
+        setDataDanger({ key, stmts, go: run });
+        return;
+      }
+    } catch {
+      /* 判定できないときは通常どおり実行する (エディタ側と同じ扱い) */
+    }
+    return run();
+  };
+
+  /** データタブの取得の本体 (確認を通ったあとに呼ぶ) */
+  const runTableData = async (
+    key: string,
+    sql: string,
     offset: number,
     orderBy?: string,
     orderDir?: string
@@ -963,7 +1009,7 @@ function App() {
       const out = await runQuery(
         key,
         tab.selectedDb,
-        buildTableSelect(tab.profile.dbType, table, where),
+        sql,
         offset,
         orderBy,
         orderDir
@@ -1600,6 +1646,34 @@ function App() {
         <SettingsModal
           onClose={() => setShowSettings(false)}
           onImported={() => reload()}
+        />
+      )}
+
+      {/*
+        * データタブの条件に危ないSQLが混ざっていたときの確認。
+        * トランザクションは使わない経路なので transaction={false} で出す
+        */}
+      {dataDanger && (
+        <DangerousSqlConfirm
+          statements={dataDanger.stmts}
+          connection={
+            tabOf(dataDanger.key)?.profile.name ||
+            tabOf(dataDanger.key)?.profile.host ||
+            ""
+          }
+          database={tabOf(dataDanger.key)?.selectedDb ?? undefined}
+          transaction={false}
+          dbType={tabOf(dataDanger.key)?.profile.dbType ?? "mysql"}
+          onCancel={() => {
+            // 前の取得が残っていても「取得中」のまま止まって見えないようにする
+            patchData(dataDanger.key, { loading: false });
+            setDataDanger(null);
+          }}
+          onConfirm={() => {
+            const go = dataDanger.go;
+            setDataDanger(null);
+            go();
+          }}
         />
       )}
 

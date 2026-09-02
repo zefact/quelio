@@ -85,9 +85,51 @@ pub fn quote_table(db: DbType, schema: Option<&str>, table: &str) -> String {
     }
 }
 
-/// 文字列リテラル ('...' 内のシングルクォートは '' にする)
-pub(crate) fn literal(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
+/**
+ * SQLの書き方 (接続ごとに変わる部分)。
+ *
+ * 文字列リテラルの逃がし方はDBの種類だけでは決まらない。
+ * MySQLは `sql_mode` に `NO_BACKSLASH_ESCAPES` があるとバックスラッシュが
+ * ただの文字になり、PostgreSQLは `standard_conforming_strings` が `off` だと
+ * 逆にバックスラッシュがエスケープになる
+ */
+#[derive(Debug, Clone, Copy)]
+pub struct SqlStyle {
+    pub db: DbType,
+    /// 文字列の中で `\` がエスケープとして働くか
+    pub backslash_escape: bool,
+}
+
+impl SqlStyle {
+    /// そのDBの出荷時の設定 (接続に聞けないときに使う)
+    pub fn of(db: DbType) -> SqlStyle {
+        SqlStyle {
+            db,
+            backslash_escape: crate::query::Dialect::of(db).backslash_escape,
+        }
+    }
+
+    /// 接続から確かめた方言を使う
+    pub fn from_dialect(db: DbType, d: &crate::query::Dialect) -> SqlStyle {
+        SqlStyle {
+            db,
+            backslash_escape: d.backslash_escape,
+        }
+    }
+}
+
+/// 文字列リテラル ('...' で囲む)。
+///
+/// `'` は重ねる。バックスラッシュがエスケープとして働く接続 (MySQLの既定) では
+/// `\` も重ねる。重ねないと `'C:\temp\'` のように文字列が閉じず、
+/// 後ろのSQLまで値の一部として読まれてしまう
+pub(crate) fn literal(style: SqlStyle, s: &str) -> String {
+    let body = if style.backslash_escape {
+        s.replace('\\', "\\\\")
+    } else {
+        s.to_string()
+    };
+    format!("'{}'", body.replace('\'', "''"))
 }
 
 /// 空文字をNoneにする
@@ -107,7 +149,7 @@ fn mysql_position(spec: &ColumnSpec) -> String {
 }
 
 /// MySQLのカラム定義部 (名前 + 型 + 制約 + コメント + 位置)
-pub(crate) fn mysql_column_def(spec: &ColumnSpec) -> String {
+pub(crate) fn mysql_column_def(style: SqlStyle, spec: &ColumnSpec) -> String {
     let mut sql = format!("{} {}", quote(DbType::Mysql, &spec.name), spec.col_type);
     // 照合順序は型のすぐ後ろに書く (MySQLは識別子をそのまま並べる)
     if let Some(c) = some_trimmed(&spec.collation) {
@@ -120,7 +162,7 @@ pub(crate) fn mysql_column_def(spec: &ColumnSpec) -> String {
     sql.push_str(&mysql_extra(spec));
     // CHANGE COLUMN は定義を丸ごと置き換えるので、空ならCOMMENT自体を書かない (=クリア)
     if let Some(c) = some_trimmed(&spec.comment) {
-        sql.push_str(&format!(" COMMENT {}", literal(&c)));
+        sql.push_str(&format!(" COMMENT {}", literal(style, &c)));
     }
     sql.push_str(&mysql_position(spec));
     sql
@@ -610,18 +652,19 @@ pub fn build_drop_table(
 /// テーブルのコメント (日本語名・論理名) を設定するSQL。
 /// 空文字を渡すとコメントを消す
 pub fn build_set_table_comment(
-    db: DbType,
+    style: SqlStyle,
     schema: Option<&str>,
     table: &str,
     comment: &str,
 ) -> Result<Vec<String>, String> {
+    let db = style.db;
     validate_table_name(table)?;
     let c = comment.trim();
     match db {
         DbType::Mysql => Ok(vec![format!(
             "ALTER TABLE {} COMMENT = {}",
             quote_table(db, schema, table.trim()),
-            literal(c)
+            literal(style, c)
         )]),
         DbType::Postgresql => Ok(vec![format!(
             "COMMENT ON TABLE {} IS {}",
@@ -629,7 +672,7 @@ pub fn build_set_table_comment(
             if c.is_empty() {
                 "NULL".to_string()
             } else {
-                literal(c)
+                literal(style, c)
             }
         )]),
         DbType::Sqlite => {
@@ -997,12 +1040,13 @@ pub fn build_index(
 
 /// 変更内容から実行するSQL文の一覧を組み立てる
 pub fn build(
-    db: DbType,
+    style: SqlStyle,
     schema: Option<&str>,
     table: &str,
     change: &ColumnChange,
     types: &[String],
 ) -> Result<Vec<String>, String> {
+    let db = style.db;
     if table.trim().is_empty() {
         return Err("テーブルが選択されていません".into());
     }
@@ -1015,14 +1059,15 @@ pub fn build(
         ColumnChange::Drop { .. } => {}
     }
     match db {
-        DbType::Mysql => build_mysql(schema, table, change),
-        DbType::Postgresql => build_pg(schema, table, change),
+        DbType::Mysql => build_mysql(style, schema, table, change),
+        DbType::Postgresql => build_pg(style, schema, table, change),
         DbType::Sqlite => build_sqlite(table, change),
         DbType::Valkey => Err("Valkey接続ではテーブル定義を変更できません".into()),
     }
 }
 
 fn build_mysql(
+    style: SqlStyle,
     schema: Option<&str>,
     table: &str,
     change: &ColumnChange,
@@ -1033,7 +1078,7 @@ fn build_mysql(
             validate(DbType::Mysql, column, true)?;
             Ok(vec![format!(
                 "ALTER TABLE {t} ADD COLUMN {}",
-                mysql_column_def(column)
+                mysql_column_def(style, column)
             )])
         }
         ColumnChange::Drop { name } => Ok(vec![format!(
@@ -1054,13 +1099,14 @@ fn build_mysql(
             Ok(vec![format!(
                 "ALTER TABLE {t} CHANGE COLUMN {} {}",
                 quote(DbType::Mysql, &before.name),
-                mysql_column_def(column)
+                mysql_column_def(style, column)
             )])
         }
     }
 }
 
 fn build_pg(
+    style: SqlStyle,
     schema: Option<&str>,
     table: &str,
     change: &ColumnChange,
@@ -1087,7 +1133,7 @@ fn build_pg(
                 out.push(format!(
                     "COMMENT ON COLUMN {t}.{} IS {}",
                     quote(db, &column.name),
-                    literal(&c)
+                    literal(style, &c)
                 ));
             }
             Ok(out)
@@ -1138,7 +1184,7 @@ fn build_pg(
             }
             if some_trimmed(&before.comment) != some_trimmed(&column.comment) {
                 let value = match some_trimmed(&column.comment) {
-                    Some(c) => literal(&c),
+                    Some(c) => literal(style, &c),
                     None => "NULL".to_string(),
                 };
                 out.push(format!("COMMENT ON COLUMN {t}.{col} IS {value}"));
@@ -1245,6 +1291,57 @@ mod tests {
         )
         .unwrap();
         assert_eq!(drop[0], "ALTER TABLE `orders` DROP FOREIGN KEY `fk_order_user`");
+    }
+
+    #[test]
+    fn コメントのバックスラッシュを逃がす() {
+        let my = SqlStyle::of(DbType::Mysql);
+        // MySQLは既定でバックスラッシュがエスケープ。重ねないと文字列が閉じない
+        assert!(my.backslash_escape);
+        assert_eq!(literal(my, r"C:\temp\"), r"'C:\\temp\\'");
+        // 句を足そうとしても、文字列の中に留まる
+        assert_eq!(
+            literal(my, r"a\', DROP COLUMN secret -- "),
+            r"'a\\'', DROP COLUMN secret -- '"
+        );
+    }
+
+    #[test]
+    fn バックスラッシュがエスケープでない接続では重ねない() {
+        // NO_BACKSLASH_ESCAPES のMySQLや、既定のPostgreSQL
+        let plain = SqlStyle {
+            db: DbType::Mysql,
+            backslash_escape: false,
+        };
+        assert_eq!(literal(plain, r"C:\temp\"), r"'C:\temp\'");
+        assert!(!SqlStyle::of(DbType::Postgresql).backslash_escape);
+        assert_eq!(
+            literal(SqlStyle::of(DbType::Postgresql), r"a\b"),
+            r"'a\b'"
+        );
+    }
+
+    #[test]
+    fn シングルクォートは重ねる() {
+        for style in [SqlStyle::of(DbType::Mysql), SqlStyle::of(DbType::Postgresql)] {
+            assert_eq!(literal(style, "it's"), "'it''s'");
+        }
+    }
+
+    #[test]
+    fn テーブルコメントにバックスラッシュを入れても閉じる() {
+        let sql = build_set_table_comment(
+            SqlStyle::of(DbType::Mysql),
+            None,
+            "t",
+            r"a\', DROP COLUMN x -- ",
+        )
+        .unwrap();
+        assert_eq!(
+            sql[0],
+            // 前後の空白は落としてから入れる
+            r"ALTER TABLE `t` COMMENT = 'a\\'', DROP COLUMN x --'"
+        );
     }
 
     #[test]
