@@ -100,7 +100,7 @@ export interface CommandResults {
   export_connections: number;
   export_er_diagrams: number;
   export_plan_csv: CsvExportResult;
-  export_query_csv: CsvExportResult;
+  export_query_rows: CsvExportResult;
   export_query_log: ExportedLog;
   export_schema_csv: string[];
   export_schema_xlsx: string;
@@ -229,8 +229,8 @@ export const COMMAND_NAMES = [
   "export_connections",
   "export_er_diagrams",
   "export_plan_csv",
-  "export_query_csv",
   "export_query_log",
+  "export_query_rows",
   "export_schema_csv",
   "export_schema_xlsx",
   "fetch_cell",

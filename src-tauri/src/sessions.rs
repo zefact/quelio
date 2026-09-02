@@ -797,7 +797,7 @@ async fn ensure_database(
 /// jobを渡すと進捗の共有とキャンセルができる。
 /// 戻り値は (書き出した行数, キャンセルされたか)
 #[allow(clippy::too_many_arguments)]
-pub async fn export_query_csv(
+pub async fn export_query_rows(
     sessions: &Sessions,
     qlog: &QueryLog,
     session_id: &str,
@@ -806,6 +806,7 @@ pub async fn export_query_csv(
     order_by: Option<String>,
     order_dir: Option<String>,
     path: &std::path::Path,
+    format: crate::export_rows::RowFormat,
     job: Option<&crate::csv_job::CsvJob>,
 ) -> Result<(usize, bool), String> {
     // 並び順 (方向はASC/DESCのみ許可)
@@ -839,13 +840,13 @@ pub async fn export_query_csv(
     if stmts.is_empty() {
         return Err("実行するSQLがありません".into());
     }
-    // 複数文をまとめて渡されると、どの結果をCSVにするか決められない
+    // 複数文をまとめて渡されると、どの結果を書き出すか決められない
     if stmts.len() > 1 {
-        return Err("CSV出力は1つのSQLずつ行ってください".into());
+        return Err(format!("{}出力は1つのSQLずつ行ってください", format.label()));
     }
 
     /*
-     * CSV出力でも `SET …` は実行できるので、方言が変わったら聞き直す。
+     * 書き出しでも `SET …` は実行できるので、方言が変わったら聞き直す。
      * 聞き直しは実行の後 (成功・失敗どちらでも) に行う
      */
     let mut dialect_dirty = stmts
@@ -856,26 +857,48 @@ pub async fn export_query_csv(
     let out_sql = query::plan_export(session.dialect, sql, order, mysql_quoting);
     qlog.add(&label, &db_label, &out_sql);
 
-    // 中身はDBのデータなので、所有者だけが読める権限で作る
-    let file =
-        crate::outfile::create(path).map_err(|e| format!("CSVを作成できません: {e}"))?;
-    let mut out = std::io::BufWriter::new(file);
+    /*
+     * 書き出し先を用意する。
+     *
+     * CSVはその場でファイルを開いて1行ずつ流す。
+     * Excelは中身が圧縮された書庫なので、最後の `finish` でまとめて書く
+     * (それまでは一定メモリのモードで一時ファイルへ流れている)
+     */
+    let mut sink: Box<dyn crate::export_rows::RowSink> = match format {
+        crate::export_rows::RowFormat::Csv => {
+            // 中身はDBのデータなので、所有者だけが読める権限で作る
+            let file = crate::outfile::create(path)
+                .map_err(|e| format!("CSVを作成できません: {e}"))?;
+            Box::new(crate::export_rows::CsvSink::new(std::io::BufWriter::new(
+                file,
+            )))
+        }
+        crate::export_rows::RowFormat::Xlsx => {
+            Box::new(crate::export_sheet::SheetSink::new(path, "結果")?)
+        }
+    };
+
     // 読み取り専用の接続はプリペアドで送り、複数文をサーバー側でも弾く
     let mode = query::SqlMode::for_read_only(
         session.profile.read_only,
         session.txn != TxnState::None,
     );
     let res = match &mut session.conn {
-        DbConn::MySql(conn) => query::export_csv_mysql(conn, &out_sql, mode, &mut out, job).await,
-        DbConn::Pg(conn) => query::export_csv_pg(conn, &out_sql, mode, &mut out, job).await,
+        DbConn::MySql(conn) => {
+            query::export_rows_mysql(conn, &out_sql, mode, sink.as_mut(), job).await
+        }
+        DbConn::Pg(conn) => query::export_rows_pg(conn, &out_sql, mode, sink.as_mut(), job).await,
         DbConn::Sqlite(conn) => {
-            query::export_csv_sqlite(conn, &out_sql, mode, &mut out, job).await
+            query::export_rows_sqlite(conn, &out_sql, mode, sink.as_mut(), job).await
         }
         DbConn::Kv(_) => unreachable!(),
     };
     refresh_dialect(session, qlog, &label, &db_label, &mut dialect_dirty).await;
     let (rows, cancelled) = res?;
-    std::io::Write::flush(&mut out).map_err(|e| format!("CSVを書き込めません: {e}"))?;
+    // 中止したファイルは呼び出し側が消すので、締めるのは最後まで書けたときだけ
+    if !cancelled {
+        sink.finish()?;
+    }
     Ok((rows, cancelled))
 }
 

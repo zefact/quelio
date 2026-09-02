@@ -159,7 +159,15 @@ pub async fn connect_mysql(
         .host(host)
         .port(port)
         .username(user)
-        .password(password);
+        .password(password)
+        /*
+         * 接続のタイムゾーンを端末に合わせる。
+         *
+         * ドライバの既定は `+00:00` (UTC) で、そのままだと
+         * `mysql` コマンドや Workbench と見える時刻がずれる。
+         * TIMESTAMP列も、テーブルの作成・更新日時もUTCで返ってしまう
+         */
+        .timezone(Some(crate::localtz::utc_offset()));
     if let Some(db) = database {
         opts = opts.database(db);
     }
@@ -217,10 +225,25 @@ pub async fn connect_pg(
         (None, None) => {}
         _ => return Err(CLIENT_CERT_PAIR_MSG.to_string()),
     }
-    timeout(CONNECT_TIMEOUT, opts.connect())
+    let mut conn = timeout(CONNECT_TIMEOUT, opts.connect())
         .await
         .map_err(|_| crate::apperr::timeout_message("DB接続"))?
-        .map_err(format_db_error)
+        .map_err(format_db_error)?;
+    /*
+     * PostgreSQLもドライバが起動時にUTCを指定してくるので、端末に合わせ直す。
+     *
+     * `INTERVAL … HOUR TO MINUTE` で渡すのは、
+     * `SET TIME ZONE '+09:00'` だとPOSIX式と解釈されて符号が逆になるため。
+     * ここが通らなくても接続そのものは使えるので、失敗しても止めない
+     */
+    let sql = format!(
+        "SET TIME ZONE INTERVAL '{}' HOUR TO MINUTE",
+        crate::localtz::utc_offset()
+    );
+    let _ = sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+        .execute(&mut conn)
+        .await;
+    Ok(conn)
 }
 
 /// SQLiteのデータベースファイルを開く。

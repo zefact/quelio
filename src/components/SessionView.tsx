@@ -50,6 +50,7 @@ import { SearchDialog } from "./search/SearchDialog";
 import { RoutineDialog } from "./RoutineDialog";
 import { SelectMenu } from "./SelectMenu";
 import { ConnectionChip, ServerInfo } from "./SessionHeader";
+import { SessionTools } from "./SessionTools";
 import { PaneHead, SidePane } from "./SidePane";
 import { TableList } from "./TableList";
 import { TableView } from "./TableView";
@@ -143,7 +144,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
   const [dropping, setDropping] = useState<TableInfo[] | null>(null);
   /** 関数・トリガの定義を出しているか */
   const [showRoutines, setShowRoutines] = useState(false);
-  /** 実行中の接続一覧を出しているか */
+  /** プロセス一覧 (サーバー側の接続) を出しているか */
   const [showProcesses, setShowProcesses] = useState(false);
   /** 右クリックから数えた正確な件数 (テーブルキー → 表示文字列) */
   const [counts, setCounts] = useState<Record<string, string>>({});
@@ -599,81 +600,31 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
         <ServerInfo items={tab.serverInfo} />
 
         <span className="toolbar-spacer" />
-        <button
-          className="sql-btn has-tooltip"
-          data-tooltip={
-            selectedDb
-              ? "検索 (テーブル名・カラム名・コメントから探す / 値の中から探す)"
-              : "検索するデータベースを選んでください"
-          }
-          // 探す範囲は選んでいるデータベースの中だけなので、未選択では開けない
-          disabled={!selectedDb}
-          onClick={() => setShowSearch(true)}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="2" />
-            <path d="M16 16l4.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-          検索
-        </button>
-        <button
-          className="sql-btn has-tooltip"
-          data-tooltip="ER図 (テーブルのリレーションを別ウィンドウで表示・PNG出力)"
-          onClick={() => {
+        {/*
+          * ときどき開くものは「ツール」にまとめる。
+          * 常に使う「プロセス一覧」「SQL」だけをボタンのまま残す
+          */}
+        <SessionTools
+          selectedDb={selectedDb}
+          dbType={profile.dbType}
+          onSearch={() => setShowSearch(true)}
+          onEr={() => {
             // DB未選択でも開ける (ER図ウィンドウ側で接続・DBを選べる)
             openEr(tab.key, selectedDb ?? "").catch((e) =>
               setWinError(`ER図を開けませんでした: ${e}`)
             );
           }}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <rect x="3" y="3" width="8" height="6" rx="1.5" stroke="currentColor" strokeWidth="2" />
-            <rect x="13" y="15" width="8" height="6" rx="1.5" stroke="currentColor" strokeWidth="2" />
-            <path d="M7 9v6h6M17 15V9h-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          ER図
-        </button>
-        <button
-          className="sql-btn has-tooltip"
-          data-tooltip="スキーマ一覧 (テーブル/カラム/インデックスを別ウィンドウで表示・CSV出力)"
-          disabled={!selectedDb}
-          onClick={() => {
-            if (selectedDb) {
-              openSchema(tab.key, selectedDb, profile.name).catch((e) =>
-                setWinError(`スキーマ一覧を開けませんでした: ${e}`)
-              );
-            }
+          onSchema={() => {
+            if (!selectedDb) return;
+            openSchema(tab.key, selectedDb, profile.name).catch((e) =>
+              setWinError(`スキーマを開けませんでした: ${e}`)
+            );
           }}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path
-              d="M4 5h16M4 10h16M4 15h10M4 20h7"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-          一覧
-        </button>
+          onRoutines={() => setShowRoutines(true)}
+        />
         <button
           className="sql-btn has-tooltip"
-          data-tooltip="関数・プロシージャ・トリガの定義を見る (表示するだけです)"
-          disabled={!selectedDb || profile.dbType === "valkey"}
-          onClick={() => setShowRoutines(true)}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path
-              d="M9 6c-2 0-2 3-2 6s0 6-2 6M15 6c2 0 2 3 2 6s0 6 2 6"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-          定義
-        </button>
-        <button
-          className="sql-btn has-tooltip"
-          data-tooltip="サーバーで動いている接続とSQLを見る (止めることもできます)"
+          data-tooltip="サーバーに繋がっている接続と実行中のSQLを見る (止めることもできます)"
           disabled={
             !selectedDb ||
             profile.dbType === "valkey" ||
@@ -697,7 +648,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               strokeLinejoin="round"
             />
           </svg>
-          実行中
+          プロセス一覧
         </button>
         <button
           className={

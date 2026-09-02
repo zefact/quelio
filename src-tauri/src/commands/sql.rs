@@ -347,12 +347,13 @@ pub fn export_plan_csv(
     })
 }
 
-/// SQL実行結果 (1文ぶん) を全件CSVへ書き出し、保存先と行数を返す。
+/// SQL実行結果 (1文ぶん) を全件ファイルへ書き出し、保存先と行数を返す。
 /// 画面のページング (1000行) とは無関係に対象SQLの全行を出力する。
+/// formatは "csv" か "xlsx"。
 /// job_idを指定すると、別コマンドから進捗取得・キャンセルができる
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub async fn export_query_csv(
+pub async fn export_query_rows(
     app: AppHandle,
     state: State<'_, Sessions>,
     qlog: State<'_, QueryLog>,
@@ -362,6 +363,7 @@ pub async fn export_query_csv(
     sql: String,
     order_by: Option<String>,
     order_dir: Option<String>,
+    format: String,
     job_id: String,
 ) -> Result<CsvExportResult, String> {
     // 先にジョブを登録する。保存先を決める間にキャンセルを押されても取りこぼさない
@@ -373,9 +375,10 @@ pub async fn export_query_csv(
     let base = crate::filename::safe_stem(
         &database.clone().unwrap_or_else(|| "query".to_string()),
     );
-    let path = dir.join(format!("{base}_query_{ts}.csv"));
+    let fmt = crate::export_rows::RowFormat::parse(&format);
+    let path = dir.join(format!("{base}_query_{ts}.{}", fmt.extension()));
 
-    let res = sessions::export_query_csv(
+    let res = sessions::export_query_rows(
         &state,
         &qlog,
         &session_id,
@@ -384,6 +387,7 @@ pub async fn export_query_csv(
         order_by,
         order_dir,
         &path,
+        fmt,
         Some(&job),
     )
     .await;

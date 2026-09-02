@@ -93,6 +93,15 @@
   padding-top: 0;
 }
 
+/*
+ * 絞り込みの一群と、行の追加より右のものを分ける区切り。
+ * toolbar-spacer (flex:1) は絞り込み入力と余白を取り合ってしまうので、
+ * 幅を持たない印を置いて、右側だけを寄せる
+ */
+.table-data-gap {
+  margin-left: auto;
+}
+
 /* 絞り込み入力 (filter-inputの下マージンを打ち消して1行に並べる) */
 .table-where {
   flex: 1;

@@ -1,8 +1,10 @@
 import { CsvProgress } from "./CsvProgress";
+import { ExportMenu } from "./ExportMenu";
 import { RevealButton } from "./RevealButton";
 import type { QueryResult, StatementResult } from "../types";
 import { QUERY_PAGE_SIZE } from "../types";
 import type { useCsvExport } from "../hooks/useCsvExport";
+import type { ExportFormat } from "../exportFormat";
 import { isExecResult, statementLabel } from "./queryResult";
 
 interface Props {
@@ -12,11 +14,11 @@ interface Props {
   /** 表示中の結果タブの結果 */
   result: QueryResult | null;
   running: boolean;
-  /** 実行計画を表示中か (CSVの中身と説明が変わる) */
+  /** 実行計画を表示中か (書き出す中身と説明が変わる) */
   explainKind: "explain" | "analyze" | null;
-  /** CSV出力の状態 (useCsvExport の戻り値) */
+  /** 書き出しの状態 (useCsvExport の戻り値) */
   csv: ReturnType<typeof useCsvExport>;
-  onExportCsv: () => void;
+  onExport: (format: ExportFormat) => void;
   onPage: (index: number, offset: number) => void;
   /** ピン留めできるか (表になる結果のときだけ) */
   canPin: boolean;
@@ -33,7 +35,7 @@ interface Props {
 }
 
 /**
- * 結果ヘッダ: 文ごとのタブ + その文の件数・ページ送り・CSV出力。
+ * 結果ヘッダ: 文ごとのタブ + その文の件数・ページ送り・書き出し。
  * 件数とページ送りは結果タブごとの情報なので結果側に置く
  */
 export function QueryResultBar({
@@ -44,7 +46,7 @@ export function QueryResultBar({
   running,
   explainKind,
   csv,
-  onExportCsv,
+  onExport,
   onPage,
   canPin,
   pinnedLabel,
@@ -117,7 +119,7 @@ export function QueryResultBar({
         )}
       </div>
 
-      {/* 右側: CSV出力 / 件数 / ページ送り (いずれも表示中の結果タブの情報) */}
+      {/* 右側: 書き出し / 件数 / ページ送り (いずれも表示中の結果タブの情報) */}
       <div className="result-bar-right">
         {/* 出力中は進捗 (行数と経過時間) を出し、キャンセルできるようにする。
             進捗も結果メッセージも、出力した結果タブでのみ表示する */}
@@ -131,7 +133,7 @@ export function QueryResultBar({
             <button
               className="btn-secondary cancel-query-btn"
               onClick={csv.cancel}
-              title="CSV出力を中止する (作りかけのファイルは残しません)"
+              title="出力を中止する (作りかけのファイルは残しません)"
             >
               キャンセル
             </button>
@@ -148,26 +150,12 @@ export function QueryResultBar({
         )}
 
         {!running && result && !isExecResult(result) && (
-          <button
-            // 画面右端のボタンなので、ツールチップは右端起点で左へ伸ばす
-            // (tooltip-leftを付けると右へ伸びて画面外で切れる)
-            className="btn-secondary explain-btn csv-btn has-tooltip tooltip-wrap"
-            data-tooltip={
-              explainKind
-                ? "画面に出ている実行計画をCSVで保存します\n(SQLは実行し直しません)"
-                : "この結果タブのSQLを全件CSVで保存します\n1000行を超えても全行出力します"
-            }
+          <ExportMenu
             disabled={!!csv.job || result.rows.length === 0}
-            onClick={onExportCsv}
-          >
-            {csv.job?.index === activeIdx ? (
-              <>
-                <span className="spinner accent" /> 出力中...
-              </>
-            ) : (
-              "CSVダウンロード"
-            )}
-          </button>
+            running={csv.job?.index === activeIdx}
+            explainKind={explainKind}
+            onExport={onExport}
+          />
         )}
 
         {!running && result && (

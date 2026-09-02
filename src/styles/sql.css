@@ -1348,6 +1348,57 @@ html[data-theme="light"] .result-banner.ng {
   cursor: default;
 }
 
+/* ============ ツールバーの「ツール」メニュー ============ */
+
+.tools-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.tools-menu {
+  width: 300px;
+}
+
+/*
+ * アイコン + (名前 / 説明) の2段組。
+ *
+ * 設定画面の外部ツール一覧が .tool-item / .tool-name を使っているので、
+ * ここは tools-menu- を頭に付けて分ける (短い名前だと当たってしまう)
+ */
+.tools-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 8px 12px;
+}
+
+.tools-menu-icon {
+  display: flex;
+  /* 1行目の文字と高さを合わせる */
+  padding-top: 1px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.tools-menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tools-menu-name {
+  font-weight: 700;
+}
+
+.tools-menu-note {
+  font-size: 11px;
+  color: var(--text-dim);
+  /* 説明が長いときは折り返して読ませる (メニューは横に広げない) */
+  white-space: normal;
+  line-height: 1.4;
+}
+
 /* EXPLAINボタンと実行計画ビュー */
 
 .plan-container {

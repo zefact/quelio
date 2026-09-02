@@ -11,7 +11,20 @@ const cond = (o: Partial<FilterCond>): FilterCond => ({
   ...o,
 });
 
-describe("値の書き方", () => {
+/** テスト用のテーブル定義 (列名 → 型) */
+const TYPES: Record<string, string> = {
+  status: "int(11)",
+  qty: "decimal(10,2)",
+  name: "varchar(50)",
+  code: "varchar(10)",
+  is_active: "boolean",
+  order_date: "date",
+  memo: "text",
+  loose: "",
+};
+const t = (n: string) => TYPES[n];
+
+describe("値の書き方 (型が分からないとき)", () => {
   it("数値は引用符なしで置く", () => {
     expect(isNumericLiteral("12")).toBe(true);
     expect(isNumericLiteral("-3.5")).toBe(true);
@@ -35,6 +48,83 @@ describe("値の書き方", () => {
   it("true / false / null はそのまま書く", () => {
     expect(condSql(cond({ value: "true" }), q)).toBe("`status` = TRUE");
     expect(condSql(cond({ value: "null" }), q)).toBe("`status` = NULL");
+  });
+});
+
+describe("値の書き方 (列の型を見る)", () => {
+  it("数値の列は引用符を付けない", () => {
+    expect(condSql(cond({ column: "status", value: "1" }), q, t)).toBe(
+      "`status` = 1"
+    );
+    expect(condSql(cond({ column: "qty", value: "-3.5" }), q, t)).toBe(
+      "`qty` = -3.5"
+    );
+  });
+
+  it("文字列の列は、数字だけの値でも引用符で囲む", () => {
+    // 見た目で決めていたころは `code` = 0123 になり、
+    // PostgreSQLでは型が合わずエラーになっていた
+    expect(condSql(cond({ column: "code", value: "0123" }), q, t)).toBe(
+      "`code` = '0123'"
+    );
+    expect(condSql(cond({ column: "name", value: "123" }), q, t)).toBe(
+      "`name` = '123'"
+    );
+  });
+
+  it("日付の列も引用符で囲む", () => {
+    expect(condSql(cond({ column: "order_date", value: "2026-09-02" }), q, t)).toBe(
+      "`order_date` = '2026-09-02'"
+    );
+  });
+
+  it("文字列の列では true / null も文字として扱う", () => {
+    expect(condSql(cond({ column: "memo", value: "null" }), q, t)).toBe(
+      "`memo` = 'null'"
+    );
+  });
+
+  it("真偽値の列は TRUE / FALSE で書く", () => {
+    expect(condSql(cond({ column: "is_active", value: "true" }), q, t)).toBe(
+      "`is_active` = TRUE"
+    );
+    expect(condSql(cond({ column: "is_active", value: "False" }), q, t)).toBe(
+      "`is_active` = FALSE"
+    );
+    // MySQLの 0/1 もそのまま渡す
+    expect(condSql(cond({ column: "is_active", value: "1" }), q, t)).toBe(
+      "`is_active` = 1"
+    );
+  });
+
+  it("数値の列に数でない値を入れても、文のかたちは崩さない", () => {
+    expect(condSql(cond({ column: "status", value: "あ" }), q, t)).toBe(
+      "`status` = 'あ'"
+    );
+  });
+
+  it("型が空の列 (SQLiteなど) は値の見た目で決める", () => {
+    expect(condSql(cond({ column: "loose", value: "1" }), q, t)).toBe(
+      "`loose` = 1"
+    );
+    expect(condSql(cond({ column: "loose", value: "あ" }), q, t)).toBe(
+      "`loose` = 'あ'"
+    );
+  });
+
+  it("INの中身も列の型に合わせる", () => {
+    expect(condSql(cond({ column: "code", op: "in", value: "1, 2" }), q, t)).toBe(
+      "`code` IN ('1', '2')"
+    );
+    expect(
+      condSql(cond({ column: "status", op: "in", value: "1, 2" }), q, t)
+    ).toBe("`status` IN (1, 2)");
+  });
+
+  it("LIKEは型に関わらず引用符で囲む", () => {
+    expect(
+      condSql(cond({ column: "status", op: "contains", value: "1" }), q, t)
+    ).toBe("`status` LIKE '%1%'");
   });
 });
 
@@ -103,5 +193,18 @@ describe("WHERE句の組み立て", () => {
 
   it("何も書けなければ空文字", () => {
     expect(buildWhere([cond({ value: "" })], q)).toBe("");
+  });
+
+  it("列ごとに型を見て書き分ける", () => {
+    expect(
+      buildWhere(
+        [
+          cond({ column: "status", value: "1" }),
+          cond({ column: "code", value: "0123" }),
+        ],
+        q,
+        t
+      )
+    ).toBe("`status` = 1 AND `code` = '0123'");
   });
 });

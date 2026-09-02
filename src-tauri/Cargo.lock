@@ -3930,7 +3930,7 @@ dependencies = [
 
 [[package]]
 name = "quelio"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "aes-gcm 0.10.3",
  "base64 0.22.1",
@@ -4405,6 +4405,7 @@ version = "0.95.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f281b687352597d29efaad39701d1167d5c48aa76fb973e392bc13e9d44e7f36"
 dependencies = [
+ "tempfile",
  "zip 7.2.0",
 ]
 

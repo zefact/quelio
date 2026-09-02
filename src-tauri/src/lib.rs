@@ -16,10 +16,13 @@ mod dialect;
 mod dml;
 mod er_store;
 mod export;
+mod export_rows;
+mod export_sheet;
 mod export_xlsx;
 mod filename;
 mod json_store;
 mod known_hosts;
+mod localtz;
 mod kv;
 mod models;
 mod outfile;
@@ -203,7 +206,7 @@ pub fn run() {
             commands::kv_apply,
             commands::export_schema_csv,
             commands::export_schema_xlsx,
-            commands::export_query_csv,
+            commands::export_query_rows,
             commands::export_plan_csv,
             commands::list_collations,
             commands::schema_columns,

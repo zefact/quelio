@@ -4,6 +4,8 @@
  * SQLを書かない人でも絞り込めるようにするのが目的。
  * 組み立てた文はそのまま画面の入力欄に入れて見せる (何が起きたのか分かるように)
  */
+import { columnValueKind } from "./columnType";
+import type { ValueKind } from "./columnType";
 
 /** 使える演算子 */
 export type OpKind =
@@ -64,18 +66,40 @@ export function quoteValue(v: string): string {
   return `'${v.replace(/'/g, "''")}'`;
 }
 
-/** 数値ならそのまま、それ以外は文字列リテラルにする */
-function literal(v: string): string {
+/** 列名からその列の型を引く (分からなければ空文字を返す) */
+export type TypeOf = (column: string) => string | undefined;
+
+/**
+ * 値をSQLの書き方に直す。
+ *
+ * 列の型が分かっていれば、それに従う。
+ * 数値の列だけ引用符を外し、それ以外は数字だけの値でも引用符で囲む
+ * (`varchar` の "0123" を 123 にしてしまわないため)
+ */
+function literal(v: string, kind: ValueKind | null): string {
   const t = v.trim();
-  if (isNumericLiteral(t)) return t;
-  if (/^(true|false|null)$/i.test(t)) return t.toUpperCase();
-  return quoteValue(v);
+  switch (kind) {
+    case "number":
+      // 数として読めない値は囲んでおく (文のかたちだけは崩さない)
+      return isNumericLiteral(t) ? t : quoteValue(v);
+    case "bool":
+      if (/^(true|false)$/i.test(t)) return t.toUpperCase();
+      return isNumericLiteral(t) ? t : quoteValue(v);
+    case "text":
+      return quoteValue(v);
+    default:
+      // 型が分からないときは、これまで通り値の見た目で決める
+      if (isNumericLiteral(t)) return t;
+      if (/^(true|false|null)$/i.test(t)) return t.toUpperCase();
+      return quoteValue(v);
+  }
 }
 
 /** 条件1つをSQLにする (書けない条件はnull) */
 export function condSql(
   cond: FilterCond,
-  quoteName: (name: string) => string
+  quoteName: (name: string) => string,
+  typeOf?: TypeOf
 ): string | null {
   if (!cond.column) return null;
   const col = quoteName(cond.column);
@@ -83,19 +107,21 @@ export function condSql(
   if (cond.op === "notnull") return `${col} IS NOT NULL`;
   const v = cond.value;
   if (v.trim() === "") return null;
+  const kind = typeOf ? columnValueKind(typeOf(cond.column)) : null;
+  const lit = (x: string) => literal(x, kind);
   switch (cond.op) {
     case "eq":
-      return `${col} = ${literal(v)}`;
+      return `${col} = ${lit(v)}`;
     case "ne":
-      return `${col} <> ${literal(v)}`;
+      return `${col} <> ${lit(v)}`;
     case "gt":
-      return `${col} > ${literal(v)}`;
+      return `${col} > ${lit(v)}`;
     case "ge":
-      return `${col} >= ${literal(v)}`;
+      return `${col} >= ${lit(v)}`;
     case "lt":
-      return `${col} < ${literal(v)}`;
+      return `${col} < ${lit(v)}`;
     case "le":
-      return `${col} <= ${literal(v)}`;
+      return `${col} <= ${lit(v)}`;
     case "contains":
       return `${col} LIKE ${quoteValue(`%${v}%`)}`;
     case "starts":
@@ -108,7 +134,7 @@ export function condSql(
         .map((s) => s.trim())
         .filter((s) => s !== "");
       if (items.length === 0) return null;
-      return `${col} IN (${items.map(literal).join(", ")})`;
+      return `${col} IN (${items.map(lit).join(", ")})`;
     }
   }
 }
@@ -116,10 +142,11 @@ export function condSql(
 /** 条件をすべて AND で繋いだ WHERE句を返す (書けるものが無ければ空文字) */
 export function buildWhere(
   conds: FilterCond[],
-  quoteName: (name: string) => string
+  quoteName: (name: string) => string,
+  typeOf?: TypeOf
 ): string {
   return conds
-    .map((c) => condSql(c, quoteName))
+    .map((c) => condSql(c, quoteName, typeOf))
     .filter((s): s is string => s !== null)
     .join(" AND ");
 }

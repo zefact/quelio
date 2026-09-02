@@ -1191,6 +1191,41 @@
   cursor: default;
 }
 
+/* 「CSVダウンロード ▾」の2つのボタンを1つの塊に見せる */
+.export-split .export-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.export-split .export-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  /* 隣り合う枠が二重に見えないように、間の線は1本だけにする */
+  margin-left: -1px;
+  padding: 5px 8px;
+}
+
+.export-menu {
+  min-width: 200px;
+}
+
+/* 形式の名前と、その下の一言 */
+.export-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.export-item.checked .export-name::after {
+  content: " ✓";
+  color: var(--accent-2);
+}
+
+.export-note {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
 .result-tabs {
   display: flex;
   gap: var(--space-1);
@@ -1219,7 +1254,7 @@
   padding: 5px 12px;
   font-size: 11.5px;
   font-weight: 700;
-  font-family: var(--font-mono);
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
 }

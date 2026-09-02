@@ -200,19 +200,18 @@ where
     })
 }
 
-/// 結果セットのストリームをCSVとして書き出す。
-/// 1行ずつ書き出すので、何百万行でもメモリ使用量は一定。
+/// 結果セットのストリームを書き出し先へ流す。
+/// 1行ずつ渡すので、何百万行でもメモリ使用量は一定。
 /// 戻り値は (書き出した行数, キャンセルされたか)
-async fn write_csv<R, S, W>(
+async fn write_rows<R, S>(
     mut stream: S,
     cell: fn(&R, usize) -> Option<CsvCell>,
-    out: &mut W,
+    sink: &mut dyn crate::export_rows::RowSink,
     job: Option<&CsvJob>,
 ) -> Result<(usize, bool), AppError>
 where
     R: Row,
     S: Stream<Item = Result<R, sqlx::Error>> + Unpin,
-    W: std::io::Write,
 {
     let mut count = 0usize;
     let mut wrote_header = false;
@@ -233,21 +232,19 @@ where
         };
         let Some(row) = next else { break };
         if !wrote_header {
-            let cols: Vec<Option<CsvCell>> = row
+            let names: Vec<String> = row
                 .columns()
                 .iter()
-                .map(|c| Some(CsvCell::text(c.name().to_string())))
+                .map(|c| c.name().to_string())
                 .collect();
-            out.write_all(crate::export::csv_row_cells(&cols).as_bytes())
-                .map_err(|e| format!("CSVを書き込めません: {e}"))?;
+            sink.header(&names)?;
             wrote_header = true;
         }
-        // 文字列・日時はクォートで囲み、数値はそのまま、NULLは空欄にする
+        // 数値かどうかの区別を付けたまま渡す (書き方は書き出し先が決める)
         let fields: Vec<Option<CsvCell>> = (0..row.columns().len())
             .map(|i| cell(&row, i))
             .collect();
-        out.write_all(crate::export::csv_row_cells(&fields).as_bytes())
-            .map_err(|e| format!("CSVを書き込めません: {e}"))?;
+        sink.row(&fields)?;
         count += 1;
         // 進捗の共有とキャンセル要求の確認 (どちらもアトミック変数なので軽い)
         if let Some(job) = job {
@@ -321,11 +318,11 @@ macro_rules! fetch_stream {
     };
 }
 
-/// SQLの結果を全件CSVへ書き出す
-macro_rules! export_csv_impl {
-    ($conn:expr, $sql:expr, $mode:expr, $out:expr, $job:expr, $cell:path) => {{
+/// SQLの結果を全件書き出す
+macro_rules! export_rows_impl {
+    ($conn:expr, $sql:expr, $mode:expr, $sink:expr, $job:expr, $cell:path) => {{
         let stream = fetch_stream!($conn, $sql.to_string(), $mode);
-        write_csv(stream, $cell, $out, $job).await
+        write_rows(stream, $cell, $sink, $job).await
     }};
 }
 
@@ -392,37 +389,37 @@ macro_rules! run_impl {
     }};
 }
 
-/// MySQL: SQLの結果を全件CSVへ書き出す
-pub async fn export_csv_mysql<W: std::io::Write>(
+/// MySQL: SQLの結果を全件書き出す
+pub async fn export_rows_mysql(
     conn: &mut MySqlConnection,
     sql: &str,
     mode: SqlMode,
-    out: &mut W,
+    sink: &mut dyn crate::export_rows::RowSink,
     job: Option<&CsvJob>,
 ) -> Result<(usize, bool), AppError> {
-    export_csv_impl!(conn, sql, mode, out, job, mysql_cell_full)
+    export_rows_impl!(conn, sql, mode, sink, job, mysql_cell_full)
 }
 
-/// PostgreSQL: SQLの結果を全件CSVへ書き出す
-pub async fn export_csv_pg<W: std::io::Write>(
+/// PostgreSQL: SQLの結果を全件書き出す
+pub async fn export_rows_pg(
     conn: &mut PgConnection,
     sql: &str,
     mode: SqlMode,
-    out: &mut W,
+    sink: &mut dyn crate::export_rows::RowSink,
     job: Option<&CsvJob>,
 ) -> Result<(usize, bool), AppError> {
-    export_csv_impl!(conn, sql, mode, out, job, pg_cell_full)
+    export_rows_impl!(conn, sql, mode, sink, job, pg_cell_full)
 }
 
-/// SQLite: SQLの結果を全件CSVへ書き出す
-pub async fn export_csv_sqlite<W: std::io::Write>(
+/// SQLite: SQLの結果を全件書き出す
+pub async fn export_rows_sqlite(
     conn: &mut SqliteConnection,
     sql: &str,
     mode: SqlMode,
-    out: &mut W,
+    sink: &mut dyn crate::export_rows::RowSink,
     job: Option<&CsvJob>,
 ) -> Result<(usize, bool), AppError> {
-    export_csv_impl!(conn, sql, mode, out, job, sqlite_cell_full)
+    export_rows_impl!(conn, sql, mode, sink, job, sqlite_cell_full)
 }
 
 /// MySQL: 1文を実行する

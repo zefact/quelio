@@ -205,7 +205,7 @@
         Quelio が未実装のものの2種類があります。理由も併記しています。
       </p>
       <div class="meta-row">
-        <span class="chip">対象バージョン: Quelio v0.7.2</span>
+        <span class="chip">対象バージョン: Quelio v0.7.3</span>
         <span class="chip">最終更新: 2026-08-31</span>
         <span class="chip">ベータ版のため今後変更されることがあります</span>
       </div>
@@ -431,7 +431,7 @@
               <td class="c"><span class="mark n">—</span></td>
             </tr>
             <tr>
-              <td>結果のCSV出力</td>
+              <td>結果の CSV / Excel 出力</td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
@@ -703,11 +703,15 @@
             </tr>
             <tr>
               <td>画面に出す件数・文字数</td>
-              <td>結果は1000行ずつ、1セルあたり1000文字までの表示です。<span class="note">CSV出力はそのSQLの全行、EXPLAIN は全文を表示します。</span></td>
+              <td>結果は1000行ずつ、1セルあたり1000文字までの表示です。<span class="note">CSV / Excel 出力はそのSQLの全行、EXPLAIN は全文を表示します。Excelは1シートの上限（1,048,575行）を超えると中止します。</span></td>
             </tr>
             <tr>
               <td>TLSの検証</td>
               <td>MySQL / PostgreSQL は接続ごとにTLSの使い方を選べます（既定 / 使わない / 必須 / CA検証 / CA+ホスト名検証）。CA証明書とクライアント証明書のファイルも指定できます。証明書を検証しない設定のときは、接続設定と画面下の帯に「TLS未検証」の注意が出ます。<span class="note">SSH踏み台を経由する場合は接続先が 127.0.0.1 になるため、ホスト名の検証はできません（CA証明書の検証までを行います）。手元のDBとSSH / SSM経由の接続には注意を出しません。</span></td>
+            </tr>
+            <tr>
+              <td>日時のタイムゾーン</td>
+              <td>接続のタイムゾーンをアプリを動かしている端末に合わせます。<span class="note">TIMESTAMP列やテーブルの作成・更新日時は、mysql コマンドや psql と同じ時刻で表示されます。PostgreSQL の timestamptz には時差（+09:00 など）を添えます。</span></td>
             </tr>
             <tr>
               <td>対応OS・言語</td>

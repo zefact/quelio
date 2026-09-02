@@ -51,6 +51,11 @@ import {
 import type { ParamKind, ParamValue } from "./sqlParams";
 import { buildSchemaTips } from "./columnTips";
 import { buildTableSelect, tableKey } from "./tableSql";
+import {
+  dropFilters,
+  recallFilter,
+  rememberFilter,
+} from "./tableFilterStore";
 import type {
   ConnectionProfile,
   ConnectionStore,
@@ -633,6 +638,8 @@ function App() {
   /** タブを閉じる。最後の1枚を閉じたら新しい空タブを作る */
   const closeTab = async (key: string) => {
     const tab = tabOf(key);
+    // 覚えていた絞り込み条件も、このタブのぶんは片付ける
+    dropFilters(key);
     if (tab?.connected) {
       try {
         await disconnectSession(key);
@@ -895,17 +902,22 @@ function App() {
     // 常に最新のタブを見る (作った直後のタブは state にまだ載っていない)
     const tab = tabOf(key);
     if (!tab?.selectedDb) return;
+    /*
+     * データは対象テーブルが変わるため破棄する。
+     * 絞り込み条件だけは、そのテーブルに前へ入れたものを戻す
+     * (別のテーブルを見てから帰ってきたときに入れ直さなくて済むように)
+     */
+    const where = recallFilter(key, tab.selectedDb, tableKey(t));
     updateTab(key, {
       selectedTable: tableKey(t),
       tableDetail: null,
       loadingDetail: true,
-      // データは対象テーブルが変わるため破棄する (絞り込み条件も引き継がない)
-      tableData: emptyTableData(),
+      tableData: { ...emptyTableData(), where },
       view: "structure",
       error: null,
     });
     if (tab.tableTab === "data") {
-      loadTableData(key, t, "", 0);
+      loadTableData(key, t, where, 0);
     }
     try {
       const detail = await tableDetail(key, tab.selectedDb, t.schema, t.name);
@@ -1344,8 +1356,8 @@ function App() {
     },
     {
       id: "schema",
-      label: "スキーマ一覧を開く",
-      keywords: "schema table column index",
+      label: "スキーマを開く",
+      keywords: "schema table column index スキーマ一覧 定義書",
       disabledReason: activeTab.selectedDb
         ? undefined
         : "データベースを選んでから使えます",
@@ -1353,7 +1365,7 @@ function App() {
         const db = activeTab.selectedDb;
         if (!db) return;
         void openSchema(activeKeyNow, db, activeTab.profile.name).catch((e) =>
-          setWinError(`スキーマ一覧を開けませんでした: ${e}`)
+          setWinError(`スキーマを開けませんでした: ${e}`)
         );
       },
     },
@@ -1421,7 +1433,17 @@ function App() {
   const dataPane: TableDataPane = useMemo(
     () => ({
       ...activeTab.tableData,
-      onChangeWhere: (where) => patchData(activeKeyNow, { where }),
+      onChangeWhere: (where) => {
+        patchData(activeKeyNow, { where });
+        // 対象は tabsRef 経由で今の値を見る (この関数は作り直されないため)
+        const cur = tabOf(activeKeyNow);
+        rememberFilter(
+          activeKeyNow,
+          cur?.selectedDb ?? "",
+          cur?.selectedTable ?? "",
+          where
+        );
+      },
       onApplyWhere: (where) => reloadTableData(activeKeyNow, 0, undefined, where),
       onReload: () => reloadTableData(activeKeyNow, "keep"),
       onPage: (offset) => reloadTableData(activeKeyNow, offset),

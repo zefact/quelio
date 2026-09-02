@@ -106,7 +106,7 @@ pub async fn mysql_server_info(
 ) -> Result<Vec<(String, String)>, AppError> {
     let sql = "SELECT @@version AS version, \
                @@character_set_server AS charset, @@collation_server AS collation, \
-               @@system_time_zone AS tz";
+               @@session.time_zone AS tz";
     ctx.log(sql);
     let row = timeout(QUERY_TIMEOUT, sqlx::query(sql).fetch_one(conn))
         .await

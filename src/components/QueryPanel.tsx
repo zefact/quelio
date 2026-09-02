@@ -18,6 +18,7 @@ import type {
   QueryResult,
   StatementResult,
 } from "../types";
+import type { ExportFormat } from "../exportFormat";
 import { isExecResult, statementLabel } from "./queryResult";
 import { isPlanResult } from "./PlanView";
 import { useWatchedSettings } from "../hooks/useWatchedSettings";
@@ -428,8 +429,8 @@ export function QueryPanel({
     setComparing(true);
   };
 
-  /** 表示中の結果タブをCSVへ書き出す */
-  const handleExportCsv = () => {
+  /** 表示中の結果タブをファイルへ書き出す */
+  const handleExport = (format: ExportFormat) => {
     if (!active || csv.job || running) return;
     /*
      * 実行計画はSQLを流し直せない。
@@ -448,6 +449,7 @@ export function QueryPanel({
       orderDir: result?.orderDir,
       // 進捗・結果はこの結果タブでのみ表示する
       index: activeIdx,
+      format,
     });
   };
 
@@ -743,7 +745,7 @@ export function QueryPanel({
           running={running}
           explainKind={explainKind}
           csv={csv}
-          onExportCsv={handleExportCsv}
+          onExport={handleExport}
           onPage={onPage}
           canPin={canPin}
           pinnedLabel={pinHere?.label ?? null}

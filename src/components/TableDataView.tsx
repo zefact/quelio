@@ -113,7 +113,6 @@ function TableDataViewInner({
     where,
     onChangeWhere,
     onApplyWhere,
-    onReload,
     onPage,
     onSort,
   } = pane;
@@ -149,6 +148,12 @@ function TableDataViewInner({
    * 表示・編集に使うカラム名。
    * 0件のときは結果にカラム情報が入らないので、テーブル定義のほうを使う
    */
+  /** 列名 → 型 (条件を組み立てるとき、値に引用符を付けるかの判断に使う) */
+  const columnTypes = useMemo(
+    () => Object.fromEntries(tableColumns.map((c) => [c.name, c.colType])),
+    [tableColumns]
+  );
+
   const dataColumns = useMemo(
     () =>
       data && data.columns.length > 0
@@ -513,7 +518,10 @@ function TableDataViewInner({
           className="btn-primary"
           onClick={() => onApplyWhere()}
           disabled={loading}
-          title="条件を適用して先頭ページから取得し直す (Enter)"
+          title={
+            "条件を適用して先頭ページから取得し直す (Enter)\n" +
+            "条件を変えていなければ、そのまま再読込になります"
+          }
         >
           {loading ? (
             <>
@@ -531,14 +539,8 @@ function TableDataViewInner({
         >
           条件を作る
         </button>
-        <button
-          className="btn-secondary explain-btn"
-          onClick={onReload}
-          disabled={loading}
-          title="表示中のページを取得し直す"
-        >
-          再読込
-        </button>
+        {/* 行の追加は絞り込みとは別の操作なので、間を空けて右側へ置く */}
+        <span className="table-data-gap" />
         {editable && (
           <button
             className="btn-secondary ddl-add-btn"
@@ -724,6 +726,7 @@ function TableDataViewInner({
       {building && (
         <WhereBuilder
           columns={dataColumns}
+          columnTypes={columnTypes}
           initialColumn={building.column}
           dbType={dbType}
           onApply={applyBuilt}

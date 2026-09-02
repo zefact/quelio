@@ -124,8 +124,14 @@ fn mysql_cell_max(row: &MySqlRow, i: usize, max: usize) -> Option<CsvCell> {
         rust_decimal::Decimal => true,
         f64 => true,
         f32 => true,
+        /*
+         * DATETIME と TIMESTAMP はどちらもここで拾う。
+         * 接続のタイムゾーンを端末に合わせてあるので、
+         * 届く時刻はそのまま手元の時計として読める
+         * (`DateTime<Utc>` で読むと、ドライバが「サーバーはUTC」と決め打ちして
+         *  もう一度ずらしてしまうため使わない)
+         */
         chrono::NaiveDateTime => false,
-        chrono::DateTime<chrono::Utc> => false,
         chrono::NaiveDate => false,
         chrono::NaiveTime => false,
         bool => false,
@@ -158,6 +164,14 @@ pub(super) fn pg_cell_full(row: &PgRow, i: usize) -> Option<CsvCell> {
 }
 
 fn pg_cell_max(row: &PgRow, i: usize, max: usize) -> Option<CsvCell> {
+    /*
+     * timestamptz は「瞬間」を持つ型で、ドライバはUTCに直して渡してくる。
+     * 接続のタイムゾーンを変えても、この受け渡しはUTCのままなので、
+     * ここで端末の時計に直す (timestamp は下の NaiveDateTime が拾う)
+     */
+    if let Ok(v) = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>(i) {
+        return v.map(|x| cell_of(crate::localtz::fmt_local(x), max, false));
+    }
     try_types!(row, i, max, [
         String => false,
         i64 => true,
@@ -168,7 +182,6 @@ fn pg_cell_max(row: &PgRow, i: usize, max: usize) -> Option<CsvCell> {
         f32 => true,
         bool => false,
         chrono::NaiveDateTime => false,
-        chrono::DateTime<chrono::Utc> => false,
         chrono::NaiveDate => false,
         chrono::NaiveTime => false,
         uuid::Uuid => false,

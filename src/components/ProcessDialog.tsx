@@ -222,7 +222,7 @@ export function ProcessDialog({
       >
         <div className="modal-head">
           <span className="modal-title">
-            実行中の接続
+            プロセス一覧
             <span className="column-modal-target mono">{database}</span>
           </span>
           <button className="modal-close" onClick={onClose} title="閉じる (Esc)">

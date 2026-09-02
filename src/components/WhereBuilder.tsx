@@ -15,6 +15,8 @@ import type { DbType } from "../types";
 interface Props {
   /** 選べる列 (テーブルのカラム名) */
   columns: string[];
+  /** 列名 → その列の型 (値に引用符を付けるかの判断に使う) */
+  columnTypes: Record<string, string>;
   /** 最初に選んでおく列 (列ヘッダから開いたとき) */
   initialColumn?: string;
   /** 接続先のDB種別 (識別子の引用の要否を決める) */
@@ -31,6 +33,7 @@ function emptyCond(column: string): FilterCond {
 
 export function WhereBuilder({
   columns,
+  columnTypes,
   initialColumn,
   dbType,
   onApply,
@@ -47,9 +50,16 @@ export function WhereBuilder({
   /*
    * 列名は必要なときだけ引用する。
    * `id` のように引用しなくてよい名前まで囲むと、
-   * 出来上がった条件が読みにくくなるため
+   * 出来上がった条件が読みにくくなるため。
+   *
+   * 値の引用は列の型で決める。
+   * 値の見た目だけで決めると `varchar` の "0123" が数値になってしまう
    */
-  const where = buildWhere(conds, (n) => quoteIdentIfNeeded(dbType, n));
+  const where = buildWhere(
+    conds,
+    (n) => quoteIdentIfNeeded(dbType, n),
+    (n) => columnTypes[n]
+  );
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>

@@ -64,6 +64,7 @@ import type {
   ValueSearchResult,
 } from "./types";
 import type { ParamValue } from "./sqlParams";
+import type { ExportFormat } from "./exportFormat";
 
 export function listConnections(): Promise<ConnectionStore> {
   return call("list_connections");
@@ -699,22 +700,24 @@ export function exportSchemaCsv(
 }
 
 /**
- * SQL実行結果 (1文ぶん) を全件CSVへ書き出す。
+ * SQL実行結果 (1文ぶん) を全件ファイルへ書き出す。
  * 画面のページング (1000行) とは無関係に、そのSQLの全行が対象
  */
-export function exportQueryCsv(
+export function exportQueryRows(
   sessionId: string,
   database: string | undefined,
   sql: string,
   jobId: string,
+  format: ExportFormat,
   orderBy?: string,
   orderDir?: string
 ): Promise<CsvExportResult> {
-  return call("export_query_csv", {
+  return call("export_query_rows", {
     sessionId,
     database,
     sql,
     jobId,
+    format,
     orderBy,
     orderDir,
   });

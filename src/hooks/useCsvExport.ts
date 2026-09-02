@@ -1,5 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
-import { cancelCsvExport, exportPlanCsv, exportQueryCsv } from "../api";
+import { cancelCsvExport, exportPlanCsv, exportQueryRows } from "../api";
 import {
   clearCsvExportTimer,
   getCsvExport,
@@ -7,6 +7,8 @@ import {
   scheduleCsvExportClear,
   subscribeCsvExport,
 } from "../csvExportStore";
+import { FORMAT_LABEL, rememberExportFormat } from "../exportFormat";
+import type { ExportFormat } from "../exportFormat";
 import type { QueryResult } from "../types";
 
 /** 完了メッセージを出しておく時間 */
@@ -22,12 +24,14 @@ export interface CsvExportRequest {
   orderDir?: string;
   /** 進捗と結果を出す結果タブの番号 */
   index: number;
+  /** CSV か Excel か */
+  format: ExportFormat;
 }
 
 /**
- * SQLの結果を全件CSVへ書き出す。
+ * SQLの結果を全件ファイル (CSV / Excel) へ書き出す。
  *
- * 画面は1000行ずつだが、CSVは同じSQLを流し直して全行を出力する。
+ * 画面は1000行ずつだが、書き出しは同じSQLを流し直して全行を出力する。
  * 進捗と結果は「出力を始めた結果タブ」でだけ出す (別のタブに出さない)。
  *
  * 状態は `csvExportStore` (画面の外) に置く。
@@ -54,20 +58,23 @@ export function useCsvExport(key: string) {
     };
     clearCsvExportTimer(key);
     patchCsvExport(key, { job: started, message: null, path: null });
+    const name = FORMAT_LABEL[req.format];
     const show = (text: string) =>
       patchCsvExport(key, { message: { index: started.index, text } });
+    rememberExportFormat(req.format);
     try {
-      const out = await exportQueryCsv(
+      const out = await exportQueryRows(
         req.sessionId,
         req.database,
         req.sql,
         started.id,
+        req.format,
         req.orderBy,
         req.orderDir
       );
       if (out.cancelled) {
         show(
-          `CSV出力を中止しました (${out.rows.toLocaleString()}行で停止・ファイルは残していません)`
+          `${name}出力を中止しました (${out.rows.toLocaleString()}行で停止・ファイルは残していません)`
         );
       } else {
         show(`${out.rows.toLocaleString()}行を保存: ${out.path}`);
@@ -76,7 +83,7 @@ export function useCsvExport(key: string) {
       // 続けてもう一度出力したときに、前のタイマーで消されないようにする
       scheduleCsvExportClear(key, MSG_TIMEOUT_MS);
     } catch (e) {
-      show(`CSV出力に失敗: ${e}`);
+      show(`${name}出力に失敗: ${e}`);
     } finally {
       patchCsvExport(key, { job: null });
     }
@@ -85,7 +92,7 @@ export function useCsvExport(key: string) {
   /**
    * 画面に出ている実行計画をそのままCSVへ書き出す。
    *
-   * 通常のCSV出力のようにSQLを流し直すと、
+   * 通常の書き出しのようにSQLを流し直すと、
    * `EXPLAIN` の付いていない元のSQLが走って「計画ではなくデータ」が出てしまう。
    * ANALYZE では対象のSQLをもう一度実行することにもなり、
    * 実測時間も画面に出ている値とは別のものになる
