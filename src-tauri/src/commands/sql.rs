@@ -144,6 +144,23 @@ pub async fn run_query(
     .await
 }
 
+/// 書いたSQLが全部で何件返すかを数える (ページングで先頭しか見えていないとき用)
+#[tauri::command]
+pub async fn count_query_rows(
+    app: AppHandle,
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: Option<String>,
+    sql: String,
+) -> Result<i64, String> {
+    let timeout_secs = crate::app_settings::load(&app)
+        .map(|s| s.query_timeout_secs)
+        .unwrap_or(crate::query::DEFAULT_QUERY_TIMEOUT_SECS);
+    sessions::count_query_rows(&state, &qlog, &session_id, database, &sql, timeout_secs)
+        .await
+}
+
 /// 実行せずに、値を入れた後のSQLを返す (パラメータ入力画面のプレビュー用)。
 ///
 /// 実行時と同じ処理を使うので、見えている内容と実際に走る内容がずれない

@@ -4,11 +4,14 @@ mod backup;
 mod catalog;
 mod commands;
 mod crypto;
+mod csv_diff;
+mod csv_doc;
 mod csv_import;
 mod dbadmin;
 mod kv_bulk;
 mod search;
 mod csv_job;
+mod csv_layouts;
 mod db;
 mod ddl;
 mod ddl_table;
@@ -175,6 +178,7 @@ pub fn run() {
         .manage(query_log::QueryLog::default())
         .manage(tools::Jobs::default())
         .manage(csv_job::CsvJobs::default())
+        .manage(csv_doc::CsvDocuments::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_connections,
             commands::trust_ssh_host,
@@ -206,6 +210,42 @@ pub fn run() {
             commands::kv_apply,
             commands::export_schema_csv,
             commands::export_schema_xlsx,
+            commands::open_csv_window,
+            commands::open_main_window,
+            commands::csv_open,
+            commands::csv_open_fixed,
+            commands::csv_set_fixed,
+            commands::csv_layouts,
+            commands::csv_save_layout,
+            commands::csv_delete_layout,
+            commands::csv_new,
+            commands::csv_from_rows,
+            commands::csv_from_query,
+            commands::csv_close,
+            commands::csv_info,
+            commands::csv_page,
+            commands::csv_set_cells,
+            commands::csv_insert_rows,
+            commands::csv_delete_rows,
+            commands::csv_insert_col,
+            commands::csv_delete_col,
+            commands::csv_rename_col,
+            commands::csv_find,
+            commands::csv_replace_all,
+            commands::csv_undo,
+            commands::csv_redo,
+            commands::csv_set_header,
+            commands::csv_set_format,
+            commands::csv_save,
+            commands::csv_export_xlsx,
+            commands::csv_summary,
+            commands::csv_edge,
+            commands::csv_changed_outside,
+            commands::csv_dirty_names,
+            commands::csv_compare,
+            commands::csv_guess_key,
+            commands::csv_diff_page,
+            commands::csv_diff_next,
             commands::export_query_rows,
             commands::export_plan_csv,
             commands::list_collations,
@@ -222,6 +262,7 @@ pub fn run() {
             commands::apply_foreign_key_ddl,
             commands::apply_row_change,
             commands::fetch_cell,
+            commands::count_query_rows,
             commands::count_table_rows,
             commands::list_routines,
             commands::search_objects,
@@ -250,6 +291,7 @@ pub fn run() {
             commands::default_ssh_key_dir,
             commands::save_capture,
             commands::save_text_file,
+            commands::save_text_as,
             commands::get_app_settings,
             commands::save_app_settings,
             commands::get_sql_history,

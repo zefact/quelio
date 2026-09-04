@@ -56,8 +56,7 @@ pub async fn fetch_cell(
     ensure_database(session, database.as_ref(), qlog, &label).await?;
 
     // PostgreSQLは主キーの値のキャストにカラム型が要る
-    let mut types: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    let mut types: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     if let DbConn::Pg(conn) = &mut session.conn {
         let schema_name = schema.clone().unwrap_or_else(|| "public".to_string());
         for (name, t) in catalog::pg_column_types(conn, &schema_name, table).await? {
@@ -99,6 +98,40 @@ pub async fn count_table_rows(
     tokio::time::timeout(
         query::query_timeout(timeout_secs),
         fetch_bound_count(&mut session.conn, qlog, &label, &db_label, &sql, &[]),
+    )
+    .await
+    .map_err(|_| crate::apperr::timeout_message("件数の取得"))?
+}
+
+/**
+ * 書いたSQLが全部で何件返すかを数える。
+ *
+ * 画面は1000行ずつしか出さないので、「全部で何件あるのか」は
+ * 別に数えないと分からない。元のSQLをそのまま包んで COUNT する
+ * (`LIMIT` が書いてあるSQLは絞る意図があるので数えない)
+ */
+pub async fn count_query_rows(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+    database: Option<String>,
+    sql: &str,
+    timeout_secs: u64,
+) -> Result<i64, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    let label = conn_label(&session.profile);
+    let db_label = database.clone().unwrap_or_default();
+    ensure_database(session, database.as_ref(), qlog, &label).await?;
+
+    let counted = query::plan_count(session.dialect, sql)
+        .ok_or_else(|| "このSQLは件数を数えられません".to_string())?;
+
+    tokio::time::timeout(
+        query::query_timeout(timeout_secs),
+        fetch_bound_count(&mut session.conn, qlog, &label, &db_label, &counted, &[]),
     )
     .await
     .map_err(|_| crate::apperr::timeout_message("件数の取得"))?
@@ -221,8 +254,7 @@ pub async fn apply_row_change(
     ensure_database(session, database.as_ref(), qlog, &label).await?;
 
     // PostgreSQLは値のキャストにカラム型が要る
-    let mut types: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
+    let mut types: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     if let DbConn::Pg(conn) = &mut session.conn {
         let schema_name = schema.clone().unwrap_or_else(|| "public".to_string());
         for (name, t) in catalog::pg_column_types(conn, &schema_name, table).await? {
@@ -230,8 +262,7 @@ pub async fn apply_row_change(
         }
     }
 
-    let (sql, params) =
-        crate::dml::build(db_type, schema.as_deref(), table, change, &types)?;
+    let (sql, params) = crate::dml::build(db_type, schema.as_deref(), table, change, &types)?;
 
     begin_txn(session, qlog, &label, &db_label, begin_sql(&session.conn)).await?;
 
@@ -276,15 +307,7 @@ pub async fn apply_row_change(
         count_query = Some(built);
     }
 
-    let affected = match exec_bound(
-        &mut session.conn,
-        qlog,
-        &label,
-        &db_label,
-        &sql,
-        &params,
-    )
-    .await
+    let affected = match exec_bound(&mut session.conn, qlog, &label, &db_label, &sql, &params).await
     {
         Ok(n) => n,
         Err(e) => {

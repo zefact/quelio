@@ -14,6 +14,8 @@ export interface CsvExportJob {
   /** 進捗を出す結果タブの番号 */
   index: number;
   startedAt: number;
+  /** 進捗に出す動作の名前 (ファイルへ出すなら「出力」、取り出すなら「取得」) */
+  verb: string;
 }
 
 /** 結果メッセージ (出力した結果タブでのみ表示する) */

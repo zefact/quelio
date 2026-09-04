@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { QuerySheet } from "../types";
 import { HoverTip } from "./HoverTip";
 import { MAX_SHEETS } from "../workspace";
+import { SheetTabMenu } from "./SheetTabMenu";
+import { autoTitle } from "./sheetTitle";
 
 interface Props {
   /** 表に出していないシートも含めた一覧 (表示中は activeId で示す) */
@@ -12,17 +14,13 @@ interface Props {
   onSelect: (id: string) => void;
   onAdd: () => void;
   onClose: (id: string) => void;
+  /** そのシートだけ残して閉じる */
+  onCloseOthers: (id: string) => void;
+  /** すべて閉じる (空のシートが1枚だけ残る) */
+  onCloseAll: () => void;
   onRename: (id: string, title: string) => void;
-}
-
-/** SQLの先頭から見出しを作る (空なら「新規」) */
-function autoTitle(sql: string): string {
-  const head = sql
-    .split("\n")
-    .map((l) => l.trim())
-    .find((l) => l !== "" && !l.startsWith("--"));
-  if (!head) return "新規";
-  return head.length > 24 ? `${head.slice(0, 24)}…` : head;
+  /** そのシートのSQLをファイルに保存する */
+  onSaveFile: (id: string) => void;
 }
 
 /**
@@ -38,11 +36,19 @@ export function SheetTabs({
   onSelect,
   onAdd,
   onClose,
+  onCloseOthers,
+  onCloseAll,
   onRename,
+  onSaveFile,
 }: Props) {
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(
     null
   );
+  /** 右クリックしたタブと、その位置 */
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(
+    null
+  );
+  const menuSheet = sheets.find((s) => s.id === menu?.id) ?? null;
   const full = sheets.length >= MAX_SHEETS;
 
   // 表示中のシートは必ず一覧にいる (emptyTab / workspace で1枚は用意する)
@@ -97,6 +103,10 @@ export function SheetTabs({
             disabled={running && !active}
             onClick={() => onSelect(s.id)}
             onDoubleClick={() => setEditing({ id: s.id, value: s.title })}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({ id: s.id, x: e.clientX, y: e.clientY });
+            }}
           >
             <span className="sheet-name">{label(s)}</span>
             {list.length > 1 && !running && (
@@ -134,6 +144,21 @@ export function SheetTabs({
           ＋
         </button>
       </HoverTip>
+
+      {menu && menuSheet && (
+        <SheetTabMenu
+          sheet={menuSheet}
+          sheets={sheets}
+          x={menu.x}
+          y={menu.y}
+          running={running}
+          onClose={onClose}
+          onCloseOthers={onCloseOthers}
+          onCloseAll={onCloseAll}
+          onSaveFile={onSaveFile}
+          onDismiss={() => setMenu(null)}
+        />
+      )}
     </div>
   );
 }

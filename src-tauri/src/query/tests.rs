@@ -240,8 +240,22 @@ fn mysqlの暗黙のトランザクションを見分ける() {
     assert_eq!(my("START REPLICA"), None);
     assert_eq!(my("START SLAVE"), None);
     // 他のDBでは暗黙コミットしないので落とさない
-    assert_eq!(txn_effect(DbType::Postgresql, Dialect::POSTGRESQL, "CREATE TABLE t (a INT)"), None);
-    assert_eq!(txn_effect(DbType::Postgresql, Dialect::POSTGRESQL, "SET autocommit = 0"), None);
+    assert_eq!(
+        txn_effect(
+            DbType::Postgresql,
+            Dialect::POSTGRESQL,
+            "CREATE TABLE t (a INT)"
+        ),
+        None
+    );
+    assert_eq!(
+        txn_effect(
+            DbType::Postgresql,
+            Dialect::POSTGRESQL,
+            "SET autocommit = 0"
+        ),
+        None
+    );
 }
 
 fn pv(value: &str, kind: &str) -> ParamValue {
@@ -392,7 +406,10 @@ fn 切り詰めた位置を構造で返す() {
     assert_eq!(clip.total, 12);
     assert_eq!(text, format!("{}… (全12文字)", "あ".repeat(5)));
     // head は注記を除いた先頭の文字数
-    assert_eq!(text.chars().take(clip.head).collect::<String>(), "あ".repeat(5));
+    assert_eq!(
+        text.chars().take(clip.head).collect::<String>(),
+        "あ".repeat(5)
+    );
 
     // 値がたまたま注記と同じ形で終わっていても、切り詰めとは扱わない
     let (_, clip) = clip_cell("短い… (全5000文字)".to_string(), 1000);
@@ -428,7 +445,9 @@ fn バイナリ形式で送れない型を見分ける() {
         "DBエラー: error returned from database: no binary output function available for type aclitem"
     ));
     // 別のエラーでやり直すと、無駄に2回実行することになる
-    assert!(!pg_needs_text_format("DBエラー: relation \"t\" does not exist"));
+    assert!(!pg_needs_text_format(
+        "DBエラー: relation \"t\" does not exist"
+    ));
     assert!(!pg_needs_text_format("実行を中止しました"));
     assert!(!pg_needs_text_format("クエリがタイムアウトしました"));
 }
@@ -454,8 +473,14 @@ fn トランザクション中はテキスト形式でやり直さない() {
 
 #[test]
 fn 方言が変わりうる文を見分ける() {
-    assert!(changes_dialect(Dialect::POSTGRESQL, "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"));
-    assert!(changes_dialect(Dialect::POSTGRESQL, "set standard_conforming_strings = off"));
+    assert!(changes_dialect(
+        Dialect::POSTGRESQL,
+        "SET sql_mode = 'NO_BACKSLASH_ESCAPES'"
+    ));
+    assert!(changes_dialect(
+        Dialect::POSTGRESQL,
+        "set standard_conforming_strings = off"
+    ));
     assert!(changes_dialect(Dialect::POSTGRESQL, "RESET ALL"));
     assert!(changes_dialect(Dialect::POSTGRESQL, "DISCARD ALL"));
     // 先頭のコメントは読み飛ばす
@@ -467,7 +492,10 @@ fn 方言が変わりうる文を見分ける() {
     ));
     // 普通のSQLは聞き直さない (毎回問い合わせると遅くなる)
     assert!(!changes_dialect(Dialect::POSTGRESQL, "SELECT 1"));
-    assert!(!changes_dialect(Dialect::POSTGRESQL, "SELECT 'SET sql_mode'"));
+    assert!(!changes_dialect(
+        Dialect::POSTGRESQL,
+        "SELECT 'SET sql_mode'"
+    ));
     assert!(!changes_dialect(Dialect::POSTGRESQL, "UPDATE t SET a = 1"));
 }
 
@@ -540,7 +568,10 @@ fn postgresqlのブロックコメントは入れ子にできる() {
     assert_eq!(stmts.len(), 1, "{stmts:?}");
     assert!(is_read_only(d, sql));
     // MySQL・SQLiteは入れ子にならない (最初の *​/ で閉じる)
-    assert_eq!(split_statements(Dialect::MYSQL, "/* a /* b */ SELECT 1").len(), 1);
+    assert_eq!(
+        split_statements(Dialect::MYSQL, "/* a /* b */ SELECT 1").len(),
+        1
+    );
 }
 
 #[test]
@@ -587,7 +618,10 @@ fn バックスラッシュの扱いはdbで変わる() {
     let sql = "SELECT 'a\\'; SELECT 2";
     assert_eq!(split_statements(Dialect::of(DbType::Mysql), sql).len(), 1);
     // PostgreSQLは \\ をエスケープ扱いしないので、'a\\' で閉じる → 2文
-    assert_eq!(split_statements(Dialect::of(DbType::Postgresql), sql).len(), 2);
+    assert_eq!(
+        split_statements(Dialect::of(DbType::Postgresql), sql).len(),
+        2
+    );
 }
 
 #[test]
@@ -611,7 +645,10 @@ fn postgresqlの演算子で危険判定が外れない() {
         "WITH x AS (SELECT data #> '{a}' FROM t) DELETE FROM u WHERE id IN (SELECT id FROM x)";
     assert!(!is_analyzable(Dialect::of(DbType::Postgresql), sql));
     assert!(!is_read_only(Dialect::of(DbType::Postgresql), sql));
-    assert_eq!(dangerous_statements(Dialect::of(DbType::Postgresql), sql).len(), 1);
+    assert_eq!(
+        dangerous_statements(Dialect::of(DbType::Postgresql), sql).len(),
+        1
+    );
 }
 
 #[test]
@@ -619,13 +656,19 @@ fn postgresqlのjsonb演算子でwhereを見失わない() {
     let sql = "UPDATE t SET j = j #- '{a}' WHERE id = 1";
     assert!(dangerous_statements(Dialect::of(DbType::Postgresql), sql).is_empty());
     // MySQLでは # から行末までコメントなので、WHEREが消えて確認対象になる
-    assert_eq!(dangerous_statements(Dialect::of(DbType::Mysql), sql).len(), 1);
+    assert_eq!(
+        dangerous_statements(Dialect::of(DbType::Mysql), sql).len(),
+        1
+    );
 }
 
 #[test]
 fn 括弧で指定したexplain_analyzeも確認対象() {
     let sql = "EXPLAIN (ANALYZE) DELETE FROM t";
-    assert_eq!(dangerous_statements(Dialect::of(DbType::Postgresql), sql).len(), 1);
+    assert_eq!(
+        dangerous_statements(Dialect::of(DbType::Postgresql), sql).len(),
+        1
+    );
     assert!(!is_analyzable(Dialect::of(DbType::Postgresql), sql));
 }
 
@@ -683,11 +726,46 @@ fn 末尾が行コメントでも件数指定が効く() {
 
 #[test]
 fn 末尾が行コメントでもソートの包みが壊れない() {
-    let p = plan(pg(), "SELECT * FROM t -- メモ", 0, Some(("a", "asc")), false);
+    let p = plan(
+        pg(),
+        "SELECT * FROM t -- メモ",
+        0,
+        Some(("a", "asc")),
+        false,
+    );
     // 閉じ括弧がコメント行と同じ行に来ると構文エラーになる
     assert!(p.sql.contains("\n) AS q ORDER BY \"a\" asc"), "{}", p.sql);
     let out = plan_export(pg(), "SELECT * FROM t -- メモ", Some(("a", "asc")), false);
     assert!(out.contains("\n) AS q ORDER BY \"a\" asc"), "{out}");
+}
+
+#[test]
+fn 件数を数えるSQLは元のSQLを包む() {
+    let out = plan_count(pg(), "SELECT * FROM t WHERE a = 1").unwrap();
+    assert!(out.starts_with("SELECT COUNT(*) FROM ("), "{out}");
+    assert!(out.contains("SELECT * FROM t WHERE a = 1"), "{out}");
+    assert!(out.ends_with("\n) AS q"), "{out}");
+}
+
+#[test]
+fn 件数を数えるSQLは末尾のセミコロンを外す() {
+    let out = plan_count(pg(), "SELECT * FROM t;").unwrap();
+    assert!(!out.contains(";"), "{out}");
+}
+
+#[test]
+fn 末尾が行コメントでも件数の包みが壊れない() {
+    let out = plan_count(pg(), "SELECT * FROM t -- メモ").unwrap();
+    // 閉じ括弧がコメント行と同じ行に来ると構文エラーになる
+    assert!(out.ends_with("\n) AS q"), "{out}");
+}
+
+#[test]
+fn 数えられないSQLはNone() {
+    // LIMIT付きは絞る意図があるので数えない
+    assert!(plan_count(pg(), "SELECT * FROM t LIMIT 10").is_none());
+    // 更新系も数えない
+    assert!(plan_count(pg(), "UPDATE t SET a = 1").is_none());
 }
 
 #[test]

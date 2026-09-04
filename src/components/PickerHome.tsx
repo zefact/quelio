@@ -4,7 +4,10 @@
  * 起動して最初に見る画面なので、よく使う接続先へ最短で戻れるようにする。
  * ここから選べば、一覧をたどって開く手間が要らない
  */
+import { useState } from "react";
+import { openCsvWindow } from "../api";
 import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
+import { CsvIcon } from "./CsvIcon";
 import { envColor, envLabel } from "../types";
 import {
   pinnedConnections,
@@ -99,6 +102,8 @@ export function PickerHome({
 }: Props) {
   const pinned = pinnedConnections(connections);
   const recent = recentConnections(connections);
+  /** CSVエディタを開けなかったときの知らせ */
+  const [toolError, setToolError] = useState<string | null>(null);
 
   return (
     <div className="picker-home">
@@ -156,6 +161,34 @@ export function PickerHome({
           サンプルDBで試す
         </button>
       </div>
+
+      {/*
+        CSVエディタはDBに繋がなくても使う道具なので、
+        接続を選ぶ前のこの画面から開けるようにしておく
+      */}
+      <section className="home-group">
+        <h2 className="home-group-title">道具</h2>
+        <button
+          className="home-tool"
+          onClick={() =>
+            void openCsvWindow().catch((e) =>
+              setToolError(`CSVエディタを開けませんでした: ${e}`)
+            )
+          }
+        >
+          <span className="home-tool-mark">
+            <CsvIcon />
+          </span>
+          <span className="home-tool-body">
+            <span className="home-tool-name">CSVエディタ</span>
+            <span className="home-tool-sub">
+              CSV・固定長ファイルを開いて編集し、2つのファイルを比べます
+              (DBに繋がなくても使えます)
+            </span>
+          </span>
+        </button>
+        {toolError && <p className="home-empty">{toolError}</p>}
+      </section>
     </div>
   );
 }

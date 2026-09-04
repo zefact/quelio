@@ -16,6 +16,7 @@ import {
   listConnections,
   listTables,
   openConsole,
+  openCsvWindow,
   openDiff,
   openEr,
   openSchema,
@@ -560,6 +561,31 @@ function App() {
         sheets: rest,
         activeSheet: rest[Math.min(at, rest.length - 1)].id,
       };
+    });
+  };
+
+  /** その1枚だけ残して閉じる */
+  const closeOtherSheets = (key: string, id: string) => {
+    updateSheets(key, (e) => {
+      const keep = e.sheets.find((s) => s.id === id);
+      if (!keep || e.sheets.length <= 1) return null;
+      return { sheets: [keep], activeSheet: keep.id };
+    });
+  };
+
+  /**
+   * すべて閉じる。
+   *
+   * 1枚も無い状態は作れない (書く場所が無くなる) ので、
+   * 実行設定だけ引き継いだ空のシートを1枚だけ残す
+   */
+  const closeAllSheets = (key: string) => {
+    updateSheets(key, (e) => {
+      const fresh = {
+        ...emptySheet(newSheetId()),
+        editorOpts: { ...activeSheetOf(e).editorOpts },
+      };
+      return { sheets: [fresh], activeSheet: fresh.id };
     });
   };
 
@@ -1379,6 +1405,15 @@ function App() {
         ),
     },
     {
+      id: "csv-editor",
+      label: "CSVエディタを開く",
+      keywords: "csv tsv editor compare diff 比較 編集",
+      run: () =>
+        void openCsvWindow().catch((e) =>
+          setWinError(`CSVエディタを開けませんでした: ${e}`)
+        ),
+    },
+    {
       id: "console",
       label: "コンソールを開く",
       keywords: "console log history",
@@ -1461,6 +1496,8 @@ function App() {
       onSelect: (id) => switchSheet(activeKeyNow, id),
       onAdd: () => addSheet(activeKeyNow),
       onClose: (id) => closeSheet(activeKeyNow, id),
+      onCloseOthers: (id) => closeOtherSheets(activeKeyNow, id),
+      onCloseAll: () => closeAllSheets(activeKeyNow),
       onRename: (id, title) => renameSheet(activeKeyNow, id, title),
     }),
     // 同上 (シートの操作も最新のタブに対して行う)
@@ -1538,6 +1575,11 @@ function App() {
         onOpenDiff={() =>
           openDiff().catch((e) =>
             setWinError(`スキーマ差分を開けませんでした: ${e}`)
+          )
+        }
+        onOpenCsv={() =>
+          openCsvWindow().catch((e) =>
+            setWinError(`CSVエディタを開けませんでした: ${e}`)
           )
         }
         onOpenSettings={() => setShowSettings(true)}

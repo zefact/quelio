@@ -1,12 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatErrorMessage, formatSql } from "../sqlFormat";
 import { MOD, SHIFT } from "../keyLabel";
-import { checkDangerousSql, splitSqlStatements } from "../api";
+import {
+  checkDangerousSql,
+  countQueryRows,
+  csvFromRows,
+  openCsvWindow,
+  saveTextAs,
+  splitSqlStatements,
+} from "../api";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { autoTitle } from "./sheetTitle";
 import { captureResults } from "../capture";
 import { CellDetail } from "./CellDetail";
 import type { Clip } from "../cellValue";
 import { clipIndex, clippedRowKeys } from "../cellValue";
 import { spanAt, spansOf } from "../sqlSpans";
+import type { SqlSpan } from "../sqlSpans";
+
+/** 全体実行のときに渡す空の範囲 (毎回作ると帯を入れ直してしまう) */
+const EMPTY_SPANS: SqlSpan[] = [];
 import { columnKinds, kindAlign, kindClass } from "../cellKind";
 import { CellText } from "./CellText";
 import { usePopupPosition } from "../hooks/usePopupPosition";
@@ -15,7 +28,6 @@ import type {
   DangerousStatement,
   DbType,
   EditorOptions,
-  QueryResult,
   StatementResult,
 } from "../types";
 import type { ExportFormat } from "../exportFormat";
@@ -34,7 +46,6 @@ import type {
 import { QueryToolbar } from "./QueryToolbar";
 import { QueryResultBar } from "./QueryResultBar";
 import { QueryResultView } from "./QueryResultView";
-import { ResultCompare, toComparePane } from "./ResultCompare";
 import { ResultChart } from "./ResultChart";
 import { numericColumns } from "../chart/chartData";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
@@ -177,7 +188,7 @@ export function QueryPanel({
    * ここでローカルstateにすると、定義タブへ切り替えて戻ったときに
    * 既定値へ戻ってしまい、ONにしたつもりが効いていない事故につながるため
    */
-  const { txn: txnOn, capture: captureOn, explainMode } = options;
+  const { txn: txnOn, capture: captureOn, explainMode, runScope } = options;
   const editorFull = options.editorFull;
   const [sort, setSort] = useState<SortState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -289,6 +300,39 @@ export function QueryPanel({
    * 区切り方は接続の方言で決まるのでバックエンドに聞く。
    * 分けられなかったときは null (呼び出し側で全体を流す)
    */
+  /**
+   * 文ごとに分けた範囲 (エディタに帯を敷くために使う)。
+   *
+   * 打つたびに分け直すと重いので少し待ってから求める。
+   * 実行そのものはこの値を使わず、そのつど分け直す
+   * (待っている間に押されても、走る範囲がずれないようにするため)
+   */
+  const [spans, setSpans] = useState<SqlSpan[]>([]);
+  useEffect(() => {
+    // `;` が無ければ必ず1文なので、問い合わせるまでもない
+    if (!sql.includes(";")) {
+      setSpans([]);
+      return;
+    }
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      splitSqlStatements(sessionId, sql, dbType)
+        .then((stmts) => {
+          if (alive) setSpans(spansOf(sql, stmts));
+        })
+        .catch(() => {
+          if (alive) setSpans([]);
+        });
+    }, 200);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [sql, sessionId, dbType]);
+
+  /** 実行ボタンが流す文 (何文目 / 全部で何文。対象なしは -1) */
+  const [target, setTarget] = useState({ index: -1, total: 0 });
+
   const statementAtCursor = async () => {
     try {
       const stmts = await splitSqlStatements(sessionId, sql, dbType);
@@ -302,14 +346,32 @@ export function QueryPanel({
   };
 
   /**
+   * 書いてあるSQLを全部まとめて実行する。
+   *
+   * 実行ボタンで「全体実行」を選んでいるときと、
+   * 範囲の設定にかかわらず全部を流したいとき (⌘⇧Enter) の両方から呼ぶ
+   */
+  const runAll = () => {
+    if (running || !sql.trim()) return;
+    setRunSource("run");
+    void guardRun(sql, () => exec(sql));
+  };
+
+  /**
    * 実行 (実行ボタン / ⌘Enter)。
    *
-   * 選択があればその部分、無ければカーソルのある文だけを流す。
-   * 「実行対象」を切り替えてから実行する作りだと、
-   * 戻し忘れて意図しない範囲が走る・無反応になる、が起きていた
+   * 流す範囲は実行ボタンの ▾ で選んだもの。
+   *  - 全体実行 … 書いてあるSQLを全部
+   *  - 部分実行 … 選択があればその部分、無ければカーソルのある文だけ
+   *
+   * どちらを選んでいるかはボタンの文字と、エディタの帯に出る
    */
   const run = async () => {
     if (running) return;
+    if (runScope === "all") {
+      runAll();
+      return;
+    }
     const picked = selectedText();
     if (picked?.trim()) {
       setRunSource("run");
@@ -375,59 +437,23 @@ export function QueryPanel({
     onRun(0, text?.trim() ? text : undefined, false, mode);
   };
 
-/** ⌘/Ctrl+Shift+Enter: 書いてあるSQLを全部まとめて実行する */
-  const runAll = () => {
-    if (running || !sql.trim()) return;
-    setRunSource("run");
-    void guardRun(sql, () => exec(sql));
-  };
-
   /** EXPLAIN の種類を選べるDBか (SQLiteは EXPLAIN QUERY PLAN のみ) */
   const hasExplainModes = dbType !== "sqlite";
 
   const active = results?.[activeIdx] ?? null;
   const result = active?.result ?? null;
 
-  /*
-   * 取っておいた結果 (ピン留め)。
-   *
-   * 実行のたびに結果が流れてしまうので、直す前の結果を残せるようにする。
-   * 接続タブ・シートをまたいで見えてしまわないよう、どこで留めたかを持つ
-   */
-  const [pinned, setPinned] = useState<{
-    scope: string;
-    label: string;
-    sql: string;
-    result: QueryResult;
-  } | null>(null);
-  const [comparing, setComparing] = useState(false);
   /** グラフの画面を出しているか */
   const [charting, setCharting] = useState(false);
-  /** 今のシートのピン留め (別のシートのものは出さない) */
-  const pinHere = pinned?.scope === sheetScope ? pinned : null;
-  /** 表になる結果だけ見比べられる (実行完了メッセージや実行計画は対象外) */
-  const canPin =
+  /** 表として扱える結果か (実行完了メッセージや実行計画は対象外) */
+  const isTable =
     !!result && !isExecResult(result) && !isPlanResult(result.columns);
-  const compareOn = comparing && pinHere !== null && canPin;
   /** 数値の列が1つも無い結果はグラフにできない */
   const canChart =
-    canPin &&
+    isTable &&
     !!result &&
     result.rows.length > 0 &&
     numericColumns(result.columns, result.rows).length > 0;
-
-  const pinCurrent = () => {
-    if (!active || !result || !canPin) return;
-    const t = new Date();
-    const p2 = (v: number) => String(v).padStart(2, "0");
-    setPinned({
-      scope: sheetScope,
-      label: `${p2(t.getHours())}:${p2(t.getMinutes())}:${p2(t.getSeconds())} ${statementLabel(active.sql, activeIdx)}`,
-      sql: active.sql,
-      result,
-    });
-    setComparing(true);
-  };
 
   /** 表示中の結果タブをファイルへ書き出す */
   const handleExport = (format: ExportFormat) => {
@@ -451,6 +477,93 @@ export function QueryPanel({
       index: activeIdx,
       format,
     });
+  };
+
+  /**
+   * 書いてあるSQLを .sql として保存する。
+   *
+   * 保存先はダイアログで選んでもらう (お気に入りへの保存 ⌘S とは別物)。
+   * 既定の名前はシート名から作る
+   */
+  const saveSqlToFile = async (sheetId?: string) => {
+    const id = sheetId ?? sheetPane.activeId;
+    const sheet = sheetPane.sheets.find((x) => x.id === id);
+    // 表示中のシートは書きかけが props の sql に来るので、そちらを優先する
+    const text = id === sheetPane.activeId ? sql : (sheet?.sql ?? "");
+    if (!text.trim()) return;
+    const base = (sheet?.title || autoTitle(text)).replace(/[\\/:*?"<>|]/g, "_");
+    const got = await saveDialog({
+      defaultPath: `${base}.sql`,
+      filters: [{ name: "SQL", extensions: ["sql", "txt"] }],
+      title: "SQLをファイルに保存",
+    }).catch(() => null);
+    if (typeof got !== "string") return;
+    try {
+      await saveTextAs(got, text);
+      // 書き出しの知らせはキャプチャと同じ場所に出す (「表示」ボタンも付く)
+      setCaptureMsg("SQLを保存しました");
+      setCapturePath(got);
+    } catch (e) {
+      setActionError(String(e));
+    }
+  };
+
+  /** 道具まわり (CSVエディタ・ファイル保存) が失敗したときの知らせ */
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  /**
+   * 結果をCSVエディタのタブとして開く。
+   *
+   * 画面は1000行ずつしか持っていないので、全件はRust側で流し直す
+   * (CSV出力と同じ道を通るので、ページングのLIMITは付かない)。
+   * 実行計画だけは流し直すと本体のSQLが走ってしまうので、画面の内容を渡す
+   */
+  const openInCsvEditor = () => {
+    if (!result || isExecResult(result) || !active) return;
+    const name = `結果 ${statementLabel(active.sql, activeIdx)}`;
+    if (explainKind) {
+      setActionError(null);
+      void csvFromRows(name, result.columns, result.rows)
+        .then((info) => openCsvWindow({ docId: info.docId }))
+        .catch((e) => setActionError(`CSVエディタを開けませんでした: ${e}`));
+      return;
+    }
+    void csv.openInEditor({
+      sessionId,
+      database,
+      sql: active.sql,
+      orderBy: result.orderBy,
+      orderDir: result.orderDir,
+      index: activeIdx,
+      name,
+    });
+  };
+
+  /**
+   * 全部で何件あるかを数える。
+   *
+   * ページングでは先頭1000行しか出ないので、総数は別に数えないと分からない。
+   * 数えるのは押されたときだけ (重いSQLで毎回数えると実行が遅くなるため)
+   */
+  const [counting, setCounting] = useState(false);
+  /** 数えた結果 (どの結果タブのものかを持つ) */
+  const [counted, setCounted] = useState<{
+    index: number;
+    total: number;
+  } | null>(null);
+
+  // 実行し直したら数え直し (前の結果の件数を出したままにしない)
+  useEffect(() => setCounted(null), [results]);
+
+  const countRows = () => {
+    if (!active || counting) return;
+    setCounting(true);
+    setActionError(null);
+    const at = activeIdx;
+    void countQueryRows(sessionId, database ?? null, active.sql)
+      .then((total) => setCounted({ index: at, total }))
+      .catch((e) => setActionError(`件数を数えられませんでした: ${e}`))
+      .finally(() => setCounting(false));
   };
 
   /**
@@ -616,6 +729,9 @@ export function QueryPanel({
         running={running}
         onSelect={sheetPane.onSelect}
         onAdd={sheetPane.onAdd}
+        onCloseOthers={sheetPane.onCloseOthers}
+        onCloseAll={sheetPane.onCloseAll}
+        onSaveFile={(id) => void saveSqlToFile(id)}
         onClose={sheetPane.onClose}
         onRename={sheetPane.onRename}
       />
@@ -641,6 +757,15 @@ export function QueryPanel({
           onRun={() => void run()}
           onRunSelection={runAll}
           onSelectionChange={setHasSelection}
+          onSaveFile={() => void saveSqlToFile()}
+          statements={runScope === "all" ? EMPTY_SPANS : spans}
+          onTarget={(index, total) =>
+            setTarget((prev) =>
+              prev.index === index && prev.total === total
+                ? prev
+                : { index, total }
+            )
+          }
           onContextMenu={(x, y) => setCtxMenu({ x, y })}
         onFormat={handleFormat}
           schema={schema}
@@ -703,6 +828,18 @@ export function QueryPanel({
             SQLを整形 (カンマ先頭)
             <span className="context-key">{`${MOD}${SHIFT}F`}</span>
           </button>
+          <div className="context-sep" aria-hidden />
+          <button
+            className="context-item has-key"
+            disabled={!sql.trim()}
+            onClick={() => {
+              setCtxMenu(null);
+              void saveSqlToFile();
+            }}
+          >
+            SQLをファイルに保存...
+            <span className="context-key">{`${MOD}${SHIFT}S`}</span>
+          </button>
         </div>
       )}
 
@@ -714,13 +851,15 @@ export function QueryPanel({
         runStartedAt={runStartedAt}
         explainMode={explainMode}
         hasExplainModes={hasExplainModes}
+        statementIndex={target.index}
+        statementCount={target.total}
+        runScope={runScope}
         txnOn={txnOn}
         captureOn={captureOn}
         formatError={formatError}
         captureMsg={captureMsg}
         capturePath={capturePath}
         onRun={() => void run()}
-        onRunAll={runAll}
         onExplain={runExplain}
         onCancel={onCancel}
         onChangeSql={onChangeSql}
@@ -746,34 +885,19 @@ export function QueryPanel({
           explainKind={explainKind}
           csv={csv}
           onExport={handleExport}
+          onOpenInEditor={openInCsvEditor}
+          counting={counting}
+          totalRows={counted?.index === activeIdx ? counted.total : null}
+          onCount={countRows}
           onPage={onPage}
-          canPin={canPin}
-          pinnedLabel={pinHere?.label ?? null}
-          comparing={compareOn}
-          onPin={pinCurrent}
-          onUnpin={() => {
-            setPinned(null);
-            setComparing(false);
-          }}
-          onToggleCompare={() => setComparing((v) => !v)}
           canChart={canChart}
           onOpenChart={() => setCharting(true)}
         />
       )}
 
-      {compareOn && pinHere && result ? (
-        <ResultCompare
-          left={toComparePane(pinHere.label, pinHere.sql, pinHere.result)}
-          right={toComparePane(
-            active ? statementLabel(active.sql, activeIdx) : "今の結果",
-            active?.sql ?? "",
-            result
-          )}
-        />
-      ) : (
       <QueryResultView
         result={result}
-        error={error}
+        error={actionError ?? error}
         columns={gridColumns}
         rows={gridRows}
         rowValues={rowValueOf}
@@ -784,7 +908,6 @@ export function QueryPanel({
         // (シートIDを入れないと、別シートの結果に前の幅と選択が残る)
         fitKey={`${sheetPane.activeId}:${runStartedAt ?? 0}:${activeIdx}`}
       />
-      )}
 
       {charting && result && (
         <ResultChart

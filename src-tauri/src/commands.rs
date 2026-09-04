@@ -7,14 +7,14 @@
 
 use tauri::{AppHandle, Manager, State};
 
-use crate::models::{
-    ConnectInfo, ConnectionProfile, ConnectionStore, CsvExportResult, FolderInfo, LayoutEntry,
-    RunOutput, SchemaEntry, SessionSummary, TableDetail, TableInfo, TestResult,
-};
 use crate::catalog;
 use crate::csv_job::CsvJobs;
 use crate::ddl;
 use crate::ddl_table;
+use crate::models::{
+    ConnectInfo, ConnectionProfile, ConnectionStore, CsvExportResult, FolderInfo, LayoutEntry,
+    RunOutput, SchemaEntry, SessionSummary, TableDetail, TableInfo, TestResult,
+};
 use crate::query;
 use crate::query_log::{QueryLog, QueryLogEntry};
 use crate::sessions::{self, CancelRegistry, Sessions};
@@ -36,6 +36,10 @@ pub use browse::*;
 /// 定義の変更 (テーブル・カラム・インデックス・外部キー) と、
 mod definitions;
 pub use definitions::*;
+
+/// CSVエディタ (別ウィンドウ) の読み書きと比較
+mod csv;
+pub use csv::*;
 
 /// Valkey (KVモード) の操作
 mod kv;

@@ -410,6 +410,23 @@ html.macos .diff-toolbar {
   transition-delay: 0.35s;
 }
 
+/*
+ * 別のウィンドウが前に出ているあいだはヒントを消す。
+ *
+ * ボタンを押して新しいウィンドウが開いたとき、こちらの窓には
+ * マウスが離れた知らせが来ないので :hover が残り、
+ * ヒントが出しっぱなしになる (印は main.tsx が付け外しする)
+ */
+html.win-blur .has-tooltip::after {
+  opacity: 0;
+  visibility: hidden;
+  transition: none;
+}
+
+html.win-blur .hover-tip {
+  display: none;
+}
+
 /* ホバー時のfilter等でボタンがスタッキングコンテキストになると
  * ツールチップが後続要素 (ER図キャンバス等) の下に隠れるため、
  * ホバー中はボタンごと前面に出す */

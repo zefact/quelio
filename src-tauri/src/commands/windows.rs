@@ -2,6 +2,8 @@
 //! アプリ全体の設定・作業状態・ログ
 
 use super::*;
+// ウィンドウへイベントを送るために要る (Manager等と同じくトレイト)
+use tauri::Emitter;
 
 /// URLクエリ用の簡易パーセントエンコード
 fn url_encode(s: &str) -> String {
@@ -144,6 +146,103 @@ pub async fn open_console(app: AppHandle) -> Result<(), String> {
         .map_err(|e| format!("コンソールを開けません: {e}"))?;
     Ok(())
 }
+
+/**
+ * CSVエディタのウィンドウを開く (既にあればフォーカスする)。
+ *
+ * ウィンドウは1つだけにして、複数のCSVはその中のタブで持つ。
+ * 既に開いているときにファイルを渡されたら、読み込み直さずに
+ * 「このファイルを開いて」と伝えるだけにする (編集中のタブを捨てないため)
+ */
+#[tauri::command]
+pub async fn open_csv_window(
+    app: AppHandle,
+    path: Option<String>,
+    doc_id: Option<String>,
+) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("csv") {
+        if let Some(p) = &path {
+            let _ = w.emit(CSV_OPEN_EVENT, p);
+        }
+        if let Some(id) = &doc_id {
+            let _ = w.emit(CSV_DOC_EVENT, id);
+        }
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let url = match (&path, &doc_id) {
+        (Some(p), _) => format!("index.html?csv=1&path={}", url_encode(p)),
+        // 既に読み込んである表 (クエリ結果など) は、その入れ物の番号だけ渡す
+        (None, Some(id)) => format!("index.html?csv=1&doc={}", url_encode(id)),
+        (None, None) => "index.html?csv=1".to_string(),
+    };
+    let b = tauri::WebviewWindowBuilder::new(&app, "csv", tauri::WebviewUrl::App(url.into()))
+        .title("Quelio CSV")
+        .inner_size(1180.0, 760.0)
+        // ファイルの落とし込みは既定で有効。
+        // メインウィンドウは tauri.conf.json で切ってあるが、
+        // ここでは切らずに使う (CSVを落として開くため)
+        .min_inner_size(720.0, 400.0);
+    #[cfg(target_os = "macos")]
+    let b = b
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(20.0, 22.0));
+    b.build()
+        .map_err(|e| format!("CSVエディタを開けません: {e}"))?;
+    Ok(())
+}
+
+/**
+ * DBの画面 (メインウィンドウ) を前に出す。
+ *
+ * CSVエディタだけを残してメインウィンドウを閉じると、
+ * アプリは動いているのに戻る手立てが無くなる。
+ * 閉じられていたら同じ設定で建て直す
+ */
+#[tauri::command]
+pub async fn open_main_window(app: AppHandle) -> Result<(), String> {
+    front(ensure_main(&app)?);
+    Ok(())
+}
+
+/// ウィンドウを前に出す
+fn front(w: tauri::WebviewWindow) {
+    let _ = w.unminimize();
+    let _ = w.show();
+    let _ = w.set_focus();
+}
+
+/// メインウィンドウを返す (閉じられていたら建て直す)
+fn ensure_main(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+    if let Some(w) = app.get_webview_window("main") {
+        return Ok(w);
+    }
+    // tauri.conf.json の設定と同じ形で建て直す
+    let b = tauri::WebviewWindowBuilder::new(
+        app,
+        "main",
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("Quelio")
+    .inner_size(1160.0, 780.0)
+    .min_inner_size(860.0, 600.0)
+    // SQLエディタが文字の落とし込みを自前で扱うので、OSの落とし込みは切る
+    // (tauri.conf.json の dragDropEnabled: false と同じ)
+    .disable_drag_drop_handler();
+    #[cfg(target_os = "macos")]
+    let b = b
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true)
+        .traffic_light_position(tauri::LogicalPosition::new(20.0, 22.0));
+    b.build().map_err(|e| format!("画面を開けません: {e}"))
+}
+
+/// 開いているCSVウィンドウへ「このファイルを開いて」と伝えるときのイベント名
+const CSV_OPEN_EVENT: &str = "csv-open-file";
+
+/// 同じく「もう読み込んであるこの表を開いて」と伝えるときのイベント名
+const CSV_DOC_EVENT: &str = "csv-open-doc";
 
 /// 前回の作業状態 (タブ・書きかけSQL) を返す (無ければnull)
 #[tauri::command]
@@ -290,6 +389,14 @@ pub async fn save_text_file(
     crate::outfile::write(&path, text.into_bytes())
         .map_err(|e| format!("ファイルを書き込めません: {e}"))?;
     Ok(path.to_string_lossy().to_string())
+}
+
+/// 選んだ場所へテキストを書き出す (保存先はダイアログで決まっているのでそのまま使う)。
+/// SQLエディタの内容を .sql として残すときに使う
+#[tauri::command]
+pub async fn save_text_as(path: String, text: String) -> Result<(), String> {
+    crate::outfile::write(std::path::Path::new(&path), text.into_bytes())
+        .map_err(|e| format!("ファイルを書き込めません: {e}"))
 }
 
 /// アプリ全般の設定を返す

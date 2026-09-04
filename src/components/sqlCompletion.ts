@@ -3,9 +3,13 @@
  *
  * 書いている場所を見て候補を絞り込む。
  *  - `FROM` / `JOIN` / `INTO` / `UPDATE` / `TABLE` の直後 → テーブル名だけ
- *  - `別名.` や `テーブル名.` の直後 → そのテーブルのカラムだけ
- *  - 文中でテーブルが特定できている → そのテーブルのカラムだけ
+ *  - `別名.` や `テーブル名.` の直後 → その取得元のカラムだけ
+ *  - 文中で取得元が特定できている → そのカラムだけ
  *  - それ以外 → テーブル名だけ
+ *
+ * 「取得元」には実テーブルだけでなく、WITH句と導出表 (`FROM (...) x`) も入る。
+ * どこから何が見えるかの割り出しは sqlScope に任せ、
+ * ここは「見えているものをどう候補にするか」だけを持つ。
  *
  * 予約語や関数名は候補に出さない (テーブル・カラムだけを出す)
  */
@@ -15,6 +19,9 @@ import type {
   CompletionResult,
   CompletionSource,
 } from "@codemirror/autocomplete";
+import { scopeAt } from "./sqlScope";
+import type { ScopeSource } from "./sqlScope";
+import { ID_SOURCE, unquote } from "./sqlText";
 /** 補完に出すカラム1件 */
 export interface CompletionColumn {
   name: string;
@@ -104,72 +111,26 @@ export function keepOrder<T extends Completion>(
   }));
 }
 
-/** 識別子 (バッククォート・ダブルクォート囲みも許す) */
-const ID = '(?:[A-Za-z_$#][\\w$#]*|`[^`]*`|"[^"]*")';
 /** スキーマ付きの識別子 */
-const QUALIFIED = `${ID}(?:\\s*\\.\\s*${ID})*`;
+const QUALIFIED = `${ID_SOURCE}(?:\\s*\\.\\s*${ID_SOURCE})*`;
 /** テーブル名を書く場所を示すキーワード */
 const TABLE_KEYWORDS = "from|join|into|update|table";
 
-/** 別名として扱わない語 (`FROM users WHERE` の WHERE などを別名にしないため) */
-const NOT_ALIAS = new Set([
-  "on", "where", "set", "group", "order", "having", "limit", "offset",
-  "join", "inner", "left", "right", "full", "cross", "outer", "natural",
-  "using", "values", "select", "union", "except", "intersect", "and", "or",
-  "window", "returning", "for", "lateral", "fetch", "partition", "add",
-  "drop", "modify", "change", "rename", "alter", "if", "not", "exists",
-]);
-const NOT_ALIAS_ALT = [...NOT_ALIAS].join("|");
-
 /** `FROM t1, ` のように、テーブル名を書く位置にいるか */
 const TABLE_POS = new RegExp(
-  `\\b(?:${TABLE_KEYWORDS})\\s+(?:${QUALIFIED}(?:\\s+(?:as\\s+)?${ID})?\\s*,\\s*)*$`,
+  `\\b(?:${TABLE_KEYWORDS})\\s+(?:${QUALIFIED}(?:\\s+(?:as\\s+)?${ID_SOURCE})?\\s*,\\s*)*$`,
   "i"
 );
 /** `別名.` の直前までを取り出す */
-const QUALIFIER = new RegExp(`(?:(${ID})\\s*\\.\\s*)?(${ID})\\s*\\.\\s*$`);
-/** 文中のテーブルと別名を拾う (別名の位置に予約語が来たら別名なしとみなす) */
-const SOURCES = new RegExp(
-  `\\b(?:${TABLE_KEYWORDS})\\s+(${QUALIFIED})` +
-    `(?:\\s+(?:as\\s+)?(?!(?:${NOT_ALIAS_ALT})\\b)(${ID}))?`,
-  "gi"
+const QUALIFIER = new RegExp(
+  `(?:(${ID_SOURCE})\\s*\\.\\s*)?(${ID_SOURCE})\\s*\\.\\s*$`
 );
-
-/** クォートを外す */
-function unquote(name: string): string {
-  const s = name.trim();
-  const q = s[0];
-  if ((q === "`" || q === '"') && s.length >= 2 && s.endsWith(q)) {
-    return s.slice(1, -1);
-  }
-  return s;
-}
 
 /** カーソルの居る文 (`;` 区切り) の範囲 */
 function statementRange(doc: string, pos: number): [number, number] {
   const start = doc.lastIndexOf(";", pos - 1) + 1;
   const end = doc.indexOf(";", pos);
   return [start, end < 0 ? doc.length : end];
-}
-
-/** 文中に出てくるテーブルと別名を集める */
-function collectSources(statement: string): {
-  tables: string[];
-  aliases: Map<string, string>;
-} {
-  const tables: string[] = [];
-  const aliases = new Map<string, string>();
-  SOURCES.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = SOURCES.exec(statement))) {
-    const table = unquote(m[1]);
-    if (!tables.includes(table)) tables.push(table);
-    const alias = m[2] ? unquote(m[2]) : "";
-    if (alias && !NOT_ALIAS.has(alias.toLowerCase())) {
-      aliases.set(alias.toLowerCase(), table);
-    }
-  }
-  return { tables, aliases };
 }
 
 /** 名前からスキーマのキーを探す (大文字小文字とスキーマ名の有無を吸収) */
@@ -227,6 +188,54 @@ function columnOptions(schema: SchemaMap, table: string): SqlOption[] {
   }));
 }
 
+/**
+ * WITH句・導出表が返す列の候補。
+ *
+ * 実テーブルと違って型やコメントが分からないので、
+ * 出せるのは名前と「どこから来たか」だけになる
+ */
+function derivedOptions(columns: string[], from: string): SqlOption[] {
+  return columns.map((name) => ({
+    label: name,
+    type: "property",
+    cells: ["", from, "", ""],
+  }));
+}
+
+/** WITH句で定義された名前の候補 (テーブル名と並べて出す) */
+function cteOption(name: string): SqlOption {
+  return { label: name, type: "type", cells: ["", "with", "", ""] };
+}
+
+/** その取得元のカラム候補 (実テーブルならスキーマから、そうでなければ割り出した列) */
+function sourceOptions(schema: SchemaMap, s: ScopeSource): Completion[] {
+  if (s.table) {
+    const key = findTable(schema, s.table);
+    if (key) return columnOptions(schema, key);
+  }
+  if (s.columns) return derivedOptions(s.columns, s.alias || "副問い合わせ");
+  return [];
+}
+
+/**
+ * 名前 (別名またはテーブル名) から取得元を探す。
+ *
+ * 別名を付けてあるときは、その別名でしか呼べない
+ * (`FROM users u` に対する `users.id` はSQLとして誤り) のでそれに倣う
+ */
+function findSource(sources: ScopeSource[], name: string): ScopeSource | null {
+  const lower = name.toLowerCase();
+  const byAlias = sources.find((s) => s.alias.toLowerCase() === lower);
+  if (byAlias) return byAlias;
+  return (
+    sources.find((s) => {
+      if (s.alias || !s.table) return false;
+      const t = s.table.toLowerCase();
+      return t === lower || (t.split(".").pop() ?? "") === lower;
+    }) ?? null
+  );
+}
+
 /** 補完候補を作る (スキーマは都度読むので、接続先が変わっても作り直し不要) */
 export function sqlCompletion(getSchema: () => SchemaMap): CompletionSource {
   return (context: CompletionContext): CompletionResult | null => {
@@ -237,7 +246,11 @@ export function sqlCompletion(getSchema: () => SchemaMap): CompletionSource {
     const [stmtFrom, stmtTo] = statementRange(doc, context.pos);
     const before = doc.slice(stmtFrom, from);
     const statement = doc.slice(stmtFrom, stmtTo);
-    const { tables, aliases } = collectSources(statement);
+    // 今いる場所から何が見えるか (WITH句・導出表・副問い合わせを含む)
+    const scope = scopeAt(statement, context.pos - stmtFrom, (name) => {
+      const key = findTable(schema, name);
+      return key ? schema[key].columns.map((c) => c.name) : null;
+    });
     /*
      * 候補を返す。
      * 並びはここで作った順 (テーブルの定義順) を保つ
@@ -247,15 +260,22 @@ export function sqlCompletion(getSchema: () => SchemaMap): CompletionSource {
         ? null
         : { from, options: keepOrder(options), validFor: /^[\w$#]*$/ };
 
-    // 1. `別名.` / `テーブル名.` の直後 → そのテーブルのカラムだけ
+    // 1. `別名.` / `テーブル名.` の直後 → その取得元のカラムだけ
     const qualifier = QUALIFIER.exec(before);
     if (qualifier) {
       const name = unquote(qualifier[2]);
       const prefix = qualifier[1] ? unquote(qualifier[1]) : "";
-      const table = aliases.get(name.toLowerCase()) ?? name;
+      if (!prefix) {
+        // 書いている場所から見えているもの (WITH句・導出表を含む) を先に見る
+        const src = findSource(scope.sources, name);
+        if (src) {
+          const options = sourceOptions(schema, src);
+          if (options.length > 0) return done(options);
+        }
+      }
       const key =
-        findTable(schema, prefix ? `${prefix}.${table}` : table) ??
-        findTable(schema, table);
+        findTable(schema, prefix ? `${prefix}.${name}` : name) ??
+        findTable(schema, name);
       if (key) return done(columnOptions(schema, key));
       if (!prefix) {
         // スキーマ名かもしれないので、その配下のテーブルを出す
@@ -269,30 +289,27 @@ export function sqlCompletion(getSchema: () => SchemaMap): CompletionSource {
       return null;
     }
 
-    // 2. テーブル名を書く場所 → テーブル名だけ
-    if (TABLE_POS.test(before)) return done(tableOptions(schema));
+    // 2. テーブル名を書く場所 → テーブル名 (WITH句の名前を先に出す)
+    if (TABLE_POS.test(before)) {
+      return done([...scope.cteNames.map(cteOption), ...tableOptions(schema)]);
+    }
 
     if (!context.explicit && (!word || word.from === word.to)) return null;
 
-    // 3. テーブルが特定できていれば、そのカラムだけ
-    const keys = tables
-      .map((t) => findTable(schema, t))
-      .filter((k): k is string => k !== null);
-    if (keys.length > 0) {
-      const seen = new Set<string>();
-      const columns: Completion[] = [];
-      for (const key of keys) {
-        for (const option of columnOptions(schema, key)) {
-          const id = `${key}.${option.label}`;
-          if (seen.has(id)) continue;
-          seen.add(id);
-          columns.push(option);
-        }
+    // 3. 見えている取得元があれば、そのカラムだけ
+    const seen = new Set<string>();
+    const columns: Completion[] = [];
+    for (const src of scope.sources) {
+      for (const option of sourceOptions(schema, src)) {
+        const id = `${src.alias}.${src.table}.${option.label}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        columns.push(option);
       }
-      return done(columns);
     }
+    if (columns.length > 0) return done(columns);
 
     // 4. 手掛かりが無ければテーブル名
-    return done(tableOptions(schema));
+    return done([...scope.cteNames.map(cteOption), ...tableOptions(schema)]);
   };
 }

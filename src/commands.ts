@@ -17,8 +17,17 @@ import type {
   ConnectInfo,
   ConnectionProfile,
   ConnectionStore,
+  CsvDiffOverview,
+  CsvDiffPage,
   CsvExportResult,
+  CsvFindResult,
+  CsvFromQuery,
+  CsvSavedLayout,
+  CsvInfo,
+  CsvPage,
   CsvPreview,
+  CsvSummary,
+  CsvPos,
   DangerousStatement,
   ErDiagramData,
   ExportedLog,
@@ -81,6 +90,7 @@ export interface CommandResults {
   check_kv_destructive: string[];
   clear_query_log: void;
   connect_session: ConnectInfo;
+  count_query_rows: number;
   count_table_rows: number;
   create_database: string[];
   create_folder: FolderInfo;
@@ -100,6 +110,40 @@ export interface CommandResults {
   export_connections: number;
   export_er_diagrams: number;
   export_plan_csv: CsvExportResult;
+  csv_open: CsvInfo;
+  csv_open_fixed: CsvInfo;
+  csv_set_fixed: CsvInfo;
+  csv_layouts: CsvSavedLayout[];
+  csv_save_layout: CsvSavedLayout[];
+  csv_delete_layout: CsvSavedLayout[];
+  csv_new: CsvInfo;
+  csv_from_query: CsvFromQuery;
+  csv_from_rows: CsvInfo;
+  csv_close: void;
+  csv_info: CsvInfo;
+  csv_page: CsvPage;
+  csv_set_cells: CsvInfo;
+  csv_insert_rows: CsvInfo;
+  csv_delete_rows: CsvInfo;
+  csv_insert_col: CsvInfo;
+  csv_delete_col: CsvInfo;
+  csv_rename_col: CsvInfo;
+  csv_find: CsvFindResult;
+  csv_replace_all: CsvInfo;
+  csv_undo: CsvInfo;
+  csv_redo: CsvInfo;
+  csv_set_header: CsvInfo;
+  csv_set_format: CsvInfo;
+  csv_save: CsvInfo;
+  csv_export_xlsx: null;
+  csv_summary: CsvSummary;
+  csv_edge: CsvPos;
+  csv_changed_outside: boolean;
+  csv_dirty_names: string[];
+  csv_compare: CsvDiffOverview;
+  csv_guess_key: string[];
+  csv_diff_page: CsvDiffPage;
+  csv_diff_next: number | null;
   export_query_rows: CsvExportResult;
   export_query_log: ExportedLog;
   export_schema_csv: string[];
@@ -139,6 +183,8 @@ export interface CommandResults {
   list_sessions: SessionSummary[];
   list_tables: TableInfo[];
   open_console: void;
+  open_csv_window: void;
+  open_main_window: void;
   open_diff: void;
   open_er: void;
   open_schema: void;
@@ -156,6 +202,7 @@ export interface CommandResults {
   save_app_settings: void;
   save_capture: string;
   save_text_file: string;
+  save_text_as: void;
   save_connection: ConnectionProfile;
   save_er_diagram: void;
   save_sql_params: void;
@@ -210,12 +257,47 @@ export const COMMAND_NAMES = [
   "check_kv_destructive",
   "clear_query_log",
   "connect_session",
+  "count_query_rows",
   "count_table_rows",
   "create_database",
   "create_folder",
   "create_table",
   "create_temp_upload",
+  "csv_changed_outside",
+  "csv_close",
+  "csv_compare",
+  "csv_delete_col",
+  "csv_delete_layout",
+  "csv_delete_rows",
+  "csv_diff_next",
+  "csv_diff_page",
+  "csv_dirty_names",
   "csv_export_status",
+  "csv_find",
+  "csv_from_query",
+  "csv_from_rows",
+  "csv_guess_key",
+  "csv_info",
+  "csv_insert_col",
+  "csv_insert_rows",
+  "csv_layouts",
+  "csv_new",
+  "csv_open",
+  "csv_open_fixed",
+  "csv_page",
+  "csv_redo",
+  "csv_rename_col",
+  "csv_save_layout",
+  "csv_replace_all",
+  "csv_save",
+  "csv_export_xlsx",
+  "csv_summary",
+  "csv_edge",
+  "csv_set_cells",
+  "csv_set_fixed",
+  "csv_set_format",
+  "csv_set_header",
+  "csv_undo",
   "default_ssh_key_dir",
   "delete_connection",
   "delete_er_diagram",
@@ -268,6 +350,8 @@ export const COMMAND_NAMES = [
   "list_sessions",
   "list_tables",
   "open_console",
+  "open_csv_window",
+  "open_main_window",
   "open_diff",
   "open_er",
   "open_schema",
@@ -284,6 +368,7 @@ export const COMMAND_NAMES = [
   "run_query",
   "save_app_settings",
   "save_capture",
+  "save_text_as",
   "save_text_file",
   "save_connection",
   "save_er_diagram",

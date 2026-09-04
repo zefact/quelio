@@ -18,7 +18,7 @@ describe("csvExportStore", () => {
   });
 
   it("書き換えた分だけ変わる", () => {
-    const job = { id: "csv-1", index: 0, startedAt: 100 };
+    const job = { id: "csv-1", index: 0, startedAt: 100, verb: "出力" };
     patchCsvExport("a", { job });
     patchCsvExport("a", { path: "/tmp/out.csv" });
     expect(getCsvExport("a")).toEqual({
@@ -29,7 +29,9 @@ describe("csvExportStore", () => {
   });
 
   it("キーごとに別々に持つ", () => {
-    patchCsvExport("a", { job: { id: "csv-1", index: 0, startedAt: 1 } });
+    patchCsvExport("a", {
+      job: { id: "csv-1", index: 0, startedAt: 1, verb: "出力" },
+    });
     expect(getCsvExport("b").job).toBeNull();
   });
 

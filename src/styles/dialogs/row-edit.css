@@ -184,13 +184,34 @@
   font-weight: 700;
 }
 
-/* 追加中の行 */
-.grid tr.row-new > td:first-child {
-  box-shadow: inset 3px 0 0 #22c55e;
+/*
+ * 追加中の行。
+ *
+ * 一覧は200行ずつしか描いていないので、行数の多い表では
+ * 末尾に足した入力欄が画面の外に出てしまい、
+ * ボタンを押しても何も起きないように見えていた。
+ * 画面の下端に貼り付けて、どこを見ていても入力欄が出るようにする
+ */
+.grid tr.row-new {
+  position: sticky;
+  bottom: 0;
+  /* 見出し (z-index:2) より下、ふつうのセルより上に置く */
+  z-index: 1;
+  /*
+   * 下の行が透けないよう、行に不透明な地を敷く。
+   * セルの色は薄い緑なので、その下にこれが入って不透明になる
+   * (貼り付けは tr にしか効かないので、td ではなくここで指定する)
+   */
+  background: var(--bg-panel);
 }
 
 .grid tr.row-new > td {
   background: rgba(34, 197, 94, 0.08);
+  border-top: 1px solid var(--border-strong);
+}
+
+.grid tr.row-new > td:first-child {
+  box-shadow: inset 3px 0 0 #22c55e;
 }
 
 .grid tr.row-new .row-num {

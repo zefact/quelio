@@ -8,9 +8,26 @@ import type {
   ConnectInfo,
   ConnectionProfile,
   ConnectionStore,
+  CsvCellPatch,
+  CsvDiffOptions,
+  CsvDiffOverview,
+  CsvDiffPage,
   CsvExportResult,
+  CsvFindOptions,
+  CsvFindResult,
+  CsvFixedLayout,
+  CsvFixedSpec,
+  CsvFormatPatch,
+  CsvFromQuery,
+  CsvInfo,
+  CsvMatch,
+  CsvPage,
   CsvOptions,
   CsvPreview,
+  CsvSavedLayout,
+  CsvSummary,
+  CsvRect,
+  CsvPos,
   DangerousStatement,
   DbType,
   ErDiagramData,
@@ -583,6 +600,15 @@ export function killProcess(
 }
 
 /** テーブルの正確な行数を数える (一覧の概算行数との差を確かめる) */
+/** 書いたSQLが全部で何件返すかを数える (ページングで先頭しか見えていないとき) */
+export function countQueryRows(
+  sessionId: string,
+  database: string | null,
+  sql: string
+): Promise<number> {
+  return call("count_query_rows", { sessionId, database, sql });
+}
+
 export function countTableRows(
   sessionId: string,
   database: string | undefined,
@@ -723,6 +749,295 @@ export function exportQueryRows(
   });
 }
 
+// ---------- CSVエディタ (別ウィンドウ) ----------
+
+/** CSVファイルを開く。encodingを渡すと自動判定せずにその文字コードで読む */
+export function csvOpen(path: string, encoding?: string): Promise<CsvInfo> {
+  return call("csv_open", { path, encoding });
+}
+
+/** 空のCSVを作る */
+export function csvNew(name: string): Promise<CsvInfo> {
+  return call("csv_new", { name });
+}
+
+/** 表 (クエリ結果など) をCSVタブとして開く */
+/**
+ * SQLの結果を全件CSVタブとして開く。
+ *
+ * 画面は1000行ずつしか持っていないので、全件はRust側で流し直す
+ * (CSV出力と同じ道を通るので、ページングのLIMITは付かない)
+ */
+export function csvFromQuery(
+  sessionId: string,
+  database: string | null,
+  sql: string,
+  name: string,
+  jobId: string,
+  orderBy?: string,
+  orderDir?: string
+): Promise<CsvFromQuery> {
+  return call("csv_from_query", {
+    sessionId,
+    database,
+    sql,
+    name,
+    jobId,
+    orderBy: orderBy ?? null,
+    orderDir: orderDir ?? null,
+  });
+}
+
+export function csvFromRows(
+  name: string,
+  columns: string[],
+  rows: (string | null)[][]
+): Promise<CsvInfo> {
+  return call("csv_from_rows", { name, columns, rows });
+}
+
+/** 固定長のファイルを開く */
+export function csvOpenFixed(
+  path: string,
+  spec: CsvFixedSpec,
+  encoding?: string
+): Promise<CsvInfo> {
+  return call("csv_open_fixed", { path, spec, encoding: encoding ?? null });
+}
+
+/**
+ * 開いてあるタブの読み方を変える (固定長 ⇄ 区切り文字、桁の変更)。
+ *
+ * 行の切れ方そのものが変わるのでファイルから読み直す。
+ * spec に null を渡すと区切り文字として読み直す
+ */
+export function csvSetFixed(
+  docId: string,
+  spec: CsvFixedSpec | null
+): Promise<CsvInfo> {
+  return call("csv_set_fixed", { docId, spec });
+}
+
+/** 残してある固定長のレイアウト */
+export function csvLayouts(): Promise<CsvSavedLayout[]> {
+  return call("csv_layouts", {});
+}
+
+/** 桁の並びに名前を付けて残す */
+export function csvSaveLayout(
+  name: string,
+  layout: CsvFixedLayout
+): Promise<CsvSavedLayout[]> {
+  return call("csv_save_layout", { name, layout });
+}
+
+/** 残してあるレイアウトを消す */
+export function csvDeleteLayout(name: string): Promise<CsvSavedLayout[]> {
+  return call("csv_delete_layout", { name });
+}
+
+/** タブを閉じる (未保存の確認は呼ぶ側で済ませておくこと) */
+export function csvClose(docId: string): Promise<void> {
+  return call("csv_close", { docId });
+}
+
+/** 今の状態を取り直す */
+export function csvInfo(docId: string): Promise<CsvInfo> {
+  return call("csv_info", { docId });
+}
+
+/** 1ページぶんの行を取る */
+export function csvPage(
+  docId: string,
+  offset: number,
+  limit: number
+): Promise<CsvPage> {
+  return call("csv_page", { docId, offset, limit });
+}
+
+/** セルを書き換える (まとめて渡すと1回の取り消しで戻る) */
+export function csvSetCells(
+  docId: string,
+  cells: CsvCellPatch[]
+): Promise<CsvInfo> {
+  return call("csv_set_cells", { docId, cells });
+}
+
+/** 空の行を足す */
+export function csvInsertRows(
+  docId: string,
+  at: number,
+  count: number
+): Promise<CsvInfo> {
+  return call("csv_insert_rows", { docId, at, count });
+}
+
+/** 行を消す */
+export function csvDeleteRows(
+  docId: string,
+  at: number,
+  count: number
+): Promise<CsvInfo> {
+  return call("csv_delete_rows", { docId, at, count });
+}
+
+/** 空の列を足す */
+export function csvInsertCol(
+  docId: string,
+  at: number,
+  name: string
+): Promise<CsvInfo> {
+  return call("csv_insert_col", { docId, at, name });
+}
+
+/** 列を消す */
+export function csvDeleteCol(docId: string, at: number): Promise<CsvInfo> {
+  return call("csv_delete_col", { docId, at });
+}
+
+/** 列の名前を変える */
+export function csvRenameCol(
+  docId: string,
+  at: number,
+  name: string
+): Promise<CsvInfo> {
+  return call("csv_rename_col", { docId, at, name });
+}
+
+/**
+ * 次 (backward なら前) の一致を探す。
+ *
+ * 全行はRust側にあるので、探すのもRust側で行う。
+ * from は今いるセル (そこは飛ばして隣から見る)
+ */
+export function csvFind(
+  docId: string,
+  query: string,
+  options: CsvFindOptions,
+  from: CsvMatch | null,
+  backward: boolean
+): Promise<CsvFindResult> {
+  return call("csv_find", { docId, query, options, from, backward });
+}
+
+/** 見つかったものをまとめて置き換える (取り消しは1回で戻る) */
+export function csvReplaceAll(
+  docId: string,
+  query: string,
+  replacement: string,
+  options: CsvFindOptions
+): Promise<CsvInfo> {
+  return call("csv_replace_all", { docId, query, replacement, options });
+}
+
+/** 直前の操作を取り消す */
+export function csvUndo(docId: string): Promise<CsvInfo> {
+  return call("csv_undo", { docId });
+}
+
+/** 取り消したものをやり直す */
+export function csvRedo(docId: string): Promise<CsvInfo> {
+  return call("csv_redo", { docId });
+}
+
+/** 1行目をヘッダとして扱うかを切り替える */
+export function csvSetHeader(docId: string, on: boolean): Promise<CsvInfo> {
+  return call("csv_set_header", { docId, on });
+}
+
+/** 保存する形 (文字コード・BOM・改行・区切り・引用符) を変える */
+export function csvSetFormat(
+  docId: string,
+  patch: CsvFormatPatch
+): Promise<CsvInfo> {
+  return call("csv_set_format", { docId, ...patch });
+}
+
+/** 保存する。pathを渡すと別名保存 */
+export function csvSave(docId: string, path?: string): Promise<CsvInfo> {
+  return call("csv_save", { docId, path });
+}
+
+/**
+ * 開いているCSVを Excel (.xlsx) として書き出す。
+ *
+ * 前ゼロや桁の大きなIDは文字のまま置くので、Excelで開いても崩れない
+ */
+export function csvExportXlsx(docId: string, path: string): Promise<null> {
+  return call("csv_export_xlsx", { docId, path });
+}
+
+/**
+ * 選んでいる範囲の要約 (セル数・入っているセル数・合計)。
+ *
+ * 画面に出ていない行を選んでいても数えられるよう、集計はRust側でやる。
+ * 四角は複数渡せる (⌘+クリックで離れた所も選べるため)
+ */
+export function csvSummary(
+  docId: string,
+  rects: CsvRect[]
+): Promise<CsvSummary> {
+  return call("csv_summary", { docId, rects });
+}
+
+/**
+ * 続いているデータの端まで飛んだ先を返す (Ctrl+矢印)。
+ *
+ * dRow / dCol は進む向き (-1 / 0 / 1)。縦と横は同時に動かさない
+ */
+export function csvEdge(
+  docId: string,
+  row: number,
+  col: number,
+  dRow: number,
+  dCol: number
+): Promise<CsvPos> {
+  return call("csv_edge", { docId, row, col, dRow, dCol });
+}
+
+/** 開いたあとに外部でファイルが書き換えられていないか */
+export function csvChangedOutside(docId: string): Promise<boolean> {
+  return call("csv_changed_outside", { docId });
+}
+
+/** 保存していないファイルの名前 (ウィンドウを閉じる前の確認に使う) */
+export function csvDirtyNames(): Promise<string[]> {
+  return call("csv_dirty_names", {});
+}
+
+/** 2つのCSVを突き合わせる (結果はバックエンドが預かる) */
+export function csvCompare(
+  leftId: string,
+  rightId: string,
+  options: CsvDiffOptions
+): Promise<CsvDiffOverview> {
+  return call("csv_compare", { leftId, rightId, options });
+}
+
+/** 突き合わせに使えそうな列を推測する */
+export function csvGuessKey(
+  leftId: string,
+  rightId: string
+): Promise<string[]> {
+  return call("csv_guess_key", { leftId, rightId });
+}
+
+/** 直近の比較結果から、見えている範囲だけを取る */
+export function csvDiffPage(
+  offset: number,
+  limit: number
+): Promise<CsvDiffPage> {
+  return call("csv_diff_page", { offset, limit });
+}
+
+/** 次 (前) の差分がある行を探す。無ければ null */
+export function csvDiffNext(
+  from: number,
+  backward: boolean
+): Promise<number | null> {
+  return call("csv_diff_next", { from, backward });
+}
+
 /** CSV出力の進捗 (書き出し済み行数) を取得する。終了済みはnull */
 export function csvExportStatus(jobId: string): Promise<JobProgress | null> {
   return call("csv_export_status", { jobId });
@@ -773,6 +1088,11 @@ export function saveTextFile(fileName: string, text: string): Promise<string> {
   return call("save_text_file", { fileName, text });
 }
 
+/** 選んだ場所へテキストを書き出す (保存ダイアログで決めたパスを渡す) */
+export function saveTextAs(path: string, text: string): Promise<void> {
+  return call("save_text_as", { path, text });
+}
+
 export function listSessions(): Promise<SessionSummary[]> {
   return call("list_sessions");
 }
@@ -786,6 +1106,31 @@ export function schemaSnapshot(
 
 export function openDiff(): Promise<void> {
   return call("open_diff");
+}
+
+/**
+ * CSVエディタのウィンドウを開く。
+ *
+ * path を渡すとそのファイルを、docId を渡すと
+ * 既に読み込んである表 (クエリ結果など) をタブにして開く
+ */
+export function openCsvWindow(opts?: {
+  path?: string;
+  docId?: string;
+}): Promise<void> {
+  return call("open_csv_window", {
+    path: opts?.path ?? null,
+    docId: opts?.docId ?? null,
+  });
+}
+
+/**
+ * DBの画面 (メインウィンドウ) を前に出す。
+ *
+ * 閉じられていたら建て直すので、CSVエディタから必ず戻れる
+ */
+export function openMainWindow(): Promise<void> {
+  return call("open_main_window");
 }
 
 export function openSchema(

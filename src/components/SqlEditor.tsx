@@ -17,6 +17,8 @@ import {
   defaultKeymap,
   history,
   historyKeymap,
+  indentLess,
+  indentMore,
   insertNewlineAndIndent,
 } from "@codemirror/commands";
 import { MySQL, PostgreSQL, SQLite } from "@codemirror/lang-sql";
@@ -25,9 +27,23 @@ import {
   indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language";
-import { Compartment, Prec, StateEffect, StateField } from "@codemirror/state";
+import {
+  Compartment,
+  EditorSelection,
+  Prec,
+  StateEffect,
+  StateField,
+} from "@codemirror/state";
+import type { EditorState, Line } from "@codemirror/state";
 import type { Command } from "@codemirror/view";
 import { setEditorFinder } from "../editorSearch";
+import type { SqlSpan } from "../sqlSpans";
+import {
+  setSpansEffect,
+  spansField,
+  targetAt,
+  targetLines,
+} from "./sqlTarget";
 import {
   Decoration,
   drawSelection,
@@ -78,6 +94,20 @@ const flashField = StateField.define<DecorationSet>({
 /** 光らせておく時間 (ミリ秒) */
 const FLASH_MS = 900;
 
+/** 実行対象になる文の行に敷く帯 */
+const targetLine = Decoration.line({ class: "cm-target" });
+
+/** 実行対象の文に敷く帯を作る (どの文が対象かの判断は sqlTarget が持つ) */
+function targetDecorations(state: EditorState): DecorationSet {
+  const at = targetLines(state);
+  if (!at) return Decoration.none;
+  const marks = [];
+  for (let n = at.first; n <= at.last; n++) {
+    marks.push(targetLine.range(state.doc.line(n).from));
+  }
+  return Decoration.set(marks);
+}
+
 /** 字下げ1段ぶんの文字 (整形の設定と同じものを、エディタの入力でも使う) */
 function indentText(indent: SqlIndent | undefined): string {
   if (indent === "tab") return "\t";
@@ -115,6 +145,63 @@ const insertNewlineSmart: Command = (view) => {
   return true;
 };
 
+/** 選択が2行以上にまたがっているか (Tabの動きを分けるために見る) */
+function spansLines(view: EditorView): boolean {
+  const doc = view.state.doc;
+  return view.state.selection.ranges.some(
+    (r) => !r.empty && doc.lineAt(r.from).number !== doc.lineAt(r.to).number
+  );
+}
+
+/**
+ * 行番号を押したらその行を選ぶ。
+ *
+ * 押したまま動かせば行単位で伸ばせる。Shift+クリックは今の選択から伸ばす。
+ * 行末の改行まで含めて選ぶので、そのまま削除すれば行ごと消える
+ */
+function selectLineFromGutter(
+  view: EditorView,
+  block: { from: number },
+  event: Event
+): boolean {
+  const e = event as MouseEvent;
+  if (e.button !== 0) return false;
+  e.preventDefault();
+
+  const doc = view.state.doc;
+  const start = doc.lineAt(block.from);
+  const anchorLine = e.shiftKey
+    ? doc.lineAt(view.state.selection.main.anchor)
+    : start;
+
+  /** 起点の行と今の行から、行まるごとの選択を作る */
+  const select = (head: Line) => {
+    const down = anchorLine.number <= head.number;
+    const from = down ? anchorLine.from : Math.min(anchorLine.to + 1, doc.length);
+    const to = down ? Math.min(head.to + 1, doc.length) : head.from;
+    view.dispatch({
+      selection: EditorSelection.single(from, to),
+      userEvent: "select",
+    });
+  };
+
+  select(start);
+  view.focus();
+
+  // 押したまま動かしている間は、その行まで伸ばす
+  const move = (m: MouseEvent) => {
+    const at = view.posAtCoords({ x: m.clientX, y: m.clientY }, false);
+    select(doc.lineAt(Math.max(0, Math.min(at, doc.length))));
+  };
+  const up = () => {
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", up);
+  };
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
+  return true;
+}
+
 /** 親から選択テキストを取得するためのハンドル */
 export interface SqlEditorHandle {
   getSelectedText(): string | null;
@@ -135,6 +222,15 @@ interface Props {
   onRunSelection: () => void;
   /** ⌘/Ctrl+Shift+F (SQLを整形) */
   onFormat: () => void;
+  /** ⌘/Ctrl+Shift+S (SQLをファイルに保存) */
+  onSaveFile: () => void;
+  /**
+   * 文ごとに分けた範囲。
+   * 分け方は方言によるのでバックエンドが決め、ここは受け取るだけ
+   */
+  statements?: SqlSpan[];
+  /** 実行対象が変わったとき (何文目 / 全部で何文。対象なしは -1) */
+  onTarget?: (index: number, total: number) => void;
   onSelectionChange: (hasSelection: boolean) => void;
   onContextMenu: (x: number, y: number) => void;
   /**
@@ -239,8 +335,16 @@ export const editorTheme = EditorView.theme({
   ".cm-lineNumbers .cm-gutterElement": {
     padding: "0 10px 0 14px",
     minWidth: "36px",
+    // 押すと行を選べるので、押せることが分かる形にする
+    cursor: "default",
   },
+  ".cm-lineNumbers .cm-gutterElement:hover": { color: "var(--text-dim)" },
   ".cm-activeLine": { backgroundColor: "rgba(var(--ink), 0.035)" },
+  // 実行ボタンで走る文 (押す前から範囲が分かるようにする)
+  ".cm-target": {
+    backgroundColor: "rgba(99, 102, 241, 0.07)",
+    boxShadow: "inset 2px 0 0 var(--accent)",
+  },
   ".cm-activeLineGutter": {
     backgroundColor: "transparent",
     color: "var(--text-dim)",
@@ -262,6 +366,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     onRun,
     onRunSelection,
     onFormat,
+    onSaveFile,
+    statements,
+    onTarget,
     onSelectionChange,
     onContextMenu,
     schema,
@@ -275,6 +382,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   const viewRef = useRef<EditorView | null>(null);
   /** 実行した範囲の光を消すタイマー */
   const flashTimer = useRef(0);
+  /** 前に知らせた実行対象 (同じなら知らせ直さない) */
+  const targetRef = useRef({ index: -1, total: 0 });
+  /** 文の範囲 (DB種別の変更でエディタを作り直したときに入れ直す) */
+  const spansRef = useRef(statements);
+  spansRef.current = statements;
   // 補完は候補を出すたびにrefを読むので、スキーマが変わっても作り直し不要
   const schemaRef = useRef(schema);
   schemaRef.current = schema;
@@ -291,6 +403,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     onRun,
     onRunSelection,
     onFormat,
+    onSaveFile,
+    onTarget,
     onSelectionChange,
     onContextMenu,
   });
@@ -299,6 +413,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     onRun,
     onRunSelection,
     onFormat,
+    onSaveFile,
+    onTarget,
     onSelectionChange,
     onContextMenu,
   };
@@ -333,12 +449,18 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       doc: value,
       parent: host,
       extensions: [
-        lineNumbers(),
+        lineNumbers({ domEventHandlers: { mousedown: selectLineFromGutter } }),
         // 選択の描画を自前で行う。ブラウザ任せだとフォーカスが無いときに
         // 描かれず、検索でヒットした位置が分からなくなる
         drawSelection(),
         // 実行した範囲を短い間だけ光らせる (選択はしない)
         flashField,
+        // 実行対象になる文に帯を敷く
+        spansField,
+        EditorView.decorations.compute(
+          [spansField, "doc", "selection"],
+          targetDecorations
+        ),
         highlightActiveLine(),
         highlightActiveLineGutter(),
         history(),
@@ -384,13 +506,26 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
               },
             },
             {
+              // ⌘Sは「お気に入りへ保存」なので、ファイルへは⌘⇧Sを使う
+              key: "Mod-Shift-s",
+              run: () => {
+                cbRef.current.onSaveFile();
+                return true;
+              },
+            },
+            {
               key: "Tab",
               run: (v) => {
                 // 補完の候補が出ているときはTabで確定する
                 if (completionStatus(v.state) !== null) return acceptCompletion(v);
+                // 複数行を選んでいるときは、行ごとに字下げする
+                // (置き換えにすると選んだSQLが消えてしまう)
+                if (spansLines(v)) return indentMore(v);
                 v.dispatch(v.state.replaceSelection(indentTextRef.current));
                 return true;
               },
+              // Shift+Tabは常に逆字下げ (選んでいなくてもその行を戻す)
+              shift: indentLess,
             },
           ])
         ),
@@ -426,10 +561,21 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
           if (u.selectionSet) {
             cbRef.current.onSelectionChange(!u.state.selection.main.empty);
           }
+          // 変わったときだけ伝える (カーソルを動かすたびに親を描き直さない)
+          const now = targetAt(u.state);
+          const was = targetRef.current;
+          if (now.index !== was.index || now.total !== was.total) {
+            targetRef.current = now;
+            cbRef.current.onTarget?.(now.index, now.total);
+          }
         }),
       ],
     });
     viewRef.current = view;
+    // 作り直した直後は文の範囲が空なので、今分かっているものを入れておく
+    if (spansRef.current?.length) {
+      view.dispatch({ effects: setSpansEffect.of(spansRef.current) });
+    }
 
     /*
      * ページ内検索から呼ばれる本文検索。
@@ -494,6 +640,13 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
       ),
     });
   }, [indent]);
+
+  // 文の分け方が届いたらエディタへ渡す (帯の位置がここで決まる)
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: setSpansEffect.of(statements ?? []),
+    });
+  }, [statements]);
 
   // 外部からのvalue変更 (整形など) をエディタへ反映
   useEffect(() => {

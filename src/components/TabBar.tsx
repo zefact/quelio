@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
-import { getVersion } from "@tauri-apps/api/app";
 import { emitAppEvent, FIND_EVENT } from "../appEvents";
+import { isBetaVersion, useAppVersion } from "../hooks/useAppVersion";
 import { dotStyle, profileColor } from "../colors";
 import type { WorkTab } from "../types";
 import { AppMenu } from "./AppMenu";
@@ -14,18 +13,8 @@ interface Props {
   onAdd: () => void;
   onOpenConsole: () => void;
   onOpenDiff: () => void;
+  onOpenCsv: () => void;
   onOpenSettings: () => void;
-}
-
-/** アプリバージョン (0.x系ならβ扱い) */
-function useAppVersion(): string {
-  const [version, setVersion] = useState("");
-  useEffect(() => {
-    getVersion()
-      .then((v) => setVersion(v ?? ""))
-      .catch(() => {});
-  }, []);
-  return version;
 }
 
 export function TabBar({
@@ -36,10 +25,10 @@ export function TabBar({
   onAdd,
   onOpenConsole,
   onOpenDiff,
+  onOpenCsv,
   onOpenSettings,
 }: Props) {
-  const version = useAppVersion();
-  const isBeta = version.startsWith("0.");
+  const isBeta = isBetaVersion(useAppVersion());
   /**
    * スキーマ差分は接続中のセッションから選ぶため、
    * どこにも接続していないときは押せないようにする
@@ -52,11 +41,11 @@ export function TabBar({
   const isMac = document.documentElement.classList.contains("macos");
   return (
     <div className="tabbar" data-tauri-drag-region>
-      <div className="brand" title="Quelio" data-tauri-drag-region>
+      <div className="brand" title="QuelioDB" data-tauri-drag-region>
         <span className="brand-mark">
           <DbIcon />
         </span>
-        <span className="brand-name">Quelio</span>
+        <span className="brand-name">QuelioDB</span>
         {isBeta && <span className="beta-badge">β</span>}
       </div>
 
@@ -155,6 +144,30 @@ export function TabBar({
             strokeWidth="1.8"
             strokeLinecap="round"
             strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      <button
+        className="console-btn has-tooltip"
+        data-tooltip="CSVエディタ (CSVを開いて編集・比較)"
+        onClick={onOpenCsv}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <rect
+            x="3"
+            y="4"
+            width="18"
+            height="16"
+            rx="2.5"
+            stroke="currentColor"
+            strokeWidth="1.8"
+          />
+          <path
+            d="M3 9.5h18M9.5 9.5V20M15 9.5V20"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
           />
         </svg>
       </button>

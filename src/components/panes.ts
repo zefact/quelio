@@ -33,5 +33,9 @@ export interface SheetPane {
   onSelect: (id: string) => void;
   onAdd: () => void;
   onClose: (id: string) => void;
+  /** そのシートだけ残して閉じる */
+  onCloseOthers: (id: string) => void;
+  /** すべて閉じる (空のシートが1枚だけ残る) */
+  onCloseAll: () => void;
   onRename: (id: string, title: string) => void;
 }

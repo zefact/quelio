@@ -17,7 +17,13 @@ export interface EditorOptions {
   txn: boolean;
   /** 実行後にSQLと結果のPNGを保存する */
   capture: boolean;
-  /** 実行ボタンの対象 (全体 / 選択部分) */
+  /**
+   * 実行ボタンが流す範囲。
+   *
+   * "here" … 選択があればそこ、無ければカーソルのある文だけ
+   * "all"  … 書いてあるSQLを全部
+   */
+  runScope: "here" | "all";
   /** EXPLAINボタンのモード */
   explainMode: "explain" | "analyze";
   /** エディタを画面いっぱいに広げているか */
@@ -28,6 +34,7 @@ export function defaultEditorOptions(): EditorOptions {
   return {
     txn: false,
     capture: false,
+    runScope: "here",
     explainMode: "explain",
     editorFull: false,
   };

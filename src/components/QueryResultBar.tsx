@@ -19,16 +19,14 @@ interface Props {
   /** 書き出しの状態 (useCsvExport の戻り値) */
   csv: ReturnType<typeof useCsvExport>;
   onExport: (format: ExportFormat) => void;
+  /** 結果をCSVエディタで開く */
+  onOpenInEditor: () => void;
+  /** 件数を数えている最中か */
+  counting: boolean;
+  /** 数えた総件数 (まだ数えていなければ null) */
+  totalRows: number | null;
+  onCount: () => void;
   onPage: (index: number, offset: number) => void;
-  /** ピン留めできるか (表になる結果のときだけ) */
-  canPin: boolean;
-  /** ピン留め中の見出し (していなければnull) */
-  pinnedLabel: string | null;
-  /** 見比べ中か */
-  comparing: boolean;
-  onPin: () => void;
-  onUnpin: () => void;
-  onToggleCompare: () => void;
   /** グラフにできるか (表になる結果で、数値の列があるとき) */
   canChart: boolean;
   onOpenChart: () => void;
@@ -47,13 +45,11 @@ export function QueryResultBar({
   explainKind,
   csv,
   onExport,
+  onOpenInEditor,
+  counting,
+  totalRows,
+  onCount,
   onPage,
-  canPin,
-  pinnedLabel,
-  comparing,
-  onPin,
-  onUnpin,
-  onToggleCompare,
   canChart,
   onOpenChart,
 }: Props) {
@@ -74,49 +70,17 @@ export function QueryResultBar({
         </div>
       )}
 
-      {/* 結果を取っておいて次の実行結果と見比べる。
-          画面の左寄りに並ぶボタンなので、説明は左端を起点に右へ伸ばす
+      {/* 画面の左寄りに並ぶボタンなので、説明は左端を起点に右へ伸ばす
           (既定の右端起点だと、説明の左側が画面の外へ出て読めなくなる) */}
-      <div className="result-pin">
+      <div className="result-actions">
         <button
-          className="btn-secondary pin-btn has-tooltip tooltip-wrap tooltip-left"
+          className="btn-secondary has-tooltip tooltip-wrap tooltip-left"
           data-tooltip={"この結果を棒・折れ線・円グラフで見ます\n(集計クエリの確認用)"}
           disabled={!canChart}
           onClick={onOpenChart}
         >
           グラフ
         </button>
-        {pinnedLabel === null ? (
-          <button
-            className="btn-secondary pin-btn has-tooltip tooltip-wrap tooltip-left"
-            data-tooltip={"この結果を取っておきます\n次に実行した結果と並べて見比べられます"}
-            disabled={!canPin}
-            onClick={onPin}
-          >
-            結果をピン留め
-          </button>
-        ) : (
-          <>
-            <span className="pinned-chip mono" title={pinnedLabel}>
-              📌 {pinnedLabel}
-            </span>
-            <button
-              className={"btn-secondary pin-btn" + (comparing ? " on" : "")}
-              disabled={!canPin}
-              title="ピン留めした結果と、今の結果を横に並べます"
-              onClick={onToggleCompare}
-            >
-              {comparing ? "比較をやめる" : "比較"}
-            </button>
-            <button
-              className="btn-ghost pin-btn"
-              title="ピン留めを解除する"
-              onClick={onUnpin}
-            >
-              ✕
-            </button>
-          </>
-        )}
       </div>
 
       {/* 右側: 書き出し / 件数 / ページ送り (いずれも表示中の結果タブの情報) */}
@@ -129,11 +93,12 @@ export function QueryResultBar({
               key={csv.job.id}
               jobId={csv.job.id}
               startedAt={csv.job.startedAt}
+              verb={csv.job.verb}
             />
             <button
               className="btn-secondary cancel-query-btn"
               onClick={csv.cancel}
-              title="出力を中止する (作りかけのファイルは残しません)"
+              title="中止する (作りかけのファイルは残しません)"
             >
               キャンセル
             </button>
@@ -154,9 +119,41 @@ export function QueryResultBar({
             disabled={!!csv.job || result.rows.length === 0}
             running={csv.job?.index === activeIdx}
             explainKind={explainKind}
-            onExport={onExport}
+            onRun={(target) =>
+              target === "editor" ? onOpenInEditor() : onExport(target)
+            }
           />
         )}
+
+        {/*
+          ページングで先頭しか出していないときだけ「件数」を出す。
+          全部出ていれば数えるまでもない
+        */}
+        {!running &&
+          result &&
+          !isExecResult(result) &&
+          result.pageable &&
+          (result.hasMore || result.offset > 0) &&
+          (totalRows === null ? (
+            <button
+              className="btn-ghost count-rows has-tooltip tooltip-left"
+              data-tooltip={"全部で何件あるかを数えます\n(同じ条件で COUNT を1本実行します)"}
+              disabled={counting}
+              onClick={onCount}
+            >
+              {counting ? (
+                <>
+                  <span className="spinner accent" /> 数えています...
+                </>
+              ) : (
+                "件数"
+              )}
+            </button>
+          ) : (
+            <span className="query-meta mono total-rows">
+              全 {totalRows.toLocaleString()} 件
+            </span>
+          ))}
 
         {!running && result && (
           <span className="query-meta mono">

@@ -72,6 +72,22 @@ pub fn plan_export(
     }
 }
 
+/**
+ * 件数を数えるSQLを組み立てる。
+ *
+ * ページングで先頭だけを出しているとき、全部で何件あるかを知りたくなる。
+ * 元のSQLをそのまま包むので、WHEREもJOINも書いたとおりに効く。
+ * (`LIMIT` が既に書いてあるSQLは絞る意図があるので数えない)
+ */
+pub fn plan_count(d: Dialect, sql: &str) -> Option<String> {
+    let trimmed = sql.trim().trim_end_matches(';').trim();
+    if !is_pageable(d, trimmed) {
+        return None;
+    }
+    // 末尾が行コメントでも飲み込まれないよう、改行で区切って包む
+    Some(format!("SELECT COUNT(*) FROM (\n{trimmed}\n) AS q"))
+}
+
 /// SQLからページング用の実行計画を作る。
 /// LIMITを含まないSELECT系には `LIMIT PAGE_SIZE+1 OFFSET n` を付与し、
 /// orderが指定されていればサブクエリで包んで ORDER BY を付ける (サーバーサイドソート)。
