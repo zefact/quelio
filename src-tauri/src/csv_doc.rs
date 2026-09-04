@@ -13,6 +13,7 @@ pub mod fixed;
 pub mod format;
 pub mod io;
 pub mod nav;
+pub mod sink;
 pub mod summary;
 #[cfg(test)]
 mod tests;

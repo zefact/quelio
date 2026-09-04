@@ -44,10 +44,10 @@ export interface CompletionTable {
 export type SchemaMap = Record<string, CompletionTable>;
 
 /** 候補の2列目以降 (主キーの印 / テーブル名 / 日本語名 / 型) */
-type Cells = [string, string, string, string];
+export type Cells = [string, string, string, string];
 
 /** 表示用の列を持たせた候補 */
-type SqlOption = Completion & { cells?: Cells };
+export type SqlOption = Completion & { cells?: Cells };
 
 /**
  * 候補の1列分を描画する。
@@ -117,12 +117,12 @@ const QUALIFIED = `${ID_SOURCE}(?:\\s*\\.\\s*${ID_SOURCE})*`;
 const TABLE_KEYWORDS = "from|join|into|update|table";
 
 /** `FROM t1, ` のように、テーブル名を書く位置にいるか */
-const TABLE_POS = new RegExp(
+export const TABLE_POS = new RegExp(
   `\\b(?:${TABLE_KEYWORDS})\\s+(?:${QUALIFIED}(?:\\s+(?:as\\s+)?${ID_SOURCE})?\\s*,\\s*)*$`,
   "i"
 );
 /** `別名.` の直前までを取り出す */
-const QUALIFIER = new RegExp(
+export const QUALIFIER = new RegExp(
   `(?:(${ID_SOURCE})\\s*\\.\\s*)?(${ID_SOURCE})\\s*\\.\\s*$`
 );
 

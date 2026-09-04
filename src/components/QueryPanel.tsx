@@ -49,6 +49,7 @@ import { QueryResultView } from "./QueryResultView";
 import { ResultChart } from "./ResultChart";
 import { numericColumns } from "../chart/chartData";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
+import { SqlFunctionsDialog } from "./SqlFunctionsDialog";
 import { useDismiss } from "../hooks/useDismiss";
 import { useCsvExport } from "../hooks/useCsvExport";
 
@@ -194,6 +195,8 @@ export function QueryPanel({
   const [activeIdx, setActiveIdx] = useState(0);
   const [hasSelection, setHasSelection] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
+  /** 関数リファレンスを出しているか */
+  const [showFunctions, setShowFunctions] = useState(false);
   const ctxMenuRef = useRef<HTMLDivElement>(null);
   const [captureMsg, setCaptureMsg] = useState<string | null>(null);
   /** 直近に保存したファイル (「フォルダを開く」の対象) */
@@ -758,6 +761,7 @@ export function QueryPanel({
           onRunSelection={runAll}
           onSelectionChange={setHasSelection}
           onSaveFile={() => void saveSqlToFile()}
+          onFunctions={() => setShowFunctions(true)}
           statements={runScope === "all" ? EMPTY_SPANS : spans}
           onTarget={(index, total) =>
             setTarget((prev) =>
@@ -831,6 +835,17 @@ export function QueryPanel({
           <div className="context-sep" aria-hidden />
           <button
             className="context-item has-key"
+            onClick={() => {
+              setCtxMenu(null);
+              setShowFunctions(true);
+            }}
+          >
+            関数リファレンス...
+            <span className="context-key">{`${MOD}${SHIFT}H`}</span>
+          </button>
+          <div className="context-sep" aria-hidden />
+          <button
+            className="context-item has-key"
             disabled={!sql.trim()}
             onClick={() => {
               setCtxMenu(null);
@@ -864,8 +879,20 @@ export function QueryPanel({
         onCancel={onCancel}
         onChangeSql={onChangeSql}
         onFormat={handleFormat}
+        onFunctions={() => setShowFunctions(true)}
         onChangeOptions={onChangeOptions}
       />
+
+      {showFunctions && (
+        <SqlFunctionsDialog
+          dbType={dbType}
+          onInsert={(text) => {
+            editorRef.current?.insertAtCursor(text);
+            setShowFunctions(false);
+          }}
+          onClose={() => setShowFunctions(false)}
+        />
+      )}
 
       <div
         className="row-splitter"

@@ -64,6 +64,7 @@ import {
   sqlCompletion,
   type SchemaMap,
 } from "./sqlCompletion";
+import { sqlFunctionCompletion } from "./sqlFunctionCompletion";
 
 /*
  * 「今実行した文」を短い間だけ光らせる仕組み。
@@ -209,6 +210,8 @@ export interface SqlEditorHandle {
   getCursor(): number;
   /** 今実行した範囲を短い間だけ光らせる (選択はしない) */
   flashRange(from: number, to: number): void;
+  /** カーソルの位置に文字列を差し込む (関数リファレンスから使う) */
+  insertAtCursor(text: string): void;
 }
 
 interface Props {
@@ -224,6 +227,8 @@ interface Props {
   onFormat: () => void;
   /** ⌘/Ctrl+Shift+S (SQLをファイルに保存) */
   onSaveFile: () => void;
+  /** ⌘/Ctrl+Shift+H (関数リファレンスを開く) */
+  onFunctions?: () => void;
   /**
    * 文ごとに分けた範囲。
    * 分け方は方言によるのでバックエンドが決め、ここは受け取るだけ
@@ -250,7 +255,8 @@ interface Props {
 function completionExt(
   enabled: boolean,
   delayMs: number,
-  getSchema: () => SchemaMap
+  getSchema: () => SchemaMap,
+  getDbType: () => DbType
 ) {
   if (!enabled) return [];
   return autocompletion({
@@ -263,8 +269,11 @@ function completionExt(
     maxRenderedOptions: 200,
     // 名前の右に「テーブル名 / 日本語名 / 型」の列を足す
     addToOptions: completionCells,
-    // 候補はテーブル・カラムだけ (予約語は出さない)
-    override: [sqlCompletion(getSchema)],
+    /*
+     * 候補はテーブル・カラムと、そのDBの関数
+     * (予約語は出さない)。関数は口を分けてある
+     */
+    override: [sqlCompletion(getSchema), sqlFunctionCompletion(getDbType)],
   });
 }
 
@@ -367,6 +376,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     onRunSelection,
     onFormat,
     onSaveFile,
+    onFunctions,
     statements,
     onTarget,
     onSelectionChange,
@@ -390,6 +400,9 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   // 補完は候補を出すたびにrefを読むので、スキーマが変わっても作り直し不要
   const schemaRef = useRef(schema);
   schemaRef.current = schema;
+  // 接続先が変わっても補完を作り直さずに済むよう、DBの種類もrefで持つ
+  const dbTypeRef = useRef(dbType);
+  dbTypeRef.current = dbType;
   /** 設定変更で入れ替えられるよう、補完の拡張は入れ替え可能にしておく */
   const acRef = useRef(new Compartment());
   /** 字下げも設定で変わるので入れ替え可能にしておく */
@@ -404,6 +417,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     onRunSelection,
     onFormat,
     onSaveFile,
+    onFunctions,
     onTarget,
     onSelectionChange,
     onContextMenu,
@@ -414,6 +428,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     onRunSelection,
     onFormat,
     onSaveFile,
+    onFunctions,
     onTarget,
     onSelectionChange,
     onContextMenu,
@@ -429,6 +444,25 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     },
     getCursor() {
       return viewRef.current?.state.selection.main.from ?? 0;
+    },
+    /**
+     * カーソルの位置に差し込む。
+     *
+     * 直前が空白でなければ、くっつかないように空白を1つ足す
+     * (選択しているときは、その範囲を置き換える)
+     */
+    insertAtCursor(text: string) {
+      const view = viewRef.current;
+      if (!view) return;
+      const { from, to } = view.state.selection.main;
+      const before = from > 0 ? view.state.doc.sliceString(from - 1, from) : " ";
+      const insert = /[\s(,.]/.test(before) ? text : ` ${text}`;
+      view.dispatch({
+        changes: { from, to, insert },
+        selection: { anchor: from + insert.length },
+        scrollIntoView: true,
+      });
+      view.focus();
     },
     flashRange(from: number, to: number) {
       const view = viewRef.current;
@@ -472,8 +506,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         // 候補はエディタの外に出す (枠内だと overflow: hidden で右側が切れる)
         tooltips({ parent: tooltipHost() }),
         acRef.current.of(
-          completionExt(autocomplete, autocompleteDelayMs, () =>
-            schemaRef.current ?? {}
+          completionExt(
+            autocomplete,
+            autocompleteDelayMs,
+            () => schemaRef.current ?? {},
+            () => dbTypeRef.current
           )
         ),
         syntaxHighlighting(highlight),
@@ -510,6 +547,14 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
               key: "Mod-Shift-s",
               run: () => {
                 cbRef.current.onSaveFile();
+                return true;
+              },
+            },
+            {
+              // 関数の書き方をその場で引く (Help の H)
+              key: "Mod-Shift-h",
+              run: () => {
+                cbRef.current.onFunctions?.();
                 return true;
               },
             },
@@ -625,8 +670,11 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   useEffect(() => {
     viewRef.current?.dispatch({
       effects: acRef.current.reconfigure(
-        completionExt(autocomplete, autocompleteDelayMs, () =>
-          schemaRef.current ?? {}
+        completionExt(
+          autocomplete,
+          autocompleteDelayMs,
+          () => schemaRef.current ?? {},
+          () => dbTypeRef.current
         )
       ),
     });

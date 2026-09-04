@@ -75,8 +75,8 @@ impl<W: std::io::Write + Send> RowSink for CsvSink<W> {
     }
 
     fn row(&mut self, cells: &[Option<CsvCell>]) -> Result<(), String> {
-        self.out
-            .write_all(crate::export::csv_row_cells(cells).as_bytes())
+        // 1行ぶんの文字列を作らず、そのまま流す (行数が多いとここが効く)
+        crate::export::write_csv_row(&mut self.out, cells)
             .map_err(|e| format!("CSVを書き込めません: {e}"))
     }
 

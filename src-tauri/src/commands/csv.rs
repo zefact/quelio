@@ -219,11 +219,15 @@ pub async fn csv_from_query(
 ) -> Result<CsvFromQuery, String> {
     // 大きな結果は時間が掛かるので、進捗とキャンセルを出せるようにする
     let job = jobs.start(&job_id, &session_id);
-    // 中身はDBのデータなので、置き場は一時フォルダにして読んだらすぐ消す
-    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S%.3f");
-    let path = std::env::temp_dir().join(format!("quelio_result_{ts}.csv"));
 
-    let written = sessions::export_query_rows(
+    /*
+     * 受け取った行をそのまま表にする。
+     *
+     * 以前はCSVに書いて一時ファイルへ落とし、それを読み直して解析していたが、
+     * 同じ中身を2度作るぶん時間が掛かり、DBのデータが一時フォルダにも残っていた
+     */
+    let (mut sink, slot) = crate::csv_doc::sink::DocSink::new();
+    let res = sessions::export_query_to_sink(
         &state,
         &qlog,
         &session_id,
@@ -231,35 +235,32 @@ pub async fn csv_from_query(
         &sql,
         order_by,
         order_dir,
-        &path,
-        crate::export_rows::RowFormat::Csv,
+        sink.as_mut(),
+        "CSVエディタ",
         Some(&job),
     )
     .await;
     jobs.finish(&job_id, &job);
 
-    let (rows, cancelled) = match written {
-        Ok(v) => v,
-        Err(e) => {
-            let _ = std::fs::remove_file(&path);
-            return Err(e);
-        }
-    };
+    let (rows, cancelled) = res?;
     if cancelled {
-        // 途中まで書いたものは開かない (歯抜けの表を渡さない)
-        let _ = std::fs::remove_file(&path);
+        // 途中まで受け取ったものは開かない (歯抜けの表を渡さない)
         return Ok(CsvFromQuery {
             info: None,
             rows,
             cancelled: true,
         });
     }
+    crate::export_rows::RowSink::finish(sink)?;
 
-    // 読めても読めなくても、一時ファイルは残さない
-    let bytes = crate::csv_doc::io::read_file(&path);
-    let _ = std::fs::remove_file(&path);
-    // 書き出しはUTF-8なので、文字コードの推測はしない
-    let doc = CsvDoc::from_bytes(&name, &bytes?, Some("UTF-8"))?;
+    let got = slot
+        .lock()
+        .map_err(|_| "表を受け取れません".to_string())?
+        .take()
+        .ok_or_else(|| "表を受け取れません".to_string())?;
+    let mut doc = CsvDoc::from_rows(&name, got.header, got.rows);
+    // ファイルから開いたものではないが、まだ何も直していない
+    doc.dirty = false;
 
     let id = docs.insert(doc)?;
     let info = docs.with(&id, |d| d.info(&id))?;

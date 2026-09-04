@@ -74,6 +74,82 @@ fn bytes_preview(bytes: &[u8]) -> String {
     }
 }
 
+/**
+ * 列の型から決めた「まず試す1つ」。
+ *
+ * 型を順に試す形 (下の `try_types!`) は、外れるたびに
+ * ドライバがエラーの値を組み立てるので、そのぶん時間が掛かる。
+ * 日時の列だと6回外してから当たるので、100万セルでは数秒の差になる。
+ *
+ * そこで、列の型の名前で行き先を決めてしまい、
+ * 名前に見覚えが無いときだけ今までどおり順に試す
+ */
+#[derive(Clone, Copy, PartialEq)]
+enum Pick {
+    /// 名前に見覚えが無い (順に試す)
+    Unknown,
+    Str,
+    I64,
+    U64,
+    I32,
+    I16,
+    Decimal,
+    F64,
+    F32,
+    Bool,
+    DateTime,
+    /// PostgreSQL の timestamptz (手元の時計に直す)
+    DateTimeTz,
+    Date,
+    Time,
+    Uuid,
+    Json,
+    Bytes,
+}
+
+/// 決めた型で読む。読めなければ何もせず、順に試す形へ落ちる
+macro_rules! pick_get {
+    ($row:expr, $i:expr, $max:expr, $t:ty, $num:expr) => {
+        if let Ok(v) = $row.try_get::<Option<$t>, _>($i) {
+            return v.map(|x| cell_of(x.to_string(), $max, $num));
+        }
+    };
+}
+
+/// `Pick` で決めた型で読む (共通部分)
+macro_rules! by_pick {
+    ($pick:expr, $row:expr, $i:expr, $max:expr) => {
+        match $pick {
+            Pick::Str => pick_get!($row, $i, $max, String, false),
+            Pick::I64 => pick_get!($row, $i, $max, i64, true),
+            // u64 は MySQL にしか無いので、呼ぶ側で先に片付ける
+            Pick::U64 => {}
+            Pick::I32 => pick_get!($row, $i, $max, i32, true),
+            Pick::I16 => pick_get!($row, $i, $max, i16, true),
+            Pick::Decimal => pick_get!($row, $i, $max, rust_decimal::Decimal, true),
+            Pick::F64 => pick_get!($row, $i, $max, f64, true),
+            Pick::F32 => pick_get!($row, $i, $max, f32, true),
+            Pick::Bool => pick_get!($row, $i, $max, bool, false),
+            Pick::DateTime => pick_get!($row, $i, $max, chrono::NaiveDateTime, false),
+            Pick::DateTimeTz => {
+                if let Ok(v) = $row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>($i) {
+                    return v.map(|x| cell_of(crate::localtz::fmt_local(x), $max, false));
+                }
+            }
+            Pick::Date => pick_get!($row, $i, $max, chrono::NaiveDate, false),
+            Pick::Time => pick_get!($row, $i, $max, chrono::NaiveTime, false),
+            Pick::Uuid => pick_get!($row, $i, $max, uuid::Uuid, false),
+            Pick::Json => pick_get!($row, $i, $max, serde_json::Value, false),
+            Pick::Bytes => {
+                if let Ok(v) = $row.try_get::<Option<Vec<u8>>, _>($i) {
+                    return v.map(|b| CsvCell::text(bytes_preview(&b)));
+                }
+            }
+            Pick::Unknown => {}
+        }
+    };
+}
+
 /// 1マクロで複数の型を順に試すセル文字列化。
 /// `型 => 数値かどうか` の並びで書く (数値はCSVでクォートしないため)
 macro_rules! try_types {
@@ -106,17 +182,53 @@ pub(super) fn mysql_cell_full(row: &MySqlRow, i: usize) -> Option<CsvCell> {
     mysql_cell_max(row, i, usize::MAX)
 }
 
+/// MySQLの型の名前から、まず試す型を決める
+fn pick_mysql(name: &str) -> Pick {
+    match name {
+        "VARCHAR" | "CHAR" | "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" | "ENUM" | "SET" => {
+            Pick::Str
+        }
+        // TINYINT(1) は "TINYINT" で届く。今までどおり数値として扱う
+        "BIGINT" | "INT" | "MEDIUMINT" | "SMALLINT" | "TINYINT" | "YEAR" => Pick::I64,
+        "BIGINT UNSIGNED" | "INT UNSIGNED" | "MEDIUMINT UNSIGNED" | "SMALLINT UNSIGNED"
+        | "TINYINT UNSIGNED" => Pick::U64,
+        "DECIMAL" | "NEWDECIMAL" => Pick::Decimal,
+        "DOUBLE" => Pick::F64,
+        // FLOATは4バイトのまま届くので、f64で読むと 0.1 が 0.10000000149011612 になる
+        "FLOAT" => Pick::F32,
+        "DATETIME" | "TIMESTAMP" => Pick::DateTime,
+        "DATE" => Pick::Date,
+        "TIME" => Pick::Time,
+        "JSON" => Pick::Json,
+        /*
+         * BLOB系はここで決めない。
+         * MariaDB の JSON 列は LONGBLOB として届くことがあり、
+         * バイト列として扱うと中身が16進数になってしまう。
+         * 数の少ない型なので、今までどおり順に試して見分ける
+         */
+        _ => Pick::Unknown,
+    }
+}
+
 fn mysql_cell_max(row: &MySqlRow, i: usize, max: usize) -> Option<CsvCell> {
-    // FLOATは4バイトのまま届くことがあり、f64として読むと
-    // 0.1 が 0.10000000149011612 になる。列の型を見てf32で読む
-    if row
-        .try_get_raw(i)
-        .is_ok_and(|v| v.type_info().name() == "FLOAT")
-    {
-        if let Ok(v) = row.try_get::<Option<f32>, _>(i) {
+    // 列の型で行き先を決める (NULLはここで返す)
+    let pick = match row.try_get_raw(i) {
+        Ok(raw) => {
+            if raw.is_null() {
+                return None;
+            }
+            pick_mysql(raw.type_info().name())
+        }
+        Err(_) => Pick::Unknown,
+    };
+    // 符号なしの整数は MySQL だけの型なのでここで読む
+    if pick == Pick::U64 {
+        if let Ok(v) = row.try_get::<Option<u64>, _>(i) {
             return v.map(|x| cell_of(x.to_string(), max, true));
         }
     }
+    by_pick!(pick, row, i, max);
+
     try_types!(row, i, max, [
         String => false,
         i64 => true,
@@ -163,11 +275,49 @@ pub(super) fn pg_cell_full(row: &PgRow, i: usize) -> Option<CsvCell> {
     pg_cell_max(row, i, usize::MAX)
 }
 
+/// PostgreSQLの型の名前から、まず試す型を決める
+fn pick_pg(name: &str) -> Pick {
+    match name {
+        "TEXT" | "VARCHAR" | "BPCHAR" | "CHAR" | "NAME" | "XML" | "CITEXT" => Pick::Str,
+        "INT8" => Pick::I64,
+        "INT4" => Pick::I32,
+        "INT2" => Pick::I16,
+        "NUMERIC" => Pick::Decimal,
+        "FLOAT8" => Pick::F64,
+        "FLOAT4" => Pick::F32,
+        "BOOL" => Pick::Bool,
+        /*
+         * timestamptz は「瞬間」を持つ型で、ドライバはUTCに直して渡してくる。
+         * 接続のタイムゾーンを変えても、この受け渡しはUTCのままなので、
+         * ここで端末の時計に直す
+         */
+        "TIMESTAMPTZ" => Pick::DateTimeTz,
+        "TIMESTAMP" => Pick::DateTime,
+        "DATE" => Pick::Date,
+        "TIME" => Pick::Time,
+        "UUID" => Pick::Uuid,
+        "JSON" | "JSONB" => Pick::Json,
+        "BYTEA" => Pick::Bytes,
+        _ => Pick::Unknown,
+    }
+}
+
 fn pg_cell_max(row: &PgRow, i: usize, max: usize) -> Option<CsvCell> {
+    // 列の型で行き先を決める (NULLはここで返す)
+    let pick = match row.try_get_raw(i) {
+        Ok(raw) => {
+            if raw.is_null() {
+                return None;
+            }
+            pick_pg(raw.type_info().name())
+        }
+        Err(_) => Pick::Unknown,
+    };
+    by_pick!(pick, row, i, max);
+
     /*
-     * timestamptz は「瞬間」を持つ型で、ドライバはUTCに直して渡してくる。
-     * 接続のタイムゾーンを変えても、この受け渡しはUTCのままなので、
-     * ここで端末の時計に直す (timestamp は下の NaiveDateTime が拾う)
+     * 名前に見覚えが無い型は、今までどおり順に試す。
+     * timestamptz を先に見るのは、UTCで届く値を手元の時計に直すため
      */
     if let Ok(v) = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>(i) {
         return v.map(|x| cell_of(crate::localtz::fmt_local(x), max, false));

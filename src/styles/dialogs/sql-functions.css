@@ -1,0 +1,271 @@
+/*
+ * 関数リファレンス。
+ *
+ * 左に一覧、右に選んだものの詳しい説明を出す。
+ * 書きながら引くものなので、開いたまま探せる大きさにしてある
+ */
+
+.fn-modal {
+  width: min(980px, calc(100vw - 60px));
+  height: min(660px, calc(100vh - 100px));
+  display: flex;
+  flex-direction: column;
+  /* 中で分けてスクロールさせるので、枠自体は動かさない */
+  overflow: hidden;
+}
+
+/* 見出しの「MySQL」が名前にくっつかないよう間を空ける */
+.fn-modal .modal-title .column-modal-target {
+  margin-left: 8px;
+}
+
+.fn-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+/* ---------- 左: 探す ---------- */
+
+.fn-left {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 300px;
+  min-height: 0;
+}
+
+.fn-search {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.fn-search:focus {
+  border-color: var(--accent);
+}
+
+.fn-count {
+  padding: 6px 2px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.fn-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+
+/* 分類の見出し (探しているあいだは出さない) */
+.fn-cat {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 5px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fn-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fn-item:hover {
+  background: rgba(var(--ink), 0.05);
+}
+
+.fn-item.on {
+  background: rgba(99, 102, 241, 0.18);
+}
+
+.fn-item-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.fn-item-sum {
+  display: block;
+  color: var(--text-dim);
+  font-size: 11px;
+  /* 説明は1行に収める (一覧を見渡せるように) */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fn-none {
+  padding: 16px 12px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+/* ---------- 右: 読む ---------- */
+
+.fn-right {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 2px 4px 2px 0;
+}
+
+.fn-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.fn-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(var(--ink), 0.08);
+  color: var(--text-dim);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+/* 使えるようになった版 (古いサーバーでは動かない印) */
+.fn-badge.since {
+  background: rgba(251, 191, 36, 0.16);
+  color: var(--warn);
+}
+
+.fn-sum {
+  margin: 8px 0 4px;
+  font-size: 13px;
+}
+
+.fn-label {
+  margin: 14px 0 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.fn-code {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+  font-size: 12px;
+  line-height: 1.6;
+  /* 長い書式は折り返す (横スクロールを増やさない) */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 結果は、値だと分かるよう色を変える */
+.fn-code.result {
+  border-color: rgba(52, 211, 153, 0.35);
+  color: var(--success);
+}
+
+.fn-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 14px;
+  padding: 9px 11px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: var(--radius-sm);
+  background: rgba(251, 191, 36, 0.08);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.fn-note strong {
+  color: var(--warn);
+  font-size: 11px;
+}
+
+.fn-empty {
+  padding: 40px 10px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.9;
+  text-align: center;
+}
+
+.fn-hint {
+  font-size: 11px;
+}
+
+/* ---------- 入力補完の右に出す説明 ---------- */
+
+/*
+ * CodeMirror標準のテーマより詳細度を上げる (html body を付ける)。
+ * 幅を決めておかないと、書式や例の長さで毎回大きさが変わって読みにくい
+ */
+html body .cm-tooltip.cm-completionInfo {
+  width: min(420px, 60vw);
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--menu-bg);
+  color: var(--text);
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.55);
+}
+
+.fn-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.fn-info-row {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.fn-info-label {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.fn-info-text {
+  /* 例やSQLは折り返して全部見せる */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.fn-info-row.mono .fn-info-text {
+  font-family: var(--font-mono);
+}
+
+.fn-info-row.result .fn-info-text {
+  color: var(--success);
+}
+
+.fn-info-row.note .fn-info-text {
+  color: var(--warn);
+}

@@ -86,6 +86,44 @@ pub fn csv_row_cells(fields: &[Option<CsvCell>]) -> String {
     line
 }
 
+/**
+ * CSVの1行を、書き出し先へそのまま流す。
+ *
+ * 中身は `csv_row_cells` と1バイトも変わらないが、
+ * 1行ぶんの文字列を組み立ててから書く、という手間を省いてある。
+ * 100万行を書き出すとその組み立てだけで数秒掛かるため
+ * (引用符を含まない値は、置換もせずそのまま流す)
+ */
+pub fn write_csv_row<W: std::io::Write>(
+    out: &mut W,
+    fields: &[Option<CsvCell>],
+) -> std::io::Result<()> {
+    for (i, f) in fields.iter().enumerate() {
+        if i > 0 {
+            out.write_all(b",")?;
+        }
+        match f {
+            Some(c) if c.numeric => out.write_all(c.text.as_bytes())?,
+            Some(c) => {
+                out.write_all(b"\"")?;
+                // 数式として実行されないように印を付ける (disarm と同じ判断)
+                if looks_like_formula(&c.text) {
+                    out.write_all(b"'")?;
+                }
+                if c.text.contains('"') {
+                    out.write_all(c.text.replace('"', "\"\"").as_bytes())?;
+                } else {
+                    out.write_all(c.text.as_bytes())?;
+                }
+                out.write_all(b"\"")?;
+            }
+            // NULLは空欄 (クォートなし) にして空文字と区別する
+            None => {}
+        }
+    }
+    out.write_all(b"\n")
+}
+
 fn row(fields: &[String]) -> String {
     let mut line = fields
         .iter()
@@ -333,5 +371,51 @@ mod tests {
             None,
         ]);
         assert_eq!(line, "\"'=1+1\",-1,\n");
+    }
+
+    /// 直接書く形 (`write_csv_row`) は、組み立てる形と1バイトも変わらない
+    #[test]
+    fn 直接書いても同じCSVになる() {
+        let cases: Vec<Vec<Option<CsvCell>>> = vec![
+            vec![
+                Some(CsvCell::text("ふつうの値".into())),
+                Some(CsvCell {
+                    text: "123".into(),
+                    numeric: true,
+                    clip: None,
+                }),
+                None,
+            ],
+            // 引用符・カンマ・改行・タブ
+            vec![
+                Some(CsvCell::text("引用符\"入り".into())),
+                Some(CsvCell::text("カンマ,入り".into())),
+                Some(CsvCell::text("改行\n入り".into())),
+                Some(CsvCell::text("\t".into())),
+            ],
+            // 数式に見える値 (先頭に印が付く)
+            vec![
+                Some(CsvCell::text("=1+1".into())),
+                Some(CsvCell::text("-1".into())),
+                Some(CsvCell::text("+81".into())),
+                Some(CsvCell::text("@here".into())),
+                Some(CsvCell::text("=\"a\"".into())),
+            ],
+            // 空欄・空文字・すべてNULL
+            vec![Some(CsvCell::text(String::new())), None],
+            vec![None, None],
+            // 項目が1つも無い行
+            vec![],
+        ];
+        for cells in &cases {
+            let mut out: Vec<u8> = Vec::new();
+            write_csv_row(&mut out, cells).unwrap();
+            assert_eq!(
+                String::from_utf8(out).unwrap(),
+                csv_row_cells(cells),
+                "並び: {:?}",
+                cells.iter().map(|c| c.as_ref().map(|c| &c.text)).collect::<Vec<_>>()
+            );
+        }
     }
 }
