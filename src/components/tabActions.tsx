@@ -14,6 +14,7 @@ import {
   type ReactNode,
 } from "react";
 import type { EditorOptions, TableInfo, TableTab } from "../types";
+import type { RunTicket } from "../runTicket";
 
 export interface TabActions {
   /** データベースを選び直す */
@@ -34,11 +35,27 @@ export interface TabActions {
   onChangeSql: (sql: string) => void;
   /** SQLエディタの実行設定 (トランザクション等) の変更 */
   onChangeEditorOpts: (patch: Partial<EditorOptions>) => void;
+  /**
+   * 実行の受付票を取る (実行ボタンを押した瞬間)。
+   *
+   * 押した時点の接続タブ・データベース・シートが入る。
+   * 取り消し・確定・タブを閉じた時点でこの受付票は古くなり、
+   * 遅れて届いた依頼はそこで落ちる
+   */
+  onAcceptRun: () => RunTicket;
+  /**
+   * SQLの実行。
+   *
+   * 宛先は受付票が決める。この関数は常に最新の実装へ転送されるので、
+   * 「呼ばれた時点で表示しているタブ」で宛先を決めてはいけない
+   * (待っている間に切り替えられると、別の接続へSQLが渡る)
+   */
   onRunQuery: (
     offset: number,
-    sqlOverride?: string,
-    transaction?: boolean,
-    explain?: "explain" | "analyze"
+    sqlOverride: string | undefined,
+    transaction: boolean,
+    explain: "explain" | "analyze" | undefined,
+    ticket: RunTicket
   ) => void;
   /** 実行中SQLのキャンセル */
   onCancelQuery: () => void;

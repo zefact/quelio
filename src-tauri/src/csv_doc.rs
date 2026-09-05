@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use edit::{Edit, Sheet};
-use format::{CsvFormat, Newline, Quoting};
+use format::{CsvFormat, Newline, Quote, Quoting};
 
 /// 取り消しの履歴を持つ上限。
 ///
@@ -218,6 +218,7 @@ impl CsvDoc {
                     Newline::Lf
                 },
                 delimiter: ',',
+                quote: Quote::Double,
                 quoting: Quoting::Necessary,
                 fixed: None,
             },

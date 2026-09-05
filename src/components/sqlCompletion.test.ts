@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { CompletionContext } from "@codemirror/autocomplete";
 import type { CompletionResult } from "@codemirror/autocomplete";
-import { EditorState } from "@codemirror/state";
-import { keepOrder, orderBoost, sqlCompletion } from "./sqlCompletion";
+import { EditorSelection, EditorState } from "@codemirror/state";
+import {
+  keepOrder,
+  orderBoost,
+  singleCursorOnly,
+  sqlCompletion,
+} from "./sqlCompletion";
 import type { SchemaMap } from "./sqlCompletion";
 
 describe("orderBoost", () => {
@@ -127,6 +132,22 @@ describe("sqlCompletion — 取得元から候補を出す", () => {
     expect(complete(sql)).toEqual(["id", "name", "email"]);
   });
 
+  it("WITH句の名前でカラムを引ける", () => {
+    const sql = "with t as (select id, name from users) select t.| from t";
+    expect(complete(sql)).toEqual(["id", "name"]);
+  });
+
+  it("WITH句に別名を付けたときは、その別名で引ける", () => {
+    const sql = "with t as (select id, name from users) select x.| from t x";
+    expect(complete(sql)).toEqual(["id", "name"]);
+  });
+
+  it("WITH句を実テーブルとJOINしても引ける", () => {
+    const sql =
+      "with t as (select id from users) select 1 from t join orders o on t.| = o.id";
+    expect(complete(sql)).toEqual(["id"]);
+  });
+
   it("名前の付いていない式は列にしない", () => {
     const sql = "select x.| from (select id, total * 2 from orders) x";
     expect(complete(sql)).toEqual(["id"]);
@@ -134,5 +155,38 @@ describe("sqlCompletion — 取得元から候補を出す", () => {
 
   it("見えている取得元が無ければテーブル名を出す", () => {
     expect(complete("select | ")).toEqual(["users", "orders"]);
+  });
+});
+
+describe("singleCursorOnly", () => {
+  /** カーソルをいくつか立てた状態で補完を呼ぶ */
+  function complete(sqlWithCaret: string, cursors: number[]): string[] {
+    const pos = sqlWithCaret.indexOf("|");
+    const doc = sqlWithCaret.replace("|", "");
+    const state = EditorState.create({
+      doc,
+      selection: EditorSelection.create(
+        cursors.map((p) => EditorSelection.cursor(p))
+      ),
+      extensions: [EditorState.allowMultipleSelections.of(true)],
+    });
+    const source = singleCursorOnly(sqlCompletion(() => SCHEMA));
+    const got = source(new CompletionContext(state, pos, true)) as
+      | CompletionResult
+      | null;
+    return got ? got.options.map((o) => o.label) : [];
+  }
+
+  it("カーソルが1つなら、いつもどおり出す", () => {
+    expect(complete("select | from users", [7])).toEqual([
+      "id",
+      "name",
+      "email",
+    ]);
+  });
+
+  it("カーソルが複数のときは出さない", () => {
+    // 矩形選択で縦に並べた状態 (選ぶと全部の場所へ同じ語が入ってしまう)
+    expect(complete("select | from users", [7, 12])).toEqual([]);
   });
 });

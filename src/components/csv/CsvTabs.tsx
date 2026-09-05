@@ -59,7 +59,7 @@ export function CsvTabs({
 }: Props) {
   const isBeta = isBetaVersion(useAppVersion());
   return (
-    <div className="csv-tabs" data-tauri-drag-region>
+    <div className="csv-tabs" data-tauri-drag-region data-find-skip>
       {/* DBのウィンドウと同じ位置に名乗りを置く (どのウィンドウか一目で分かるように) */}
       <div className="brand" title="QuelioCSV" data-tauri-drag-region>
         <span className="brand-mark csv-mark">

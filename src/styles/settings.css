@@ -1208,6 +1208,21 @@
   cursor: default;
 }
 
+/*
+ * 分割ボタンは、2つのボタンの高さを必ず揃える。
+ *
+ * 文字の高さは環境によって変わる (Windowsでは▾が別のフォントで
+ * 描かれて背が高くなり、隣とずれて見えていた)。
+ * 行の高さを決め打ちにして、絵の大きさで決まらないようにする
+ */
+.run-split {
+  align-items: stretch;
+}
+
+.run-split > button {
+  line-height: 1.35;
+}
+
 /* 「CSVダウンロード ▾」の2つのボタンを1つの塊に見せる */
 .export-split .export-main {
   border-top-right-radius: 0;
@@ -1888,12 +1903,34 @@
   align-items: center;
   gap: var(--space-1);
   padding: 4px 8px 0;
+}
+
+/*
+ * タブの並びだけを横スクロールさせる。
+ * 列ごとスクロールさせると、右端の道具が流れていってしまう
+ */
+.sheet-tabs-list {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
   overflow-x: auto;
+  /* 縦は切らない (タブの上の縁が欠けないように) */
+  overflow-y: hidden;
   scrollbar-width: none;
 }
 
-.sheet-tabs::-webkit-scrollbar {
+.sheet-tabs-list::-webkit-scrollbar {
   display: none;
+}
+
+/* シート列の右端に置く道具 (整形・関数リファレンス) */
+.sheet-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
 }
 
 /* HoverTip の包み (ポータルで出すので親のはみ出し隠しに切られない) */

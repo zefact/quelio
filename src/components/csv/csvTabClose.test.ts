@@ -12,6 +12,7 @@ function tab(docId: string, dirty = false): CsvInfo {
       encoding: "UTF-8",
       newline: "lf",
       delimiter: ",",
+      quote: "double",
       quoting: "necessary",
       bom: false,
       fixed: null,

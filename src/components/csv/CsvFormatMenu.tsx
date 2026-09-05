@@ -6,20 +6,20 @@
  * 変えたいときだけここから触る
  */
 import { useEffect, useRef } from "react";
-import type { CsvFormat, CsvFormatPatch, CsvNewline, CsvQuoting } from "../../types";
+import type {
+  CsvFormat,
+  CsvFormatPatch,
+  CsvNewline,
+  CsvQuote,
+  CsvQuoting,
+} from "../../types";
 import { SelectMenu } from "../SelectMenu";
-import { ENCODINGS, DELIMITERS } from "./csvFormat";
+import { ENCODINGS, DELIMITERS, QUOTES, QUOTINGS } from "./csvFormat";
 
 /** 改行コードの選択肢 */
 const NEWLINES = [
   { value: "lf", label: "LF (macOS / Linux)" },
   { value: "crlf", label: "CRLF (Windows)" },
-];
-
-/** 引用符の付け方の選択肢 */
-const QUOTINGS = [
-  { value: "necessary", label: "必要なときだけ" },
-  { value: "always", label: "全項目を囲む" },
 ];
 
 /**
@@ -109,11 +109,31 @@ export function CsvFormatMenu({
             <span>引用符</span>
             <SelectMenu
               popFixed
-              value={format.quoting}
-              options={QUOTINGS}
-              onChange={(v) => onChange({ quoting: v as CsvQuoting })}
+              value={format.quote}
+              options={QUOTES}
+              onChange={(v) => onChange({ quote: v as CsvQuote })}
             />
           </div>
+
+          {/* 囲まないと壊れることがあるので、選んだときだけ断っておく */}
+          {format.quote === "none" && (
+            <div className="csv-form-note">
+              区切りや改行を含む値も囲まないので、読み直せない形になることがあります
+            </div>
+          )}
+
+          {/* 囲まないときは、付ける範囲を選んでも意味がないので出さない */}
+          {format.quote !== "none" && (
+            <div className="csv-form-row">
+              <span>引用符の適用</span>
+              <SelectMenu
+                popFixed
+                value={format.quoting}
+                options={QUOTINGS}
+                onChange={(v) => onChange({ quoting: v as CsvQuoting })}
+              />
+            </div>
+          )}
         </>
       )}
 

@@ -721,7 +721,7 @@ export function CsvWindow() {
       )}
 
       {active && !compare && (
-        <div className="csv-status">
+        <div className="csv-status" data-find-skip>
           <span className="mono">
             {active.rowCount.toLocaleString()}行 × {active.columns.length}列
           </span>

@@ -8,7 +8,10 @@
 /** 改行コード */
 export type CsvNewline = "lf" | "crlf";
 
-/** 引用符の付け方 */
+/** 引用符に使う文字 */
+export type CsvQuote = "none" | "double" | "single";
+
+/** 引用符を付ける範囲 */
 export type CsvQuoting = "necessary" | "always";
 
 // ---------- 固定長 ----------
@@ -63,6 +66,9 @@ export interface CsvFormat {
   newline: CsvNewline;
   /** 区切り文字 (1文字) */
   delimiter: string;
+  /** 引用符に使う文字 */
+  quote: CsvQuote;
+  /** 引用符を付ける範囲 */
   quoting: CsvQuoting;
   /** 固定長として読んでいるときの桁 (区切り文字のときは null) */
   fixed: CsvFixedLayout | null;
@@ -116,6 +122,7 @@ export interface CsvFormatPatch {
   bom?: boolean;
   newline?: CsvNewline;
   delimiter?: string;
+  quote?: CsvQuote;
   quoting?: CsvQuoting;
 }
 

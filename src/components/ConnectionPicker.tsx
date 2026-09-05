@@ -571,7 +571,12 @@ export function ConnectionPicker({
   return (
     <div className="picker">
       {/* 保存済み接続一覧 */}
-      <aside className="picker-side" style={{ width: sideWidth }}>
+      <aside
+        className="picker-side"
+        style={{ width: sideWidth }}
+        // ページ内検索の対象外 (この一覧には専用の絞り込みがある)
+        data-find-skip
+      >
         <div className="picker-side-head">
           <span className="picker-side-title">接続先</span>
           <span className="panel-count">{connections.length}</span>

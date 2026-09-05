@@ -78,6 +78,19 @@ export function quoteTable(dbType: DbType, table: TableInfo): string {
 }
 
 /**
+ * 必要なときだけ引用符を付けたテーブル名。
+ *
+ * 人が読んだり手で直したりするSQL (エディタへ送るもの・コピーするもの) に使う。
+ * いつも囲むと `` `orders` `` のようになって読みにくい
+ */
+export function tableNameIfNeeded(dbType: DbType, table: TableInfo): string {
+  const name = quoteIdentIfNeeded(dbType, table.name);
+  return table.schema
+    ? `${quoteIdentIfNeeded(dbType, table.schema)}.${name}`
+    : name;
+}
+
+/**
  * 絞り込み入力を条件式へ正規化する。
  * 先頭の "WHERE" と末尾のセミコロンを取り除き、
  * 利用者が "WHERE id > 10" と入力しても扱えるようにする
@@ -114,26 +127,45 @@ export function buildSelectStatement(
   columns: string[]
 ): string {
   const cols = columns.length
-    ? columns.map((c) => quoteIdent(dbType, c)).join(",\n  ")
+    ? columns.map((c) => quoteIdentIfNeeded(dbType, c)).join(",\n  ")
     : "*";
-  return `SELECT\n  ${cols}\nFROM ${quoteTable(dbType, table)};`;
+  return `SELECT\n  ${cols}\nFROM ${tableNameIfNeeded(dbType, table)};`;
+}
+
+/**
+ * コメントに書ける形へ均す。
+ *
+ * 改行が入ると、そこから先がコメントの外に出てしまうため
+ */
+function asComment(name: string): string {
+  return name.replace(/\s+/g, " ").trim();
 }
 
 /**
  * 列を並べたINSERT文のひな形。
- * 値はすべてNULLにしておくので、必要なところだけ書き換えて使う
+ *
+ * 値はすべてNULLにしておくので、必要なところだけ書き換えて使う。
+ * 列が多いと何番目がどの列か分からなくなるので、
+ * 値の右にその列名をコメントで添える
  */
 export function buildInsertStatement(
   dbType: DbType,
   table: TableInfo,
   columns: string[]
 ): string {
+  const name = tableNameIfNeeded(dbType, table);
   if (columns.length === 0) {
-    return `INSERT INTO ${quoteTable(dbType, table)} () VALUES ();`;
+    return `INSERT INTO ${name} () VALUES ();`;
   }
-  const cols = columns.map((c) => quoteIdent(dbType, c)).join(",\n  ");
-  const values = columns.map(() => "NULL").join(",\n  ");
-  return `INSERT INTO ${quoteTable(dbType, table)} (\n  ${cols}\n) VALUES (\n  ${values}\n);`;
+  const cols = columns.map((c) => quoteIdentIfNeeded(dbType, c)).join(",\n  ");
+  const values = columns
+    .map((c, i) => {
+      // 最後の行にはカンマが無いので、そのぶん空白で桁を合わせる
+      const tail = i === columns.length - 1 ? "  " : ", ";
+      return `  NULL${tail}-- ${asComment(c)}`;
+    })
+    .join("\n");
+  return `INSERT INTO ${name} (\n  ${cols}\n) VALUES (\n${values}\n);`;
 }
 
 /** 正確な件数を数えるSELECT文 */
@@ -141,7 +173,7 @@ export function buildCountStatement(
   dbType: DbType,
   table: TableInfo
 ): string {
-  return `SELECT COUNT(*) FROM ${quoteTable(dbType, table)};`;
+  return `SELECT COUNT(*) FROM ${tableNameIfNeeded(dbType, table)};`;
 }
 
 /**
@@ -152,7 +184,7 @@ export function buildTruncateStatement(
   dbType: DbType,
   table: TableInfo
 ): string {
-  const t = quoteTable(dbType, table);
+  const t = tableNameIfNeeded(dbType, table);
   return dbType === "sqlite"
     ? `DELETE FROM ${t};`
     : `TRUNCATE TABLE ${t};`;

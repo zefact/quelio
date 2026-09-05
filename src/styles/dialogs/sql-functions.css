@@ -52,9 +52,33 @@
 }
 
 .fn-count {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 6px 2px;
   color: var(--text-faint);
   font-size: 11px;
+}
+
+.fn-count-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 「すべて開く」「すべて閉じる」 (文字だけの押せる所) */
+.fn-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.fn-link:hover {
+  color: var(--text);
+  text-decoration: underline;
 }
 
 .fn-list {
@@ -66,17 +90,54 @@
   background: var(--bg-panel);
 }
 
-/* 分類の見出し (探しているあいだは出さない) */
+/*
+ * 分類の見出し (探しているあいだは出さない)。
+ *
+ * 押すと中身をたためる。見出しは上に貼り付いて、
+ * スクロールしても今どの分類を見ているか分かるようにする
+ */
 .fn-cat {
   position: sticky;
   top: 0;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
   padding: 5px 10px;
   background: var(--bg);
+  border: none;
   border-bottom: 1px solid var(--border);
   color: var(--text-dim);
   font-size: 11px;
   font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fn-cat:hover {
+  color: var(--text);
+}
+
+/* 開いているときは下向き、たたむと右向き */
+.fn-cat-caret {
+  display: inline-flex;
+  transition: transform 0.12s ease;
+}
+
+.fn-cat.off .fn-cat-caret {
+  transform: rotate(-90deg);
+}
+
+.fn-cat-name {
+  flex: 1;
+  min-width: 0;
+}
+
+/* その分類に何件あるか */
+.fn-cat-count {
+  color: var(--text-faint);
+  font-weight: 400;
 }
 
 .fn-item {

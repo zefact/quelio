@@ -37,6 +37,11 @@ import { useWatchedSettings } from "../hooks/useWatchedSettings";
 import { SheetTabs } from "./SheetTabs";
 import type { SchemaMap } from "./sqlCompletion";
 import { DangerousSqlConfirm } from "./DangerousSqlConfirm";
+import { afterConfirm, confirmTarget } from "./queryGuard";
+import type { PendingRun } from "./queryGuard";
+import { createRunGate, startRun } from "./runRequest";
+import type { RunGate } from "./runRequest";
+import type { RunTicket } from "../runTicket";
 import type {
   GridColumn,
   GridRow,
@@ -94,7 +99,6 @@ interface Props {
   /** 選択中のデータベース */
   database?: string;
   /** 接続先の表示名 (実行前の確認ダイアログに出す) */
-  connectionName: string;
   dbType: DbType;
   sql: string;
   results: StatementResult[] | null;
@@ -116,12 +120,21 @@ interface Props {
   options: EditorOptions;
   onChangeOptions: (patch: Partial<EditorOptions>) => void;
   onChangeSql: (sql: string) => void;
+  /**
+   * この実行の受付票を取る (押した瞬間に呼ぶ)。
+   *
+   * 押した時点の接続タブ・データベース・シートが入る。
+   * 取り消し・確定・タブを閉じた時点でこの受付票は古くなり、
+   * 遅れて届いた依頼はその先で落ちる
+   */
+  onAcceptRun: () => RunTicket;
   /** offset行目からの実行。sqlOverride指定時は選択実行、transactionでBEGIN〜COMMIT/ROLLBACKに包む */
   onRun: (
     offset: number,
-    sqlOverride?: string,
-    transaction?: boolean,
-    explain?: "explain" | "analyze"
+    sqlOverride: string | undefined,
+    transaction: boolean,
+    explain: "explain" | "analyze" | undefined,
+    ticket: RunTicket
   ) => void;
   /** 実行中SQLのキャンセル */
   onCancel: () => void;
@@ -141,7 +154,6 @@ interface Props {
 export function QueryPanel({
   sessionId,
   database,
-  connectionName,
   dbType,
   sql,
   results,
@@ -156,6 +168,7 @@ export function QueryPanel({
   options,
   onChangeOptions,
   onChangeSql,
+  onAcceptRun,
   onRun,
   onCancel,
   onPage,
@@ -222,11 +235,13 @@ export function QueryPanel({
 
   /**
    * 取り返しのつかないSQLが見つかったときの確認待ち。
-   * 確認して初めて実行する (goを呼ぶ)
+   *
+   * 再開する実行は関数ではなくデータで持つ (何を待っているかが読めるように)。
+   * 段階の決め方は queryGuard.ts にある
    */
   const [danger, setDanger] = useState<{
     stmts: DangerousStatement[];
-    go: () => void;
+    run: PendingRun;
   } | null>(null);
   /** 全文表示中のセル (カラム名と値) */
   const [cellView, setCellView] = useState<{
@@ -237,8 +252,24 @@ export function QueryPanel({
   /** 直前の実行でキャプチャを要求されたか */
   const captureReq = useRef(false);
   const editorRef = useRef<SqlEditorHandle>(null);
-  /** 危険SQLの判定中か (二重実行の防止) */
-  const guarding = useRef(false);
+  /**
+   * 押してから実行を依頼するまでを仕切る門 (二重実行の防止)。
+   *
+   * 危険判定だけでなく、その手前の「文の分割」を待つ間も閉めておく。
+   * Reactの状態ではなく同期的に閉まるものでないと、
+   * 描き直しが済むまでの間に届いた2回目を止められない。
+   *
+   * この画面はタブを切り替えても作り直されないので、門は接続ごとに分ける。
+   * 1つにすると、Aの準備を待っている間にBの実行まで止まってしまう
+   */
+  const gates = useRef(new Map<string, RunGate>());
+  const gateOf = (id: string): RunGate => {
+    const made = gates.current.get(id);
+    if (made) return made;
+    const gate = createRunGate();
+    gates.current.set(id, gate);
+    return gate;
+  };
   /** 直近の実行を開始したボタン (スピナーの表示先を決める) */
   const [runSource, setRunSource] = useState<"run" | "explain">("run");
   /** 行番号列を表示するか (設定。実行のたびに読み直す) */
@@ -268,33 +299,64 @@ export function QueryPanel({
     editorRef.current?.getSelectedText() ?? null;
 
   /**
-   * 実行前に、取り返しのつかないSQL (DROP・WHERE無しのUPDATE等) が無いか調べる。
-   * 見つかったら確認ダイアログを出し、確認できたら exec を呼ぶ。
-   * 調べられなかった場合は、実行を止めずにそのまま進める
+   * 実行を押した時点の中身をまとめる。
+   *
+   * 実行設定は「押した時点」で写し取る。
+   * 確認を挟むと実行までに間が空くので、そこで設定が変わっても
+   * 押したときのつもりで走らせる (これまでの動きと同じ)
    */
-  const guardRun = async (text: string, proceed: () => void) => {
-    // 判定の往復を待つ間はまだ running=false なので、自前で二重実行を止める
-    if (guarding.current) return;
-    guarding.current = true;
-    try {
-      const stmts = await checkDangerousSql(sessionId, text, dbType);
-      if (stmts.length > 0) {
-        setDanger({ stmts, go: proceed });
-        return;
-      }
-    } catch {
-      /* 判定できないときは通常どおり実行する */
-    } finally {
-      guarding.current = false;
-    }
-    proceed();
-  };
+  const pendingOf = (
+    text: string,
+    ticket: RunTicket,
+    explain?: "explain" | "analyze"
+  ): PendingRun => ({
+    ticket,
+    sql: text,
+    // 実行計画は取り消せないものを含まないので、包まない (今までどおり)
+    transaction: explain ? false : txnOn,
+    capture: captureOn,
+    explain,
+  });
 
   /** 実行の本体 (キャプチャ要求も記録) */
-  const exec = (text?: string) => {
-    captureReq.current = captureOn;
+  const exec = (run: PendingRun) => {
+    captureReq.current = run.capture;
     setCaptureMsg(null);
-    onRun(0, text, txnOn);
+    onRun(0, run.sql, run.transaction, run.explain, run.ticket);
+  };
+
+  /**
+   * 実行を1回ぶん進める。
+   *
+   * 流す文を決めるところから実行を依頼するまでを門で仕切る。
+   * 通常の実行・EXPLAINとも同じここを通す (同じ対象への受付を1つに保つ)。
+   * 手順そのものは runRequest.ts にある
+   */
+  const begin = (
+    pick: (ticket: RunTicket) => Promise<PendingRun | null>,
+    /** 危険SQLの確認を挟むか (EXPLAINは元々挟まない) */
+    guard = true
+  ) =>
+    void startRun(gateOf(sessionId), {
+      accept: onAcceptRun,
+      pick,
+      check: guard
+        ? (text) => checkDangerousSql(sessionId, text, dbType)
+        : undefined,
+      exec,
+      confirm: (stmts, run) => setDanger({ stmts, run }),
+    });
+
+  /**
+   * 確認の返事。
+   *
+   * 続けるなら、待たせていた実行をそのまま走らせる。
+   * やめるなら何も走らせない (どちらも確認待ちは閉じる)
+   */
+  const answerDanger = (ok: boolean) => {
+    const go = afterConfirm(danger?.run ?? null, ok);
+    setDanger(null);
+    if (go) exec(go);
   };
 
   /**
@@ -357,7 +419,7 @@ export function QueryPanel({
   const runAll = () => {
     if (running || !sql.trim()) return;
     setRunSource("run");
-    void guardRun(sql, () => exec(sql));
+    begin(async (ticket) => pendingOf(sql, ticket));
   };
 
   /**
@@ -369,31 +431,27 @@ export function QueryPanel({
    *
    * どちらを選んでいるかはボタンの文字と、エディタの帯に出る
    */
-  const run = async () => {
+  const run = () => {
     if (running) return;
     if (runScope === "all") {
       runAll();
       return;
     }
-    const picked = selectedText();
-    if (picked?.trim()) {
-      setRunSource("run");
-      void guardRun(picked, () => exec(picked));
-      return;
-    }
-    if (!sql.trim()) return;
-    const stmt = await statementAtCursor();
     setRunSource("run");
-    if (!stmt) {
+    begin(async (ticket) => {
+      const picked = selectedText();
+      if (picked?.trim()) return pendingOf(picked, ticket);
+      if (!sql.trim()) return null;
+      // ここで文の分割を待つ。待っている間、門は閉じたまま
+      const stmt = await statementAtCursor();
       // 分けられない・1文だけのときは、そのまま全部流す
-      void guardRun(sql, () => exec(sql));
-      return;
-    }
-    // 何が走ったか分かるよう、実行した文を短い間だけ光らせる
-    editorRef.current?.flashRange(stmt.from, stmt.to);
-    // 判定に掛けた文をそのまま実行する
-    // (確認している間にエディタが変わっても、別の文が走らないように)
-    void guardRun(stmt.text, () => exec(stmt.text));
+      if (!stmt) return pendingOf(sql, ticket);
+      // 何が走ったか分かるよう、実行した文を短い間だけ光らせる
+      editorRef.current?.flashRange(stmt.from, stmt.to);
+      // 判定に掛けた文をそのまま実行する
+      // (確認している間にエディタが変わっても、別の文が走らないように)
+      return pendingOf(stmt.text, ticket);
+    });
   };
 
   // 実行完了後にキャプチャを保存する
@@ -430,14 +488,21 @@ export function QueryPanel({
     }
   };
 
-  /** EXPLAIN / EXPLAIN ANALYZE を実行 (選択があれば選択部分) */
+  /**
+   * EXPLAIN / EXPLAIN ANALYZE を実行 (選択があれば選択部分)。
+   *
+   * 通常の実行と同じ門・同じ受付番号を通す。
+   * 片方の応答待ちにもう片方が始まると、結果や説明の種類が
+   * 上書きし合ってしまうため。
+   * 危険SQLの確認は元々通らないので、ここでも挟まない
+   */
   const runExplain = (mode: "explain" | "analyze") => {
     if (running || !sql.trim()) return;
     setRunSource("explain");
-    captureReq.current = captureOn;
-    setCaptureMsg(null);
-    const text = selectedText();
-    onRun(0, text?.trim() ? text : undefined, false, mode);
+    begin(async (ticket) => {
+      const text = selectedText();
+      return pendingOf(text?.trim() ? text : sql, ticket, mode);
+    }, false);
   };
 
   /** EXPLAIN の種類を選べるDBか (SQLiteは EXPLAIN QUERY PLAN のみ) */
@@ -737,6 +802,9 @@ export function QueryPanel({
         onSaveFile={(id) => void saveSqlToFile(id)}
         onClose={sheetPane.onClose}
         onRename={sheetPane.onRename}
+        onFormat={handleFormat}
+        onFunctions={() => setShowFunctions(true)}
+        canFormat={sql.trim() !== ""}
       />
 
       {/* エディタ (最大化中は残りの高さいっぱいに広げる) */}
@@ -757,7 +825,7 @@ export function QueryPanel({
           dbType={dbType}
           placeholder="SELECT * FROM ...  (複数のSQLは ; で区切って記述できます)"
           onChange={onChangeSql}
-          onRun={() => void run()}
+          onRun={run}
           onRunSelection={runAll}
           onSelectionChange={setHasSelection}
           onSaveFile={() => void saveSqlToFile()}
@@ -874,12 +942,10 @@ export function QueryPanel({
         formatError={formatError}
         captureMsg={captureMsg}
         capturePath={capturePath}
-        onRun={() => void run()}
+        onRun={run}
         onExplain={runExplain}
         onCancel={onCancel}
         onChangeSql={onChangeSql}
-        onFormat={handleFormat}
-        onFunctions={() => setShowFunctions(true)}
         onChangeOptions={onChangeOptions}
       />
 
@@ -956,16 +1022,15 @@ export function QueryPanel({
       {danger && (
         <DangerousSqlConfirm
           statements={danger.stmts}
-          connection={connectionName}
-          database={database}
-          transaction={txnOn}
-          dbType={dbType}
-          onCancel={() => setDanger(null)}
-          onConfirm={() => {
-            const go = danger.go;
-            setDanger(null);
-            go();
-          }}
+          /*
+           * 接続名・DB名・DB種別・トランザクションは、
+           * 画面の今の値ではなく実行に使う受付票から取る。
+           * 判定を待つ間に別の接続へ切り替えられても、
+           * 見せている相手と実際に走る相手が食い違わない
+           */
+          {...confirmTarget(danger.run)}
+          onCancel={() => answerDanger(false)}
+          onConfirm={() => answerDanger(true)}
         />
       )}
     </div>

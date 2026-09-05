@@ -45,7 +45,11 @@ export function StatusBar({
 }: Props) {
   const open = txn === "open" || txn === "broken";
   return (
-    <div className={"status-bar" + (open ? " txn-open" : "")}>
+    <div
+      className={"status-bar" + (open ? " txn-open" : "")}
+      // ページ内検索の対象外 (接続名・DB名など、画面の枠として出しているもの)
+      data-find-skip
+    >
       <span className={`db-badge ${profile.dbType}`} style={badgeStyle(profileColor(profile))}>
         {dbBadgeLabel(profile.dbType)}
       </span>

@@ -236,6 +236,17 @@ function findSource(sources: ScopeSource[], name: string): ScopeSource | null {
   );
 }
 
+/**
+ * カーソルが複数あるときは候補を出さない口にする。
+ *
+ * 矩形選択で立てたカーソルは「同じ桁をまとめて直す」ための道具で、
+ * そこで候補を選ぶと、すべての場所へ同じ語が入ってしまう
+ */
+export function singleCursorOnly(source: CompletionSource): CompletionSource {
+  return (context: CompletionContext) =>
+    context.state.selection.ranges.length > 1 ? null : source(context);
+}
+
 /** 補完候補を作る (スキーマは都度読むので、接続先が変わっても作り直し不要) */
 export function sqlCompletion(getSchema: () => SchemaMap): CompletionSource {
   return (context: CompletionContext): CompletionResult | null => {

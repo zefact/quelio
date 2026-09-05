@@ -961,9 +961,11 @@
   margin-left: 2px;
 }
 
-/* メニューが開くボタン共通の▾ */
+/* メニューが開くボタン共通の印 */
 .menu-caret {
-  font-size: 10px;
+  /* 中身はSVGなので、縦の中心で揃える */
+  display: inline-flex;
+  align-items: center;
   margin-left: 2px;
   opacity: 0.7;
 }

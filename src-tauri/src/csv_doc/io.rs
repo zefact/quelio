@@ -7,14 +7,16 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use super::format::{self, CsvFormat, Newline, Quoting};
+use super::format::{self, CsvFormat, Newline, Quote, Quoting};
 use super::fixed;
 
 /// 開けるファイルの大きさの上限。
 ///
-/// 全行をメモリに載せる作りなので、際限なく開かせない。
+/// 全行をメモリに載せる作りなので、際限なく開かせない
+/// (読み込んだバイト列に加えて、セルごとの文字列も持つため、
+/// 使うメモリはファイルの数倍になる)。
 /// これを超えるものは、DBへ取り込んでからSQLで扱うほうが速い
-pub const MAX_BYTES: u64 = 100 * 1024 * 1024;
+pub const MAX_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// 読み込んだ結果
 pub struct Loaded {
@@ -40,10 +42,12 @@ pub fn load(bytes: &[u8], forced: Option<&str>) -> Result<Loaded, String> {
     let (text, _, replaced) = enc.decode(bytes);
     let newline = format::sniff_newline(&text);
     let delimiter = format::sniff_delimiter(&text);
-    let quoting = format::sniff_quoting(&text, delimiter);
+    // 引用符は「どの文字を使っているか」も見る (読むときにも要る)
+    let (quote, quoting) = format::sniff_quote(&text, delimiter);
 
     let mut reader = csv::ReaderBuilder::new()
         .delimiter(delimiter as u8)
+        .quote(quote.read_byte())
         // 1行目もデータとして受け取る (ヘッダにするかは上の層で決める)
         .has_headers(false)
         // 行ごとに列数が違うファイルも開く (足りない分はあとで空欄にする)
@@ -75,6 +79,7 @@ pub fn load(bytes: &[u8], forced: Option<&str>) -> Result<Loaded, String> {
             bom,
             newline,
             delimiter,
+            quote,
             quoting,
             fixed: None,
         },
@@ -113,6 +118,7 @@ pub fn load_fixed(
             newline,
             // 固定長では使わないが、区切りに戻したときの既定として持っておく
             delimiter: ',',
+            quote: Quote::Double,
             quoting: Quoting::Necessary,
             fixed: Some(got.layout),
         },
@@ -178,15 +184,23 @@ pub fn dump(rows: &[Vec<String>], f: &CsvFormat) -> Result<Vec<u8>, String> {
     if let Some(layout) = &f.fixed {
         return dump_fixed(rows, f, layout);
     }
-    let mut w = csv::WriterBuilder::new()
-        .delimiter(f.delimiter as u8)
-        .quote_style(match f.quoting {
-            Quoting::Always => csv::QuoteStyle::Always,
-            Quoting::Necessary => csv::QuoteStyle::Necessary,
-        })
+    let mut b = csv::WriterBuilder::new();
+    b.delimiter(f.delimiter as u8)
         // 改行は自分で入れる (csv crate は終端の改行も含めて書くため)
-        .terminator(csv::Terminator::Any(b'\n'))
-        .from_writer(Vec::new());
+        .terminator(csv::Terminator::Any(b'\n'));
+    match f.quote.as_byte() {
+        Some(q) => {
+            b.quote(q).quote_style(match f.quoting {
+                Quoting::Always => csv::QuoteStyle::Always,
+                Quoting::Necessary => csv::QuoteStyle::Necessary,
+            });
+        }
+        // 「なし」のときは、区切りや改行を含む値でも囲まない
+        None => {
+            b.quote_style(csv::QuoteStyle::Never);
+        }
+    }
+    let mut w = b.from_writer(Vec::new());
     for r in rows {
         w.write_record(r)
             .map_err(|e| format!("CSVを組み立てられません: {e}"))?;
@@ -261,6 +275,22 @@ fn tmp_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}.{pid}.tmp"))
 }
 
+/// 大きさを人が読む形にする (1GB以上はGBで出す)
+pub(super) fn size_label(bytes: u64) -> String {
+    const MB: u64 = 1024 * 1024;
+    if bytes >= 1024 * MB {
+        // 端数は1桁だけ (「1.5 GB」)
+        let tenths = (bytes * 10).div_ceil(1024 * MB);
+        if tenths.is_multiple_of(10) {
+            format!("{} GB", tenths / 10)
+        } else {
+            format!("{}.{} GB", tenths / 10, tenths % 10)
+        }
+    } else {
+        format!("{} MB", bytes.div_ceil(MB))
+    }
+}
+
 /// ファイルを読む (大きすぎるものは開かない)
 pub fn read_file(path: &Path) -> Result<Vec<u8>, String> {
     let meta = fs::metadata(path).map_err(|e| format!("ファイルを開けません: {e}"))?;
@@ -269,9 +299,9 @@ pub fn read_file(path: &Path) -> Result<Vec<u8>, String> {
     }
     if meta.len() > MAX_BYTES {
         return Err(format!(
-            "ファイルが大きすぎます ({} MB)。{} MB までのファイルを開けます",
-            meta.len() / (1024 * 1024),
-            MAX_BYTES / (1024 * 1024)
+            "ファイルが大きすぎます ({})。{} までのファイルを開けます",
+            size_label(meta.len()),
+            size_label(MAX_BYTES)
         ));
     }
     fs::read(path).map_err(|e| format!("ファイルを読み込めません: {e}"))

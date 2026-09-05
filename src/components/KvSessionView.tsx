@@ -427,6 +427,8 @@ export function KvSessionView({
       {/* 環境を決めてある接続は、ツールバーの上端をその色で塗る */}
       <div
         className={"session-toolbar" + (profile.env ? " has-env" : "")}
+        // ページ内検索の対象外 (接続名・DB名・サーバー情報)
+        data-find-skip
         style={
           profile.env
             ? ({ "--env-color": envColor(profile.env) } as React.CSSProperties)

@@ -4,6 +4,8 @@ import { HoverTip } from "./HoverTip";
 import { MAX_SHEETS } from "../workspace";
 import { SheetTabMenu } from "./SheetTabMenu";
 import { autoTitle } from "./sheetTitle";
+import { FormatIcon, FunctionsIcon } from "./SqlToolIcons";
+import { MOD, SHIFT } from "../keyLabel";
 
 interface Props {
   /** 表に出していないシートも含めた一覧 (表示中は activeId で示す) */
@@ -21,6 +23,12 @@ interface Props {
   onRename: (id: string, title: string) => void;
   /** そのシートのSQLをファイルに保存する */
   onSaveFile: (id: string) => void;
+  /** 書いてあるSQLを整形する */
+  onFormat: () => void;
+  /** 関数リファレンスを開く */
+  onFunctions: () => void;
+  /** 整形できるSQLが書いてあるか */
+  canFormat: boolean;
 }
 
 /**
@@ -40,6 +48,9 @@ export function SheetTabs({
   onCloseAll,
   onRename,
   onSaveFile,
+  onFormat,
+  onFunctions,
+  canFormat,
 }: Props) {
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(
     null
@@ -58,7 +69,13 @@ export function SheetTabs({
   const label = (s: QuerySheet) => s.title || autoTitle(s.sql);
 
   return (
-    <div className="sheet-tabs">
+    // ページ内検索の対象外 (画面の枠)
+    <div className="sheet-tabs" data-find-skip>
+      {/*
+        タブの並びだけを横スクロールさせる。
+        列ごとスクロールさせると、右端の道具が流れていってしまう
+      */}
+      <div className="sheet-tabs-list">
       {list.map((s) => {
         const active = s.id === activeId;
         if (editing?.id === s.id) {
@@ -144,6 +161,26 @@ export function SheetTabs({
           ＋
         </button>
       </HoverTip>
+      </div>
+
+      {/* 書くときに使う道具は、シート列の右端にまとめる */}
+      <div className="sheet-tools">
+        <button
+          className="pane-icon-btn has-tooltip tooltip-wrap"
+          data-tooltip={`SQLを見やすく整形する (${MOD}${SHIFT}F)\nキーワードを大文字にし、カンマを行の先頭に置きます`}
+          disabled={running || !canFormat}
+          onClick={onFormat}
+        >
+          <FormatIcon />
+        </button>
+        <button
+          className="pane-icon-btn has-tooltip tooltip-wrap"
+          data-tooltip={`関数リファレンス (${MOD}${SHIFT}H)\n名前を覚えていなくても「切り捨て」「前ゼロ」「月末」などの言葉で探せます`}
+          onClick={onFunctions}
+        >
+          <FunctionsIcon />
+        </button>
+      </div>
 
       {menu && menuSheet && (
         <SheetTabMenu

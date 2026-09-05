@@ -1,5 +1,6 @@
 import { ReactNode, useRef, useState } from "react";
 import { useDismiss } from "../hooks/useDismiss";
+import { CaretIcon } from "./SqlToolIcons";
 
 /** ▾ で選べる項目 */
 export interface RunSplitOption<T extends string> {
@@ -94,7 +95,7 @@ export function RunSplitButton<T extends string>({
           disabled={caretDisabled}
           title={caretTitle}
         >
-          ▾
+          <CaretIcon />
         </button>
       )}
       {hasMenu && open && (

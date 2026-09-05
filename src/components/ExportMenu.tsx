@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { useDismiss } from "../hooks/useDismiss";
+import { CaretIcon } from "./SqlToolIcons";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import {
   TARGET_LABEL,
@@ -99,7 +100,7 @@ export function ExportMenu({ disabled, running, explainKind, onRun }: Props) {
         onClick={openMenu}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        ▾
+        <CaretIcon />
       </button>
       {open && (
         <div

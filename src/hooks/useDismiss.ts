@@ -25,6 +25,22 @@ export type DismissOptions = {
 };
 
 /**
+ * Tauriが「窓をつかむ場所」として押さえている要素か。
+ *
+ * この印の付いた要素を押すと、Tauriがdocumentのバブル段階で
+ * mousedown を止めてしまう (stopImmediatePropagation) ため、
+ * ふつうの外側クリックの監視には届かない。
+ * タブバーの空いている所などがこれに当たり、
+ * メニューを開いたまま押しても閉じなかった
+ */
+function isDragRegion(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    target.hasAttribute("data-tauri-drag-region")
+  );
+}
+
+/**
  * メニューや吹き出しを「外側クリック等で閉じる」ための共通フック。
  *
  * @param active 開いている間だけ true にする
@@ -65,11 +81,25 @@ export function useDismiss(
       cb.current();
     };
 
+    /*
+     * 窓をつかむ場所のぶんだけ、キャプチャ段階で先回りして拾う。
+     * ここを丸ごとキャプチャにしないのは、
+     * 内側で mousedown を止めて「閉じない」を作っている画面があるため
+     * (capture: true を指定している場合は、そちらで既に拾えている)
+     */
+    const onDragRegion = (e: MouseEvent) => {
+      if (isDragRegion(e.target)) onDown(e);
+    };
+
     document.addEventListener("mousedown", onDown, capture);
+    if (!capture) document.addEventListener("mousedown", onDragRegion, true);
     if (resize) window.addEventListener("resize", onOther);
     if (escape) document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("mousedown", onDown, capture);
+      if (!capture) {
+        document.removeEventListener("mousedown", onDragRegion, true);
+      }
       if (resize) window.removeEventListener("resize", onOther);
       if (escape) document.removeEventListener("keydown", onKey);
     };

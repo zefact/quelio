@@ -20,6 +20,19 @@ export const DELIMITERS = [
   { value: "|", label: "パイプ" },
 ];
 
+/** 引用符に使う文字の候補 */
+export const QUOTES = [
+  { value: "double", label: '" (ダブルクォート)' },
+  { value: "single", label: "' (シングルクォート)" },
+  { value: "none", label: "なし" },
+];
+
+/** 引用符を付ける範囲の候補 */
+export const QUOTINGS = [
+  { value: "necessary", label: "必要なときだけ" },
+  { value: "always", label: "全項目" },
+];
+
 /** 区切り文字を読める名前にする */
 export function delimiterLabel(d: string): string {
   return DELIMITERS.find((x) => x.value === d)?.label ?? d;
@@ -42,6 +55,10 @@ export function formatLabel(f: CsvFormat): string {
     return parts.join(" · ");
   }
   parts.push(delimiterLabel(f.delimiter));
-  if (f.quoting === "always") parts.push("全項目を引用符で囲む");
+  // 引用符は、ふつうと違うときだけ出す (情報バーを短く保つ)
+  if (f.quote === "none") parts.push("引用符なし");
+  else if (f.quote === "single") {
+    parts.push(f.quoting === "always" ? "全項目を ' で囲む" : "引用符は '");
+  } else if (f.quoting === "always") parts.push("全項目を \" で囲む");
   return parts.join(" · ");
 }

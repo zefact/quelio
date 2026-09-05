@@ -35,6 +35,7 @@ import { FolderDialog } from "./FolderDialog";
 import { HistoryList } from "./HistoryList";
 import { SaveSqlDialog } from "./SaveSqlDialog";
 import { SavedTree } from "./SavedTree";
+import { CaretIcon } from "../SqlToolIcons";
 
 interface Props {
   /** 現在エディタにあるSQL (保存ダイアログの初期値) */
@@ -199,7 +200,10 @@ export function SqlLibraryMenu({
         onClick={toggleMenu}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        履歴・お気に入り <span className="menu-caret">▾</span>
+        履歴・お気に入り
+        <span className="menu-caret">
+          <CaretIcon />
+        </span>
       </button>
       {open && !dialogOpen && (
         <div

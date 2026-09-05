@@ -75,6 +75,16 @@
   --syn-operator: #67e8f9;
   --syn-type: #93c5fd;
   --syn-func: #f9a8d4;
+  /* 括弧は深さごとに色を変える (対になっているものを目で追うため) */
+  --syn-paren-1: #ffd479;
+  --syn-paren-2: #e07bd8;
+  --syn-paren-3: #5fb8ff;
+  /* 相手のいない括弧 */
+  --syn-paren-bad: #f87171;
+  /* 字下げの縦線 (地の色に薄く乗せる) */
+  --indent-guide: rgba(var(--ink), 0.13);
+  /* カーソルのいるまとまりの線 (これだけ濃くする) */
+  --indent-guide-on: rgba(var(--ink), 0.42);
 
   font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   font-size: 14px;
@@ -118,6 +128,13 @@ html[data-theme="light"] {
   --syn-operator: #0e7490;
   --syn-type: #1d4ed8;
   --syn-func: #be185d;
+  /* 白地では、薄い色だと括弧が読めなくなるので濃くする */
+  --syn-paren-1: #b45309;
+  --syn-paren-2: #a21caf;
+  --syn-paren-3: #1d4ed8;
+  --syn-paren-bad: #dc2626;
+  --indent-guide: rgba(var(--ink), 0.16);
+  --indent-guide-on: rgba(var(--ink), 0.4);
 }
 
 * {

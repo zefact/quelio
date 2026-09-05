@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Quelio（クエリオ）- MySQL / MariaDB / PostgreSQL / SQLite / Valkey (Redis) クライアント</title>
-  <meta name="description" content="Quelio(クエリオ)は、Tauri製の軽量デスクトップDBクライアント。MySQL (MariaDB) / PostgreSQL / SQLite / Valkey (Redis互換) 対応、SSHトンネル、テーブル構造ビュー、テーブル定義とデータのその場編集、入力補完つきクエリエディタ、クエリ結果の CSV / Excel ダウンロード、エクスポート/インポートを搭載。" />
+  <meta name="description" content="Quelio(クエリオ)は、Tauri製の軽量デスクトップDBクライアント。MySQL (MariaDB) / PostgreSQL / SQLite / Valkey (Redis互換) 対応、SSHトンネル、テーブル構造ビュー、テーブル定義とデータのその場編集、入力補完つきクエリエディタ、CSVエディタ、クエリ結果の CSV / Excel ダウンロード、エクスポート/インポートを搭載。" />
   <meta property="og:title" content="Quelio（クエリオ）- MySQL / MariaDB / PostgreSQL / SQLite / Valkey (Redis) クライアント" />
   <meta property="og:description" content="スキーマ差分チェック・結果の自動キャプチャ・日本語の論理名表示。現場で欲しかった機能を載せた無料のデスクトップDBクライアント (macOS / Windows)。" />
   <meta property="og:type" content="website" />
@@ -126,77 +126,141 @@
     .btn-line:hover { border-color: #c9cbd6; }
     .hero-meta { margin-top: 18px; font-size: 13px; color: var(--ink-3); }
 
-    /* ===== App mock (実UI再現) ===== */
+    /* ===== App mock (現在のダークUI・サンプルデータ) ===== */
     .mock-wrap { padding: 34px 0 10px; }
-    .mock-frame {
-      max-width: 960px; margin: 0 auto;
-      border-radius: 18px; padding: 10px;
-      background: linear-gradient(160deg, #eef0f6, #fafbfd);
-      border: 1px solid var(--line);
-    }
-    .app-mock {
-      border-radius: 11px;
-      background:
-        radial-gradient(600px 260px at 85% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
-        radial-gradient(450px 200px at -10% 110%, rgba(34, 211, 238, 0.07), transparent 60%),
-        var(--m-bg);
-      box-shadow: 0 24px 70px rgba(15, 18, 34, 0.18);
-      overflow: hidden;
-      font-size: 12px;
-      text-align: left;
-      color: var(--m-text);
-      border: 1px solid #23263a;
-    }
-    .am-titlebar { display: flex; gap: 7px; padding: 11px 13px 7px; }
-    .am-titlebar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
-    .am-tabbar { display: flex; align-items: flex-end; gap: 6px; padding: 0 12px; border-bottom: 1px solid var(--m-border); }
-    .am-brand { font-size: 12px; font-weight: 800; letter-spacing: 0.04em; padding: 0 10px 7px 2px;
-      background: linear-gradient(90deg, #fff, #b8c0d8); -webkit-background-clip: text; background-clip: text; color: transparent; }
-    .am-tab {
-      display: flex; align-items: center; gap: 7px;
-      padding: 6px 14px; border-radius: 8px 8px 0 0;
-      border: 1px solid transparent; border-bottom: none;
-      color: var(--m-dim); position: relative;
-    }
+    .mock-frame { max-width: 960px; margin: 0 auto; border-radius: 18px; padding: 10px; background: linear-gradient(160deg, #eef0f6, #fafbfd); border: 1px solid var(--line); }
+    .app-mock, .mini { color-scheme: dark; font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; line-height: 1.55; text-align: left; color: var(--m-text); }
+    .app-mock { border-radius: 11px; background: radial-gradient(600px 260px at 85% -10%, rgba(99,102,241,.12), transparent 60%), var(--m-bg); box-shadow: 0 24px 70px rgba(15,18,34,.18); overflow: hidden; font-size: 11px; border: 1px solid #23263a; }
+    .am-tabbar { display: flex; align-items: flex-end; gap: 5px; padding: 8px 10px 0; border-bottom: 1px solid var(--m-border); overflow: hidden; }
+    .am-titlebar { display: flex; gap: 5px; align-self: center; padding: 0 8px 8px 0; }
+    .am-titlebar i { width: 9px; height: 9px; border-radius: 50%; }
+    .am-brand { display: flex; align-items: center; gap: 6px; padding: 0 9px 7px 0; font-weight: 800; font-size: 12px; white-space: nowrap; }
+    .am-brand-mark { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 7px; background: linear-gradient(135deg, var(--m-accent), var(--m-accent2)); color: #fff; }
+    .am-brand-mark svg { width: 16px; height: 16px; }
+    .am-beta { color: var(--m-accent2); background: rgba(34,211,238,.1); border: 1px solid rgba(34,211,238,.3); border-radius: 4px; padding: 0 4px; font-size: 9px; }
+    .am-tab { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 8px 8px 0 0; border: 1px solid transparent; border-bottom: none; color: var(--m-dim); position: relative; white-space: nowrap; }
     .am-tab.active { color: var(--m-text); background: var(--m-card); border-color: var(--m-border); }
-    .am-tab.active::after {
-      content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px;
-      background: linear-gradient(90deg, var(--m-accent), var(--m-accent2)); border-radius: 2px;
-    }
-    .am-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .am-console-btn { margin-left: auto; font-size: 11px; color: var(--m-dim); border: 1px solid var(--m-border-s); border-radius: 7px; padding: 3px 10px; margin-bottom: 6px; }
-    .am-toolbar { display: flex; align-items: center; gap: 12px; padding: 9px 14px; border-bottom: 1px solid var(--m-border); background: rgba(255,255,255,0.015); }
-    .am-conn-name { font-size: 12px; font-weight: 700; }
-    .am-conn-host { font-size: 10px; color: var(--m-dim); }
-    .am-select {
-      display: flex; align-items: center; gap: 8px;
-      background: rgba(0,0,0,0.35); border: 1px solid var(--m-border-s);
-      border-radius: 8px; padding: 5px 11px; font-size: 12px; color: var(--m-text);
-    }
-    .am-select .car { color: var(--m-dim); font-size: 9px; }
-    .am-body { display: grid; grid-template-columns: 218px 1fr; min-height: 348px; }
-    .am-side { border-right: 1px solid var(--m-border); background: rgba(255,255,255,0.015); padding: 10px; }
-    .am-side-head { display: flex; justify-content: space-between; align-items: center; padding: 2px 5px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--m-faint); }
-    .am-count { font-size: 10px; color: var(--m-dim); background: rgba(255,255,255,0.06); border-radius: 999px; padding: 0 8px; }
-    .am-filter { font-size: 11px; color: var(--m-faint); background: rgba(0,0,0,0.3); border: 1px solid var(--m-border-s); border-radius: 7px; padding: 5px 9px; margin-bottom: 7px; }
-    .am-titem { display: flex; align-items: center; gap: 7px; padding: 5px 8px; border-radius: 7px; color: var(--m-dim); font-size: 11.5px; }
-    .am-titem.sel { background: linear-gradient(90deg, rgba(99,102,241,0.2), rgba(34,211,238,0.08)); color: var(--m-text); }
-    .chip { flex-shrink: 0; font-size: 8px; font-weight: 800; letter-spacing: 0.05em; border-radius: 4px; padding: 1px 5px; }
-    .chip.t { color: var(--m-accent2); background: rgba(34,211,238,0.1); border: 1px solid rgba(34,211,238,0.3); }
-    .chip.v { color: #c4b5fd; background: rgba(167,139,250,0.12); border: 1px solid rgba(167,139,250,0.35); }
-    .am-main { padding: 16px 18px; overflow: hidden; }
-    .am-table-head { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
-    .am-table-head h4 { font-size: 14px; font-weight: 700; }
+    .am-tab.active::after, .mtabs > .on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: linear-gradient(90deg, var(--m-accent), var(--m-accent2)); }
+    .am-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .am-close { color: var(--m-faint); margin-left: 3px; }
+    .ro-badge { color: var(--m-mysql); background: rgba(240,166,58,.1); border: 1px solid rgba(240,166,58,.3); border-radius: 4px; padding: 0 4px; font-size: 8px; }
+    .am-tools { display: flex; gap: 4px; margin: 0 0 5px auto; }
+    .micon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; flex-shrink: 0; border: 1px solid var(--m-border-s); border-radius: 7px; color: var(--m-dim); }
+    .micon svg { width: 13px; height: 13px; }
+    .am-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--m-border); background: rgba(255,255,255,.015); }
+    .mdb-badge { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex-shrink: 0; font-size: 10px; font-weight: 800; border-radius: 8px; }
+    .mdb-badge.mysql { color: var(--m-mysql); background: rgba(240,166,58,.13); border: 1px solid rgba(240,166,58,.35); }
+    .mdb-badge.postgres { color: var(--m-postgres); background: rgba(90,155,216,.13); border: 1px solid rgba(90,155,216,.35); }
+    .am-conn-name { font-size: 11px; font-weight: 700; }
+    .am-conn-host { font-size: 9px; color: var(--m-dim); }
+    .am-select, .mdiff-sel { display: inline-flex; align-items: center; gap: 8px; background: rgba(0,0,0,.35); border: 1px solid var(--m-border-s); border-radius: 7px; padding: 5px 9px; color: var(--m-text); white-space: nowrap; }
+    .car { color: var(--m-dim); font-size: 8px; margin-left: auto; }
+    .am-body { display: grid; grid-template-columns: 196px minmax(0, 1fr); min-height: 350px; }
+    .am-side { border-right: 1px solid var(--m-border); background: rgba(255,255,255,.015); padding: 10px; }
+    .am-side-head { display: flex; align-items: center; gap: 6px; padding: 2px 3px 9px; color: var(--m-faint); font-size: 10px; font-weight: 700; }
+    .am-count { display: inline-block; color: var(--m-dim); background: rgba(255,255,255,.06); border-radius: 999px; padding: 0 6px; font-size: 9px; font-weight: 400; }
+    .am-filter { color: var(--m-faint); background: rgba(0,0,0,.3); border: 1px solid var(--m-border-s); border-radius: 7px; padding: 6px; margin-bottom: 7px; font-size: 9px; white-space: nowrap; }
+    .am-titem { display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 7px; color: var(--m-dim); font-size: 10px; }
+    .am-titem.sel { background: linear-gradient(90deg, rgba(99,102,241,.2), rgba(34,211,238,.08)); color: var(--m-text); }
+    .am-titem small { color: var(--m-faint); font-size: 9px; margin-left: auto; }
+    .chip { flex-shrink: 0; font-size: 8px; font-weight: 800; border-radius: 4px; padding: 1px 5px; }
+    .chip.t { color: var(--m-accent2); background: rgba(34,211,238,.1); border: 1px solid rgba(34,211,238,.3); }
+    .chip.v { color: #c4b5fd; background: rgba(167,139,250,.12); border: 1px solid rgba(167,139,250,.35); }
+    .am-main { min-width: 0; padding: 14px; }
+    .am-table-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .am-table-head h4 { font-size: 14px; }
     .am-logical { font-size: 11px; color: var(--m-dim); }
-    .am-chips { display: flex; gap: 7px; margin-bottom: 14px; flex-wrap: wrap; }
-    .am-ichip { display: inline-flex; gap: 6px; font-size: 10px; background: rgba(255,255,255,0.04); border: 1px solid var(--m-border); border-radius: 6px; padding: 3px 8px; color: var(--m-dim); }
+    .am-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+    .am-ichip { display: inline-flex; gap: 5px; font-size: 9px; background: rgba(255,255,255,.04); border: 1px solid var(--m-border); border-radius: 6px; padding: 3px 6px; color: var(--m-dim); }
     .am-ichip b { color: var(--m-text); font-weight: 600; }
-    .am-h { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--m-faint); margin: 0 0 7px; }
-    .am-grid { width: 100%; border-collapse: collapse; font-size: 10.5px; }
-    .am-grid th { text-align: left; color: var(--m-faint); font-weight: 600; padding: 5px 9px; border-bottom: 1px solid var(--m-border-s); white-space: nowrap; }
-    .am-grid td { padding: 5px 9px; border-bottom: 1px solid var(--m-border); color: var(--m-dim); white-space: nowrap; }
+    .msection { display: flex; align-items: center; gap: 6px; margin: 12px 0 7px; font-size: 10px; font-weight: 700; color: var(--m-dim); }
+    .mtable-scroll { min-width: 0; overflow-x: auto; border: 1px solid var(--m-border); border-radius: 9px; }
+    .am-grid { width: 100%; border-collapse: collapse; font-size: 10px; }
+    .am-grid th { text-align: left; color: var(--m-dim); background: rgba(255,255,255,.04); font-weight: 600; padding: 7px 8px; border-bottom: 1px solid var(--m-border-s); white-space: nowrap; }
+    .am-grid td { padding: 6px 8px; border-bottom: 1px solid var(--m-border); color: var(--m-dim); white-space: nowrap; }
+    .am-grid tr:last-child td { border-bottom: none; }
     .am-grid td.c1 { color: var(--m-text); }
-    .am-key { color: var(--m-mysql); font-weight: 700; font-size: 9.5px; }
+    .am-grid.structure { min-width: 850px; }
+    .am-grid.data-grid { min-width: 430px; }
+    .am-key { color: #fbbf24; background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.45); border-radius: 4px; padding: 1px 4px; font-weight: 700; font-size: 8px; }
+    .am-key.secondary { color: var(--m-dim); background: transparent; border-color: var(--m-border-s); }
+    .check { color: var(--m-success); }
+    .am-status { display: flex; gap: 12px; padding: 6px 12px; border-top: 1px solid var(--m-border); font-size: 9px; color: var(--m-dim); }
+
+    /* ===== Feature mocks ===== */
+    .deep > *, .deep-visual { min-width: 0; }
+    .mini-frame { border-radius: 14px; padding: 8px; background: linear-gradient(160deg, #eef0f6, #fafbfd); border: 1px solid var(--line); }
+    .mini { border-radius: 9px; background: var(--m-bg); border: 1px solid #23263a; box-shadow: 0 18px 44px rgba(15,18,34,.16); overflow: hidden; font-size: 10px; }
+    .mini-bar, .mdiff-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 10px; border-bottom: 1px solid var(--m-border); background: rgba(255,255,255,.02); }
+    .mbtn { display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600; border: 1px solid transparent; border-radius: 7px; padding: 5px 9px; white-space: nowrap; }
+    .mbtn.p { color: #fff; background: linear-gradient(135deg, var(--m-accent), #4f46e5); box-shadow: 0 3px 10px rgba(99,102,241,.2); }
+    .mbtn.s { color: var(--m-dim); background: rgba(255,255,255,.04); border-color: var(--m-border-s); }
+    .mspacer { margin-left: auto; }
+    .mmeta { font-size: 9px; color: var(--m-dim); font-weight: 400; }
+    .minput { display: inline-block; padding: 5px 7px; background: rgba(0,0,0,.35); border: 1px solid var(--m-border-s); border-radius: 6px; color: var(--m-dim); font-size: 10px; }
+    .mtabs { display: flex; align-items: flex-end; gap: 4px; padding: 4px 10px 0; border-bottom: 1px solid var(--m-border); overflow-x: auto; }
+    .mtabs > span { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; position: relative; color: var(--m-dim); white-space: nowrap; }
+    .mtabs > .on { color: var(--m-text); background: var(--m-card); border: 1px solid var(--m-border); border-bottom: none; border-radius: 8px 8px 0 0; }
+    .mtabs > .micon { padding: 4px; margin-bottom: 5px; }
+    .mswitch { display: inline-flex; align-items: center; gap: 5px; font-size: 9px; color: var(--m-dim); white-space: nowrap; }
+    .mswitch .tr { width: 25px; height: 14px; flex-shrink: 0; border-radius: 999px; background: var(--m-accent); position: relative; }
+    .mswitch .tr::after { content: ""; position: absolute; right: 2px; top: 2px; width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+    .mswitch.off .tr { background: rgba(255,255,255,.18); }
+    .mswitch.off .tr::after { right: auto; left: 2px; }
+    .mquery { padding: 10px; }
+    .mini > .msection { margin: 12px 10px 7px; }
+    .mini > .mtable-scroll { margin: 0 10px 10px; }
+    .msql { display: grid; grid-template-columns: 28px 1fr; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 10px; line-height: 1.85; margin: 10px 0; padding: 10px 0; border: 1px solid rgba(99,102,241,.65); border-radius: 9px; overflow-x: auto; box-shadow: 0 0 0 2px rgba(99,102,241,.1); }
+    .msql .ln { text-align: right; padding-right: 8px; color: var(--m-faint); border-right: 1px solid var(--m-border); }
+    .msql .cd { color: var(--m-text); padding: 0 10px; white-space: nowrap; }
+    .msql .k { color: #c4b5fd; }
+    .msql .s { color: #6ee7b7; }
+    .mdiff-pair { display: flex; gap: 5px; }
+    .mdiff-vs { color: var(--m-dim); }
+    .mdiff-table { padding: 10px; }
+    .mdiff-status { font-size: 8px; font-weight: 700; border-radius: 4px; padding: 1px 5px; }
+    .mdiff-status.chg { color: #fbbf24; background: rgba(251,191,36,.12); }
+    .am-grid td.diff-left { background: rgba(248,113,113,.07); }
+    .am-grid td.diff-right { background: rgba(52,211,153,.07); }
+    .mdiff-hl { background: rgba(251,191,36,.22); outline: 1px solid rgba(251,191,36,.45); border-radius: 2px; color: var(--m-text); }
+    .mcap-shot { padding: 18px; }
+    .mcap-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 12px; color: #a5b4fc; font-weight: 800; }
+    .mcap-head span { color: var(--m-faint); font-size: 9px; font-weight: 400; }
+    .mcap-sql { font-family: "SF Mono", Menlo, monospace; color: var(--m-text); background: rgba(255,255,255,.045); border: 1px solid var(--m-border); margin: 12px 0 7px; padding: 9px 10px; border-radius: 7px; overflow-wrap: anywhere; }
+    .mcap-meta { color: var(--m-dim); font-size: 9px; margin-bottom: 9px; }
+    .mcap-shot .am-grid { width: auto; }
+    .mcap-shot .mtable-scroll { border: none; border-radius: 0; }
+    .mcap-shot .am-grid th, .mcap-shot .am-grid td { border: 1px solid var(--m-border-s); }
+    .mock-caption { margin-top: 10px; color: var(--ink-3); font-size: 11px; text-align: center; }
+    .medit-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; background: rgba(99,102,241,.08); }
+    .medit-actions { display: flex; gap: 6px; margin-left: auto; }
+    .row-editing { box-shadow: inset 3px 0 var(--m-accent); background: rgba(99,102,241,.06); }
+    .am-grid .row-editing td:not(:first-child) { padding: 3px; }
+    .mcell-input { display: block; padding: 5px 6px; color: var(--m-text); background: rgba(0,0,0,.35); border-radius: 3px; }
+    .mcell-input.focused { box-shadow: inset 0 0 0 2px var(--m-accent); }
+    .mtree { padding: 12px; }
+    .mtree-h { display: flex; align-items: center; gap: 7px; padding: 0 5px 10px; font-weight: 700; color: var(--m-faint); }
+    .mfolder { display: flex; align-items: center; gap: 7px; padding: 7px 5px; color: var(--m-dim); font-size: 11px; }
+    .mfolder .cv { font-size: 8px; color: var(--m-faint); }
+    .mfolder-icon { display: grid; place-items: center; width: 27px; height: 27px; border-radius: 8px; color: var(--m-mysql); background: rgba(240,166,58,.1); border: 1px solid rgba(240,166,58,.3); }
+    .mfolder-icon svg { width: 15px; height: 15px; }
+    .mtree-children { margin-left: 15px; padding-left: 10px; border-left: 1px solid var(--m-border-s); }
+    .mconn { display: flex; align-items: center; gap: 9px; padding: 9px; border: 1px solid transparent; border-radius: 8px; }
+    .mconn.sel { background: linear-gradient(90deg, rgba(99,102,241,.15), rgba(34,211,238,.05)); border-color: rgba(99,102,241,.3); }
+    .mconn-body { min-width: 0; }
+    .mconn-name { font-size: 11px; font-weight: 600; color: var(--m-text); }
+    .mconn .host { display: flex; align-items: center; gap: 6px; color: var(--m-faint); font-size: 9px; margin-top: 3px; }
+    .sshchip { font-size: 8px; font-weight: 700; color: var(--m-accent2); border: 1px solid rgba(34,211,238,.35); border-radius: 4px; padding: 0 4px; }
+    .mer-scroll { overflow-x: auto; }
+    .mer-canvas { position: relative; height: 240px; min-width: 440px; background: radial-gradient(circle, rgba(255,255,255,.07) 1px, transparent 1px) 0 0 / 24px 24px; }
+    .mer-table { position: absolute; width: 174px; background: #141824; border: 1px solid var(--m-border-s); border-radius: 7px; font-size: 9px; box-shadow: 0 4px 14px rgba(0,0,0,.3); overflow: hidden; }
+    .mer-h { display: flex; align-items: center; height: 26px; padding: 0 7px; font-weight: 700; color: var(--m-text); background: rgba(99,102,241,.18); border-bottom: 1px solid var(--m-border); white-space: nowrap; }
+    .mer-h i { font-style: normal; font-weight: 400; color: var(--m-dim); margin-left: 6px; }
+    .mer-r { display: grid; grid-template-columns: 1.3fr 1fr .7fr; align-items: center; gap: 4px; height: 20px; padding: 0 6px; font-family: ui-monospace, Menlo, monospace; font-size: 8px; color: var(--m-dim); white-space: nowrap; }
+    .mer-r .pk { color: var(--m-accent2); }
+    .mer-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .mer-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--m-border); color: var(--m-faint); font-size: 8px; }
+
 
     /* ===== Why ===== */
     .why { background: var(--bg-soft); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
@@ -219,28 +283,6 @@
     .why-card h3 { font-size: 17px; margin: 8px 0 8px; font-weight: 800; }
     .why-card p { font-size: 13.8px; color: var(--ink-2); }
     .why-card a { font-size: 13px; font-weight: 700; color: var(--indigo); display: inline-block; margin-top: 10px; }
-
-    /* ===== diff / capture mock parts ===== */
-    .mdiff-bar { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--m-border); background: rgba(255,255,255,0.02); font-size: 10.5px; }
-    .mdiff-sel { display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.35); border: 1px solid var(--m-border-s); border-radius: 7px; padding: 4px 9px; color: var(--m-text); }
-    .mdiff-sel .car { color: var(--m-dim); font-size: 8px; }
-    .mdiff-vs { color: var(--m-dim); }
-    .mdiff-table { padding: 10px 12px 12px; }
-    .mdiff-thead { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 8px; font-size: 9.5px; color: var(--m-faint); padding: 0 8px 6px; }
-    .mdiff-row { display: grid; grid-template-columns: 110px 1fr 1fr; gap: 8px; align-items: center; font-size: 10.5px; padding: 5px 8px; border-radius: 7px; }
-    .mdiff-row:nth-child(odd) { background: rgba(255,255,255,0.02); }
-    .mdiff-row .lb { color: var(--m-dim); }
-    .mdiff-row .cell { font-family: "SF Mono", Menlo, monospace; color: var(--m-text); }
-    .mdiff-row .cell.empty { color: var(--m-faint); }
-    .mdiff-hl { background: rgba(240, 166, 58, 0.22); color: var(--m-mysql); border-radius: 3px; padding: 0 2px; }
-    .mdiff-status { font-size: 8.5px; font-weight: 800; border-radius: 4px; padding: 1px 6px; }
-    .mdiff-status.chg { color: var(--m-mysql); background: rgba(240,166,58,0.12); border: 1px solid rgba(240,166,58,0.35); }
-    .mdiff-status.only { color: var(--m-accent2); background: rgba(34,211,238,0.1); border: 1px solid rgba(34,211,238,0.3); }
-    .mcap-shot { margin: 12px; border: 1px solid var(--m-border-s); border-radius: 8px; overflow: hidden; background: var(--m-bg); }
-    .mcap-head { display: flex; justify-content: space-between; padding: 8px 11px; font-size: 10px; color: #a5b4fc; font-weight: 800; border-bottom: 1px solid var(--m-border); }
-    .mcap-head span { color: var(--m-faint); font-weight: 400; }
-    .mcap-sql { font-family: "SF Mono", Menlo, monospace; font-size: 10px; color: #cdd6f4; background: rgba(255,255,255,0.045); margin: 9px 11px; padding: 7px 9px; border-radius: 6px; }
-    .mcap-note { font-size: 10.5px; color: var(--m-success); padding: 0 12px 12px; }
 
     /* ===== Steps ===== */
     .steps { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
@@ -286,41 +328,6 @@
       transform: rotate(-45deg);
     }
     .deep li b { color: var(--ink); font-weight: 700; }
-    .mini-frame { border-radius: 14px; padding: 8px; background: linear-gradient(160deg, #eef0f6, #fafbfd); border: 1px solid var(--line); }
-    .mini {
-      border-radius: 9px; background: var(--m-bg); border: 1px solid #23263a;
-      box-shadow: 0 18px 44px rgba(15, 18, 34, 0.16);
-      overflow: hidden; font-size: 11.5px; color: var(--m-text); text-align: left;
-    }
-    .mini-bar { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--m-border); background: rgba(255,255,255,0.02); }
-    .mini-bar .ttl { font-size: 11px; font-weight: 700; color: var(--m-dim); }
-    .mbtn { font-size: 10.5px; font-weight: 700; border-radius: 7px; padding: 4px 12px; }
-    .mbtn.p { color: #fff; background: var(--m-accent); }
-    .mbtn.s { color: var(--m-dim); border: 1px solid var(--m-border-s); }
-    .mswitch { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--m-dim); margin-left: auto; }
-    .mswitch .tr { width: 26px; height: 15px; border-radius: 999px; background: var(--m-accent); position: relative; }
-    .mswitch .tr::after { content: ""; position: absolute; right: 2px; top: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; }
-    .msql { display: grid; grid-template-columns: 30px 1fr; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 11px; line-height: 1.85; padding: 11px 0; border-bottom: 1px solid var(--m-border); }
-    .msql .ln { text-align: right; padding-right: 10px; color: var(--m-faint); user-select: none; }
-    .msql .cd { color: #cdd6f4; padding-right: 14px; }
-    .msql .k { color: #a5a0ff; }
-    .msql .s { color: #9fd6a2; }
-    .mrtabs { display: flex; gap: 6px; padding: 9px 12px 0; }
-    .mrtab { font-size: 10px; font-family: "SF Mono", Menlo, monospace; color: var(--m-dim); border: 1px solid var(--m-border); border-bottom: none; border-radius: 6px 6px 0 0; padding: 3px 10px; }
-    .mrtab.on { color: var(--m-text); background: var(--m-card); }
-    .mbanner { display: flex; align-items: center; gap: 7px; margin: 10px 12px; font-size: 10.5px; color: var(--m-success); }
-    .mbanner i { width: 7px; height: 7px; border-radius: 50%; background: var(--m-success); }
-    .mbanner span { color: var(--m-dim); }
-    .mtree { padding: 10px; }
-    .mtree-h { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--m-faint); padding: 2px 6px 8px; }
-    .mfolder { display: flex; align-items: center; gap: 7px; padding: 5px 8px; color: var(--m-dim); font-size: 11.5px; }
-    .mfolder .cv { font-size: 8px; color: var(--m-faint); }
-    .mconn { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 24px; border-radius: 7px; color: var(--m-dim); font-size: 11.5px; }
-    .mconn.sel { background: linear-gradient(90deg, rgba(99,102,241,0.2), rgba(34,211,238,0.08)); color: var(--m-text); }
-    .mconn .host { font-size: 9.5px; color: var(--m-faint); margin-left: auto; }
-    .sshchip { font-size: 8px; font-weight: 800; color: var(--m-accent2); border: 1px solid rgba(34,211,238,0.35); border-radius: 4px; padding: 0 4px; }
-    .mnew { margin: 8px; text-align: center; font-size: 11px; color: var(--m-dim); border: 1px dashed var(--m-border-s); border-radius: 8px; padding: 6px; }
-
     /* ===== Features grid ===== */
     .features {
       margin-top: 52px;
@@ -344,15 +351,6 @@
     .feature p { color: var(--ink-2); font-size: 13.4px; line-height: 1.8; }
 
     /* ===== Roadmap ===== */
-    /* ER図ミニチュア (アプリと同じダーク配色) */
-    .mer-canvas { position: relative; height: 150px; margin: 10px 12px 12px; border-radius: 8px; background: radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px) 0 0 / 16px 16px; }
-    .mer-table { position: absolute; width: 136px; background: #141824; border: 1px solid var(--m-border-s); border-radius: 7px; font-size: 9px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); }
-    .mer-h { padding: 4px 7px; font-weight: 700; font-size: 9.5px; color: var(--m-text); background: rgba(99, 102, 241, 0.18); border-bottom: 1px solid var(--m-border); border-radius: 7px 7px 0 0; white-space: nowrap; }
-    .mer-h i { font-style: normal; font-weight: 400; font-size: 8.5px; color: var(--m-dim); margin-left: 4px; }
-    .mer-r { padding: 2.5px 7px; color: var(--m-dim); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
-    .mer-r span { float: right; color: var(--m-faint); margin-left: 8px; }
-    .mer-r.hl { background: rgba(34, 211, 238, 0.16); color: var(--m-text); }
-    .mer-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
     .roadmap-list {
       max-width: 720px; margin: 44px auto 0;
       display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;
@@ -455,13 +453,12 @@
       .hero { padding: 72px 0 52px; }
       section { padding: 64px 0; }
       /* モック内の表・SQLは横スクロールさせてはみ出しを防ぐ */
-      .am-main { overflow-x: auto; }
+      .am-main { min-width: 0; }
       /* タブバーは折り返さず、入り切らないタブは隠す */
       .am-tabbar { flex-wrap: nowrap; overflow: hidden; }
-      .am-tab, .am-console-btn, .am-brand { white-space: nowrap; flex-shrink: 0; }
+      .am-tab, .am-brand, .am-titlebar, .am-tools { flex-shrink: 0; }
       .am-toolbar { flex-wrap: wrap; row-gap: 6px; }
       .msql { overflow-x: auto; }
-      .mdiff-thead, .mdiff-row { grid-template-columns: 88px 1fr 1fr; }
       .mini-bar { flex-wrap: wrap; row-gap: 6px; }
       .foot-inner { flex-wrap: wrap; row-gap: 8px; }
       .foot-right { margin-left: 0; width: 100%; }
@@ -499,6 +496,12 @@
           </g>
         </g>
       </g>
+      <symbol id="mock-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></symbol>
+      <symbol id="mock-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></symbol>
+      <symbol id="mock-diff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7h12m0 0-3.5-3.5M20 7l-3.5 3.5M16 17H4m0 0 3.5-3.5M4 17l3.5 3.5"/></symbol>
+      <symbol id="mock-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9.5h18M9.5 9.5V20M15 9.5V20"/></symbol>
+      <symbol id="mock-console" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9.5 3 2.5-3 2.5M12.5 15h4.5"/></symbol>
+      <symbol id="mock-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 13.5a7.6 7.6 0 000-3l2-1.2-2-3.4-2.3 1a7.6 7.6 0 00-2.6-1.5L14.2 3h-4l-.4 2.4a7.6 7.6 0 00-2.6 1.5l-2.3-1-2 3.4 2 1.2a7.6 7.6 0 000 3l-2 1.2 2 3.4 2.3-1a7.6 7.6 0 002.6 1.5l.4 2.4h4l.3-2.4a7.6 7.6 0 002.6-1.5l2.3 1 2-3.4z"/></symbol>
     </defs>
   </svg>
 
@@ -530,8 +533,10 @@
       <h1>データベース作業を、<br /><span class="grad">軽く、速く。</span></h1>
       <p class="hero-name"><b>Quelio</b>（クエリオ）</p>
       <p class="sub">
-        環境間のスキーマ差異チェック、クエリと結果の自動キャプチャ、日本語の論理名表示。
-        現場で本当に欲しかった機能を載せた、Tauri + Rust 製の軽量DBクライアントです。
+        テーブルを眺める、SQLを書く、CSVを直す、定義書に落とす。
+        日々のDB作業を、ツールを行き来せずにこれ1つで。
+        日本語の論理名表示や環境間のスキーマ差異チェックまで、
+        現場で欲しかったものを Tauri + Rust の軽さのまま載せました。
       </p>
       <div class="hero-cta">
         <a class="btn btn-dark" href="#download">無料でダウンロード</a>
@@ -541,64 +546,77 @@
     </div>
   </header>
 
-  <!-- 実アプリのUIを再現したモック -->
+  <!-- 現在のアプリUIをサンプルデータで再現したモック -->
   <div class="mock-wrap container">
     <div class="mock-frame">
-      <div class="app-mock" aria-hidden="true">
-        <div class="am-titlebar">
-          <i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i>
-        </div>
+      <div class="app-mock" role="img" aria-label="QuelioDBのテーブル定義画面。接続タブ、データベース選択、左のテーブル一覧、右の定義とインデックスを表示">
         <div class="am-tabbar">
-          <span class="am-brand">Quelio</span>
-          <div class="am-tab active"><span class="am-dot" style="background:#f0a63a"></span>EC本番 (readonly)</div>
-          <div class="am-tab"><span class="am-dot" style="background:#5a9bd8"></span>分析DB</div>
-          <div class="am-tab" style="padding:6px 10px">+</div>
-          <span class="am-console-btn">コンソール</span>
+          <div class="am-titlebar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
+          <span class="am-brand"><span class="am-brand-mark"><svg viewBox="0 0 24 24"><use href="#mock-db"/></svg></span>QuelioDB<span class="am-beta">β</span></span>
+          <div class="am-tab active"><span class="am-dot" style="background:#f0a63a"></span>EC本番<span class="ro-badge">R/O</span><span class="am-close">×</span></div>
+          <div class="am-tab"><span class="am-dot" style="background:#5a9bd8"></span>分析DB<span class="am-close">×</span></div>
+          <span class="micon">+</span>
+          <div class="am-tools">
+            <span class="micon"><svg viewBox="0 0 24 24"><use href="#mock-search"/></svg></span>
+            <span class="micon"><svg viewBox="0 0 24 24"><use href="#mock-diff"/></svg></span>
+            <span class="micon"><svg viewBox="0 0 24 24"><use href="#mock-grid"/></svg></span>
+            <span class="micon"><svg viewBox="0 0 24 24"><use href="#mock-console"/></svg></span>
+            <span class="micon"><svg viewBox="0 0 24 24"><use href="#mock-settings"/></svg></span>
+          </div>
         </div>
         <div class="am-toolbar">
-          <div>
-            <div class="am-conn-name">EC本番 (readonly)</div>
-            <div class="am-conn-host">db.example.com:3306 · MySQL</div>
-          </div>
-          <div class="am-select">ec_site<span class="car">▼</span></div>
+          <span class="mdb-badge mysql">My</span>
+          <div><div class="am-conn-name">EC本番</div><div class="am-conn-host mono"><span class="sshchip">SSH</span> db.example.com:3306</div></div>
+          <div class="am-select mono">ec_site<span class="car">▾</span></div>
+          <span class="am-ichip">バージョン <b class="mono">MySQL 8.0.39</b></span>
+          <span class="am-ichip">文字コード <b class="mono">utf8mb4</b></span>
+          <span class="mbtn s mspacer">ツール ▾</span><span class="mbtn s">›_ SQL</span>
         </div>
         <div class="am-body">
           <div class="am-side">
-            <div class="am-side-head">TABLES<span class="am-count">42</span></div>
-            <div class="am-filter">テーブルを検索...</div>
-            <div class="am-titem"><span class="chip t">T</span>customers</div>
-            <div class="am-titem sel"><span class="chip t">T</span>orders</div>
-            <div class="am-titem"><span class="chip t">T</span>order_items</div>
-            <div class="am-titem"><span class="chip t">T</span>products</div>
-            <div class="am-titem"><span class="chip v">V</span>active_users</div>
-            <div class="am-titem"><span class="chip t">T</span>shipments</div>
-            <div class="am-titem"><span class="chip t">T</span>stock_moves</div>
+            <div class="am-side-head">テーブル<span class="am-count">7</span><span class="mspacer">↻</span></div>
+            <div class="am-filter">絞り込み (名前・日本語名)...</div>
+            <div class="am-titem"><span class="chip t">T</span><span class="mono">customers</span><small>顧客</small></div>
+            <div class="am-titem sel"><span class="chip t">T</span><span class="mono">orders</span><small>注文</small></div>
+            <div class="am-titem"><span class="chip t">T</span><span class="mono">order_items</span><small>注文明細</small></div>
+            <div class="am-titem"><span class="chip t">T</span><span class="mono">products</span><small>商品</small></div>
+            <div class="am-titem"><span class="chip v">V</span><span class="mono">active_users</span></div>
+            <div class="am-titem"><span class="chip t">T</span><span class="mono">shipments</span><small>配送</small></div>
+            <div class="am-titem"><span class="chip t">T</span><span class="mono">stock_moves</span><small>在庫移動</small></div>
           </div>
           <div class="am-main">
-            <div class="am-table-head">
-              <span class="chip t">TABLE</span>
-              <h4 class="mono">orders</h4>
-              <span class="am-logical">注文</span>
+            <div class="am-table-head"><span class="chip t">BASE TABLE</span><h4 class="mono">orders</h4><span class="am-logical">注文</span><span class="mbtn s mspacer">CREATE 文</span></div>
+            <div class="mtabs"><span class="on">☰ 定義</span><span>▦ データ</span></div>
+            <div class="am-chips"><span class="am-ichip">エンジン <b>InnoDB</b></span><span class="am-ichip">概算行数 <b>12480</b></span><span class="am-ichip">照合順序 <b class="mono">utf8mb4_general_ci</b></span></div>
+            <div class="msection">カラム<span class="am-count">6</span></div>
+            <div class="mtable-scroll">
+              <table class="am-grid structure">
+                <thead><tr><th>No</th><th>フィールド</th><th>論理名</th><th>型</th><th>サイズ</th><th>NULL</th><th>キー</th><th>デフォルト</th><th>属性</th><th>照合順序</th><th>補足</th></tr></thead>
+                <tbody>
+                  <tr><td>1</td><td class="c1 mono">id</td><td>注文ID</td><td class="mono">bigint</td><td></td><td></td><td><span class="am-key">PRI</span></td><td></td><td>auto_increment</td><td></td><td></td></tr>
+                  <tr><td>2</td><td class="c1 mono">customer_id</td><td>顧客ID</td><td class="mono">bigint</td><td></td><td></td><td><span class="am-key secondary">MUL</span></td><td></td><td></td><td></td><td>customersへの外部キー</td></tr>
+                  <tr><td>3</td><td class="c1 mono">status</td><td>注文状態</td><td class="mono">varchar</td><td>20</td><td></td><td></td><td>pending</td><td></td><td>utf8mb4_general_ci</td><td>pending / paid / shipped</td></tr>
+                  <tr><td>4</td><td class="c1 mono">total</td><td>合計金額</td><td class="mono">decimal</td><td>10,2</td><td></td><td></td><td>0.00</td><td></td><td></td><td>税込</td></tr>
+                  <tr><td>5</td><td class="c1 mono">created_at</td><td>作成日時</td><td class="mono">datetime</td><td></td><td></td><td></td><td>CURRENT_TIMESTAMP</td><td></td><td></td><td></td></tr>
+                  <tr><td>6</td><td class="c1 mono">shipped_at</td><td>出荷日時</td><td class="mono">datetime</td><td></td><td><span class="check">✓</span></td><td></td><td>NULL</td><td></td><td></td><td>未出荷はNULL</td></tr>
+                </tbody>
+              </table>
             </div>
-            <div class="am-chips">
-              <span class="am-ichip">エンジン <b>InnoDB</b></span>
-              <span class="am-ichip">行数目安 <b>12,480</b></span>
-              <span class="am-ichip">照合順序 <b>utf8mb4_general_ci</b></span>
+            <div class="msection">インデックス<span class="am-count">2</span></div>
+            <div class="mtable-scroll">
+              <table class="am-grid">
+                <thead><tr><th>No</th><th>名前</th><th>ユニーク</th><th>カラム</th><th>種別</th><th>カーディナリティ</th></tr></thead>
+                <tbody><tr><td>1</td><td class="mono c1">PRIMARY</td><td><span class="check">✓</span></td><td class="mono">id</td><td>BTREE</td><td>12480</td></tr><tr><td>2</td><td class="mono c1">idx_customer</td><td></td><td class="mono">customer_id</td><td>BTREE</td><td>860</td></tr></tbody>
+              </table>
             </div>
-            <div class="am-h">カラム</div>
-            <table class="am-grid mono">
-              <tr><th>フィールド</th><th>論理名</th><th>型</th><th>サイズ</th><th>NULL</th><th>キー</th><th>デフォルト</th><th>属性</th></tr>
-              <tr><td class="c1">id</td><td>注文ID</td><td>bigint</td><td></td><td>NO</td><td class="am-key">PRI</td><td></td><td>auto_increment</td></tr>
-              <tr><td class="c1">customer_id</td><td>顧客ID</td><td>bigint</td><td></td><td>NO</td><td class="am-key">MUL</td><td></td><td></td></tr>
-              <tr><td class="c1">status</td><td>状態</td><td>varchar</td><td>20</td><td>NO</td><td></td><td>'pending'</td><td></td></tr>
-              <tr><td class="c1">total</td><td>合計金額</td><td>decimal</td><td>10,2</td><td>NO</td><td></td><td>0.00</td><td></td></tr>
-              <tr><td class="c1">created_at</td><td>作成日時</td><td>datetime</td><td></td><td>NO</td><td class="am-key">MUL</td><td>CURRENT_TIMESTAMP</td><td></td></tr>
-            </table>
           </div>
         </div>
+        <div class="am-status"><span>My</span><span>EC本番</span><span class="mono">ec_site</span><span>読み取り専用</span></div>
       </div>
     </div>
+    <div class="mock-caption">画面はサンプルデータによる再現です。横に長い表・図はスクロールできます。</div>
   </div>
+
 
   <section id="why" class="why">
     <div class="container">
@@ -676,34 +694,36 @@
         </div>
         <div class="deep-visual">
           <div class="mini-frame">
-            <div class="mini" aria-hidden="true">
-              <div class="mdiff-bar">
-                <span class="mdiff-sel">EC本番 / ec_site<span class="car">▼</span></span>
+            <div class="mini" role="img" aria-label="スキーマ比較のカラムタブ。ordersのstatusが左はvarchar(20)、右はvarchar(30)と表示され、異なる文字が強調されている画面例">
+              <div class="mdiff-toolbar">
+                <div class="mdiff-pair">
+                  <span class="mdiff-sel">EC本番 <span class="car">▾</span></span>
+                  <span class="mdiff-sel mono">ec_site <span class="car">▾</span></span>
+                </div>
                 <span class="mdiff-vs">⇄</span>
-                <span class="mdiff-sel">ステージング / ec_site<span class="car">▼</span></span>
+                <div class="mdiff-pair">
+                  <span class="mdiff-sel">ステージング <span class="car">▾</span></span>
+                  <span class="mdiff-sel mono">ec_site <span class="car">▾</span></span>
+                </div>
                 <span class="mbtn p">比較</span>
-                <span class="mswitch">差異のみ表示<span class="tr"></span></span>
+                <span class="mbtn s">ALTER文を作る</span>
+                <span class="mswitch"><span class="tr"></span>差異のみ表示</span>
               </div>
               <div class="mdiff-table">
-                <div class="mdiff-thead"><span></span><span>EC本番</span><span>ステージング</span></div>
-                <div class="mdiff-row">
-                  <span class="lb mono">orders <span class="mdiff-status chg">差異あり</span></span>
-                  <span class="cell"></span><span class="cell"></span>
+                <div class="mtabs">
+                  <span>テーブル (0)</span><span class="on">カラム (1)</span><span>インデックス (0)</span>
                 </div>
-                <div class="mdiff-row">
-                  <span class="lb">status 型</span>
-                  <span class="cell">varchar(<span class="mdiff-hl">20</span>)</span>
-                  <span class="cell">varchar(<span class="mdiff-hl">30</span>)</span>
-                </div>
-                <div class="mdiff-row">
-                  <span class="lb">memo</span>
-                  <span class="cell">あり</span>
-                  <span class="cell empty">—</span>
-                </div>
-                <div class="mdiff-row">
-                  <span class="lb">idx_created <span class="mdiff-status only">右のみ</span></span>
-                  <span class="cell empty">—</span>
-                  <span class="cell">あり</span>
+                <div class="mmeta">8テーブル中 1件に差異</div>
+                <div class="mtable-scroll">
+                  <table class="am-grid">
+                    <thead><tr><th>項目</th><th>左: ec_site</th><th>右: ec_site</th></tr></thead>
+                    <tbody>
+                      <tr><td colspan="3"><div class="msection"><strong class="mono">orders</strong><span class="mdiff-status chg mspacer">1件</span></div></td></tr>
+                      <tr><td colspan="3" class="mmeta">カラム</td></tr>
+                      <tr><td class="mono">status</td><td></td><td></td></tr>
+                      <tr><td><span class="mono">status</span> 型</td><td class="mono diff-left">varchar(<span class="mdiff-hl">2</span>0)</td><td class="mono diff-right">varchar(<span class="mdiff-hl">3</span>0)</td></tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -715,30 +735,28 @@
       <div class="deep rev">
         <div class="deep-visual">
           <div class="mini-frame">
-            <div class="mini" aria-hidden="true">
-              <div class="mini-bar">
-                <span class="mbtn p">実行 ▾</span>
-                <span class="mbtn s">EXPLAIN ▾</span>
-                <span class="mswitch">キャプチャ<span class="tr"></span></span>
-              </div>
+            <div class="mini" role="img" aria-label="自動保存されるPNGの例。Quelioと日時、実行したSQL、1行の結果と実行時間が一枚にまとまっている">
               <div class="mcap-shot">
-                <div class="mcap-head">Quelio<span>2026-08-07 18:22 · EC本番 / ec_site</span></div>
-                <div class="mcap-sql">SELECT id, status, total FROM orders WHERE id = 10248;</div>
-                <table class="am-grid mono" style="margin: 0 11px 11px; width: calc(100% - 22px);">
-                  <tr><th>id</th><th>status</th><th>total</th></tr>
-                  <tr><td>10248</td><td>shipped</td><td>12,800</td></tr>
-                </table>
+                <div class="mcap-head">Quelio<span>2026/8/7 18:22:00</span></div>
+                <div class="mcap-sql">SELECT id, status, total FROM orders<br/>WHERE id = 10248;</div>
+                <div class="mcap-meta mono">1〜1行目 — 12ms</div>
+                <div class="mtable-scroll">
+                  <table class="am-grid mono">
+                    <thead><tr><th>#</th><th>id</th><th>status</th><th>total</th></tr></thead>
+                    <tbody><tr><td class="mmeta">1</td><td>10248</td><td>shipped</td><td>12800</td></tr></tbody>
+                  </table>
+                </div>
               </div>
-              <div class="mcap-note">✓ キャプチャ保存: 1件 → 保存先フォルダ</div>
             </div>
           </div>
+          <div class="mock-caption">自動保存されるPNGの例</div>
         </div>
         <div>
           <span class="deep-label">AUTO CAPTURE</span>
           <h3>クエリと結果を、実行と同時に自動キャプチャ</h3>
           <p>スイッチをONにして実行するだけで、SQLと結果セットをまとめた画像がファイルとして保存されます。スクショを撮って、切り抜いて、貼り付けて——はもう不要です。</p>
           <ul>
-            <li><b>エビデンスがそのまま完成</b> — 実行したSQL・結果・接続先・日時が1枚のPNGに。報告資料や作業記録にそのまま使えます。</li>
+            <li><b>エビデンスがそのまま完成</b> — 実行したSQL・結果・日時が1枚のPNGに。報告資料や作業記録にそのまま使えます。</li>
             <li><b>複数SQLもまとめて保存</b> — 文ごとの結果がそれぞれキャプチャされます。</li>
             <li><b>画面の写しではなくデータから描画</b> — 結果データから直接画像を生成するため、スクロールで隠れた行も欠けません。</li>
             <li><b>保存先は自由</b> — 設定でフォルダを指定できます。指定しなければOSのダウンロードフォルダに保存されます。</li>
@@ -761,15 +779,28 @@
         </div>
         <div class="deep-visual">
           <div class="mini-frame">
-            <div class="mini" aria-hidden="true">
-              <div class="mini-bar"><span class="ttl">構造ビュー — コメントを論理名と補足に分割表示</span></div>
-              <table class="am-grid mono" style="margin: 10px 12px 12px; width: calc(100% - 24px);">
-                <tr><th>フィールド</th><th>論理名</th><th>型</th><th>補足</th></tr>
-                <tr><td class="c1">customer_id</td><td>顧客ID</td><td>bigint</td><td>customersへの外部キー</td></tr>
-                <tr><td class="c1">status</td><td>注文状態</td><td>varchar</td><td>pending / paid / shipped</td></tr>
-                <tr><td class="c1">total</td><td>合計金額</td><td>decimal</td><td>税込</td></tr>
-                <tr><td class="c1">shipped_at</td><td>出荷日時</td><td>datetime</td><td>未出荷はNULL</td></tr>
-              </table>
+            <div class="mini" role="img" aria-label="ordersテーブルの定義画面。物理名の隣に日本語の論理名を表示し、右端に補足を表示">
+              <div class="mini-bar">
+                <span class="chip t">BASE TABLE</span><strong class="mono">orders</strong><span class="mmeta">注文</span>
+                <span class="mspacer"></span><span class="mbtn s">CREATE 文</span>
+              </div>
+              <div class="mtabs"><span class="on">☰ 定義</span><span>▦ データ</span></div>
+              <div class="mini-bar">
+                <span class="am-ichip">エンジン <b class="mono">InnoDB</b></span>
+                <span class="am-ichip">照合順序 <b class="mono">utf8mb4_general_ci</b></span>
+              </div>
+              <div class="msection">カラム <span class="am-count">4</span><span class="mspacer"></span><span class="mbtn s">＋ カラム追加</span></div>
+              <div class="mtable-scroll">
+                <table class="am-grid structure">
+                  <thead><tr><th>No</th><th>フィールド</th><th>論理名</th><th>型</th><th>サイズ</th><th>NULL</th><th>キー</th><th>デフォルト</th><th>属性</th><th>照合順序</th><th>補足</th></tr></thead>
+                  <tbody>
+                    <tr><td class="mmeta mono">1</td><td class="c1 mono">id</td><td>注文ID</td><td class="mono">bigint</td><td class="mono">20</td><td></td><td><span class="am-key">PRI</span></td><td></td><td>auto_increment</td><td></td><td>注文ごとの識別番号</td></tr>
+                    <tr><td class="mmeta mono">2</td><td class="c1 mono">customer_id</td><td>顧客ID</td><td class="mono">bigint</td><td class="mono">20</td><td></td><td><span class="am-key secondary">MUL</span></td><td></td><td></td><td></td><td>customersへの外部キー</td></tr>
+                    <tr><td class="mmeta mono">3</td><td class="c1 mono">status</td><td>注文状態</td><td class="mono">varchar</td><td class="mono">20</td><td></td><td></td><td class="mono">pending</td><td></td><td class="mono">utf8mb4_general_ci</td><td>pending / paid / shipped</td></tr>
+                    <tr><td class="mmeta mono">4</td><td class="c1 mono">total</td><td>合計金額</td><td class="mono">decimal</td><td class="mono">10,2</td><td></td><td></td><td class="mono">0.00</td><td></td><td></td><td>税込</td></tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -779,24 +810,39 @@
       <div class="deep rev">
         <div class="deep-visual">
           <div class="mini-frame">
-            <div class="mini" aria-hidden="true">
-              <div class="mini-bar">
-                <span class="mbtn p">実行 ▾</span>
-                <span class="mbtn s">SQLを整形</span>
-                <span class="mbtn s">EXPLAIN ▾</span>
-                <span class="mswitch">トランザクション<span class="tr"></span></span>
+            <div class="mini" role="img" aria-label="クエリエディタの画面例。SQLシート、行番号付きエディタ、その下に部分実行やEXPLAINの操作列、注文を検索した2行の結果が並ぶ">
+              <div class="mquery">
+                <div class="mtabs">
+                  <span class="on">SQL 1</span><span>＋</span>
+                  <span class="micon mspacer" title="SQLを整形"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 5h16M8 10h12M8 15h9M4 20h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+                  <span class="micon" title="関数リファレンス"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 6.5C10.5 5.2 8.4 4.5 5 4.5v13c3.4 0 5.5.7 7 2 1.5-1.3 3.6-2 7-2v-13c-3.4 0-5.5.7-7 2z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 6.5v13" stroke="currentColor" stroke-width="1.5"/></svg></span>
+                </div>
+                <div class="msql">
+                  <div class="ln">1<br/>2<br/>3<br/>4<br/>5</div>
+                  <div class="cd"><span class="k">SELECT</span> o.id, c.name, o.total<br/><span class="k">FROM</span> orders o<br/><span class="k">JOIN</span> customers c <span class="k">ON</span> c.id = o.customer_id<br/><span class="k">WHERE</span> o.status = <span class="s">'paid'</span><br/><span class="k">ORDER BY</span> o.created_at <span class="k">DESC</span>;</div>
+                </div>
+                <div class="mini-bar">
+                  <span class="mbtn p">部分実行 ▾</span>
+                  <span class="mbtn s">EXPLAIN ▾</span>
+                  <span class="mbtn s">履歴・お気に入り ▾</span>
+                  <span class="mswitch"><span class="tr"></span>トランザクション</span>
+                  <span class="mswitch off"><span class="tr"></span>キャプチャ</span>
+                </div>
+                <div class="mini-bar">
+                  <span class="mbtn s">グラフ</span>
+                  <span class="mbtn s mspacer">CSVダウンロード ▾</span>
+                  <span class="mmeta mono">1〜2行目 — 12ms</span>
+                </div>
+                <div class="mtable-scroll">
+                  <table class="am-grid mono">
+                    <thead><tr><th>行</th><th>id</th><th>name</th><th>total</th></tr></thead>
+                    <tbody>
+                      <tr><td class="mmeta">1</td><td>10248</td><td>佐藤 花子</td><td>12800</td></tr>
+                      <tr><td class="mmeta">2</td><td>10247</td><td>鈴木 一郎</td><td>4500</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div class="msql">
-                <div class="ln">1<br/>2<br/>3<br/>4</div>
-                <div class="cd"><span class="k">SELECT</span> o.id, c.name, o.total<br/><span class="k">FROM</span> orders o<br/><span class="k">JOIN</span> customers c <span class="k">ON</span> c.id = o.customer_id<br/><span class="k">WHERE</span> o.status = <span class="s">'paid'</span> <span class="k">ORDER BY</span> o.created_at <span class="k">DESC</span>;</div>
-              </div>
-              <div class="mrtabs"><span class="mrtab on">1: SELECT</span><span class="mrtab">2: UPDATE</span></div>
-              <div class="mbanner"><i></i>50行取得<span>(12.3 ms)</span></div>
-              <table class="am-grid mono" style="margin: 0 12px 12px; width: calc(100% - 24px);">
-                <tr><th>id</th><th>name</th><th>total</th></tr>
-                <tr><td>10248</td><td>佐藤 花子</td><td>12,800</td></tr>
-                <tr><td>10247</td><td>鈴木 一郎</td><td>4,500</td></tr>
-              </table>
             </div>
           </div>
         </div>
@@ -817,8 +863,105 @@
         </div>
       </div>
 
-      <!-- 5. ER図 -->
+      <!-- 5. CSVエディタ -->
       <div class="deep">
+        <div>
+          <span class="deep-label">CSV EDITOR<span class="am-beta">β</span></span>
+          <h3>Excelで開くと壊れるCSVを、壊さずに直す</h3>
+          <p>Quelio に同梱の別ウィンドウ「QuelioCSV」。<b>DBにつながなくても、CSVエディタだけで使えます。</b>もちろんクエリ結果からもそのまま開けます。まだ開発途中のβ機能ですが、ここから本腰を入れて育てていきます。</p>
+          <ul>
+            <li><b>DBがなくても、これだけで使える</b> — 接続を1つも作らずに、起動直後の画面から開けます。「CSVを直したいだけ」のときに、重い表計算ソフトを立ち上げずに済みます。</li>
+            <li><b>前ゼロも大きなIDもそのまま</b> — <code class="mono">000123</code> が <code class="mono">123</code> に、長い数値が指数表記に化けることはありません。Excelで開いて保存したときのような崩れが出ません。</li>
+            <li><b>開いたときの形のまま保存</b> — 文字コード (Shift_JIS / BOM付き)・改行 (CRLF / LF)・区切り (カンマ / タブ)・引用符を保ったまま書き戻します。触っていない行はそのまま残ります。</li>
+            <li><b>10万行でも引っかからない</b> — 見えている行だけを描いています。クエリ結果からは画面の1000行ではなく<b>全件</b>を開けます (進捗表示と中止つき)。</li>
+            <li><b>表計算ソフトと同じ操作感</b> — 複数セルの選択、⌘/Ctrl+矢印での移動、検索・置換、行と列の追加・削除、取り消し・やり直し。2つ以上選ぶと合計や個数が出ます。</li>
+            <li><b>2つのCSVを比較</b> — キーの列で突き合わせ、違うセルだけに色を付けて飛べます。左右の分割表示にも対応。</li>
+            <li><b>固定長ファイルにも対応</b> — 桁は自動で推測し、Shift_JISのバイト数でも数えられます。寄せと埋め文字も見分け、桁の並びは名前を付けて残せます。</li>
+            <li><b>Excel (.xlsx) での書き出し</b>も可能です。</li>
+          </ul>
+        </div>
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" role="img" aria-label="CSVエディタの画面例。ファイルのタブ、保存や検索置換の操作列、前ゼロを保ったコードが並ぶ表、下に行数と文字コードを表示">
+              <div class="mini-bar">
+                <strong>QuelioCSV</strong><span class="am-beta">β</span>
+                <span class="mspacer"></span>
+                <span class="mmeta">DBにつながなくても開けます</span>
+              </div>
+              <div class="mtabs">
+                <span class="on">orders_202609.csv</span><span>顧客マスタ.csv</span><span>＋</span>
+              </div>
+              <div class="mini-bar">
+                <span class="mbtn s">保存</span>
+                <span class="mbtn s">Excelで書き出す</span>
+                <span class="mbtn s">検索・置換</span>
+                <span class="mbtn s">比較</span>
+                <span class="mswitch mspacer"><span class="tr"></span>見出し行</span>
+              </div>
+              <div class="mtable-scroll">
+                <table class="am-grid mono">
+                  <thead><tr><th>行</th><th>code</th><th>customer</th><th>qty</th><th>total</th></tr></thead>
+                  <tbody>
+                    <tr><td class="mmeta">1</td><td class="c1">000123</td><td>佐藤 花子</td><td>2</td><td>12800</td></tr>
+                    <tr><td class="mmeta">2</td><td class="c1">000124</td><td>鈴木 一郎</td><td>1</td><td>4500</td></tr>
+                    <tr><td class="mmeta">3</td><td class="c1">004501</td><td>田中 美咲</td><td>3</td><td>21600</td></tr>
+                    <tr><td class="mmeta">4</td><td class="c1">009830</td><td>高橋 健太</td><td>1</td><td>3200</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="mini-bar">
+                <span class="mmeta mono">128,904行 × 5列</span>
+                <span class="mmeta mono">3:qty (2セル)</span>
+                <span class="mmeta mono">合計 4</span>
+                <span class="mbtn s mspacer">Shift_JIS · CRLF · カンマ</span>
+              </div>
+            </div>
+          </div>
+          <div class="mock-caption">前ゼロのコードが、開いても保存しても崩れません</div>
+        </div>
+      </div>
+
+      <!-- 6. ER図 -->
+      <div class="deep rev">
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" role="img" aria-label="ER図画面。接続先とデータベースを選択してリバースし、顧客と注文のテーブルをリレーションでつないだ図">
+              <div class="mini-bar">
+                <span class="mbtn s">受注管理 ▾</span>
+                <span class="minput mono">EC開発 ▾</span>
+                <span class="minput mono">shop ▾</span>
+                <span class="mbtn p">リバース</span>
+                <span class="mbtn s">表示設定 ▾</span>
+                <span class="mbtn s">PNG保存</span>
+                <span class="mbtn s">テキスト ▾</span>
+                <span class="mmeta">2テーブル / 1リレーション</span>
+              </div>
+              <div class="mtabs"><span class="on">受注</span><span>＋</span></div>
+              <div class="mer-scroll">
+                <div class="mer-canvas">
+                  <svg class="mer-line" width="440" height="240" aria-hidden="true">
+                    <path d="M186 56 H210 V160 H238" fill="none" stroke="rgba(99,102,241,0.75)" stroke-width="1.4" stroke-dasharray="5 4"/>
+                    <circle cx="186" cy="56" r="2.5" fill="rgba(99,102,241,0.9)"/>
+                    <circle cx="238" cy="160" r="2.5" fill="rgba(99,102,241,0.9)"/>
+                  </svg>
+                  <div class="mer-table" style="left:12px;top:20px;">
+                    <div class="mer-h">customers<i>顧客</i></div>
+                    <div class="mer-r"><span class="pk">● id</span><span>bigint</span><span>顧客ID</span></div>
+                    <div class="mer-r"><span>● name</span><span>varchar</span><span>顧客名</span></div>
+                    <div class="mer-r"><span>○ email</span><span>varchar</span><span>メール</span></div>
+                  </div>
+                  <div class="mer-table" style="left:238px;top:104px;">
+                    <div class="mer-h">orders<i>注文</i></div>
+                    <div class="mer-r"><span class="pk">● id</span><span>bigint</span><span>注文ID</span></div>
+                    <div class="mer-r"><span>● customer_id</span><span>bigint</span><span>顧客ID</span></div>
+                    <div class="mer-r"><span>○ shipped_at</span><span>datetime</span><span>出荷日</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="mer-footer"><span>● = NOT NULL / ○ = NULL可 (色付き● = 主キー)</span><span class="mspacer mono">＋　100%　−　Fit</span></div>
+            </div>
+          </div>
+        </div>
         <div>
           <span class="deep-label">ER DIAGRAM</span>
           <h3>DBから一発リバースで、動かせるER図</h3>
@@ -831,49 +974,10 @@
             <li><b>要るテーブルだけ読む</b> — リバースは読み込むテーブルを選ぶところから始まります。数百テーブルのDBでも、必要な範囲だけの図を作れます。</li>
           </ul>
         </div>
-        <div class="deep-visual">
-          <div class="mini-frame">
-            <div class="mini" aria-hidden="true">
-              <div class="mini-bar">
-                <span class="mbtn p">リバース</span>
-                <span class="mbtn s">表示設定 ▾</span>
-                <span class="mbtn s">PNG保存</span>
-              </div>
-              <div class="mer-canvas">
-                <div class="mer-table" style="left: 14px; top: 14px;">
-                  <div class="mer-h">customers<i>顧客</i></div>
-                  <div class="mer-r hl">● id<span>bigint</span></div>
-                  <div class="mer-r">● name<span>varchar</span></div>
-                </div>
-                <div class="mer-table" style="left: 186px; top: 64px;">
-                  <div class="mer-h">orders<i>注文</i></div>
-                  <div class="mer-r hl">● customer_id<span>bigint</span></div>
-                  <div class="mer-r">○ shipped_at<span>datetime</span></div>
-                </div>
-                <svg class="mer-line"><path d="M150 42 H168 V92 H186" fill="none" stroke="#6366f1" stroke-width="1.6" stroke-dasharray="5 4"/><circle cx="150" cy="42" r="2.5" fill="#6366f1"/><circle cx="186" cy="92" r="2.5" fill="#6366f1"/></svg>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
-      <!-- 6. 接続管理 -->
-      <div class="deep rev">
-        <div class="deep-visual">
-          <div class="mini-frame">
-            <div class="mini" aria-hidden="true">
-              <div class="mtree">
-                <div class="mtree-h">接続先</div>
-                <div class="mfolder"><span class="cv">▼</span>📁 本番環境 <span style="font-size:9px;color:var(--m-faint)">(2)</span></div>
-                <div class="mconn sel"><span class="am-dot" style="background:#f0a63a"></span>EC本番 (readonly)<span class="sshchip">SSH</span><span class="host">db.example.com</span></div>
-                <div class="mconn"><span class="am-dot" style="background:#5a9bd8"></span>分析DB<span class="host">warehouse.internal</span></div>
-                <div class="mfolder"><span class="cv">▶</span>📁 ステージング <span style="font-size:9px;color:var(--m-faint)">(3)</span></div>
-                <div class="mfolder"><span class="cv">▶</span>📁 ローカル開発 <span style="font-size:9px;color:var(--m-faint)">(4)</span></div>
-                <div class="mnew">+ 新しい接続</div>
-              </div>
-            </div>
-          </div>
-        </div>
+      <!-- 7. 接続管理 -->
+      <div class="deep">
         <div>
           <span class="deep-label">CONNECTIONS</span>
           <h3>接続が増えても、迷わない</h3>
@@ -885,10 +989,67 @@
             <li><b>テスト接続</b> — 保存前に疎通確認。ダブルクリックですぐ接続できます。</li>
           </ul>
         </div>
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" role="img" aria-label="接続管理の接続先一覧。本番環境、ステージング、ローカル開発のフォルダと、MySQL・PostgreSQL接続を表示">
+              <div class="mtree">
+                <div class="mtree-h"><span>接続先</span><span class="am-count">9</span><span class="mspacer"></span><span class="micon">＋</span></div>
+                <div class="mfolder">
+                  <span class="cv">▾</span>
+                  <span class="mfolder-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1H5.5L3 16V7Zm0 9 2.2-6H22l-2.4 6.7A2 2 0 0 1 17.7 18H5a2 2 0 0 1-2-2Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+                  <span>本番環境</span><span class="am-count mspacer">2</span>
+                </div>
+                <div class="mtree-children">
+                  <div class="mconn sel"><span class="mdb-badge mysql">My</span><div class="mconn-body"><span class="mconn-name">EC本番 (readonly)</span><span class="host"><span class="sshchip">SSH</span> db.example.com:3306</span></div></div>
+                  <div class="mconn"><span class="mdb-badge postgres">Pg</span><div class="mconn-body"><span class="mconn-name">分析DB</span><span class="host">warehouse.internal:5432</span></div></div>
+                </div>
+                <div class="mfolder">
+                  <span class="cv">▸</span>
+                  <span class="mfolder-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+                  <span>ステージング</span><span class="am-count mspacer">3</span>
+                </div>
+                <div class="mfolder">
+                  <span class="cv">▸</span>
+                  <span class="mfolder-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></span>
+                  <span>ローカル開発</span><span class="am-count mspacer">4</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- 7. 定義・データの編集 -->
-      <div class="deep">
+      <!-- 8. 定義・データの編集 -->
+      <div class="deep rev">
+        <div class="deep-visual">
+          <div class="mini-frame">
+            <div class="mini" role="img" aria-label="ordersテーブルのデータ編集画面。2行目全体が入力欄になり、statusのshippedを編集中。表の上に取り消しと反映ボタン">
+              <div class="mini-bar">
+                <span class="chip t">BASE TABLE</span><strong class="mono">orders</strong><span class="mmeta">注文</span>
+                <span class="mspacer"></span><span class="mbtn s">CREATE 文</span>
+              </div>
+              <div class="mtabs"><span>☰ 定義</span><span class="on">▦ データ</span></div>
+              <div class="mini-bar">
+                <span class="minput mono">絞り込み条件 (WHERE句)</span><span class="mbtn p">適用</span><span class="mbtn s">条件を作る</span>
+                <span class="mspacer"></span><span class="mbtn s">＋ 行を追加</span><span class="mmeta mono">1〜3行目 — 8ms</span>
+              </div>
+              <div class="medit-bar">
+                <span class="mmeta"><kbd>Enter</kbd> で反映 / <kbd>Esc</kbd> で取り消し — null と入力するとNULL</span>
+                <div class="medit-actions"><span class="mbtn s">取り消し</span><span class="mbtn p">反映</span></div>
+              </div>
+              <div class="mtable-scroll">
+                <table class="am-grid data-grid mono">
+                  <thead><tr><th>行</th><th>id</th><th>customer_id</th><th>status</th><th>total</th></tr></thead>
+                  <tbody>
+                    <tr><td class="mmeta">1</td><td class="c1">10248</td><td>301</td><td>paid</td><td>12800.00</td></tr>
+                    <tr class="row-editing"><td class="mmeta">2</td><td><span class="mcell-input">10247</span></td><td><span class="mcell-input">205</span></td><td><span class="mcell-input focused">shipped</span></td><td><span class="mcell-input">4500.00</span></td></tr>
+                    <tr><td class="mmeta">3</td><td class="c1">10246</td><td>178</td><td>pending</td><td>7200.00</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
         <div>
           <span class="deep-label">EDITING</span>
           <h3>定義もデータも、その場で直せる</h3>
@@ -899,20 +1060,6 @@
             <li><b>データ編集</b> — データタブでセルをダブルクリックしてUPDATE、行の追加・削除も。値はSQLに埋め込まずプレースホルダで渡します。</li>
             <li><b>事故りにくい作り</b> — 主キーで行を特定できるテーブルだけ編集可。トランザクションで包み、影響が1行でなければ取り消します。取り返しのつかない削除だけは確認を出します。</li>
           </ul>
-        </div>
-        <div class="deep-visual">
-          <div class="mini-frame">
-            <div class="mini" aria-hidden="true">
-              <div class="mini-bar"><span class="ttl">データ — 行をダブルクリックしてその場で編集</span></div>
-              <table class="am-grid mono" style="margin: 10px 12px 6px; width: calc(100% - 24px);">
-                <tr><th>id</th><th>name</th><th>status</th><th>total</th></tr>
-                <tr><td class="c1">10248</td><td>佐藤 花子</td><td>paid</td><td>12,800</td></tr>
-                <tr><td class="c1">10247</td><td>鈴木 一郎</td><td style="padding: 2px 4px;"><span style="display: block; padding: 2px 6px; border: 1px solid #6366f1; background: #fff;">shipped</span></td><td>4,500</td></tr>
-                <tr><td class="c1">10246</td><td>田中 太郎</td><td>pending</td><td>7,200</td></tr>
-              </table>
-              <div style="margin: 0 12px 12px; font-size: 10.5px; color: var(--m-faint);">Enter で反映 / Esc で取り消し</div>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1015,6 +1162,11 @@
           <p>複数テーブルをまとめてSQLダンプ出力(スキーマ/データ選択可)。SQLファイルのドロップ実行も。</p>
         </div>
         <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11M15 9v11" stroke-width="1.5"/></svg></div>
+          <h3>CSVエディタ (β)</h3>
+          <p>別ウィンドウのCSV編集画面。DBにつながなくても、起動直後の画面から単独で開けます。前ゼロや大きなIDを数値に変えず、文字コード・改行・区切り・引用符は開いたときの形のまま保存します。10万行でも軽く、検索・置換、行と列の編集、取り消し・やり直し、2つのCSVの比較、固定長ファイルの読み書き、Excel (.xlsx) 書き出しに対応。クエリ結果からは全件をそのまま開けます。まだ開発途中で、これから力を入れていく機能です。</p>
+        </div>
+        <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 17v-6m0 0-2.5 2.5M12 11l2.5 2.5" stroke-width="1.6"/></svg></div>
           <h3>CSV / TSVの取り込み</h3>
           <p>ファイルをドロップして、先頭20行を見ながら列の対応を決めて取り込み。区切り文字と文字コードは自動判定、進捗表示と中止に対応します。</p>
@@ -1102,7 +1254,7 @@
         </details>
         <details class="faq-item">
           <summary>クエリ結果のキャプチャはどこに保存されますか?</summary>
-          <div class="a">実行したSQL・結果・接続先・日時を含むPNG画像として保存されます。保存先は設定 &gt; 一般の「保存先フォルダ」で指定でき、指定がなければOSのダウンロードフォルダに保存されます (CSV出力やエクスポートも同じフォルダを使います)。キャプチャスイッチをONにして実行するだけで、文ごとに1枚ずつ自動保存されます。</div>
+          <div class="a">実行したSQL・結果・日時を含むPNG画像として保存されます。保存先は設定 &gt; 一般の「保存先フォルダ」で指定でき、指定がなければOSのダウンロードフォルダに保存されます (CSV出力やエクスポートも同じフォルダを使います)。キャプチャスイッチをONにして実行するだけで、文ごとに1枚ずつ自動保存されます。</div>
         </details>
         <details class="faq-item">
           <summary>カラムの論理名(日本語名)を表示するには?</summary>

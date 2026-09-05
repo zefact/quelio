@@ -579,6 +579,14 @@ body.col-resizing {
   flex-shrink: 0;
 }
 
+/* 形のメニューに出す短い断り書き */
+.csv-form-note {
+  padding: 2px 4px 4px;
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
 .csv-format-menu {
   position: absolute;
   top: calc(100% + 6px);

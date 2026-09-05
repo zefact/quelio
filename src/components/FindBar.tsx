@@ -3,6 +3,39 @@ import { FIND_EVENT } from "../appEvents";
 import { editorFinder } from "../editorSearch";
 
 /**
+ * 探さないところ。
+ *
+ * 探したいのは「読むもの」— 実行結果・SQL・定義・ER図の中身 — であって、
+ * 「操作するもの」の文字ではない。
+ * ボタンやチェックボックスの文言まで数えると、件数ばかり増えて目当てに辿り着けない。
+ * 加えてWKWebViewでは、これらの上で一致した所に色が正しく乗らない
+ * (何も付かない・行ごと塗られる) ため、数えるだけ無駄になっていた。
+ *
+ *  - `[data-find-skip]` … 画面の枠 (タブ列・ツールバー・左の一覧)。
+ *    どれも自前の絞り込みを持っている
+ *  - ボタン・ラベル・選択欄 … 押す・選ぶためのもの
+ */
+const SKIP = [
+  // 検索バー自身 (自分の入力を数えない)
+  ".find-bar",
+  "[data-find-skip]",
+  "button",
+  "label",
+  "select",
+  "option",
+  // 見た目はボタンでも button 要素ではないもの
+  '[role="button"]',
+  '[role="tab"]',
+  '[role="menuitem"]',
+  '[role="menuitemcheckbox"]',
+  '[role="menuitemradio"]',
+  '[role="checkbox"]',
+  '[role="radio"]',
+  '[role="switch"]',
+  '[role="option"]',
+].join(",");
+
+/**
  * ページ内の可視テキストから query の一致範囲を列挙する。
  * window.find() はWKWebViewで入力欄からフォーカスを奪う・一致位置へ
  * スクロールしないなど挙動が不安定なため、自前で走査する。
@@ -33,8 +66,8 @@ function collectMatches(query: string): Range[] {
       acceptNode(node) {
         const el = node.parentElement;
         if (!el) return NodeFilter.FILTER_REJECT;
-        // 検索バー自身と script/style は対象外
-        if (el.closest(".find-bar")) return NodeFilter.FILTER_REJECT;
+        // 操作するもの・画面の枠・script/style は対象外
+        if (el.closest(SKIP)) return NodeFilter.FILTER_REJECT;
         const tag = el.tagName;
         if (tag === "SCRIPT" || tag === "STYLE") {
           return NodeFilter.FILTER_REJECT;

@@ -109,30 +109,59 @@ describe("buildTableSelect", () => {
 describe("生成するSQL文", () => {
   it("SELECT文は列を並べる (列が無ければ *)", () => {
     expect(buildSelectStatement("mysql", t("u"), ["id", "name"])).toBe(
-      "SELECT\n  `id`,\n  `name`\nFROM `u`;"
+      "SELECT\n  id,\n  name\nFROM u;"
     );
     expect(buildSelectStatement("mysql", t("u"), [])).toBe(
-      "SELECT\n  *\nFROM `u`;"
+      "SELECT\n  *\nFROM u;"
     );
   });
 
-  it("INSERT文は値をNULLのひな形にする", () => {
+  it("引用符は必要なときだけ付ける (人が読むSQLなので)", () => {
+    // 予約語・記号入り・PostgreSQLの大文字は囲む
+    expect(buildSelectStatement("mysql", t("order"), ["from", "user id"])).toBe(
+      "SELECT\n  `from`,\n  `user id`\nFROM `order`;"
+    );
+    expect(buildSelectStatement("postgresql", t("Users", "s"), ["Id"])).toBe(
+      'SELECT\n  "Id"\nFROM s."Users";'
+    );
+    // ふつうの名前は囲まない
+    expect(buildSelectStatement("postgresql", t("users", "public"), ["id"])).toBe(
+      "SELECT\n  id\nFROM public.users;"
+    );
+  });
+
+  it("INSERT文は値をNULLのひな形にし、右に列名を添える", () => {
     expect(buildInsertStatement("mysql", t("u"), ["id", "name"])).toBe(
-      "INSERT INTO `u` (\n  `id`,\n  `name`\n) VALUES (\n  NULL,\n  NULL\n);"
+      "INSERT INTO u (\n  id,\n  name\n) VALUES (\n" +
+        "  NULL, -- id\n" +
+        "  NULL  -- name\n);"
+    );
+  });
+
+  it("INSERT文のコメントは囲まない名前のまま出す", () => {
+    // 列名側は引用符が要っても、コメントは読むためのものなので素の名前
+    expect(buildInsertStatement("mysql", t("u"), ["from", "user id"])).toBe(
+      "INSERT INTO u (\n  `from`,\n  `user id`\n) VALUES (\n" +
+        "  NULL, -- from\n" +
+        "  NULL  -- user id\n);"
+    );
+  });
+
+  it("列が1つならカンマ無しで桁が合う", () => {
+    expect(buildInsertStatement("mysql", t("u"), ["id"])).toBe(
+      "INSERT INTO u (\n  id\n) VALUES (\n  NULL  -- id\n);"
     );
   });
 
   it("COUNT文", () => {
     expect(buildCountStatement("postgresql", t("u", "s"))).toBe(
-      'SELECT COUNT(*) FROM "s"."u";'
+      "SELECT COUNT(*) FROM s.u;"
     );
   });
 
   it("空にするSQLはSQLiteだけDELETE", () => {
-    expect(buildTruncateStatement("mysql", t("u"))).toBe(
-      "TRUNCATE TABLE `u`;"
-    );
-    expect(buildTruncateStatement("sqlite", t("u"))).toBe('DELETE FROM "u";');
+    expect(buildTruncateStatement("mysql", t("u"))).toBe("TRUNCATE TABLE u;");
+    expect(buildTruncateStatement("sqlite", t("u"))).toBe("DELETE FROM u;");
   });
 
   it("名前に引用符が入っていてもSQLを足せない", () => {

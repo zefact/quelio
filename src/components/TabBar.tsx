@@ -40,7 +40,7 @@ export function TabBar({
   // macOSはネイティブメニューバーがあるため︙メニューは出さない
   const isMac = document.documentElement.classList.contains("macos");
   return (
-    <div className="tabbar" data-tauri-drag-region>
+    <div className="tabbar" data-tauri-drag-region data-find-skip>
       <div className="brand" title="QuelioDB" data-tauri-drag-region>
         <span className="brand-mark">
           <DbIcon />

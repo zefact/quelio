@@ -246,10 +246,19 @@ function readSource(
     }
   }
 
-  // WITH句で定義された名前なら、その列を使う
+  /*
+   * WITH句で定義された名前なら、その列を使う。
+   *
+   * 別名を書いていなければ、WITH句の名前がそのまま呼び名になる
+   * (`WITH t AS (...) SELECT t.id FROM t`)。
+   * ここを空のままにすると、`t.` と打ったときに何のことか分からなくなる
+   */
   const cte = ctx.ctes.get(name.toLowerCase());
   if (name && ctx.ctes.has(name.toLowerCase())) {
-    return { source: { alias, table: "", columns: cte ?? null }, end: i };
+    return {
+      source: { alias: alias || name, table: "", columns: cte ?? null },
+      end: i,
+    };
   }
   return { source: { alias, table: name, columns }, end: i };
 }

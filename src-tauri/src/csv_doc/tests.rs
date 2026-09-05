@@ -1,5 +1,5 @@
 use super::edit::{CellEdit, Edit};
-use super::format::{Newline, Quoting};
+use super::format::{Newline, Quote, Quoting};
 use super::*;
 
 /// テスト用にUTF-8のCSVを開く
@@ -60,6 +60,52 @@ fn 全部引用符付きのファイルを見分ける() {
     assert_eq!(open("a,b\n1,2\n").format.quoting, Quoting::Necessary);
     // 一部だけ引用符が付いているものは「必要なときだけ」にする
     assert_eq!(open("\"a\",b\n1,2\n").format.quoting, Quoting::Necessary);
+}
+
+#[test]
+fn 引用符の文字も見分ける() {
+    assert_eq!(open("\"a\",\"b\"\n\"1\",\"2\"\n").format.quote, Quote::Double);
+    // シングルクォートで囲まれたファイルも、その文字として読む
+    let doc = open("'a','b'\n'1','2'\n");
+    assert_eq!(doc.format.quote, Quote::Single);
+    assert_eq!(doc.format.quoting, Quoting::Always);
+    assert_eq!(doc.header, vec!["a", "b"]);
+    assert_eq!(doc.rows, vec![vec!["1".to_string(), "2".to_string()]]);
+    // ふつうのCSVは、囲んでいなくても `"` を既定にする
+    assert_eq!(open("a,b\n1,2\n").format.quote, Quote::Double);
+}
+
+#[test]
+fn 引用符の文字と付け方を変えて保存できる() {
+    let mut doc = open("a,b\n1,x y\n");
+
+    // 全項目をシングルクォートで囲む
+    doc.format.quote = Quote::Single;
+    doc.format.quoting = Quoting::Always;
+    assert_eq!(
+        String::from_utf8(doc.to_bytes().unwrap()).unwrap(),
+        "'a','b'\n'1','x y'\n"
+    );
+
+    // 引用符なし (区切りを含む値でも囲まない)
+    doc.format.quote = Quote::None;
+    doc.rows[0][1] = "x,y".to_string();
+    assert_eq!(
+        String::from_utf8(doc.to_bytes().unwrap()).unwrap(),
+        "a,b\n1,x,y\n"
+    );
+}
+
+#[test]
+fn 引用符が必要なときだけなら値によって囲む() {
+    let mut doc = open("a,b\n1,x\n");
+    doc.format.quote = Quote::Double;
+    doc.format.quoting = Quoting::Necessary;
+    doc.rows[0][1] = "x,y".to_string();
+    assert_eq!(
+        String::from_utf8(doc.to_bytes().unwrap()).unwrap(),
+        "a,b\n1,\"x,y\"\n"
+    );
 }
 
 // ---------- 開いて保存しても壊れない ----------
@@ -418,4 +464,24 @@ fn 固定長はshift_jisのバイト数で数えられる() {
     .unwrap();
     assert_eq!(doc.rows[0], vec!["0001", "山田", "東京"]);
     assert_eq!(doc.to_bytes().unwrap(), bytes);
+}
+
+// ---------- 開ける大きさ ----------
+
+#[test]
+fn 開ける大きさの上限は1gb() {
+    assert_eq!(io::MAX_BYTES, 1024 * 1024 * 1024);
+}
+
+#[test]
+fn 大きさは読める形で伝える() {
+    let mb = 1024 * 1024;
+    // 1GB未満はMB。端数は切り上げる (「0 MB です」と言わない)
+    assert_eq!(io::size_label(mb), "1 MB");
+    assert_eq!(io::size_label(mb + 1), "2 MB");
+    assert_eq!(io::size_label(120 * mb), "120 MB");
+    // 1GB以上はGB
+    assert_eq!(io::size_label(1024 * mb), "1 GB");
+    assert_eq!(io::size_label(1536 * mb), "1.5 GB");
+    assert_eq!(io::size_label(3 * 1024 * mb), "3 GB");
 }

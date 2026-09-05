@@ -86,10 +86,6 @@ interface Props {
   onExplain: (mode: "explain" | "analyze") => void;
   onCancel: () => void;
   onChangeSql: (sql: string) => void;
-  /** SQLを整形する */
-  onFormat: () => void;
-  /** 関数リファレンスを開く */
-  onFunctions: () => void;
   onChangeOptions: (patch: Partial<EditorOptions>) => void;
 }
 
@@ -114,8 +110,6 @@ export function QueryToolbar({
   onExplain,
   onCancel,
   onChangeSql,
-  onFormat,
-  onFunctions,
   onChangeOptions,
 }: Props) {
   return (
@@ -172,23 +166,6 @@ export function QueryToolbar({
           "ANALYZE"
         )}
       </RunSplitButton>
-
-      <button
-        className="btn-secondary has-tooltip tooltip-left"
-        data-tooltip={`SQLを見やすく整形する (${MOD}${SHIFT}F)\nキーワードを大文字にし、カンマを行の先頭に置きます`}
-        disabled={running || !sql.trim()}
-        onClick={onFormat}
-      >
-        整形
-      </button>
-
-      <button
-        className="btn-secondary has-tooltip tooltip-left tooltip-wrap"
-        data-tooltip={`関数の書き方を引く (${MOD}${SHIFT}H)\n名前を覚えていなくても「切り捨て」「前ゼロ」「月末」などの言葉で探せます`}
-        onClick={onFunctions}
-      >
-        関数
-      </button>
 
       <SqlLibraryMenu currentSql={sql} onSelect={onChangeSql} />
 

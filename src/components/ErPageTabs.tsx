@@ -63,7 +63,7 @@ export function ErPageTabs({
   }, [endReorder]);
 
   return (
-    <div className="er-tabs">
+    <div className="er-tabs" data-find-skip>
       {pages.map((p, i) => (
         <div
           key={p.id}

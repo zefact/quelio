@@ -27,7 +27,19 @@ export type TabAction =
   /** SQLエディタまわり (実行中かどうか・シートの並び) */
   | { type: "patchEditor"; key: string; patch: Partial<TabEditorState> }
   /** 表示中のシートの中身 (書きかけのSQL・実行結果) */
-  | { type: "patchSheet"; key: string; patch: Partial<QuerySheet> }
+  /**
+   * 表示中のシートの中身。
+   *
+   * sheetId を指定すると、そのシートを直す
+   * (実行を頼んだ時点のシートへ結果を返すために使う。
+   * 待っている間にシートを切り替えられても、別のシートを上書きしない)
+   */
+  | {
+      type: "patchSheet";
+      key: string;
+      patch: Partial<QuerySheet>;
+      sheetId?: string;
+    }
   /** 表示中のシートの実行設定 (トランザクション等) */
   | { type: "patchEditorOpts"; key: string; patch: Partial<EditorOptions> }
   /** Valkey画面 */
@@ -76,15 +88,18 @@ export function tabsReducer(tabs: WorkTab[], action: TabAction): WorkTab[] {
       }));
 
     case "patchSheet":
-      return patchOne(tabs, action.key, (t) => ({
-        ...t,
-        editor: {
-          ...t.editor,
-          sheets: t.editor.sheets.map((s) =>
-            s.id === t.editor.activeSheet ? { ...s, ...action.patch } : s
-          ),
-        },
-      }));
+      return patchOne(tabs, action.key, (t) => {
+        const target = action.sheetId ?? t.editor.activeSheet;
+        return {
+          ...t,
+          editor: {
+            ...t.editor,
+            sheets: t.editor.sheets.map((s) =>
+              s.id === target ? { ...s, ...action.patch } : s
+            ),
+          },
+        };
+      });
 
     case "patchEditorOpts":
       return patchOne(tabs, action.key, (t) => ({

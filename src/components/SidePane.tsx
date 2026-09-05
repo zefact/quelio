@@ -31,6 +31,8 @@ export function SidePane({
       <aside
         className={"table-pane" + (className ? ` ${className}` : "")}
         style={{ width }}
+        // ページ内検索の対象外 (このペインには専用の絞り込みがある)
+        data-find-skip
         tabIndex={focusable ? 0 : undefined}
         onKeyDown={onKeyDown}
       >

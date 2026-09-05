@@ -24,7 +24,7 @@ import {
   buildInsertStatement,
   buildSelectStatement,
   buildTruncateStatement,
-  quoteTable,
+  tableNameIfNeeded,
   tableKey,
 } from "../tableSql";
 import type {
@@ -88,6 +88,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     onToggleQuery,
     onChangeSql,
     onChangeEditorOpts,
+    onAcceptRun,
     onRunQuery,
     onCancelQuery,
     onPageQuery,
@@ -556,6 +557,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
       {/* 環境を決めてある接続は、ツールバーの上端をその色で塗る */}
       <div
         className={"session-toolbar" + (profile.env ? " has-env" : "")}
+        // ページ内検索の対象外 (接続名・DB名・サーバー情報)
+        data-find-skip
         style={
           profile.env
             ? ({ "--env-color": envColor(profile.env) } as React.CSSProperties)
@@ -602,7 +605,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
         <span className="toolbar-spacer" />
         {/*
           * ときどき開くものは「ツール」にまとめる。
-          * 常に使う「プロセス一覧」「SQL」だけをボタンのまま残す
+          * 常に使う「SQL」だけをボタンのまま残す
           */}
         <SessionTools
           selectedDb={selectedDb}
@@ -621,35 +624,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
             );
           }}
           onRoutines={() => setShowRoutines(true)}
+          onProcesses={() => setShowProcesses(true)}
         />
-        <button
-          className="sql-btn has-tooltip"
-          data-tooltip="サーバーに繋がっている接続と実行中のSQLを見る (止めることもできます)"
-          disabled={
-            !selectedDb ||
-            profile.dbType === "valkey" ||
-            profile.dbType === "sqlite"
-          }
-          onClick={() => setShowProcesses(true)}
-        >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <circle
-              cx="12"
-              cy="12"
-              r="8"
-              stroke="currentColor"
-              strokeWidth="2"
-            />
-            <path
-              d="M12 8v4l3 2"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          プロセス一覧
-        </button>
         <button
           className={
             "sql-btn has-tooltip" + (tab.view === "query" ? " active" : "")
@@ -835,9 +811,6 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
             <QueryPanel
               sessionId={tab.key}
               database={selectedDb ?? undefined}
-              connectionName={
-                profile.name || `${profile.host}:${profile.port}`
-              }
               dbType={profile.dbType}
               sql={sheet.sql}
               results={sheet.queryResults}
@@ -852,6 +825,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               options={sheet.editorOpts}
               onChangeOptions={onChangeEditorOpts}
               onChangeSql={onChangeSql}
+              onAcceptRun={onAcceptRun}
               onRun={onRunQuery}
               onCancel={onCancelQuery}
               onPage={onPageQuery}
@@ -1077,7 +1051,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                     onClick={() =>
                       copySql(
                         targets
-                          .map((t) => quoteTable(profile.dbType, t))
+                          .map((t) => tableNameIfNeeded(profile.dbType, t))
                           .join("\n"),
                         label("テーブル名", "のテーブル名")
                       )

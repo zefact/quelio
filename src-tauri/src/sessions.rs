@@ -1082,31 +1082,14 @@ pub async fn run_query(
         return Err(USER_TXN_MSG.to_string());
     }
 
-    if transaction {
-        let begin = begin_sql(&session.conn);
-        begin_txn(session, qlog, &label, &db_label, begin).await?;
-    }
-
-    let mysql_quoting = matches!(session.conn, DbConn::MySql(_));
-    /*
-     * SET などで設定を変えられると、接続時に聞いた方言が古くなる。
-     * 実行した後に聞き直すため、対象の文があったかを覚えておく
-     * (トランザクションの中の SET は取り消しでも戻るので、最後にまとめて聞く)
-     */
-    let mut dialect_dirty = analyzed.iter().any(|a| a.changes_dialect());
-    /*
-     * 読み取り専用の接続はプリペアドで送り、複数文をサーバー側でも弾く。
-     * トランザクションで実行するときは、途中でやり直すと
-     * PostgreSQLが中断状態になるので、やり直しはしない
-     */
-    let mode = query::SqlMode::for_read_only(
-        session.profile.read_only,
-        transaction || session.txn != TxnState::None,
-    );
     /*
      * ここまでの判定 (文の分割・読み取り専用・実行計画の可否・
      * トランザクション制御・方言の変化) は、すべてプレースホルダのまま済ませた。
-     * 値を入れるのはここが最初なので、値が「何が実行されるか」を左右できない
+     * 値を入れるのはここが最初なので、値が「何が実行されるか」を左右できない。
+     *
+     * 値を入れた後の確かめもここで済ませる。BEGIN より前に置くのは、
+     * この検証で return するとトランザクションが開いたまま残るため
+     * (この検証はサーバーへ何も送らないので、BEGIN の前でも結果は変わらない)
      */
     let filled: Vec<String> = stmts
         .iter()
@@ -1140,6 +1123,27 @@ pub async fn run_query(
         }
     }
 
+    if transaction {
+        let begin = begin_sql(&session.conn);
+        begin_txn(session, qlog, &label, &db_label, begin).await?;
+    }
+
+    let mysql_quoting = matches!(session.conn, DbConn::MySql(_));
+    /*
+     * SET などで設定を変えられると、接続時に聞いた方言が古くなる。
+     * 実行した後に聞き直すため、対象の文があったかを覚えておく
+     * (トランザクションの中の SET は取り消しでも戻るので、最後にまとめて聞く)
+     */
+    let mut dialect_dirty = analyzed.iter().any(|a| a.changes_dialect());
+    /*
+     * 読み取り専用の接続はプリペアドで送り、複数文をサーバー側でも弾く。
+     * トランザクションで実行するときは、途中でやり直すと
+     * PostgreSQLが中断状態になるので、やり直しはしない
+     */
+    let mode = query::SqlMode::for_read_only(
+        session.profile.read_only,
+        transaction || session.txn != TxnState::None,
+    );
     let mut statements: Vec<StatementResult> = Vec::new();
     for i in 0..stmts.len() {
         // 実際にサーバーへ送る形 (値を入れたもの)
@@ -1688,6 +1692,15 @@ async fn set_txn_for_test(sessions: &Sessions, session_id: &str, txn: TxnState) 
     arc.lock().await.txn = txn;
 }
 
+/// テストから状態を見る口 (本番コードからは使わない)。
+/// 次の操作の後始末に頼らず、その場で確かめるために使う
+#[cfg(test)]
+async fn txn_for_test(sessions: &Sessions, session_id: &str) -> TxnState {
+    let arc = sessions.0.lock().await.get(session_id).cloned().unwrap();
+    let txn = arc.lock().await.txn;
+    txn
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1799,6 +1812,107 @@ mod tests {
         )
         .await
         .unwrap();
+
+        cleanup_db(&path);
+    }
+
+    /// パラメータ付きで1本実行する
+    async fn run_params(
+        sessions: &Sessions,
+        qlog: &QueryLog,
+        sql: &str,
+        transaction: bool,
+        params: &std::collections::HashMap<String, query::ParamValue>,
+    ) -> Result<RunOutput, String> {
+        run_query(
+            sessions, qlog, "s1", None, sql, 0, None, None, transaction, None, 30, params,
+        )
+        .await
+    }
+
+    /// 「そのまま」で入る値を1つ持つ組
+    fn raw_param(name: &str, value: &str) -> std::collections::HashMap<String, query::ParamValue> {
+        let mut m = std::collections::HashMap::new();
+        m.insert(
+            name.to_string(),
+            query::ParamValue {
+                value: value.to_string(),
+                kind: "raw".to_string(),
+            },
+        );
+        m
+    }
+
+    #[tokio::test]
+    async fn 値の検証で断ってもトランザクションを残さない() {
+        let TestSession {
+            sessions, qlog, path, ..
+        } = sqlite_session("param_txn").await;
+
+        // 「そのまま」の値で2文になる → 断る
+        let err = run_params(
+            &sessions,
+            &qlog,
+            "SELECT :v",
+            true,
+            &raw_param("v", "1; SELECT 2"),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.contains("複数の文"), "{err}");
+
+        /*
+         * 断った時点でトランザクションが残っていないこと。
+         * 「次の操作の入口で片付ける」救済に頼ると通ってしまうので、
+         * 何も実行しないままここで確かめる
+         */
+        assert_eq!(txn_for_test(&sessions, "s1").await, TxnState::None);
+
+        // 引用符の閉じ忘れも同じ
+        let err = run_params(&sessions, &qlog, "SELECT :v", true, &raw_param("v", "'abc"))
+            .await
+            .unwrap_err();
+        assert!(err.contains("複数の文"), "{err}");
+        assert_eq!(txn_for_test(&sessions, "s1").await, TxnState::None);
+
+        cleanup_db(&path);
+    }
+
+    #[tokio::test]
+    async fn 値を入れた実行のコミットとロールバックは今までどおり() {
+        let TestSession {
+            sessions, qlog, path, ..
+        } = sqlite_session("param_txn_ok").await;
+        exec_ddl(&sessions, &qlog, "s1", None, &["CREATE TABLE t(a INTEGER)".into()])
+            .await
+            .unwrap();
+
+        // 通った場合はコミットされ、トランザクションも閉じている
+        run_params(
+            &sessions,
+            &qlog,
+            "INSERT INTO t VALUES (:v)",
+            true,
+            &raw_param("v", "1"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(txn_for_test(&sessions, "s1").await, TxnState::None);
+        let out = run(&sessions, &qlog, "SELECT COUNT(*) FROM t").await.unwrap();
+        assert!(format!("{:?}", out.statements).contains('1'));
+
+        // 実行中に失敗した場合はロールバックされ、こちらも閉じている
+        let out = run_params(
+            &sessions,
+            &qlog,
+            "INSERT INTO t VALUES (:v); INSERT INTO nope VALUES (1)",
+            true,
+            &raw_param("v", "2"),
+        )
+        .await
+        .unwrap();
+        assert!(out.error.is_some());
+        assert_eq!(txn_for_test(&sessions, "s1").await, TxnState::None);
 
         cleanup_db(&path);
     }

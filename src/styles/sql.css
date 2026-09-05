@@ -1137,7 +1137,12 @@ html[data-theme="light"] .result-banner.ng {
   /* ウィンドウが狭くてもペイン自体には横スクロールを出さない
    * (結果グリッドやエディタは内部で個別にスクロールする) */
   overflow-x: hidden;
-  padding: 24px 28px;
+  /*
+   * 上下の余白は詰めておく。
+   * ここが広いと、シートのタブの上と結果の下がそのぶん空いて、
+   * 表を見られる高さが減ってしまう
+   */
+  padding: 12px 28px;
   min-width: 0;
 }
 
@@ -1182,6 +1187,12 @@ html[data-theme="light"] .result-banner.ng {
   align-items: center;
   gap: var(--space-2);
   white-space: nowrap;
+  /*
+   * 高さを字に任せない。
+   * 「SQL」のような英字だけの札と「ツール」のような日本語の札とで
+   * 行の高さが変わり、並べたときに2pxずれて見えるため
+   */
+  line-height: 17px;
   flex-shrink: 0;
   background: transparent;
   color: var(--text-dim);
@@ -1278,8 +1289,15 @@ html[data-theme="light"] .result-banner.ng {
 }
 
 /* スプリットボタンは中の2つが同じ高さになるよう引き伸ばす */
-.run-split > .btn-primary,
-.run-split > .btn-secondary {
+/*
+ * 実行ボタンの列は高さを決めてあるので、その中だけ高さを合わせる。
+ *
+ * 高さの決まっていない所で 100% にすると、親の高さが定まらないぶん
+ * 「伸ばす (stretch)」が効かなくなり、中身の少ないボタン (▾ だけ) が
+ * 縮んで隣とずれる。Windowsでは▾のフォントが変わるぶん、ずれが目立っていた
+ */
+.query-actions .run-split > .btn-primary,
+.query-actions .run-split > .btn-secondary {
   height: 100%;
 }
 

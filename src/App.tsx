@@ -50,6 +50,11 @@ import {
   isNumericType,
 } from "./sqlParams";
 import type { ParamKind, ParamValue } from "./sqlParams";
+import { createReqSeq } from "./reqSeq";
+import { handoffRun } from "./paramRequest";
+import { runScope } from "./runTicket";
+import type { RunTicket } from "./runTicket";
+import type { ParamRequest } from "./paramRequest";
 import { buildSchemaTips } from "./columnTips";
 import { buildTableSelect, tableKey } from "./tableSql";
 import {
@@ -160,17 +165,7 @@ function App() {
     stmts: DangerousStatement[];
     go: () => void;
   } | null>(null);
-  const [paramReq, setParamReq] = useState<{
-    key: string;
-    /** 値を保存する単位 (接続プロファイルID) */
-    scope: string;
-    offset: number;
-    sql: string;
-    params: string[];
-    initial: Record<string, ParamValue>;
-    transaction: boolean;
-    explain?: "explain" | "analyze";
-  } | null>(null);
+  const [paramReq, setParamReq] = useState<ParamRequest | null>(null);
   /** パラメータ型推測用のスキーマキャッシュ (セッション:DB → スキーマ) */
   const schemaCache = useRef(new Map<string, SchemaEntry[]>());
   /**
@@ -180,7 +175,7 @@ function App() {
    * 投げたときの番号が最新でなくなっていたら、その結果は捨てる
    * (捨てないと、新しい内容を古い内容で上書きしてしまう)
    */
-  const reqSeq = useRef(new Map<string, number>());
+  const reqSeq = useRef(createReqSeq());
 
   /**
    * スキーマの控えを捨てる (定義を変えたあとに呼ぶ)。
@@ -195,15 +190,25 @@ function App() {
   };
 
   /** 新しい番号を発行する */
-  const startReq = (scope: string) => {
-    const n = (reqSeq.current.get(scope) ?? 0) + 1;
-    reqSeq.current.set(scope, n);
-    return n;
-  };
+  const startReq = (scope: string) => reqSeq.current.start(scope);
 
   /** 発行した番号がまだ最新か (古ければ結果を捨てる) */
   const isLatestReq = (scope: string, n: number) =>
-    reqSeq.current.get(scope) === n;
+    reqSeq.current.isLatest(scope, n);
+
+  /**
+   * このタブで待っている実行要求をすべて古くする。
+   *
+   * 入力画面の取り消し・確定と、タブを閉じたときに呼ぶ。
+   * 「押した後に取り消した」要求が、後から画面を開き直さないようにする
+   */
+  const dropRuns = (key: string) => reqSeq.current.drop(runScope(key));
+
+  /** 入力画面を閉じる (待っている要求もここで捨てる) */
+  const closeParamReq = (key: string) => {
+    dropRuns(key);
+    setParamReq(null);
+  };
 
   const reload = async () => {
     try {
@@ -517,6 +522,18 @@ function App() {
     dispatch({ type: "patchSheet", key, patch });
 
   /**
+   * 名指ししたシートの中身を差し替える。
+   *
+   * 実行を頼んだ時点のシートへ結果を返すために使う
+   * (待っている間にシートを切り替えられても、別のシートを上書きしない)
+   */
+  const patchSheetOf = (
+    key: string,
+    sheetId: string,
+    patch: Partial<QuerySheet>
+  ) => dispatch({ type: "patchSheet", key, sheetId, patch });
+
+  /**
    * シートの並びを差し替える。
    * 実行中は結果の行き先が変わってしまうので、シート操作は受け付けない
    */
@@ -546,6 +563,35 @@ function App() {
       };
       return { sheets: [...e.sheets, fresh], activeSheet: fresh.id };
     });
+  };
+
+  /**
+   * 組み立てたSQLをエディタへ送る (テーブルの右クリックなどから)。
+   *
+   * 書きかけを消さないよう、今のシートに何か書いてあれば新しいシートに入れる。
+   * シートを増やせないとき (実行中・上限まで開いているとき) は、
+   * 上書きせずに今のシートの末尾へ足す
+   */
+  const sendToEditor = (key: string, sql: string) => {
+    const tab = tabOf(key);
+    const editor = tab?.editor;
+    const active = editor ? activeSheetOf(editor) : null;
+    if (!editor || !active || active.sql.trim() === "") {
+      patchSheet(key, { sql });
+    } else if (!editor.running && editor.sheets.length < MAX_SHEETS) {
+      updateSheets(key, (e) => {
+        const fresh = {
+          ...emptySheet(newSheetId()),
+          sql,
+          // 実行設定 (トランザクション等) は今のシートの設定を引き継ぐ
+          editorOpts: { ...activeSheetOf(e).editorOpts },
+        };
+        return { sheets: [...e.sheets, fresh], activeSheet: fresh.id };
+      });
+    } else {
+      patchSheet(key, { sql: `${active.sql.trimEnd()}\n\n${sql}` });
+    }
+    updateTab(key, { view: "query" });
   };
 
   /** シートを閉じる (最後の1枚は閉じない) */
@@ -666,6 +712,13 @@ function App() {
     const tab = tabOf(key);
     // 覚えていた絞り込み条件も、このタブのぶんは片付ける
     dropFilters(key);
+    /*
+     * 待っている実行要求を捨てる。
+     * 準備の途中でタブを閉じた場合に、閉じたタブの入力画面が
+     * あとから出てこないようにする
+     */
+    dropRuns(key);
+    setParamReq((now) => (now?.ticket.key === key ? null : now));
     if (tab?.connected) {
       try {
         await disconnectSession(key);
@@ -1103,51 +1156,55 @@ function App() {
     );
   };
 
-  /** SQLを実行する (sqlOverrideは選択実行用、offsetはページング用、transactionでBEGIN〜COMMIT/ROLLBACKに包む) */
+  /**
+   * SQLを実行する (sqlOverrideは選択実行用、offsetはページング用、
+   * transactionでBEGIN〜COMMIT/ROLLBACKに包む)。
+   *
+   * 宛先は必ず受付票から取る。この関数は useStableActions を通して
+   * 常に最新の実装が呼ばれるので、ここで `activeTab` を見ると
+   * 「押したあとに別の接続タブへ切り替えた」ときに宛先が変わってしまう
+   */
   const handleRunQuery = async (
-    key: string,
+    ticket: RunTicket,
     offset = 0,
     sqlOverride?: string,
     transaction = false,
     explain?: "explain" | "analyze"
   ) => {
+    const key = ticket.key;
     const tab = tabOf(key);
-    const sql = (
-      sqlOverride ??
-      (tab ? activeSheetOf(tab.editor).sql : "")
-    ).trim();
+    const sheet = tab?.editor.sheets.find((x) => x.id === ticket.sheet);
+    const sql = (sqlOverride ?? sheet?.sql ?? "").trim();
     if (!tab || !sql) return;
-    // パラメータ (:name / @name) があれば入力モーダルを出してから実行する
-    const params = extractParams(sql);
-    if (params.length > 0) {
-      // 保存値は接続ごとに分ける (開発DBの値が本番接続の初期値に出ないように)
-      const scope = tab.profile.id;
-      const saved = await getSqlParams(scope).catch(
-        () => ({}) as Record<string, { value: string; kind: string }>
-      );
-      const initial: Record<string, ParamValue> = {};
-      for (const p of params) {
-        const s = saved[p];
-        // 型は「明示的に選ばれた保存値」を優先し、無ければスキーマから推測する
-        const kind =
-          s && s.kind && s.kind !== "auto"
-            ? (s.kind as ParamKind)
-            : await inferParamKind(key, tab.selectedDb, sql, p);
-        initial[p] = { value: s?.value ?? "", kind };
-      }
-      setParamReq({
-        key,
+    /*
+     * ここから先は「押した瞬間に取った受付票」で判断する。
+     * 依頼が届いた時点と、パラメータの準備が揃った時点の2回見るので、
+     * 押した後に取り消された要求は、どちらの段階でも落ちる。
+     * 保存値は接続ごとに分ける (開発DBの値が本番接続の初期値に出ないように)
+     */
+    const step = await handoffRun(
+      reqSeq.current,
+      {
+        ticket,
+        scope: tab.profile.id,
         offset,
         sql,
-        params,
-        initial,
+        params: extractParams(sql),
         transaction,
         explain,
-        scope,
-      });
+      },
+      {
+        saved: getSqlParams,
+        inferKind: (p) => inferParamKind(key, ticket.db, sql, p),
+      }
+    );
+    if (step.kind === "stale") return;
+    if (step.kind === "params") {
+      // 待っている間にタブが閉じていたら、画面は出さない
+      if (tabOf(key)) setParamReq(step.request);
       return;
     }
-    await execRunQuery(key, offset, sql, transaction, explain);
+    await execRunQuery(ticket, offset, sql, transaction, explain);
   };
 
   /**
@@ -1184,7 +1241,8 @@ function App() {
   const handleParamSubmit = async (values: Record<string, ParamValue>) => {
     const req = paramReq;
     if (!req) return;
-    setParamReq(null);
+    // 押した後に取り消し・確定された要求が、あとから画面を開き直さないようにする
+    closeParamReq(req.ticket.key);
     saveSqlParams(req.scope, values).catch(() => {});
     /*
      * 値はプレースホルダのままバックエンドへ渡す。
@@ -1192,7 +1250,7 @@ function App() {
      * 値が「何が実行されるか」を左右できない
      */
     await execRunQuery(
-      req.key,
+      req.ticket,
       req.offset,
       req.sql,
       req.transaction,
@@ -1201,8 +1259,14 @@ function App() {
     );
   };
 
+  /**
+   * 実際に流す。
+   *
+   * 接続・データベース・結果を返すシートは、すべて受付票のとおりにする
+   * (待っている間に切り替えられていても、押したときの宛先へ返す)
+   */
   const execRunQuery = async (
-    key: string,
+    ticket: RunTicket,
     offset: number,
     sql: string,
     transaction: boolean,
@@ -1210,13 +1274,14 @@ function App() {
     /** :name に入れる値 (埋め込みはバックエンドで行う) */
     params?: Record<string, ParamValue>
   ) => {
+    const key = ticket.key;
     const tab = tabOf(key);
     if (!tab) return;
     // 実行履歴に記録する (失敗しても実行は続ける)
     addSqlHistory(sql).catch(() => {});
     // 前回の実行結果はクリアしてから実行する
     patchEditor(key, { running: true, startedAt: Date.now() });
-    patchSheet(key, {
+    patchSheetOf(key, ticket.sheet, {
       queryError: null,
       queryResults: null,
       queryExplain: explain ?? null,
@@ -1224,7 +1289,7 @@ function App() {
     try {
       const out = await runQuery(
         key,
-        tab.selectedDb ?? undefined,
+        ticket.db ?? undefined,
         sql,
         offset,
         undefined,
@@ -1234,15 +1299,18 @@ function App() {
         params
       );
       patchEditor(key, { running: false });
-      patchSheet(key, {
+      patchSheetOf(key, ticket.sheet, {
         queryResults: out.statements.length > 0 ? out.statements : null,
         queryError: out.error ?? null,
       });
       // ヘッダのツールチップ用にカラム説明を用意しておく (失敗しても実行結果には影響しない)
-      if (tab.selectedDb) ensureColumnTips(key, tab.selectedDb);
+      if (ticket.db) ensureColumnTips(key, ticket.db);
     } catch (e) {
       patchEditor(key, { running: false });
-      patchSheet(key, { queryResults: null, queryError: String(e) });
+      patchSheetOf(key, ticket.sheet, {
+        queryResults: null,
+        queryError: String(e),
+      });
     }
   };
 
@@ -1538,10 +1606,7 @@ function App() {
       });
     },
     onReloadDetail: () => reloadTableDetail(activeTab.key),
-    onSendToEditor: (sql) => {
-      patchSheet(activeTab.key, { sql });
-      updateTab(activeTab.key, { view: "query" });
-    },
+    onSendToEditor: (sql) => sendToEditor(activeTab.key, sql),
     onSelectTable: (t) => handleSelectTable(activeTab.key, t),
     onToggleQuery: () =>
       updateTab(activeTab.key, {
@@ -1550,8 +1615,23 @@ function App() {
     onChangeSql: (sql) => patchSheet(activeTab.key, { sql }),
     onChangeEditorOpts: (patch) => patchEditorOpts(activeTab.key, patch),
     onCancelQuery: () => handleCancelQuery(activeTab.key),
-    onRunQuery: (offset, sqlOverride, transaction, explain) =>
-      handleRunQuery(activeTab.key, offset, sqlOverride, transaction, explain),
+    /*
+     * 受付票は「押した瞬間」に作る。
+     * 実行の宛先はここで決まり、あとから表示中のタブが変わっても動かない
+     */
+    onAcceptRun: () => ({
+      key: activeTab.key,
+      token: startReq(runScope(activeTab.key)),
+      db: activeTab.selectedDb,
+      sheet: activeTab.editor.activeSheet,
+      // 実行前の確認画面に出す「どこへ実行するのか」も、ここで写し取る
+      connection:
+        activeTab.profile.name ||
+        `${activeTab.profile.host}:${activeTab.profile.port}`,
+      dbType: activeTab.profile.dbType,
+    }),
+    onRunQuery: (offset, sqlOverride, transaction, explain, ticket) =>
+      handleRunQuery(ticket, offset, sqlOverride, transaction, explain),
     onPageQuery: (index, offset) =>
       handlePageQuery(activeTab.key, index, offset),
     onSortQuery: (index, orderBy, orderDir) =>
@@ -1746,9 +1826,9 @@ function App() {
           params={paramReq.params}
           initial={paramReq.initial}
           sql={paramReq.sql}
-          sessionId={paramReq.key}
-          dbType={tabOf(paramReq.key)?.profile.dbType ?? "mysql"}
-          onCancel={() => setParamReq(null)}
+          sessionId={paramReq.ticket.key}
+          dbType={tabOf(paramReq.ticket.key)?.profile.dbType ?? "mysql"}
+          onCancel={() => closeParamReq(paramReq.ticket.key)}
           onSubmit={handleParamSubmit}
         />
       )}

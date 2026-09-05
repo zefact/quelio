@@ -24,17 +24,19 @@ import {
 import { MySQL, PostgreSQL, SQLite } from "@codemirror/lang-sql";
 import {
   HighlightStyle,
+  bracketMatching,
   indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language";
 import {
   Compartment,
   EditorSelection,
+  EditorState,
   Prec,
   StateEffect,
   StateField,
 } from "@codemirror/state";
-import type { EditorState, Line } from "@codemirror/state";
+import type { Line } from "@codemirror/state";
 import type { Command } from "@codemirror/view";
 import { setEditorFinder } from "../editorSearch";
 import type { SqlSpan } from "../sqlSpans";
@@ -46,6 +48,7 @@ import {
 } from "./sqlTarget";
 import {
   Decoration,
+  crosshairCursor,
   drawSelection,
   EditorView,
   highlightActiveLine,
@@ -53,6 +56,7 @@ import {
   keymap,
   lineNumbers,
   placeholder as cmPlaceholder,
+  rectangularSelection,
   tooltips,
 } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
@@ -61,10 +65,14 @@ import type { DbType, SqlIndent } from "../types";
 import { watchCompletionLayout } from "./completionLayout";
 import {
   completionCells,
+  singleCursorOnly,
   sqlCompletion,
   type SchemaMap,
 } from "./sqlCompletion";
 import { sqlFunctionCompletion } from "./sqlFunctionCompletion";
+import { bracketColors } from "./sqlBrackets";
+import { indentGuides } from "./sqlIndentGuides";
+import { multiCursorKeymap, multiCursorState } from "./sqlMultiCursor";
 
 /*
  * 「今実行した文」を短い間だけ光らせる仕組み。
@@ -271,9 +279,13 @@ function completionExt(
     addToOptions: completionCells,
     /*
      * 候補はテーブル・カラムと、そのDBの関数
-     * (予約語は出さない)。関数は口を分けてある
+     * (予約語は出さない)。関数は口を分けてある。
+     * どちらも、矩形選択でカーソルが複数立っているときは出さない
      */
-    override: [sqlCompletion(getSchema), sqlFunctionCompletion(getDbType)],
+    override: [
+      singleCursorOnly(sqlCompletion(getSchema)),
+      singleCursorOnly(sqlFunctionCompletion(getDbType)),
+    ],
   });
 }
 
@@ -363,6 +375,59 @@ export const editorTheme = EditorView.theme({
   },
   ".cm-placeholder": { color: "var(--text-faint)" },
   ".cm-cursor": { borderLeftColor: "var(--accent-2)" },
+
+  /*
+   * 字下げの縦線。
+   *
+   * 何本引くか (--ig-n) と1段の幅 (--ig-w) は行ごとに渡ってくる。
+   * 線は文字と同じ幅で並べたいので、桁を ch (等幅の1文字ぶん) で測る。
+   * 背景は文字の枠 (content-box) から描き始め、行の左右の余白には出さない
+   */
+  ".cm-indent-guides": {
+    backgroundImage:
+      "repeating-linear-gradient(to right, var(--indent-guide) 0 1px, transparent 1px var(--ig-w))",
+    backgroundSize: "calc(var(--ig-n) * var(--ig-w)) 100%",
+    backgroundRepeat: "no-repeat",
+    backgroundOrigin: "content-box",
+    backgroundClip: "content-box",
+  },
+  /*
+   * カーソルのいるまとまりの線だけ濃くする。
+   *
+   * 薄い線の上に、その位置 (--ig-a) だけ1本重ねて描く
+   */
+  ".cm-indent-guides.cm-indent-on": {
+    backgroundImage:
+      "linear-gradient(var(--indent-guide-on), var(--indent-guide-on)), repeating-linear-gradient(to right, var(--indent-guide) 0 1px, transparent 1px var(--ig-w))",
+    backgroundSize: "1px 100%, calc(var(--ig-n) * var(--ig-w)) 100%",
+    backgroundPosition: "calc(var(--ig-a) * var(--ig-w)) 0, 0 0",
+    backgroundRepeat: "no-repeat, no-repeat",
+  },
+
+  /*
+   * 括弧の色分け。
+   *
+   * 深さで色を変える。ここ (テーマ) に書くのは、シンタックスハイライトの
+   * 「記号は薄く」より強く効かせるため
+   */
+  ".cm-bracket-0": { color: "var(--syn-paren-1)" },
+  ".cm-bracket-1": { color: "var(--syn-paren-2)" },
+  ".cm-bracket-2": { color: "var(--syn-paren-3)" },
+  /*
+   * 相手のいない括弧 (閉じ忘れ・余った閉じ括弧)。
+   *
+   * 書いている途中はよく通る状態なので、色を変えるだけにとどめる
+   */
+  ".cm-bracket-bad": { color: "var(--syn-paren-bad)", fontWeight: "700" },
+  // カーソルを括弧に寄せたときに、その相手を囲む
+  "&.cm-focused .cm-matchingBracket": {
+    backgroundColor: "rgba(var(--ink), 0.14)",
+    outline: "1px solid rgba(var(--ink), 0.28)",
+    borderRadius: "2px",
+  },
+  "&.cm-focused .cm-nonmatchingBracket": {
+    color: "var(--syn-paren-bad)",
+  },
 });
 
 /** SQL専用エディタ (シンタックスハイライト・行番号つき) */
@@ -499,6 +564,20 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         highlightActiveLineGutter(),
         history(),
         indentRef.current.of(indentUnit.of(indentTextRef.current)),
+        /*
+         * Option (Alt) を押しながらのドラッグで、縦に四角く選ぶ。
+         * 選んだ行それぞれにカーソルが立つので、まとめて打ち直せる。
+         * 押している間はカーソルの形を変えて、その状態だと分かるようにする
+         */
+        EditorState.allowMultipleSelections.of(true),
+        rectangularSelection(),
+        crosshairCursor(),
+        // 左右に動かしても縦の並びを保つため、狙っている桁を覚えておく
+        multiCursorState,
+        // 字下げの縦線と、括弧の対の色分け
+        indentGuides(),
+        bracketColors(dbType),
+        bracketMatching(),
         // sql()ではなくlanguageだけ入れる。
         // sql()は予約語の補完候補も一緒に登録してしまうため
         dialectOf(dbType).language,
@@ -579,6 +658,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
           // 補完が出ている間のEnterは「確定」なので、その後ろに置く
           ...completionKeymap,
           { key: "Enter", run: insertNewlineSmart },
+          // 複数カーソルのときの左右 (行をまたがない)。標準より前に置く
+          ...multiCursorKeymap,
           ...defaultKeymap,
           ...historyKeymap,
         ]),

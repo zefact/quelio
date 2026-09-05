@@ -102,6 +102,17 @@ describe("scopeAt — WITH句", () => {
     expect(at(two).cteNames).toEqual(["a", "b"]);
   });
 
+  it("別名を書かなければ、WITH句の名前がそのまま呼び名になる", () => {
+    // ここが空だと、`t.` と打ったときに何の列か引けなくなる
+    const src = at("with t as (select id from users) select | from t").sources;
+    expect(src).toEqual([{ alias: "t", table: "", columns: ["id"] }]);
+  });
+
+  it("別名を書けばそちらが呼び名になる", () => {
+    const src = at("with t as (select id from users) select | from t x").sources;
+    expect(src[0].alias).toBe("x");
+  });
+
   it("後のWITH句が前のWITH句を使える", () => {
     const sql = `with a as (select id, name from users),
                       b as (select name from a)

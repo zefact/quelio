@@ -33,6 +33,44 @@ impl Newline {
     }
 }
 
+/// 引用符に使う文字
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Quote {
+    /// 囲まない
+    None,
+    /// ダブルクォート (ふつうのCSV)
+    Double,
+    /// シングルクォート
+    Single,
+}
+
+impl Quote {
+    /// 書き出しに使う文字 (囲まないときは None)
+    pub fn as_byte(self) -> Option<u8> {
+        match self {
+            Quote::None => None,
+            Quote::Double => Some(b'"'),
+            Quote::Single => Some(b'\''),
+        }
+    }
+
+    /// 読み取りに使う文字 (囲まない指定でも、読むときは `"` として扱う)
+    pub fn read_byte(self) -> u8 {
+        self.as_byte().unwrap_or(b'"')
+    }
+
+    /// 画面から来る指定を読む (serdeが返す名前と同じ綴り)
+    pub fn from_label(s: &str) -> Option<Quote> {
+        match s {
+            "none" => Some(Quote::None),
+            "double" => Some(Quote::Double),
+            "single" => Some(Quote::Single),
+            _ => None,
+        }
+    }
+}
+
 /// 引用符の付け方
 #[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +103,9 @@ pub struct CsvFormat {
     pub newline: Newline,
     /// 区切り文字 (1文字)。固定長のときは使わない
     pub delimiter: char,
+    /// 引用符に使う文字
+    pub quote: Quote,
+    /// 引用符を付ける範囲
     pub quoting: Quoting,
     /**
      * 固定長の桁 (区切り文字が無いファイル)。
@@ -176,28 +217,42 @@ pub fn sniff_delimiter(text: &str) -> char {
  * 「全部囲む」と判定されない。そのときは必要なときだけ囲む形で保存するので、
  * 囲まなくてよい項目の引用符が外れる。値そのものは変わらない
  */
-pub fn sniff_quoting(text: &str, delimiter: char) -> Quoting {
+/**
+ * 引用符の使われ方を見分ける (使っている文字と、付ける範囲)。
+ *
+ * すべての行が同じ引用符で始まって終わり、区切りも `","` の形で
+ * 現れているときだけ「全項目を囲んでいる」とみなす。
+ * どちらとも言えないファイルは、ふつうのCSV (`"` を必要なときだけ) として扱う
+ */
+pub fn sniff_quote(text: &str, delimiter: char) -> (Quote, Quoting) {
+    if quoted_all(text, delimiter, '"') {
+        return (Quote::Double, Quoting::Always);
+    }
+    if quoted_all(text, delimiter, '\'') {
+        return (Quote::Single, Quoting::Always);
+    }
+    (Quote::Double, Quoting::Necessary)
+}
+
+/// どの行も、その引用符で全項目が囲まれているか
+fn quoted_all(text: &str, delimiter: char, quote: char) -> bool {
     let mut seen = 0;
     for line in head_of(text).lines().take(SNIFF_LINES) {
         if line.trim().is_empty() {
             continue;
         }
         let line = line.strip_suffix('\r').unwrap_or(line);
-        if !(line.starts_with('"') && line.ends_with('"') && line.len() >= 2) {
-            return Quoting::Necessary;
+        if !(line.starts_with(quote) && line.ends_with(quote) && line.len() >= 2) {
+            return false;
         }
         // 区切りがすべて `","` の形で現れているか
-        let pair = format!("\"{delimiter}\"");
+        let pair = format!("{quote}{delimiter}{quote}");
         if line.matches(delimiter).count() != line.matches(&pair).count() {
-            return Quoting::Necessary;
+            return false;
         }
         seen += 1;
     }
-    if seen > 0 {
-        Quoting::Always
-    } else {
-        Quoting::Necessary
-    }
+    seen > 0
 }
 
 /// 判定に使う先頭部分 (文字の途中で切らない)

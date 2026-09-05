@@ -10,7 +10,7 @@ use crate::csv_diff::{self, DiffOptions};
 use crate::csv_doc::edit::{CellEdit, Edit};
 use crate::csv_doc::find::{self, FindOptions, Match};
 use crate::csv_doc::fixed::{FixedLayout, Reading, WidthUnit};
-use crate::csv_doc::format::{self, Newline, Quoting};
+use crate::csv_doc::format::{self, Newline, Quote, Quoting};
 use crate::csv_doc::{CsvDoc, CsvDocuments, CsvInfo, CsvPage, StoredDiff};
 
 /// 画面から来るセル1つの書き換え (直前の値はRust側で読むので受け取らない)
@@ -481,7 +481,10 @@ pub fn csv_set_header(
     })
 }
 
-/// 保存の形 (文字コード・BOM・改行・区切り・引用符) を変える
+/// 保存の形 (文字コード・BOM・改行・区切り・引用符) を変える。
+///
+/// 画面からは項目ごとに送られてくるので、引数はその数だけ並ぶ
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn csv_set_format(
     docs: State<'_, CsvDocuments>,
@@ -490,6 +493,7 @@ pub fn csv_set_format(
     bom: Option<bool>,
     newline: Option<String>,
     delimiter: Option<String>,
+    quote: Option<String>,
     quoting: Option<String>,
 ) -> Result<CsvInfo, String> {
     docs.with_mut(&doc_id, |d| {
@@ -512,9 +516,13 @@ pub fn csv_set_format(
             };
             d.format.delimiter = c;
         }
+        if let Some(q) = quote {
+            d.format.quote =
+                Quote::from_label(&q).ok_or_else(|| format!("知らない引用符です: {q}"))?;
+        }
         if let Some(q) = quoting {
-            d.format.quoting =
-                Quoting::from_label(&q).ok_or_else(|| format!("知らない引用符の指定です: {q}"))?;
+            d.format.quoting = Quoting::from_label(&q)
+                .ok_or_else(|| format!("知らない引用符の付け方です: {q}"))?;
         }
         // 形を変えたら保存し直す必要がある
         d.dirty = true;
