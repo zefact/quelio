@@ -15,6 +15,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   autocompleteDelayMs: 100,
   confirmAlter: true,
   restoreSheets: false,
+  showMemory: false,
   sqlFormat: defaultSqlFormat(),
 };
 

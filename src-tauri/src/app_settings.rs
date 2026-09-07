@@ -40,6 +40,12 @@ pub struct AppSettings {
     /// (前回の接続先が入ったまま立ち上がると、意図しない環境へ繋いでしまうため)
     #[serde(default)]
     pub restore_sheets: bool,
+    /// 画面下の状態バーにアプリ全体のメモリ使用量を出すか。
+    ///
+    /// 既定は出さない。出している間は数秒おきにOSのプロセス一覧を数えるため、
+    /// わずかとはいえ常に負担がかかる。必要なときだけ入れてもらう
+    #[serde(default)]
+    pub show_memory: bool,
     /// SQLエディタの「整形」ボタンの書式
     #[serde(default)]
     pub sql_format: SqlFormatSettings,
@@ -141,6 +147,7 @@ impl Default for AppSettings {
             autocomplete_delay_ms: default_autocomplete_delay_ms(),
             confirm_alter: true,
             restore_sheets: false,
+            show_memory: false,
             sql_format: SqlFormatSettings::default(),
         }
     }
@@ -177,4 +184,36 @@ pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     let text = serde_json::to_string_pretty(settings)
         .map_err(|e| format!("設定のシリアライズに失敗: {e}"))?;
     crate::json_store::write(&path, &text, "設定")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn メモリ表示の既定は出さない() {
+        assert!(!AppSettings::default().show_memory);
+    }
+
+    #[test]
+    fn この項目が無い古い設定ファイルを読むと出さないになる() {
+        // 0.8.2 より前に書かれた設定ファイル (show_memory が無い)
+        let json = r#"{"commentDelimiter":"（","showRowNumbers":true}"#;
+        let s: AppSettings = serde_json::from_str(json).expect("読めること");
+        assert!(!s.show_memory);
+        // ほかの項目が既定へ落ちていないことも見ておく
+        assert!(s.show_row_numbers);
+        assert_eq!(s.query_timeout_secs, 60);
+    }
+
+    #[test]
+    fn 出す設定は保存して読み直しても残る() {
+        let s = AppSettings {
+            show_memory: true,
+            ..Default::default()
+        };
+        let text = serde_json::to_string(&s).expect("書けること");
+        let back: AppSettings = serde_json::from_str(&text).expect("読めること");
+        assert!(back.show_memory);
+    }
 }

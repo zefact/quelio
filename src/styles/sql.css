@@ -840,6 +840,14 @@ html[data-theme="light"] .result-banner.ng {
   line-height: 15px;
 }
 
+/* アプリ全体のメモリ使用量。数字が動くので、幅で揺れないよう右端に置く */
+.status-memory {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  cursor: default;
+}
+
 .status-ro {
   flex-shrink: 0;
   padding: 1px 7px;

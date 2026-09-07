@@ -10,6 +10,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AppMemory,
   AppSettings,
   CellValue,
   CharsetInfo,
@@ -150,6 +151,7 @@ export interface CommandResults {
   export_schema_xlsx: string;
   fetch_cell: CellValue;
   generate_test_data: TestDataResult;
+  app_memory: AppMemory;
   get_app_settings: AppSettings;
   get_er_diagram: ErDiagramData | null;
   get_query_log: QueryLogEntry[];
@@ -234,6 +236,7 @@ export interface CommandResults {
  */
 export const COMMAND_NAMES = [
   "add_sql_history",
+  "app_memory",
   "clear_sql_history",
   "create_sample_database",
   "create_saved_folder",

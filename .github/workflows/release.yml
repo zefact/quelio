@@ -27,7 +27,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # CHANGELOG.md からタグに対応するバージョンのセクションを抜き出す
       # (例: v0.2.0 → 「## [0.2.0]」から次の「## [」まで)
@@ -50,9 +50,9 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Node.jsセットアップ
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - name: Rustセットアップ

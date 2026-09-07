@@ -58,6 +58,7 @@ import { CsvDiffView } from "./CsvDiffView";
 import { CsvFixedDialog } from "./CsvFixedDialog";
 import { CsvFormatMenu } from "./CsvFormatMenu";
 import { formatLabel } from "./csvFormat";
+import { MemoryChip } from "../MemoryChip";
 
 /** ウィンドウが「このファイルを開いて」と伝えられるときのイベント名 */
 const OPEN_EVENT = "csv-open-file";
@@ -756,6 +757,7 @@ export function CsvWindow() {
             </span>
           )}
           <span className="toolbar-spacer" />
+          <MemoryChip />
           {busy && <span className="spinner accent" />}
           {/* rtl で末尾を残して省略するため、中身は bdi で1つの塊にする */}
           <span className="path mono" title={active.path ?? "未保存"}>

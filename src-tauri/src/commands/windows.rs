@@ -399,6 +399,15 @@ pub async fn save_text_as(path: String, text: String) -> Result<(), String> {
         .map_err(|e| format!("ファイルを書き込めません: {e}"))
 }
 
+/// アプリ全体が今どれだけメモリを使っているか。
+///
+/// 数えるのは自分と、その子孫のプロセス
+/// (詳しくは memory モジュールの説明を参照)
+#[tauri::command]
+pub fn app_memory() -> crate::memory::AppMemory {
+    crate::memory::current()
+}
+
 /// アプリ全般の設定を返す
 #[tauri::command]
 pub fn get_app_settings(app: AppHandle) -> Result<crate::app_settings::AppSettings, String> {

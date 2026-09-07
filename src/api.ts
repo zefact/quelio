@@ -1,5 +1,6 @@
 import { call } from "./commands";
 import type {
+  AppMemory,
   AppSettings,
   CellValue,
   CharsetInfo,
@@ -1417,6 +1418,11 @@ export function appendTempUpload(
 /** アプリ全般の設定を取得する */
 export function getAppSettings(): Promise<AppSettings> {
   return call("get_app_settings");
+}
+
+/** アプリ全体が今使っているメモリ */
+export function appMemory(): Promise<AppMemory> {
+  return call("app_memory");
 }
 
 /** 設定が保存されたことを同じウィンドウ内の画面へ伝えるイベント名 */

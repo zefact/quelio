@@ -9,6 +9,7 @@ import type { ConnectionProfile, TxnStatus } from "../types";
 import { envColor, envLabel } from "../types";
 import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
 import { tlsWarning } from "../tlsWarning";
+import { MemoryChip } from "./MemoryChip";
 
 export interface LastRun {
   /** 取得した行数 (更新系は影響行数) */
@@ -101,6 +102,8 @@ export function StatusBar({
       )}
 
       <span className="status-spacer" />
+
+      <MemoryChip />
 
       {txnError && <span className="status-error">{txnError}</span>}
 

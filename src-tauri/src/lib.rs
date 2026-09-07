@@ -9,6 +9,7 @@ mod csv_doc;
 mod csv_import;
 mod dbadmin;
 mod kv_bulk;
+mod memory;
 mod search;
 mod csv_job;
 mod csv_layouts;
@@ -339,6 +340,7 @@ pub fn run() {
             commands::clear_query_log,
             commands::export_query_log,
             commands::open_console,
+            commands::app_memory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

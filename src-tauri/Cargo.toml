@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.8.2"
+version = "0.8.3"
 description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -49,6 +49,8 @@ aes-gcm = "0.10"
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
+# アプリ全体のメモリ使用量 (プロセスの情報だけ使う)
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 csv = "1"
 encoding_rs = "0.8"
 encoding_rs_io = "0.1"

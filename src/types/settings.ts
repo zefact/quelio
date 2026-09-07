@@ -3,6 +3,23 @@
  * CSVの取り込み設定・外部ツール・バックアップもここ
  */
 
+/**
+ * アプリが今使っているメモリ。
+ *
+ * 数えているのは、このアプリのプロセスと、その子孫
+ * (Windowsの WebView2 や、接続に使う外部CLIを含む)。
+ * macOSでは、画面の中身を描くWebKitのプロセスがアプリの子ではなく
+ * OSの下にぶら下がるため、この合計には入らない
+ */
+export interface AppMemory {
+  /** 合計 (バイト) */
+  bytes: number;
+  /** そのうち本体のぶん (バイト) */
+  own: number;
+  /** 数えたプロセスの数 (本体を含む) */
+  processes: number;
+}
+
 /** 外部ツール(mysqldump等)のパス設定 (空文字=自動検出) */
 export interface ToolSettings {
   mysqldump: string;
@@ -105,6 +122,8 @@ export interface AppSettings {
   confirmAlter: boolean;
   /** 起動時に前回の書きかけSQL (SQLシートと名前) を復元するか */
   restoreSheets: boolean;
+  /** 画面下の状態バーにアプリ全体のメモリ使用量を出すか (既定は出さない) */
+  showMemory: boolean;
   /** SQLエディタの「整形」ボタンの書式 */
   sqlFormat: SqlFormatSettings;
 }

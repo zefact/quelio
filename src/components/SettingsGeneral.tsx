@@ -69,6 +69,19 @@ export function SettingsGeneral({ notify }: Props) {
             ))}
           </div>
         </SettingRow>
+        <SettingRow
+          title="メモリ使用量を表示"
+          desc="画面下の状態バーに、このアプリが使っているメモリを出します。大きなCSVや結果を開いたときに、どれだけ抱えているかをその場で見られます。出している間は3秒ごとにOSのプロセス一覧を数えるため、わずかに負担がかかります (必要なときだけどうぞ)。"
+        >
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={app.showMemory}
+              onChange={(e) => saveApp({ ...app, showMemory: e.target.checked })}
+            />
+            <span className="track" aria-hidden />
+          </label>
+        </SettingRow>
       </section>
 
       <section className="set-section">
