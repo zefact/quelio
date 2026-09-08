@@ -46,6 +46,24 @@ pub enum Edit {
         before: String,
         after: String,
     },
+    /// 固定長のヘッダ・トレーラのレコードを書き換える。
+    ///
+    /// 項目の数が少なく、行の増減も起きないので、丸ごと控える
+    EdgeRow {
+        /// トレーラなら true、ヘッダなら false
+        trailer: bool,
+        before: Vec<String>,
+        after: Vec<String>,
+    },
+    /// いくつかの操作をひとまとめにしたもの。
+    ///
+    /// 貼り付けのように「行を足してから値を入れる」操作を、
+    /// 取り消し1回で戻せるようにする。
+    /// 名前は中身から決められないので、まとめた側が付ける
+    Group {
+        label: &'static str,
+        edits: Vec<Edit>,
+    },
 }
 
 impl Edit {
@@ -59,6 +77,14 @@ impl Edit {
             Edit::InsertCol { .. } => "列の追加",
             Edit::DeleteCol { .. } => "列の削除",
             Edit::RenameCol { .. } => "列名の変更",
+            Edit::EdgeRow { trailer, .. } => {
+                if *trailer {
+                    "トレーラの編集"
+                } else {
+                    "ヘッダの編集"
+                }
+            }
+            Edit::Group { label, .. } => label,
         }
     }
 
@@ -98,6 +124,20 @@ impl Edit {
                 before: after.clone(),
                 after: before.clone(),
             },
+            Edit::EdgeRow {
+                trailer,
+                before,
+                after,
+            } => Edit::EdgeRow {
+                trailer: *trailer,
+                before: after.clone(),
+                after: before.clone(),
+            },
+            // まとめた操作の逆は、後ろから順に逆をたどること
+            Edit::Group { label, edits } => Edit::Group {
+                label,
+                edits: edits.iter().rev().map(|e| e.invert()).collect(),
+            },
         }
     }
 }
@@ -109,6 +149,10 @@ impl Edit {
 pub struct Sheet<'a> {
     pub header: &'a mut Vec<String>,
     pub rows: &'a mut Vec<Vec<String>>,
+    /// 固定長のヘッダレコードの値 (使わないときは空)
+    pub head: &'a mut Vec<String>,
+    /// 固定長のトレーラレコードの値 (使わないときは空)
+    pub tail: &'a mut Vec<String>,
 }
 
 impl Sheet<'_> {
@@ -176,6 +220,26 @@ impl Sheet<'_> {
                 }
                 self.header[*at] = after.clone();
             }
+            Edit::EdgeRow {
+                trailer, after, ..
+            } => {
+                let slot = if *trailer {
+                    &mut *self.tail
+                } else {
+                    &mut *self.head
+                };
+                *slot = after.clone();
+            }
+            Edit::Group { edits, .. } => {
+                for (i, e) in edits.iter().enumerate() {
+                    let Err(err) = self.apply(e) else { continue };
+                    // 途中で駄目になったら、済んだぶんを戻して手を付ける前に返す
+                    for done in edits[..i].iter().rev() {
+                        self.apply(&done.invert())?;
+                    }
+                    return Err(err);
+                }
+            }
         }
         Ok(())
     }
@@ -240,5 +304,164 @@ impl Sheet<'_> {
             before: self.header[at].clone(),
             after: name.to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 試すときはヘッダ・トレーラを使わないので、空の入れ物を借りる
+    struct Edges {
+        head: Vec<String>,
+        tail: Vec<String>,
+    }
+
+    fn sheet<'a>(
+        rows: &'a mut Vec<Vec<String>>,
+        header: &'a mut Vec<String>,
+        edges: &'a mut Edges,
+    ) -> Sheet<'a> {
+        Sheet {
+            header,
+            rows,
+            head: &mut edges.head,
+            tail: &mut edges.tail,
+        }
+    }
+
+    fn text(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn cell(row: usize, col: usize, before: &str, after: &str) -> CellEdit {
+        CellEdit {
+            row,
+            col,
+            before: before.to_string(),
+            after: after.to_string(),
+        }
+    }
+
+    #[test]
+    fn まとめた操作は順に効く() {
+        let mut header = text(&["a", "b"]);
+        let mut rows = vec![text(&["1", "2"])];
+        let mut edges = Edges {
+            head: Vec::new(),
+            tail: Vec::new(),
+        };
+        let group = Edit::Group {
+            label: "貼り付け",
+            edits: vec![
+                Edit::InsertRows {
+                    at: 1,
+                    rows: vec![text(&["", ""])],
+                },
+                Edit::Cells(vec![cell(1, 0, "", "9")]),
+            ],
+        };
+        sheet(&mut rows, &mut header, &mut edges).apply(&group).unwrap();
+        assert_eq!(rows, vec![text(&["1", "2"]), text(&["9", ""])]);
+    }
+
+    #[test]
+    fn まとめた操作は1回で元へ戻る() {
+        let mut header = text(&["a", "b"]);
+        let mut rows = vec![text(&["1", "2"])];
+        let mut edges = Edges {
+            head: Vec::new(),
+            tail: Vec::new(),
+        };
+        let before = rows.clone();
+        let group = Edit::Group {
+            label: "貼り付け",
+            edits: vec![
+                Edit::InsertRows {
+                    at: 1,
+                    rows: vec![text(&["", ""])],
+                },
+                Edit::Cells(vec![cell(1, 0, "", "9")]),
+            ],
+        };
+        sheet(&mut rows, &mut header, &mut edges).apply(&group).unwrap();
+        sheet(&mut rows, &mut header, &mut edges)
+            .apply(&group.invert())
+            .unwrap();
+        assert_eq!(rows, before);
+    }
+
+    #[test]
+    fn 途中で駄目になったら手を付ける前に戻す() {
+        let mut header = text(&["a", "b"]);
+        let mut rows = vec![text(&["1", "2"])];
+        let mut edges = Edges {
+            head: Vec::new(),
+            tail: Vec::new(),
+        };
+        let before = rows.clone();
+        let group = Edit::Group {
+            label: "貼り付け",
+            edits: vec![
+                Edit::InsertRows {
+                    at: 1,
+                    rows: vec![text(&["", ""])],
+                },
+                // 無い列を指しているので、ここで失敗する
+                Edit::Cells(vec![cell(1, 9, "", "9")]),
+            ],
+        };
+        assert!(sheet(&mut rows, &mut header, &mut edges).apply(&group).is_err());
+        assert_eq!(rows, before, "失敗したのに行が増えている");
+    }
+
+    #[test]
+    fn ヘッダのレコードは丸ごと入れ替わる() {
+        let mut header = text(&["a", "b"]);
+        let mut rows = vec![text(&["1", "2"])];
+        let mut edges = Edges {
+            head: text(&["H", "01"]),
+            tail: Vec::new(),
+        };
+        let e = Edit::EdgeRow {
+            trailer: false,
+            before: text(&["H", "01"]),
+            after: text(&["H", "99"]),
+        };
+        sheet(&mut rows, &mut header, &mut edges).apply(&e).unwrap();
+        assert_eq!(edges.head, text(&["H", "99"]));
+        sheet(&mut rows, &mut header, &mut edges)
+            .apply(&e.invert())
+            .unwrap();
+        assert_eq!(edges.head, text(&["H", "01"]), "取り消しで元へ戻る");
+        assert_eq!(edges.tail, Vec::<String>::new(), "トレーラは触らない");
+    }
+
+    #[test]
+    fn トレーラのレコードも入れ替えられる() {
+        let mut header = text(&["a", "b"]);
+        let mut rows = vec![text(&["1", "2"])];
+        let mut edges = Edges {
+            head: Vec::new(),
+            tail: text(&["T", "0001"]),
+        };
+        let e = Edit::EdgeRow {
+            trailer: true,
+            before: text(&["T", "0001"]),
+            after: text(&["T", "0002"]),
+        };
+        sheet(&mut rows, &mut header, &mut edges).apply(&e).unwrap();
+        assert_eq!(edges.tail, text(&["T", "0002"]));
+        assert_eq!(e.label(), "トレーラの編集");
+    }
+
+    #[test]
+    fn まとめた操作の名前は付けたものになる() {
+        let group = Edit::Group {
+            label: "貼り付け",
+            edits: vec![Edit::Cells(vec![cell(0, 0, "a", "b")])],
+        };
+        assert_eq!(group.label(), "貼り付け");
+        assert_eq!(group.invert().label(), "貼り付け");
     }
 }

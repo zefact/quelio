@@ -3,6 +3,7 @@ import {
   frameBox,
   inAny,
   inRange,
+  jumpFix,
   normalize,
   selectionCells,
 } from "./csvSelection";
@@ -88,5 +89,24 @@ describe("frameBox", () => {
       64
     );
     expect(box).toEqual({ left: 264, top: 0, width: 80, height: 26 });
+  });
+});
+
+describe("jumpFix", () => {
+  const from = { row: 2, col: 1 };
+  const head = { row: 5, col: 3 };
+
+  it("残さないなら、選んでいた範囲を消す", () => {
+    expect(jumpFix(false, from, head)).toBe("clear");
+  });
+
+  it("残すなら、伸ばしていた四角をその形のまま固定する", () => {
+    expect(jumpFix(true, from, head)).toEqual({ a: from, b: head });
+  });
+
+  it("伸ばしていなければ、足すものは無い", () => {
+    expect(jumpFix(true, from, from)).toBeNull();
+    expect(jumpFix(true, from, null)).toBeNull();
+    expect(jumpFix(true, null, head)).toBeNull();
   });
 });

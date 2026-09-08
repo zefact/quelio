@@ -783,6 +783,18 @@ async fn ensure_database(
                         .execute(&mut *conn)
                         .await
                         .map_err(db::format_db_error)?;
+                    /*
+                     * 一度作った文はここで捨てる。
+                     *
+                     * MySQLは文を作った時点のDBで表を決めるので、
+                     * USE で切り替えても、作り置きの文はそのままだと
+                     * 前のDBの表を見に行く (件数や中身が変わらない)。
+                     * 同じ文字のSQLは作り置きが使い回されるため、
+                     * DBを切り替えたこの場で捨てておく
+                     */
+                    conn.clear_cached_statements()
+                        .await
+                        .map_err(db::format_db_error)?;
                 }
                 _ => unreachable!("直前でMySQLだけに絞っている"),
             }

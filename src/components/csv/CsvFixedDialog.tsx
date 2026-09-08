@@ -1,161 +1,119 @@
 /**
- * 固定長の桁を決めるダイアログ。
+ * 固定長の桁設定ダイアログ。
  *
  * 固定長のファイルには桁の情報が入っていないので、
- * 開いたときの推測をここで直してもらう。
- * よく使う形は名前を付けて残し、次からは選ぶだけにできる
+ * 開いたときの推測をここで修正する。
+ *
+ * データ行のほかに、先頭のヘッダ行と末尾のトレーラ行を別の桁で決められる
+ * (ホストから来るファイルには、この3種類が混ざっているものがある)。
+ *
+ * お気に入りから読み込んで開いた場合は、その名前が入った状態で始まるので、
+ * 桁を直してそのまま上書きできる。
+ * お気に入りの一覧と削除はツールバーのメニュー側に置いてある
  */
-import { useEffect, useState } from "react";
-import { csvDeleteLayout, csvLayouts, csvSaveLayout } from "../../api";
+import { useState } from "react";
+import { csvSaveLayout } from "../../api";
 import type {
-  CsvAlign,
+  CsvFixedColumn,
+  CsvFixedKey,
   CsvFixedLayout,
   CsvSavedLayout,
   CsvWidthUnit,
 } from "../../types";
-import { ConfirmDialog } from "../ConfirmDialog";
 import { SelectMenu } from "../SelectMenu";
-import {
-  UNIT_LABEL,
-  applyWidths,
-  newColumn,
-  parseWidths,
-  totalWidth,
-  widthsText,
-} from "./csvFixed";
+import { CsvFixedColumns } from "./CsvFixedColumns";
+import { UNIT_LABEL, newColumn, totalWidth } from "./csvFixed";
 
 interface Props {
   /** 今の桁 (固定長で開いていなければ null) */
   current: CsvFixedLayout | null;
+  /**
+   * 今このファイルに使われているお気に入りの名前 (無ければ null)。
+   *
+   * 名前の欄はここから始める。使われていなければ空欄で開く
+   */
+  applied: string | null;
+  /** 登録済みのお気に入り (保存が上書きになるかの判断に使う) */
+  layouts: CsvSavedLayout[];
   /** 決めた桁で読み直す */
   onApply: (layout: CsvFixedLayout) => void;
-  /** 区切り文字として読み直す */
-  onUseDelimiter: () => void;
   onClose: () => void;
 }
 
-/** 桁の数え方の選択肢 */
+/** 桁幅の単位の選択肢 */
 const UNITS = [
-  { value: "byte", label: "バイト数 (Shift_JISなら漢字は2桁ぶん)" },
-  { value: "char", label: "文字数 (漢字も1桁ぶん)" },
+  { value: "byte", label: "バイト数 (Shift_JISでは漢字が2桁)" },
+  { value: "char", label: "文字数 (漢字も1桁)" },
 ];
 
-/** 寄せる向きの選択肢 */
-const ALIGNS = [
-  { value: "left", label: "左" },
-  { value: "right", label: "右" },
-];
-
-/** 埋め文字の選択肢 */
-const PADS = [
-  { value: " ", label: "空白" },
-  { value: "0", label: "0" },
-];
-
-/** 固定長で開いていないときの初めの桁 */
+/** 固定長で開いていないときの初期値 */
 const EMPTY: CsvFixedLayout = {
   unit: "byte",
   columns: [newColumn(10)],
   trim: true,
+  newline: true,
+  header: [],
+  trailer: [],
+  key: null,
 };
+
+/** 種別を見分ける決まりの初めの値 (先頭1つを見る) */
+const FIRST: CsvFixedKey = { at: 0, len: 1, header: "" };
 
 export function CsvFixedDialog({
   current,
+  applied,
+  layouts,
   onApply,
-  onUseDelimiter,
   onClose,
 }: Props) {
   const [layout, setLayout] = useState<CsvFixedLayout>(current ?? EMPTY);
-  /** 幅をまとめて入れる欄 */
-  const [bulk, setBulk] = useState(() => widthsText((current ?? EMPTY).columns));
-  const [saved, setSaved] = useState<CsvSavedLayout[]>([]);
-  const [name, setName] = useState("");
+  /** お気に入りの名前 (使われているものがあればそこから始める) */
+  const [name, setName] = useState(applied ?? "");
   const [note, setNote] = useState<string | null>(null);
-  /** 消そうとしているレイアウト */
-  const [removing, setRemoving] = useState<string | null>(null);
 
-  useEffect(() => {
-    void csvLayouts()
-      .then(setSaved)
-      .catch((e) => setNote(String(e)));
-  }, []);
+  /** レイアウトの一部を差し替える */
+  const put = (fix: Partial<CsvFixedLayout>) =>
+    setLayout((prev) => ({ ...prev, ...fix }));
 
-  /** 桁を1つ書き換える */
-  const patch = (at: number, fix: Partial<CsvFixedLayout["columns"][number]>) => {
-    setLayout((prev) => {
-      const columns = prev.columns.map((c, i) =>
-        i === at ? { ...c, ...fix } : c
-      );
-      setBulk(widthsText(columns));
-      return { ...prev, columns };
-    });
+  /** ヘッダ・トレーラの有無を切り替える (入れるときは1桁から始める) */
+  const toggleEdge = (trailer: boolean, on: boolean) => {
+    const columns: CsvFixedColumn[] = on ? [newColumn(10)] : [];
+    put(trailer ? { trailer: columns } : { header: columns });
   };
 
-  const addColumn = () => {
-    setLayout((prev) => {
-      const columns = [...prev.columns, newColumn(10)];
-      setBulk(widthsText(columns));
-      return { ...prev, columns };
-    });
-  };
+  /** 種別を見分ける決まりの一部を差し替える */
+  const putKey = (fix: Partial<CsvFixedKey>) =>
+    put({ key: { ...(layout.key ?? FIRST), ...fix } });
 
-  const removeColumn = (at: number) => {
-    setLayout((prev) => {
-      const columns = prev.columns.filter((_, i) => i !== at);
-      setBulk(widthsText(columns));
-      return { ...prev, columns };
-    });
-  };
+  /*
+   * 種別を見分けるときは、ヘッダは「先頭の1件」ではなくなる。
+   * トレーラ (末尾の1件) とは考え方が合わないので、同時には使わない
+   */
+  const mixed = layout.key !== null;
 
-  /** まとめて入力した幅を反映する */
-  const applyBulk = (text: string) => {
-    setBulk(text);
-    const widths = parseWidths(text);
-    if (widths.length > 0) setLayout((prev) => applyWidths(prev, widths));
-  };
-
-  const use = (s: CsvSavedLayout) => {
-    setLayout(s.layout);
-    setBulk(widthsText(s.layout.columns));
-    setName(s.name);
-  };
-
+  /** 今の桁設定を、入れた名前でお気に入りに保存する */
   const save = async () => {
+    const target = name.trim();
     setNote(null);
     try {
-      setSaved(await csvSaveLayout(name, layout));
-      setNote(`「${name.trim()}」を残しました`);
-    } catch (e) {
-      setNote(String(e));
-    }
-  };
-
-  const remove = async (target: string) => {
-    setRemoving(null);
-    setNote(null);
-    try {
-      setSaved(await csvDeleteLayout(target));
+      const already = layouts.some((s) => s.name === target);
+      await csvSaveLayout(target, layout);
+      setNote(
+        already
+          ? `「${target}」を上書きしました`
+          : `「${target}」をお気に入りに保存しました`
+      );
     } catch (e) {
       setNote(String(e));
     }
   };
 
   const total = totalWidth(layout.columns);
-  const ready = layout.columns.length > 0 && layout.columns.every((c) => c.width > 0);
-
-  if (removing) {
-    return (
-      <ConfirmDialog
-        title="レイアウトを消します"
-        target={removing}
-        confirmLabel="消す"
-        onConfirm={() => remove(removing)}
-        onCancel={() => setRemoving(null)}
-      >
-        残してある桁の並びを消します。開いているファイルはそのままです。
-      </ConfirmDialog>
-    );
-  }
+  const ready =
+    layout.columns.length > 0 && layout.columns.every((c) => c.width > 0);
+  /** 入れた名前が、既にあるお気に入りと同じか (同じなら上書きになる) */
+  const exists = layouts.some((s) => s.name === name.trim());
 
   return (
     <div className="modal-overlay" onMouseDown={onClose}>
@@ -163,149 +121,182 @@ export function CsvFixedDialog({
         className="modal csv-fixed-modal"
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="modal-title">固定長の桁</div>
+        <div className="modal-title">固定長の桁設定</div>
 
         <div className="csv-form-row">
-          <span>数え方</span>
+          <span>お気に入り名</span>
+          <input
+            className="csv-name-box"
+            placeholder="未設定 (保存する場合に入力)"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+
+        <div className="csv-form-row">
+          <span>桁幅の単位</span>
           <SelectMenu
             popFixed
             value={layout.unit}
             options={UNITS}
-            onChange={(v) =>
-              setLayout((prev) => ({ ...prev, unit: v as CsvWidthUnit }))
-            }
+            onChange={(v) => put({ unit: v as CsvWidthUnit })}
           />
         </div>
 
-        <div className="csv-form-row">
-          <span>桁をまとめて</span>
-          <input
-            className="csv-name-box csv-bulk"
-            placeholder="10,8,20,4"
-            value={bulk}
-            onChange={(e) => applyBulk(e.target.value)}
-          />
-        </div>
-
-        <div className="csv-fixed-list">
-          <div className="csv-fixed-head">
-            <span>#</span>
-            <span>幅</span>
-            <span>寄せ</span>
-            <span>埋め</span>
-            <span>項目名</span>
-            <span />
-          </div>
-          {layout.columns.map((c, i) => (
-            <div className="csv-fixed-row" key={i}>
-              <span className="mono csv-fixed-no">{i + 1}</span>
-              <input
-                className="csv-fixed-w mono"
-                type="number"
-                min={1}
-                value={c.width}
-                onChange={(e) =>
-                  patch(i, { width: Math.max(1, +e.target.value || 1) })
-                }
-              />
-              <SelectMenu
-                popFixed
-                value={c.align}
-                options={ALIGNS}
-                onChange={(v) => patch(i, { align: v as CsvAlign })}
-              />
-              <SelectMenu
-                popFixed
-                value={c.pad}
-                options={PADS}
-                onChange={(pad) => patch(i, { pad })}
-              />
-              <input
-                className="csv-fixed-name"
-                placeholder={`${i + 1}`}
-                value={c.name}
-                onChange={(e) => patch(i, { name: e.target.value })}
-              />
-              <button
-                className="btn-ghost csv-fixed-del"
-                title="この桁を消す"
-                disabled={layout.columns.length <= 1}
-                onClick={() => removeColumn(i)}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-          <div className="csv-fixed-foot">
-            <button className="btn-secondary" onClick={addColumn}>
-              桁を足す
-            </button>
-            <span className="toolbar-spacer" />
-            <span className="mono">
-              計 {total}
-              {UNIT_LABEL[layout.unit]}
-            </span>
-          </div>
-        </div>
+        <CsvFixedColumns
+          columns={layout.columns}
+          unit={layout.unit}
+          onChange={(columns) => put({ columns })}
+        />
 
         <label className="csv-check">
           <input
             type="checkbox"
             checked={layout.trim}
-            onChange={(e) =>
-              setLayout((prev) => ({ ...prev, trim: e.target.checked }))
-            }
+            onChange={(e) => put({ trim: e.target.checked })}
           />
-          埋め文字を落として表示する (保存のときに詰め直します)
+          埋め文字を除いて表示する (保存時は元の桁幅に戻します)
         </label>
 
-        <div className="csv-fixed-saved">
-          <div className="csv-key-head">残してあるレイアウト</div>
-          {saved.length === 0 ? (
-            <div className="csv-empty-hint">まだありません</div>
-          ) : (
-            <div className="csv-fixed-saved-list">
-              {saved.map((s) => (
-                <div className="csv-fixed-saved-row" key={s.name}>
-                  <button className="btn-ghost" onClick={() => use(s)}>
-                    {s.name}
-                  </button>
-                  <span className="csv-find-note">
-                    {s.layout.columns.length}桁
-                  </span>
-                  <button
-                    className="btn-ghost csv-fixed-del"
-                    title="消す"
-                    onClick={() => setRemoving(s.name)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
+        {/*
+          ホストから来るファイルには、改行が1つも無く
+          桁の合計ぶんずつが1件になっているものがある
+        */}
+        <label className="csv-check">
+          <input
+            type="checkbox"
+            checked={!layout.newline}
+            onChange={(e) => put({ newline: !e.target.checked })}
+          />
+          改行が無いファイル (計{total}
+          {UNIT_LABEL[layout.unit]}ごとに1行として読み込む)
+        </label>
+
+        {/*
+          先頭と末尾だけ桁が違うファイルへの指定。
+          どちらも表には混ぜず、表の外に出して編集してもらう
+        */}
+        <label className="csv-check">
+          <input
+            type="checkbox"
+            checked={layout.header.length > 0}
+            onChange={(e) => toggleEdge(false, e.target.checked)}
+          />
+          ヘッダ行がある (データ行とは別の桁で読み込む)
+        </label>
+        {layout.header.length > 0 && (
+          <div className="csv-fixed-part">
+            <div className="csv-key-head">
+              ヘッダ行の桁 (計{totalWidth(layout.header)}
+              {UNIT_LABEL[layout.unit]})
             </div>
-          )}
-          <div className="csv-fixed-save">
-            <input
-              className="csv-name-box"
-              placeholder="名前を付けて残す"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
+            <CsvFixedColumns
+              columns={layout.header}
+              unit={layout.unit}
+              onChange={(header) => put({ header })}
             />
-            <button
-              className="btn-secondary"
-              disabled={!name.trim() || !ready}
-              onClick={() => void save()}
-            >
-              残す
-            </button>
+
+            {/*
+              ヘッダ行とボディ行が交互に来るファイルは、
+              決まった位置の値を見てレコードごとに種別を決める
+            */}
+            <label className="csv-check">
+              <input
+                type="checkbox"
+                checked={mixed}
+                onChange={(e) =>
+                  put({
+                    key: e.target.checked ? FIRST : null,
+                    // 末尾の1件という考え方とは合わないので外す
+                    trailer: e.target.checked ? [] : layout.trailer,
+                  })
+                }
+              />
+              ヘッダ行が何度も出てくる (値を見て1行ずつ種別を決める)
+            </label>
+            {mixed && (
+              <>
+                <div className="csv-form-row">
+                  <span>見る位置</span>
+                  <div className="csv-key-where">
+                    <input
+                      className="csv-fixed-w mono"
+                      type="number"
+                      min={1}
+                      value={(layout.key?.at ?? 0) + 1}
+                      onChange={(e) =>
+                        putKey({ at: Math.max(0, (+e.target.value || 1) - 1) })
+                      }
+                    />
+                    <span>
+                      {UNIT_LABEL[layout.unit]}目から
+                    </span>
+                    <input
+                      className="csv-fixed-w mono"
+                      type="number"
+                      min={1}
+                      value={layout.key?.len ?? 1}
+                      onChange={(e) =>
+                        putKey({ len: Math.max(1, +e.target.value || 1) })
+                      }
+                    />
+                    <span>{UNIT_LABEL[layout.unit]}分</span>
+                  </div>
+                </div>
+                <div className="csv-form-row">
+                  <span>ヘッダ行の値</span>
+                  <input
+                    className="csv-name-box mono"
+                    placeholder="例: A"
+                    value={layout.key?.header ?? ""}
+                    onChange={(e) => putKey({ header: e.target.value })}
+                  />
+                </div>
+                <div className="csv-fixed-save-hint">
+                  この値になっている行はヘッダ行の桁で、それ以外はデータ行の桁で読み込みます。
+                  1つの表に並べて、ヘッダ行に色を付けます
+                </div>
+              </>
+            )}
           </div>
-        </div>
+        )}
+
+        {!mixed && (
+          <>
+            <label className="csv-check">
+              <input
+                type="checkbox"
+                checked={layout.trailer.length > 0}
+                onChange={(e) => toggleEdge(true, e.target.checked)}
+              />
+              末尾にトレーラ行がある (データ行とは別の桁で読み込む)
+            </label>
+            {layout.trailer.length > 0 && (
+              <div className="csv-fixed-part">
+                <div className="csv-key-head">
+                  トレーラ行の桁 (計{totalWidth(layout.trailer)}
+                  {UNIT_LABEL[layout.unit]})
+                </div>
+                <CsvFixedColumns
+                  columns={layout.trailer}
+                  unit={layout.unit}
+                  onChange={(trailer) => put({ trailer })}
+                />
+              </div>
+            )}
+          </>
+        )}
 
         {note && <div className="csv-find-note">{note}</div>}
 
         <div className="modal-actions csv-fixed-actions">
-          <button className="btn-ghost" onClick={onUseDelimiter}>
-            区切り文字として読み直す
+          <button
+            className="btn-secondary"
+            disabled={!name.trim() || !ready}
+            title={name.trim() ? undefined : "お気に入り名を入力すると保存できます"}
+            onClick={() => void save()}
+          >
+            {exists ? "お気に入りを上書き" : "お気に入りに保存"}
           </button>
           <span className="toolbar-spacer" />
           <button className="btn-secondary" onClick={onClose}>
@@ -316,7 +307,7 @@ export function CsvFixedDialog({
             disabled={!ready}
             onClick={() => onApply(layout)}
           >
-            この桁で読み直す
+            この桁設定で読み直す
           </button>
         </div>
       </div>

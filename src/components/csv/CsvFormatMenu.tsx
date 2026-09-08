@@ -3,7 +3,9 @@
  * 1行目をヘッダとして扱うかを切り替えるメニュー。
  *
  * 開いたときの形をそのまま保存の既定にしているので、
- * 変えたいときだけここから触る
+ * 変えたいときだけここから触る。
+ *
+ * 固定長として読み直すのは「読み方」の変更なので、ツールバー側に置いてある
  */
 import { useEffect, useRef } from "react";
 import type {
@@ -38,12 +40,8 @@ function encodingOptions(current: string) {
 interface Props {
   format: CsvFormat;
   hasHeader: boolean;
-  /** ファイルから開いたタブか (読み方を変えるには読み直しが要る) */
-  fromFile: boolean;
   onChange: (patch: CsvFormatPatch) => void;
   onHeader: (on: boolean) => void;
-  /** 固定長の桁を決める画面を開く */
-  onFixed: () => void;
   /** 下の情報バーから開くときは上へ向けて出す */
   up?: boolean;
   onClose: () => void;
@@ -52,10 +50,8 @@ interface Props {
 export function CsvFormatMenu({
   format,
   hasHeader,
-  fromFile,
   onChange,
   onHeader,
-  onFixed,
   up = false,
   onClose,
 }: Props) {
@@ -136,19 +132,6 @@ export function CsvFormatMenu({
           )}
         </>
       )}
-
-      <div className="context-sep" />
-
-      <button
-        className="context-item"
-        disabled={!fromFile}
-        title={
-          fromFile ? undefined : "ファイルから開いたタブでのみ読み方を変えられます"
-        }
-        onClick={onFixed}
-      >
-        {format.fixed ? "固定長の桁を変える..." : "固定長として読み直す..."}
-      </button>
 
       <div className="context-sep" />
 

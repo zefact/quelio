@@ -1,4 +1,4 @@
-//! 固定長のレイアウト (桁の並び) を名前を付けて残す。
+//! 固定長の桁設定を、名前を付けてお気に入りとして保存する。
 //!
 //! 固定長のファイルには桁の情報が入っていないので、同じ形式のファイルを
 //! 開くたびに桁を入れ直すことになる。よく使う形はここへ残して選べるようにする
@@ -23,7 +23,7 @@ fn store_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     json_store::config_path(app, "csv_layouts.json")
 }
 
-/// 残してあるレイアウトを名前順で返す
+/// 保存した桁設定を名前順で返す
 pub fn load(app: &AppHandle) -> Result<Vec<SavedLayout>, String> {
     let path = store_path(app)?;
     let mut list: Vec<SavedLayout> =
@@ -32,14 +32,14 @@ pub fn load(app: &AppHandle) -> Result<Vec<SavedLayout>, String> {
     Ok(list)
 }
 
-/// 名前を付けて残す (同じ名前があれば上書き)
+/// 名前を付けて保存する (同じ名前があれば上書き)
 pub fn save(app: &AppHandle, name: &str, layout: FixedLayout) -> Result<Vec<SavedLayout>, String> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("名前を入れてください".into());
+        return Err("名前を入力してください".into());
     }
     if layout.columns.is_empty() {
-        return Err("桁が1つもありません".into());
+        return Err("桁が設定されていません".into());
     }
     let mut list = load(app)?;
     let now = now_ms();
@@ -58,7 +58,7 @@ pub fn save(app: &AppHandle, name: &str, layout: FixedLayout) -> Result<Vec<Save
     Ok(list)
 }
 
-/// 名前を指定して消す
+/// 名前を指定して削除する
 pub fn delete(app: &AppHandle, name: &str) -> Result<Vec<SavedLayout>, String> {
     let mut list = load(app)?;
     list.retain(|s| s.name != name);

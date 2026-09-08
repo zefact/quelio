@@ -176,3 +176,40 @@ export function ExcelIcon() {
     </svg>
   );
 }
+
+/** 固定長 (目盛りの付いたものさし) */
+export function FixedIcon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect
+        x="2.5"
+        y="7.5"
+        width="19"
+        height="9"
+        rx="1.4"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <path
+        d="M7 7.5v4M11.5 7.5v2.5M16 7.5v4"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+/** 絞り込み (漏斗) */
+export function FilterIcon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 5.5h16l-6.2 7.6V19l-3.6 2v-7.9z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

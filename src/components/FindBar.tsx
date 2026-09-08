@@ -305,7 +305,12 @@ export function FindBar() {
       // 変換中のEscは変換の取り消しなので、検索バーは閉じない
       if (e.isComposing) return;
       const ctrl = e.ctrlKey || e.metaKey;
-      if (ctrl && e.key.toLowerCase() === "f") {
+      /*
+       * Shiftを押しているものは拾わない。
+       * ⌘/Ctrl+Shift+F はSQLの整形に使っているので、
+       * ここで受け取ってしまうと整形の代わりに検索が開いてしまう
+       */
+      if (ctrl && !e.shiftKey && e.key.toLowerCase() === "f") {
         e.preventDefault();
         e.stopPropagation();
         openFind();

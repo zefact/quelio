@@ -77,8 +77,17 @@ const content = params.has("csv") ? (
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    {/* ページ内検索 (Cmd/Ctrl+F)。どのウィンドウでも使えるようルートに置く */}
-    <FindBar />
+    {/*
+      ページ内検索 (Cmd/Ctrl+F)。
+      画面に出ている文字を探すものなので、ルートに置いてどの窓でも使えるようにする。
+
+      CSVエディタだけは置かない。
+      あちらの表は「見えている行だけを描く」作りで、
+      画面に出ていない行は探せず、スクロールすると描き直されて
+      色を付けた場所も消えてしまう。
+      代わりに、全行を対象にした表の検索・置換をタブ列の虫めがねから開く
+    */}
+    {!params.has("csv") && <FindBar />}
     {content}
   </React.StrictMode>,
 );

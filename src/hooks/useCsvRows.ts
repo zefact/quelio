@@ -18,6 +18,19 @@ const AHEAD = 1;
 export interface CsvRows {
   /** 行位置から値を引く (まだ取れていなければ null) */
   row: (index: number) => string[] | null;
+  /**
+   * 画面での行位置が、元のファイルの何行目か (1から数える)。
+   *
+   * 絞り込んでいると飛び飛びになる。
+   * まだ取れていない行と、絞っていないファイルでは画面の位置そのまま
+   */
+  number: (index: number) => number;
+  /**
+   * その行がヘッダ行か (種別が混ざったファイルのときだけ true になりうる)。
+   *
+   * まだ取れていない行と、種別を見分けていないファイルでは false
+   */
+  isHeadRow: (index: number) => boolean;
   /** この範囲が見えていると伝える (足りないページを取りに行く) */
   ensure: (from: number, to: number) => void;
   /** 溜めたものを捨てる (編集したあとに使う) */
@@ -35,12 +48,18 @@ export function useCsvRows(docId: string | null, rowCount: number): CsvRows {
    * 大きなCSVでスクロールが引っかかる
    */
   const pages = useRef(new Map<number, string[][]>());
+  /** ページごとの「その行がヘッダ行か」 (種別を見分けているときだけ入る) */
+  const kinds = useRef(new Map<number, boolean[]>());
+  /** ページごとの「元の行番号」 (絞り込んでいるときだけ入る) */
+  const numbers = useRef(new Map<number, number[]>());
   const loading = useRef(new Set<number>());
   const [version, bump] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const clear = useCallback(() => {
     pages.current.clear();
+    kinds.current.clear();
+    numbers.current.clear();
     loading.current.clear();
     bump((n) => n + 1);
   }, []);
@@ -59,6 +78,8 @@ export function useCsvRows(docId: string | null, rowCount: number): CsvRows {
       try {
         const got = await csvPage(docId, page * PAGE_ROWS, PAGE_ROWS);
         pages.current.set(page, got.rows);
+        kinds.current.set(page, got.kinds);
+        numbers.current.set(page, got.numbers);
         bump((n) => n + 1);
       } catch (e) {
         setError(String(e));
@@ -85,5 +106,17 @@ export function useCsvRows(docId: string | null, rowCount: number): CsvRows {
     return page?.[index % PAGE_ROWS] ?? null;
   }, []);
 
-  return { row, ensure, clear, error, version };
+  const isHeadRow = useCallback((index: number): boolean => {
+    const page = kinds.current.get(Math.floor(index / PAGE_ROWS));
+    return page?.[index % PAGE_ROWS] ?? false;
+  }, []);
+
+  const number = useCallback((index: number): number => {
+    const page = numbers.current.get(Math.floor(index / PAGE_ROWS));
+    const at = page?.[index % PAGE_ROWS];
+    // 絞っていなければ番号は届かないので、画面の位置がそのまま行番号になる
+    return (at ?? index) + 1;
+  }, []);
+
+  return { row, number, isHeadRow, ensure, clear, error, version };
 }

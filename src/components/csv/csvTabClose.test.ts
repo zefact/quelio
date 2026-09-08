@@ -20,11 +20,16 @@ function tab(docId: string, dirty = false): CsvInfo {
     hasHeader: true,
     columns: ["a"],
     rowCount: 0,
+    totalRows: 0,
+    filters: [],
+    sort: null,
     dirty,
     ragged: false,
     replaced: false,
     undoLabel: null,
     redoLabel: null,
+    headRow: [],
+    trailerRow: [],
   };
 }
 

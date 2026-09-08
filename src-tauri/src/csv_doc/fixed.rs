@@ -56,6 +56,23 @@ impl FixedColumn {
     }
 }
 
+/**
+ * レコードの種別を、値で見分ける決まり。
+ *
+ * ヘッダ行とボディ行が交互に来るファイルのためのもの。
+ * レコードの決まった位置にある値を見て、どちらの桁で切るかを決める
+ */
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixedKey {
+    /// 見る位置 (レコードの先頭からいくつ目か。0始まり。単位は桁幅と同じ)
+    pub at: usize,
+    /// 見る長さ
+    pub len: usize,
+    /// この値ならヘッダ行 (前後の空白は落として比べる)
+    pub header: String,
+}
+
 /// ファイル1つぶんの桁の並び
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +82,35 @@ pub struct FixedLayout {
     /// 読むときに埋め文字を落とすか (落とすと素直に編集できる)
     #[serde(default = "yes")]
     pub trim: bool,
+    /**
+     * 行が改行で区切られているか。
+     *
+     * false のときは、ファイルに改行が無く、桁の合計ぶんずつが1行になる
+     * (ホストから来るファイルにはこの形がある)。
+     * 古い設定には無い項目なので、既定は「改行で区切る」
+     */
+    #[serde(default = "yes")]
+    pub newline: bool,
+    /**
+     * 先頭のヘッダレコードの桁 (空なら「ヘッダは無い」)。
+     *
+     * データ行と項目の分け方が違うレコードが先頭に1つだけ入っているファイルがある。
+     * データ行とは長さも違うことがあるので、桁の並びごと別に持つ
+     */
+    #[serde(default)]
+    pub header: Vec<FixedColumn>,
+    /// 末尾のトレーラレコードの桁 (空なら「トレーラは無い」)
+    #[serde(default)]
+    pub trailer: Vec<FixedColumn>,
+    /**
+     * レコードの種別を値で見分ける決まり (無ければ見分けない)。
+     *
+     * これを決めると、ヘッダは「先頭の1件」ではなく
+     * 「この値になっているレコードすべて」になる。
+     * ヘッダ行とボディ行が交互に来るファイルはこの形で読む
+     */
+    #[serde(default)]
+    pub key: Option<FixedKey>,
 }
 
 fn yes() -> bool {
@@ -78,6 +124,10 @@ impl FixedLayout {
             unit,
             columns: widths.iter().map(|w| FixedColumn::new(*w)).collect(),
             trim: true,
+            newline: true,
+            header: Vec::new(),
+            trailer: Vec::new(),
+            key: None,
         }
     }
 
@@ -85,6 +135,83 @@ impl FixedLayout {
     pub fn names(&self) -> Vec<String> {
         self.columns.iter().map(|c| c.name.clone()).collect()
     }
+}
+
+/// 桁の合計 (1レコードの長さ)
+pub fn total_width(columns: &[FixedColumn]) -> usize {
+    columns.iter().map(|c| c.width).sum()
+}
+
+/// 切り出す位置 (始まりと終わり)
+type Span = (usize, usize);
+
+/// 切り出す位置と、それがヘッダ行か
+pub type KeyedSpan = (usize, usize, bool);
+
+/**
+ * 種別を見ながら、長さで切る位置を求める。
+ *
+ * レコードの種別ごとに長さが違うので、先頭から順に
+ * 「その位置のレコードがヘッダか」を見て、その長さだけ進む。
+ * 判断そのものは呼ぶ側に任せる (中身の読み方をここに持ち込まないため)
+ */
+pub fn spans_by_key(
+    len: usize,
+    head: usize,
+    body: usize,
+    is_header: impl Fn(usize) -> bool,
+) -> Vec<KeyedSpan> {
+    let mut out = Vec::new();
+    if head == 0 || body == 0 {
+        return out;
+    }
+    let mut at = 0usize;
+    while at < len {
+        let header = is_header(at);
+        let end = (at + if header { head } else { body }).min(len);
+        out.push((at, end, header));
+        at = end;
+    }
+    out
+}
+
+/**
+ * 改行の無いファイルを、長さで切る位置に分ける。
+ *
+ * 先頭からヘッダのぶん、末尾からトレーラのぶんを先に取り、
+ * 残りをデータ行の長さで順に切る。
+ * 足りないときは無理に取らない (半端なレコードを作らないため)
+ */
+pub fn spans(
+    len: usize,
+    head: usize,
+    body: usize,
+    tail: usize,
+) -> (Option<Span>, Vec<Span>, Option<Span>) {
+    let mut from = 0usize;
+    let mut to = len;
+    let head_span = if head > 0 && len >= head {
+        from = head;
+        Some((0, head))
+    } else {
+        None
+    };
+    let tail_span = if tail > 0 && to >= from + tail {
+        to -= tail;
+        Some((to, to + tail))
+    } else {
+        None
+    };
+    let mut body_spans = Vec::new();
+    if body > 0 {
+        let mut at = from;
+        while at < to {
+            let end = (at + body).min(to);
+            body_spans.push((at, end));
+            at = end;
+        }
+    }
+    (head_span, body_spans, tail_span)
 }
 
 /// 幅を数える単位ごとの「1行」。
@@ -101,6 +228,16 @@ impl Line<'_> {
         match self {
             Line::Bytes(b) => b.len(),
             Line::Chars(c) => c.len(),
+        }
+    }
+
+    /// 決まった位置の値を取り出す (行より短ければ短いまま)
+    fn slice(&self, at: usize, len: usize, enc: &'static encoding_rs::Encoding) -> String {
+        let from = at.min(self.len());
+        let to = (at + len).min(self.len());
+        match self {
+            Line::Bytes(b) => enc.decode(&b[from..to]).0.into_owned(),
+            Line::Chars(c) => c[from..to].iter().collect(),
         }
     }
 
@@ -126,6 +263,20 @@ fn split_lines(bytes: &[u8]) -> Vec<&[u8]> {
         })
         .filter(|l| !l.is_empty())
         .collect()
+}
+
+/// 末尾の改行と、先頭のUTF-8のBOMを外す。
+///
+/// 改行の無いファイルを長さで切るとき、この2つが混ざると1バイトずつずれてしまう
+fn trim_edges(bytes: &[u8]) -> &[u8] {
+    let mut out = bytes;
+    if out.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        out = &out[3..];
+    }
+    while matches!(out.last(), Some(b'\n') | Some(b'\r')) {
+        out = &out[..out.len() - 1];
+    }
+    out
 }
 
 /// 桁の区切りを推測するときに見る行数
@@ -220,6 +371,16 @@ pub struct LoadedFixed {
     pub rows: Vec<Vec<String>>,
     /// 桁の合計より短い・長い行があったか
     pub ragged: bool,
+    /// 先頭のヘッダレコードの値 (無ければ空)
+    pub head: Vec<String>,
+    /// 末尾のトレーラレコードの値 (無ければ空)
+    pub tail: Vec<String>,
+    /**
+     * 各行がヘッダ行か (種別を見分けているときだけ入る)。
+     *
+     * 行と同じ並び順。見分けていなければ空
+     */
+    pub kinds: Vec<bool>,
 }
 
 /// 桁をどう決めて読むか
@@ -244,49 +405,118 @@ pub fn load(
     unit: WidthUnit,
     reading: Reading,
 ) -> LoadedFixed {
-    let raw = split_lines(bytes);
-    // バイトで数えるときだけ、文字に直す前のまま切り分ける
-    let decoded: Vec<String> = if unit == WidthUnit::Char {
-        raw.iter().map(|l| enc.decode(l).0.into_owned()).collect()
-    } else {
-        Vec::new()
+    // 先に分かっている桁の並び (推測のときだけ無い)
+    let known: Option<Vec<usize>> = match &reading {
+        Reading::Layout(l) => Some(l.columns.iter().map(|c| c.width).collect()),
+        Reading::Widths(w) => Some(w.to_vec()),
+        Reading::Guess => None,
     };
-    let lines: Vec<Line> = if unit == WidthUnit::Char {
-        decoded.iter().map(|s| Line::Chars(s.chars().collect())).collect()
+    // ヘッダ・トレーラはレイアウトで決めたときだけ使う
+    let (head_cols, tail_cols): (&[FixedColumn], &[FixedColumn]) = match &reading {
+        Reading::Layout(l) => (&l.header, &l.trailer),
+        _ => (&[], &[]),
+    };
+    let total_known: usize = known.iter().flatten().sum();
+    /*
+     * 改行ではなく長さで切るか。
+     *
+     * レイアウトでそう決めていて、桁の合計も分かっているときだけ。
+     * 合計が分からないまま切ると、ファイル全体が1行になってしまう
+     */
+    let by_length = matches!(&reading, Reading::Layout(l) if !l.newline) && total_known > 0;
+    let body = if by_length { trim_edges(bytes) } else { bytes };
+
+    /*
+     * レコードの種別を値で見分けるか。
+     *
+     * 見分けるときは、ヘッダは「先頭の1件」ではなく
+     * 「その値になっているレコードすべて」になり、1つの表に混ざって並ぶ
+     */
+    let key: Option<&FixedKey> = match &reading {
+        Reading::Layout(l) => l.key.as_ref(),
+        _ => None,
+    }
+    .filter(|_| !head_cols.is_empty());
+    let head_total = total_width(head_cols);
+
+    // レコードに切り分ける (ヘッダ・本体・トレーラ)
+    let mut head_line: Option<Line> = None;
+    let mut tail_line: Option<Line> = None;
+    // 各行がヘッダ行か (見分けていなければ空のまま)
+    let mut kinds: Vec<bool> = Vec::new();
+    let lines: Vec<Line> = if let Some(key) = key {
+        split_by_key(body, enc, unit, by_length, key, head_total, total_known, &mut kinds)
+    } else if by_length && unit == WidthUnit::Byte {
+        let (h, b, t) = spans(
+            body.len(),
+            total_width(head_cols),
+            total_known,
+            total_width(tail_cols),
+        );
+        head_line = h.map(|(f, e)| Line::Bytes(&body[f..e]));
+        tail_line = t.map(|(f, e)| Line::Bytes(&body[f..e]));
+        b.into_iter().map(|(f, e)| Line::Bytes(&body[f..e])).collect()
+    } else if by_length {
+        let text = enc.decode(body).0.into_owned();
+        let chars: Vec<char> = text.chars().collect();
+        let (h, b, t) = spans(
+            chars.len(),
+            total_width(head_cols),
+            total_known,
+            total_width(tail_cols),
+        );
+        head_line = h.map(|(f, e)| Line::Chars(chars[f..e].to_vec()));
+        tail_line = t.map(|(f, e)| Line::Chars(chars[f..e].to_vec()));
+        b.into_iter()
+            .map(|(f, e)| Line::Chars(chars[f..e].to_vec()))
+            .collect()
     } else {
-        raw.iter().map(|b| Line::Bytes(b)).collect()
+        let raw = split_lines(body);
+        let mut all: Vec<Line> = if unit == WidthUnit::Char {
+            raw.iter()
+                .map(|l| Line::Chars(enc.decode(l).0.chars().collect()))
+                .collect()
+        } else {
+            raw.into_iter().map(Line::Bytes).collect()
+        };
+        // 改行で区切るときは、先頭と末尾の行をそのままヘッダ・トレーラにする
+        if !head_cols.is_empty() && !all.is_empty() {
+            head_line = Some(all.remove(0));
+        }
+        if !tail_cols.is_empty() && !all.is_empty() {
+            tail_line = all.pop();
+        }
+        all
     };
 
     let sample = lines.len().min(SAMPLE_LINES);
-    let widths: Vec<usize> = match &reading {
-        Reading::Layout(l) => l.columns.iter().map(|c| c.width).collect(),
-        Reading::Widths(w) => w.to_vec(),
-        Reading::Guess => guess_widths(&lines[..sample]),
+    let widths: Vec<usize> = match known {
+        Some(w) => w,
+        None => guess_widths(&lines[..sample]),
     };
     if widths.is_empty() {
         return LoadedFixed {
             layout: FixedLayout::from_widths(unit, &[]),
             rows: Vec::new(),
             ragged: false,
+            head: Vec::new(),
+            tail: Vec::new(),
+            kinds: Vec::new(),
         };
     }
 
     // 桁ごとに切って、文字に直す
+    let head_widths: Vec<usize> = head_cols.iter().map(|c| c.width).collect();
     let mut rows: Vec<Vec<String>> = Vec::with_capacity(lines.len());
     let mut ragged = false;
-    let total: usize = widths.iter().sum();
     for (at, line) in lines.iter().enumerate() {
-        if line.len() != total {
+        // 種別を見分けているときは、その行の桁で切る
+        let head_row = kinds.get(at).copied().unwrap_or(false);
+        let use_widths = if head_row { &head_widths } else { &widths };
+        if line.len() != use_widths.iter().sum::<usize>() {
             ragged = true;
         }
-        let cells: Vec<String> = cut(line, &widths)
-            .into_iter()
-            .map(|(from, to)| match line {
-                Line::Bytes(_) => enc.decode(&raw[at][from..to]).0.into_owned(),
-                Line::Chars(c) => c[from..to].iter().collect(),
-            })
-            .collect();
-        rows.push(cells);
+        rows.push(split_cells(line, use_widths, enc));
     }
 
     // 詰め方はレイアウトがあればそれに従い、無ければ中身から見分ける
@@ -315,24 +545,165 @@ pub fn load(
                 unit,
                 columns,
                 trim: true,
+                newline: true,
+                header: Vec::new(),
+                trailer: Vec::new(),
+                key: None,
             }
         }
     };
 
     if out.trim {
-        for row in &mut rows {
-            for (c, cell) in row.iter_mut().enumerate() {
-                if let Some(col) = out.columns.get(c) {
-                    *cell = unpad(cell, col);
-                }
-            }
+        for (at, row) in rows.iter_mut().enumerate() {
+            let head_row = kinds.get(at).copied().unwrap_or(false);
+            unpad_row(row, if head_row { head_cols } else { &out.columns });
         }
     }
+
+    /*
+     * 表は四角にしておく。
+     *
+     * ヘッダ行とボディ行で項目の数が違うので、
+     * 少ないほうを空欄で埋めて、どの行も同じ列数にそろえる
+     */
+    if !kinds.is_empty() {
+        let width = widths.len().max(head_widths.len());
+        for row in &mut rows {
+            row.resize(width, String::new());
+        }
+    }
+
+    // ヘッダ・トレーラは、それぞれの桁で切る
+    let edge = |line: Option<Line>, cols: &[FixedColumn]| -> Vec<String> {
+        let Some(line) = line else {
+            return Vec::new();
+        };
+        let widths: Vec<usize> = cols.iter().map(|c| c.width).collect();
+        let mut cells = split_cells(&line, &widths, enc);
+        if out.trim {
+            unpad_row(&mut cells, cols);
+        }
+        cells
+    };
+    let head = edge(head_line, head_cols);
+    let tail = edge(tail_line, tail_cols);
 
     LoadedFixed {
         layout: out,
         rows,
         ragged,
+        head,
+        tail,
+        kinds,
+    }
+}
+
+/**
+ * 種別を見分けながらレコードに切り分ける。
+ *
+ * どの位置のレコードも、まず決まった場所の値を見て種別を決め、
+ * その種別の長さぶんだけ進む (改行で区切るファイルは、行ごとに種別を見る)
+ */
+#[allow(clippy::too_many_arguments)]
+fn split_by_key<'a>(
+    body: &'a [u8],
+    enc: &'static encoding_rs::Encoding,
+    unit: WidthUnit,
+    by_length: bool,
+    key: &FixedKey,
+    head_total: usize,
+    body_total: usize,
+    kinds: &mut Vec<bool>,
+) -> Vec<Line<'a>> {
+    /// その値がヘッダの印か (前後の空白は落として比べる)
+    fn hit(value: &str, key: &FixedKey) -> bool {
+        value.trim() == key.header.trim()
+    }
+
+    if !by_length {
+        // 改行で区切るファイルは、行ごとに見分けるだけでよい
+        let raw = split_lines(body);
+        let lines: Vec<Line> = if unit == WidthUnit::Char {
+            raw.iter()
+                .map(|l| Line::Chars(enc.decode(l).0.chars().collect()))
+                .collect()
+        } else {
+            raw.into_iter().map(Line::Bytes).collect()
+        };
+        kinds.extend(lines.iter().map(|l| hit(&l.slice(key.at, key.len, enc), key)));
+        return lines;
+    }
+
+    if unit == WidthUnit::Byte {
+        let spans = spans_by_key(body.len(), head_total, body_total, |at| {
+            let from = (at + key.at).min(body.len());
+            let to = (from + key.len).min(body.len());
+            hit(&enc.decode(&body[from..to]).0, key)
+        });
+        kinds.extend(spans.iter().map(|(_, _, h)| *h));
+        return spans
+            .into_iter()
+            .map(|(f, e, _)| Line::Bytes(&body[f..e]))
+            .collect();
+    }
+
+    // 文字で数えるときは、文字に直してから切る
+    let text = enc.decode(body).0.into_owned();
+    let chars: Vec<char> = text.chars().collect();
+    let spans = spans_by_key(chars.len(), head_total, body_total, |at| {
+        let from = (at + key.at).min(chars.len());
+        let to = (from + key.len).min(chars.len());
+        hit(&chars[from..to].iter().collect::<String>(), key)
+    });
+    kinds.extend(spans.iter().map(|(_, _, h)| *h));
+    spans
+        .into_iter()
+        .map(|(f, e, _)| Line::Chars(chars[f..e].to_vec()))
+        .collect()
+}
+
+/// 1レコードを桁ごとに切って、文字に直す
+fn split_cells(
+    line: &Line,
+    widths: &[usize],
+    enc: &'static encoding_rs::Encoding,
+) -> Vec<String> {
+    cut(line, widths)
+        .into_iter()
+        .map(|(from, to)| match line {
+            Line::Bytes(b) => enc.decode(&b[from..to]).0.into_owned(),
+            Line::Chars(c) => c[from..to].iter().collect(),
+        })
+        .collect()
+}
+
+/// 1レコードぶんの値から埋め文字を落とす
+fn unpad_row(cells: &mut [String], columns: &[FixedColumn]) {
+    for (c, cell) in cells.iter_mut().enumerate() {
+        if let Some(col) = columns.get(c) {
+            *cell = unpad(cell, col);
+        }
+    }
+}
+
+/// 値のある場所 (ヘッダ・トレーラには行番号が無い)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Spot {
+    /// データ行 (0始まりの行位置)
+    Row(usize),
+    Header,
+    Trailer,
+}
+
+impl Spot {
+    /// 画面に出す場所の呼び名
+    pub fn label(&self) -> String {
+        match self {
+            Spot::Row(n) => format!("{}行目", n + 1),
+            Spot::Header => "ヘッダ".to_string(),
+            Spot::Trailer => "トレーラ".to_string(),
+        }
     }
 }
 
@@ -340,8 +711,8 @@ pub fn load(
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TooLong {
-    /// 行位置 (0始まり)
-    pub row: usize,
+    /// どこの値か
+    pub spot: Spot,
     /// 列位置 (0始まり)
     pub col: usize,
     pub value: String,
@@ -391,16 +762,24 @@ fn fit(
  * 桁からはみ出す値があれば、書かずにその場所を返す。
  * 固定長は桁がずれると後ろの工程が丸ごと壊れるので、黙って切り詰めない
  */
+#[allow(clippy::too_many_arguments)]
 pub fn dump(
     rows: &[Vec<String>],
     layout: &FixedLayout,
     enc: &'static encoding_rs::Encoding,
     newline: &str,
+    head: &[String],
+    tail: &[String],
+    kinds: &[bool],
 ) -> Result<Vec<u8>, Vec<TooLong>> {
     let mut out: Vec<u8> = Vec::new();
     let mut bad: Vec<TooLong> = Vec::new();
-    for (r, row) in rows.iter().enumerate() {
-        for (c, col) in layout.columns.iter().enumerate() {
+
+    let mut write = |row: &[String], columns: &[FixedColumn], at: Spot, out: &mut Vec<u8>| {
+        if columns.is_empty() {
+            return;
+        }
+        for (c, col) in columns.iter().enumerate() {
             let value = row.get(c).map(String::as_str).unwrap_or("");
             match fit(value, col, layout.unit, enc) {
                 Ok(cell) => out.extend_from_slice(&cell),
@@ -408,7 +787,7 @@ pub fn dump(
                     // 見つけた分はまとめて返す (直す場所が一度に分かるように)
                     if bad.len() < 20 {
                         bad.push(TooLong {
-                            row: r,
+                            spot: at,
                             col: c,
                             value: value.to_string(),
                             len,
@@ -418,8 +797,34 @@ pub fn dump(
                 }
             }
         }
-        out.extend_from_slice(newline.as_bytes());
+        // 改行の無いファイルは、行の切れ目も書かない
+        if layout.newline {
+            out.extend_from_slice(newline.as_bytes());
+        }
+    };
+
+    /*
+     * ヘッダ・トレーラは、その値があるときだけ書く。
+     *
+     * 種別を見分けているときは、ヘッダ行も rows に入っているのでここでは書かない
+     * (桁だけを見て書くと、空のレコードが1件よけいに出てしまう)
+     */
+    if !head.is_empty() {
+        write(head, &layout.header, Spot::Header, &mut out);
     }
+    for (r, row) in rows.iter().enumerate() {
+        // 種別を見分けているときは、その行の桁で書き戻す
+        let columns = if kinds.get(r).copied().unwrap_or(false) {
+            &layout.header
+        } else {
+            &layout.columns
+        };
+        write(row, columns, Spot::Row(r), &mut out);
+    }
+    if !tail.is_empty() {
+        write(tail, &layout.trailer, Spot::Trailer, &mut out);
+    }
+
     if bad.is_empty() {
         Ok(out)
     } else {

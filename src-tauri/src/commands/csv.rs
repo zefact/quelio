@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use super::*;
 use crate::csv_diff::{self, DiffOptions};
 use crate::csv_doc::edit::{CellEdit, Edit};
+use crate::csv_doc::filter::{self, ColumnFilter};
 use crate::csv_doc::find::{self, FindOptions, Match};
+use crate::csv_doc::order::Sort;
 use crate::csv_doc::fixed::{FixedLayout, Reading, WidthUnit};
 use crate::csv_doc::format::{self, Newline, Quote, Quoting};
 use crate::csv_doc::{CsvDoc, CsvDocuments, CsvInfo, CsvPage, StoredDiff};
@@ -283,6 +285,65 @@ pub fn csv_info(docs: State<'_, CsvDocuments>, doc_id: String) -> Result<CsvInfo
     docs.with(&doc_id, |d| d.info(&doc_id))
 }
 
+/**
+ * 絞り込み・並べ替えの最中はできない操作を断る。
+ *
+ * 行を足したり消したりすると、覚えている行番号がずれる。
+ * 画面のどこに足すのかも決められないので、先に外してもらう
+ */
+fn no_filter(d: &CsvDoc) -> Result<(), String> {
+    if d.filtered() {
+        return Err(
+            "絞り込みや並べ替えを外してから、行を追加・削除してください".into(),
+        );
+    }
+    Ok(())
+}
+
+/// 列ごとの絞り込みを入れ替える (空の一覧を渡すと絞り込みをやめる)
+#[tauri::command]
+pub fn csv_set_filters(
+    docs: State<'_, CsvDocuments>,
+    doc_id: String,
+    filters: Vec<ColumnFilter>,
+) -> Result<CsvInfo, String> {
+    docs.with_mut(&doc_id, |d| {
+        d.set_filters(filters);
+        d.info(&doc_id)
+    })
+}
+
+/**
+ * 並べ替えを入れ替える (`None` で元の並びに戻す)。
+ *
+ * ファイルの中身は動かさず、見せる順だけを変える
+ */
+#[tauri::command]
+pub fn csv_set_sort(
+    docs: State<'_, CsvDocuments>,
+    doc_id: String,
+    sort: Option<Sort>,
+) -> Result<CsvInfo, String> {
+    docs.with_mut(&doc_id, |d| {
+        d.set_sort(sort);
+        d.info(&doc_id)
+    })
+}
+
+/**
+ * その列に入っている値の一覧 (絞り込みの画面で選ばせるために使う)。
+ *
+ * 他の列の絞り込みを掛けたあとの行から数える
+ */
+#[tauri::command]
+pub fn csv_filter_values(
+    docs: State<'_, CsvDocuments>,
+    doc_id: String,
+    col: usize,
+) -> Result<filter::Values, String> {
+    docs.with(&doc_id, |d| filter::values(&d.rows, &d.filters, col))
+}
+
 /// 1ページぶんの行
 #[tauri::command]
 pub fn csv_page(
@@ -304,9 +365,11 @@ pub fn csv_set_cells(
     docs.with_mut(&doc_id, |d| {
         let mut list = Vec::with_capacity(cells.len());
         for c in &cells {
+            // 画面から来る行番号は、絞り込みを掛けたあとの数え方
+            let row = d.real(c.row)?;
             let before = d
                 .rows
-                .get(c.row)
+                .get(row)
                 .and_then(|r| r.get(c.col))
                 .ok_or_else(|| "そのセルは見つかりません".to_string())?;
             // 値が変わらないものは履歴に残さない
@@ -314,7 +377,7 @@ pub fn csv_set_cells(
                 continue;
             }
             list.push(CellEdit {
-                row: c.row,
+                row,
                 col: c.col,
                 before: before.clone(),
                 after: c.value.clone(),
@@ -337,6 +400,8 @@ pub fn csv_insert_rows(
     count: usize,
 ) -> Result<CsvInfo, String> {
     docs.with_mut(&doc_id, |d| {
+        d.can_reshape()?;
+        no_filter(d)?;
         let e = d.sheet().insert_rows(at, count)?;
         d.apply(e)?;
         Ok(d.info(&doc_id))
@@ -352,6 +417,8 @@ pub fn csv_delete_rows(
     count: usize,
 ) -> Result<CsvInfo, String> {
     docs.with_mut(&doc_id, |d| {
+        d.can_reshape()?;
+        no_filter(d)?;
         let e = d.sheet().delete_rows(at, count)?;
         d.apply(e)?;
         Ok(d.info(&doc_id))
@@ -367,8 +434,11 @@ pub fn csv_insert_col(
     name: String,
 ) -> Result<CsvInfo, String> {
     docs.with_mut(&doc_id, |d| {
+        d.can_reshape()?;
         let e = d.sheet().insert_col(at, &name)?;
         d.apply(e)?;
+        // 列の位置がずれるので、絞り込みは落とす
+        d.clear_filters();
         Ok(d.info(&doc_id))
     })?
 }
@@ -381,8 +451,11 @@ pub fn csv_delete_col(
     at: usize,
 ) -> Result<CsvInfo, String> {
     docs.with_mut(&doc_id, |d| {
+        d.can_reshape()?;
         let e = d.sheet().delete_col(at)?;
         d.apply(e)?;
+        // 列の位置がずれるので、絞り込みは落とす
+        d.clear_filters();
         Ok(d.info(&doc_id))
     })?
 }
@@ -423,11 +496,17 @@ pub fn csv_find(
 ) -> Result<FindResult, String> {
     docs.with(&doc_id, |d| {
         let w = d.header.len();
-        FindResult {
-            hit: find::find_next(&d.rows, w, &query, &options, from, backward),
-            total: find::count(&d.rows, w, &query, &options),
-        }
-    })
+        let Some(m) = find::matcher(&query, &options)? else {
+            return Ok(FindResult {
+                hit: None,
+                total: 0,
+            });
+        };
+        Ok(FindResult {
+            hit: find::find_next(d.shown(), w, &m, from, backward),
+            total: find::count(d.shown(), w, &m),
+        })
+    })?
 }
 
 /// 見つかったものをまとめて置き換える (取り消しは1回で戻る)
@@ -441,12 +520,53 @@ pub fn csv_replace_all(
 ) -> Result<CsvInfo, String> {
     docs.with_mut(&doc_id, |d| {
         let w = d.header.len();
-        let list = find::replace_all(&d.rows, w, &query, &replacement, &options);
+        let Some(m) = find::matcher(&query, &options)? else {
+            return Ok(d.info(&doc_id));
+        };
+        let list = find::replace_all(d.shown(), w, &m, &replacement);
         if list.is_empty() {
             return Ok(d.info(&doc_id));
         }
         d.apply(Edit::Cells(list))?;
         Ok(d.info(&doc_id))
+    })?
+}
+
+/// 1つだけ置き換えた結果
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReplaceOne {
+    /// 実際に置き換えたか (今いるセルが引っかからなければ `false`)
+    pub done: bool,
+    pub info: CsvInfo,
+}
+
+/// 今いるセル1つだけを置き換える
+#[tauri::command]
+pub fn csv_replace_one(
+    docs: State<'_, CsvDocuments>,
+    doc_id: String,
+    query: String,
+    replacement: String,
+    options: FindOptions,
+    at: Match,
+) -> Result<ReplaceOne, String> {
+    docs.with_mut(&doc_id, |d| {
+        let w = d.header.len();
+        let done = match find::matcher(&query, &options)? {
+            Some(m) => match find::replace_at(d.shown(), w, &m, at, &replacement) {
+                Some(edit) => {
+                    d.apply(Edit::Cells(vec![edit]))?;
+                    true
+                }
+                None => false,
+            },
+            None => false,
+        };
+        Ok(ReplaceOne {
+            done,
+            info: d.info(&doc_id),
+        })
     })?
 }
 
@@ -553,25 +673,31 @@ pub fn csv_edge(
 ) -> Result<CsvPos, String> {
     docs.with(&doc_id, |d| {
         let width = d.columns().len();
-        if d.rows.is_empty() || width == 0 {
+        let shown = d.shown();
+        if shown.is_empty() || width == 0 {
             return CsvPos { row: 0, col: 0 };
         }
-        let row = row.min(d.rows.len() - 1);
+        let row = row.min(shown.len() - 1);
         let col = col.min(width - 1);
         // 空文字だけでなく、空白だけのセルも「入っていない」とみなす
         let has = |text: Option<&String>| text.is_some_and(|t| !t.trim().is_empty());
         if d_row != 0 {
             let to = crate::csv_doc::nav::edge(
-                |i| has(d.rows[i].get(col)),
+                |i| has(shown.get(i).and_then(|r| r.get(col))),
                 row,
-                d.rows.len(),
+                shown.len(),
                 d_row > 0,
             );
             return CsvPos { row: to, col };
         }
         if d_col != 0 {
-            let line = &d.rows[row];
-            let to = crate::csv_doc::nav::edge(|i| has(line.get(i)), col, width, d_col > 0);
+            let line = shown.get(row);
+            let to = crate::csv_doc::nav::edge(
+                |i| has(line.and_then(|r| r.get(i))),
+                col,
+                width,
+                d_col > 0,
+            );
             return CsvPos { row, col: to };
         }
         CsvPos { row, col }
@@ -602,21 +728,239 @@ pub fn csv_summary(
 ) -> Result<crate::csv_doc::summary::Summary, String> {
     docs.with(&doc_id, |d| {
         let width = d.columns().len();
-        if d.rows.is_empty() || width == 0 {
+        let shown = d.shown();
+        if shown.is_empty() || width == 0 {
             return crate::csv_doc::summary::summarize(std::iter::empty());
         }
-        let last_row = d.rows.len() - 1;
+        let last_row = shown.len() - 1;
         let last_col = width - 1;
         crate::csv_doc::summary::summarize(rects.iter().flat_map(|rect| {
             let r1 = rect.top.min(last_row);
             let r2 = rect.bottom.min(last_row);
             let c1 = rect.left.min(last_col);
             let c2 = rect.right.min(last_col);
-            d.rows[r1..=r2].iter().flat_map(move |row| {
-                (c1..=c2).map(|c| row.get(c).map(String::as_str).unwrap_or(""))
+            (r1..=r2).flat_map(move |i| {
+                (c1..=c2).map(move |c| {
+                    shown
+                        .get(i)
+                        .and_then(|row| row.get(c))
+                        .map(String::as_str)
+                        .unwrap_or("")
+                })
             })
         }))
     })
+}
+
+/// 選んでいる範囲を、クリップボードへ渡すタブ区切りテキストにする。
+///
+/// 画面には見えている行しか無いので、文字を組み立てるのはここでやる。
+///
+/// 四角は複数受け取る (⌘+クリックで離れた所も選べるため)。
+/// 選んだ位置の関係はそのまま保つので、横に並んだものは同じ行にタブで並び、
+/// 間が空いていればそのぶん空の項目が入る
+#[tauri::command]
+pub fn csv_copy(
+    docs: State<'_, CsvDocuments>,
+    doc_id: String,
+    rects: Vec<CsvRect>,
+) -> Result<String, String> {
+    use crate::csv_doc::copy;
+
+    docs.with(&doc_id, |d| {
+        let width = d.columns().len();
+        let shown = d.shown();
+        if shown.is_empty() || width == 0 {
+            return Ok(String::new());
+        }
+        let last_row = shown.len() - 1;
+        let last_col = width - 1;
+        // 画面の指定は行数・列数より大きいことがあるので、先に丸めておく
+        let rects: Vec<copy::Rect> = rects
+            .iter()
+            .map(|r| copy::Rect {
+                top: r.top.min(last_row),
+                bottom: r.bottom.min(last_row),
+                left: r.left.min(last_col),
+                right: r.right.min(last_col),
+            })
+            .collect();
+        let Some(plan) = copy::plan(&rects) else {
+            return Ok(String::new());
+        };
+        let cells = plan.cells();
+        if cells > copy::MAX_CELLS {
+            return Err(format!(
+                "選んでいるセルが多すぎてコピーできません ({}セル)。{}セルまでです",
+                cells,
+                copy::MAX_CELLS
+            ));
+        }
+        Ok(copy::to_text(&plan, &rects, |row, col| {
+            shown
+                .get(row)
+                .and_then(|r| r.get(col))
+                .map(String::as_str)
+                .unwrap_or("")
+        }))
+    })?
+}
+
+/// 固定長のヘッダ・トレーラのレコードを書き換える。
+///
+/// 項目の数が少ないので、レコードを丸ごと受け取って入れ替える。
+/// 取り消しも1回で戻る
+#[tauri::command]
+pub fn csv_set_edge(
+    docs: State<'_, CsvDocuments>,
+    doc_id: String,
+    trailer: bool,
+    cells: Vec<String>,
+) -> Result<CsvInfo, String> {
+    docs.with_mut(&doc_id, |d| {
+        let before = if trailer {
+            d.tail.clone()
+        } else {
+            d.head.clone()
+        };
+        if before.is_empty() {
+            return Err("このファイルにはその行がありません".to_string());
+        }
+        // 桁の数は変えられない (レイアウトと食い違わないように長さを揃える)
+        let mut after = cells;
+        after.resize(before.len(), String::new());
+        if before == after {
+            return Ok(d.info(&doc_id));
+        }
+        d.apply(Edit::EdgeRow {
+            trailer,
+            before,
+            after,
+        })?;
+        Ok(d.info(&doc_id))
+    })?
+}
+
+/// 貼り付けの結果 (画面の知らせに使う)
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteResult {
+    /// 貼り付けたあとの状態
+    pub info: CsvInfo,
+    /// 実際に入れた行数・列数
+    pub rows: usize,
+    pub cols: usize,
+    /// 足りなくて増やした行数
+    pub added_rows: usize,
+    /// 右にはみ出して切り落とした列があったか
+    pub clipped_cols: bool,
+}
+
+/// クリップボードのタブ区切りテキストを、指定のセルを左上として貼り付ける。
+///
+/// 下に足りなければ行を増やす (CSVは行を足せる)。
+/// 右にはみ出したぶんは入れない (列の並びはファイルの形そのものなので、勝手に増やさない)。
+///
+/// 行の追加と値の書き換えは1つの操作にまとめてあり、取り消しは1回で戻る
+#[tauri::command]
+pub fn csv_paste(
+    docs: State<'_, CsvDocuments>,
+    doc_id: String,
+    row: usize,
+    col: usize,
+    text: String,
+) -> Result<PasteResult, String> {
+    docs.with_mut(&doc_id, |d| {
+        let block = crate::csv_doc::paste::parse_tsv(&text);
+        let width = d.columns().len();
+        let none = |d: &CsvDoc| PasteResult {
+            info: d.info(&doc_id),
+            rows: 0,
+            cols: 0,
+            added_rows: 0,
+            clipped_cols: false,
+        };
+        if block.is_empty() || width == 0 {
+            return Ok(none(d));
+        }
+        if col >= width {
+            return Err("貼り付ける先の列がありません".into());
+        }
+        if row > d.shown().len() {
+            return Err("貼り付ける先の行がありません".into());
+        }
+        let wide = block.iter().map(|r| r.len()).max().unwrap_or(0);
+        let cells = block.len().saturating_mul(wide);
+        if cells > crate::csv_doc::copy::MAX_CELLS {
+            return Err(format!(
+                "貼り付ける中身が多すぎます ({}セル)。{}セルまでです",
+                cells,
+                crate::csv_doc::copy::MAX_CELLS
+            ));
+        }
+        let cols = wide.min(width - col);
+        let clipped_cols = wide > cols;
+        let added_rows = (row + block.len()).saturating_sub(d.shown().len());
+
+        let mut edits: Vec<Edit> = Vec::new();
+        if added_rows > 0 {
+            d.can_reshape()?;
+            // 絞り込み中は行を増やせない (どこへ入れるか決められないため)
+            no_filter(d)?;
+            let at = d.rows.len();
+            edits.push(d.sheet().insert_rows(at, added_rows)?);
+        }
+        /*
+         * 値が変わるセルだけを控える (増やした行の元の値は空欄)。
+         *
+         * 絞り込み中は、見えている行へ上から順に入れていく
+         * (隠れている行は飛ばす)
+         */
+        let mut list = Vec::new();
+        for (i, line) in block.iter().enumerate() {
+            let r = match d.shown().real(row + i) {
+                Some(r) => r,
+                // 増やしたぶんは絞り込みの外にあるので、そのまま元の番号で置く
+                None => row + i,
+            };
+            for (j, after) in line.iter().take(cols).enumerate() {
+                let c = col + j;
+                let before = d
+                    .rows
+                    .get(r)
+                    .and_then(|x| x.get(c))
+                    .cloned()
+                    .unwrap_or_default();
+                if before == *after {
+                    continue;
+                }
+                list.push(CellEdit {
+                    row: r,
+                    col: c,
+                    before,
+                    after: after.clone(),
+                });
+            }
+        }
+        if !list.is_empty() {
+            edits.push(Edit::Cells(list));
+        }
+        if edits.is_empty() {
+            // 中身が同じなら履歴も増やさない
+            return Ok(none(d));
+        }
+        d.apply(Edit::Group {
+            label: "貼り付け",
+            edits,
+        })?;
+        Ok(PasteResult {
+            info: d.info(&doc_id),
+            rows: block.len(),
+            cols,
+            added_rows,
+            clipped_cols,
+        })
+    })?
 }
 
 /// CSVの1項目を、Excelに置く形へ振り分ける。

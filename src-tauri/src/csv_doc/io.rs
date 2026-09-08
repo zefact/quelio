@@ -23,6 +23,12 @@ pub struct Loaded {
     pub format: CsvFormat,
     /// 1行目 (ヘッダとして扱うかは呼び出し側が決める)
     pub rows: Vec<Vec<String>>,
+    /// 固定長のヘッダレコードの値 (無ければ空)
+    pub head: Vec<String>,
+    /// 固定長のトレーラレコードの値 (無ければ空)
+    pub tail: Vec<String>,
+    /// 各行がヘッダ行か (種別を見分けているときだけ入る)
+    pub kinds: Vec<bool>,
     /// 行によって列数が違ったか (足りない分は空欄で埋めてある)
     pub ragged: bool,
     /// 文字コードの変換で置き換えが起きたか (文字化けの疑い)
@@ -84,6 +90,9 @@ pub fn load(bytes: &[u8], forced: Option<&str>) -> Result<Loaded, String> {
             fixed: None,
         },
         rows,
+        head: Vec::new(),
+        tail: Vec::new(),
+        kinds: Vec::new(),
         ragged,
         replaced,
     })
@@ -123,6 +132,9 @@ pub fn load_fixed(
             fixed: Some(got.layout),
         },
         rows: got.rows,
+        head: got.head,
+        tail: got.tail,
+        kinds: got.kinds,
         ragged: got.ragged,
         replaced,
     })
@@ -138,9 +150,13 @@ fn dump_fixed(
     rows: &[Vec<String>],
     f: &CsvFormat,
     layout: &fixed::FixedLayout,
+    head: &[String],
+    tail: &[String],
+    kinds: &[bool],
 ) -> Result<Vec<u8>, String> {
     let enc = format::encoding_by_name(&f.encoding)?;
-    let body = fixed::dump(rows, layout, enc, f.newline.as_str()).map_err(too_long_message)?;
+    let body = fixed::dump(rows, layout, enc, f.newline.as_str(), head, tail, kinds)
+        .map_err(too_long_message)?;
     let mut bytes = Vec::with_capacity(body.len() + 3);
     if f.bom && enc == encoding_rs::UTF_8 {
         bytes.extend_from_slice(&[0xEF, 0xBB, 0xBF]);
@@ -156,8 +172,8 @@ fn too_long_message(bad: Vec<fixed::TooLong>) -> String {
         .take(5)
         .map(|b| {
             format!(
-                "{}行目の{}列目「{}」({}→桁は{})",
-                b.row + 1,
+                "{}の{}列目「{}」({}→桁は{})",
+                b.spot.label(),
                 b.col + 1,
                 b.value,
                 b.len,
@@ -180,9 +196,15 @@ fn has_bom(bytes: &[u8]) -> bool {
 }
 
 /// 行をCSVのバイト列にする (指定の文字コード・改行・区切り・引用符で)
-pub fn dump(rows: &[Vec<String>], f: &CsvFormat) -> Result<Vec<u8>, String> {
+pub fn dump(
+    rows: &[Vec<String>],
+    f: &CsvFormat,
+    head: &[String],
+    tail: &[String],
+    kinds: &[bool],
+) -> Result<Vec<u8>, String> {
     if let Some(layout) = &f.fixed {
-        return dump_fixed(rows, f, layout);
+        return dump_fixed(rows, f, layout, head, tail, kinds);
     }
     let mut b = csv::WriterBuilder::new();
     b.delimiter(f.delimiter as u8)

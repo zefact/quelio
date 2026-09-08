@@ -121,6 +121,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|_app| {
@@ -216,6 +217,7 @@ pub fn run() {
             commands::csv_open,
             commands::csv_open_fixed,
             commands::csv_set_fixed,
+            commands::csv_set_edge,
             commands::csv_layouts,
             commands::csv_save_layout,
             commands::csv_delete_layout,
@@ -233,6 +235,10 @@ pub fn run() {
             commands::csv_rename_col,
             commands::csv_find,
             commands::csv_replace_all,
+            commands::csv_replace_one,
+            commands::csv_set_filters,
+            commands::csv_set_sort,
+            commands::csv_filter_values,
             commands::csv_undo,
             commands::csv_redo,
             commands::csv_set_header,
@@ -240,6 +246,8 @@ pub fn run() {
             commands::csv_save,
             commands::csv_export_xlsx,
             commands::csv_summary,
+            commands::csv_copy,
+            commands::csv_paste,
             commands::csv_edge,
             commands::csv_changed_outside,
             commands::csv_dirty_names,

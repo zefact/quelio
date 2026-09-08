@@ -21,6 +21,7 @@ import type {
   CsvDiffOverview,
   CsvDiffPage,
   CsvExportResult,
+  CsvFilterValues,
   CsvFindResult,
   CsvFromQuery,
   CsvSavedLayout,
@@ -28,7 +29,9 @@ import type {
   CsvPage,
   CsvPreview,
   CsvSummary,
+  CsvPasteResult,
   CsvPos,
+  CsvReplaceOne,
   DangerousStatement,
   ErDiagramData,
   ExportedLog,
@@ -114,6 +117,7 @@ export interface CommandResults {
   csv_open: CsvInfo;
   csv_open_fixed: CsvInfo;
   csv_set_fixed: CsvInfo;
+  csv_set_edge: CsvInfo;
   csv_layouts: CsvSavedLayout[];
   csv_save_layout: CsvSavedLayout[];
   csv_delete_layout: CsvSavedLayout[];
@@ -131,6 +135,10 @@ export interface CommandResults {
   csv_rename_col: CsvInfo;
   csv_find: CsvFindResult;
   csv_replace_all: CsvInfo;
+  csv_replace_one: CsvReplaceOne;
+  csv_set_filters: CsvInfo;
+  csv_set_sort: CsvInfo;
+  csv_filter_values: CsvFilterValues;
   csv_undo: CsvInfo;
   csv_redo: CsvInfo;
   csv_set_header: CsvInfo;
@@ -138,6 +146,8 @@ export interface CommandResults {
   csv_save: CsvInfo;
   csv_export_xlsx: null;
   csv_summary: CsvSummary;
+  csv_copy: string;
+  csv_paste: CsvPasteResult;
   csv_edge: CsvPos;
   csv_changed_outside: boolean;
   csv_dirty_names: string[];
@@ -292,12 +302,19 @@ export const COMMAND_NAMES = [
   "csv_rename_col",
   "csv_save_layout",
   "csv_replace_all",
+  "csv_replace_one",
+  "csv_set_filters",
+  "csv_set_sort",
+  "csv_filter_values",
   "csv_save",
   "csv_export_xlsx",
   "csv_summary",
+  "csv_copy",
+  "csv_paste",
   "csv_edge",
   "csv_set_cells",
   "csv_set_fixed",
+  "csv_set_edge",
   "csv_set_format",
   "csv_set_header",
   "csv_undo",

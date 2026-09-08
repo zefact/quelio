@@ -7,14 +7,19 @@
 //! こうしているのは、10万行のCSVを画面側に丸ごと持たせると
 //! メモリも描画も持たないため。既存のクエリ結果と同じ考え方
 
+pub mod copy;
 pub mod edit;
+pub mod filter;
 pub mod find;
 pub mod fixed;
 pub mod format;
 pub mod io;
 pub mod nav;
+pub mod order;
+pub mod paste;
 pub mod sink;
 pub mod summary;
+pub mod view;
 #[cfg(test)]
 mod tests;
 
@@ -23,7 +28,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use edit::{Edit, Sheet};
+use filter::ColumnFilter;
+use order::Sort;
 use format::{CsvFormat, Newline, Quote, Quoting};
+use view::Rows;
 
 /// 取り消しの履歴を持つ上限。
 ///
@@ -44,7 +52,14 @@ pub struct CsvInfo {
     pub has_header: bool,
     /// 列名 (ヘッダとして扱っていなければ "1", "2", …)
     pub columns: Vec<String>,
+    /// 画面に出る行数 (絞り込み中は絞ったあとの数)
     pub row_count: usize,
+    /// ファイル全体の行数 (絞り込みと関係なく数えた数)
+    pub total_rows: usize,
+    /// 列ごとの絞り込み (空なら絞っていない)
+    pub filters: Vec<ColumnFilter>,
+    /// 並べ替え (していなければ None)
+    pub sort: Option<Sort>,
     /// 保存していない編集があるか
     pub dirty: bool,
     /// 行によって列数が違っていたか (足りない分は空欄で埋めてある)
@@ -55,6 +70,10 @@ pub struct CsvInfo {
     pub undo_label: Option<String>,
     /// やり直せる操作の名前 (無ければ None)
     pub redo_label: Option<String>,
+    /// 固定長のヘッダレコードの値 (無ければ空)
+    pub head_row: Vec<String>,
+    /// 固定長のトレーラレコードの値 (無ければ空)
+    pub trailer_row: Vec<String>,
 }
 
 /// 画面へ返す1ページ
@@ -63,8 +82,22 @@ pub struct CsvInfo {
 pub struct CsvPage {
     pub offset: usize,
     pub rows: Vec<Vec<String>>,
-    /// 全体の行数 (スクロールバーの長さに使う)
+    /// 画面に出る行数 (スクロールバーの長さに使う)
     pub total: usize,
+    /**
+     * このページの各行が、元のファイルの何行目か (0から数える)。
+     *
+     * 絞り込んでいるときだけ入る。絞っていなければ `offset` から順に並ぶので、
+     * 送らずに済ませて中身を小さくしている
+     */
+    pub numbers: Vec<usize>,
+    /**
+     * このページの各行がヘッダ行か (種別を見分けているときだけ入る)。
+     *
+     * 全行ぶんを1度に渡すと大きなファイルで重くなるので、
+     * 行と同じくページごとに渡す
+     */
+    pub kinds: Vec<bool>,
 }
 
 /// 開いているCSV1つ
@@ -77,11 +110,38 @@ pub struct CsvDoc {
     pub header: Vec<String>,
     /// データ行 (ヘッダは含まない)
     pub rows: Vec<Vec<String>>,
+    /// 固定長のヘッダレコードの値 (使わないときは空)
+    pub head: Vec<String>,
+    /// 固定長のトレーラレコードの値 (使わないときは空)
+    pub tail: Vec<String>,
+    /**
+     * 各行がヘッダ行か (種別を見分けているときだけ入る)。
+     *
+     * 行と同じ並び順。ここが空でなければ「種別が混ざったファイル」なので、
+     * 行や列の増減はできない (どちらの桁で読むかが決められなくなるため)
+     */
+    pub kinds: Vec<bool>,
     pub dirty: bool,
     pub ragged: bool,
     pub replaced: bool,
     /// 開いた (保存した) 時点のファイルの更新時刻。外部での書き換えに気づくために持つ
     pub mtime: Option<u64>,
+    /// 列ごとの絞り込み (空なら絞っていない)
+    pub filters: Vec<ColumnFilter>,
+    /**
+     * 並べ替え (していなければ None)。
+     *
+     * ファイルの中身は動かさず、見せる順だけを変える。
+     * 保存すると元の並びのまま出る
+     */
+    pub sort: Option<Sort>,
+    /**
+     * 絞り込みで残った行の、元の行番号。
+     *
+     * 絞っていなければ `None` (全行がそのまま見える)。
+     * 行が増減したら作り直す。そうしないと番号がずれる
+     */
+    view: Option<Vec<usize>>,
     undo: Vec<Edit>,
     redo: Vec<Edit>,
 }
@@ -120,10 +180,16 @@ impl CsvDoc {
             has_header: true,
             header,
             rows,
+            head: Vec::new(),
+            tail: Vec::new(),
+            kinds: Vec::new(),
             dirty: false,
             ragged: loaded.ragged,
             replaced: loaded.replaced,
             mtime: None,
+            filters: Vec::new(),
+            sort: None,
+            view: None,
             undo: Vec::new(),
             redo: Vec::new(),
         })
@@ -143,11 +209,12 @@ impl CsvDoc {
         reading: fixed::Reading,
     ) -> Result<CsvDoc, String> {
         let loaded = io::load_fixed(bytes, forced_encoding, unit, reading)?;
+        // 種別が混ざるファイルは、ヘッダ行のほうが項目が多いこともある
         let width = loaded
             .format
             .fixed
             .as_ref()
-            .map(|l| l.columns.len())
+            .map(|l| l.columns.len().max(l.header.len()))
             .unwrap_or(1)
             .max(1);
         Ok(CsvDoc {
@@ -158,10 +225,16 @@ impl CsvDoc {
             has_header: false,
             header: numbered(width),
             rows: loaded.rows,
+            head: loaded.head,
+            tail: loaded.tail,
+            kinds: loaded.kinds,
             dirty: false,
             ragged: loaded.ragged,
             replaced: loaded.replaced,
             mtime: None,
+            filters: Vec::new(),
+            sort: None,
+            view: None,
             undo: Vec::new(),
             redo: Vec::new(),
         })
@@ -225,14 +298,34 @@ impl CsvDoc {
             has_header: true,
             header,
             rows,
+            head: Vec::new(),
+            tail: Vec::new(),
+            kinds: Vec::new(),
             // 保存しないと残らないので、最初から「未保存」にしておく
             dirty: true,
             ragged: false,
             replaced: false,
             mtime: None,
+            filters: Vec::new(),
+            sort: None,
+            view: None,
             undo: Vec::new(),
             redo: Vec::new(),
         }
+    }
+
+    /**
+     * 行や列の増減ができるか。
+     *
+     * 種別が混ざったファイルは、行ごとに桁の並びが違う。
+     * 足した行をどちらの種別として書き戻すかが決められないので、
+     * 増減はできないことにしている (値の書き換えはできる)
+     */
+    pub fn can_reshape(&self) -> Result<(), String> {
+        if self.kinds.is_empty() {
+            return Ok(());
+        }
+        Err("レコードの種別が混ざったファイルでは、行や列の追加・削除はできません".into())
     }
 
     /// 画面に出す列名
@@ -262,28 +355,102 @@ impl CsvDoc {
             format: self.format.clone(),
             has_header: self.has_header,
             columns: self.columns(),
-            row_count: self.rows.len(),
+            row_count: self.shown().len(),
+            total_rows: self.rows.len(),
+            filters: self.filters.clone(),
+            sort: self.sort,
             dirty: self.dirty,
             ragged: self.ragged,
             replaced: self.replaced,
             undo_label: self.undo.last().map(|e| e.label().to_string()),
             redo_label: self.redo.last().map(|e| e.label().to_string()),
+            head_row: self.head.clone(),
+            trailer_row: self.tail.clone(),
         }
     }
 
-    /// 1ページぶんの行を返す
+    /// 1ページぶんの行を返す (絞り込み中は、絞ったあとの並びで数える)
     pub fn page(&self, offset: usize, limit: usize) -> CsvPage {
-        let end = offset.saturating_add(limit).min(self.rows.len());
-        let rows = if offset >= self.rows.len() {
-            Vec::new()
-        } else {
-            self.rows[offset..end].to_vec()
-        };
+        let shown = self.shown();
+        let end = offset.saturating_add(limit).min(shown.len());
+        let mut rows = Vec::new();
+        let mut kinds = Vec::new();
+        let mut numbers = Vec::new();
+        for i in offset..end {
+            let Some(real) = shown.real(i) else { break };
+            let Some(row) = self.rows.get(real) else { break };
+            rows.push(row.clone());
+            // 見分けていないときは空のまま渡す
+            if !self.kinds.is_empty() {
+                kinds.push(self.kinds.get(real).copied().unwrap_or(false));
+            }
+            if shown.filtered() {
+                numbers.push(real);
+            }
+        }
         CsvPage {
             offset,
             rows,
-            total: self.rows.len(),
+            total: shown.len(),
+            kinds,
+            numbers,
         }
+    }
+
+    /// 画面に出ている行 (絞り込みを掛けたあとの並び)
+    pub fn shown(&self) -> Rows<'_> {
+        Rows::new(&self.rows, self.view.as_deref())
+    }
+
+    /// 絞り込んでいるか
+    pub fn filtered(&self) -> bool {
+        self.view.is_some()
+    }
+
+    /**
+     * 画面での行番号を、元の行番号に直す。
+     *
+     * 画面から届く位置はすべて「画面での番号」なので、
+     * 書き換える前にここを通す
+     */
+    pub fn real(&self, row: usize) -> Result<usize, String> {
+        self.shown()
+            .real(row)
+            .ok_or_else(|| "その行は見つかりません".to_string())
+    }
+
+    /// 見せる行と、その順を決め直す (行が増減したあとにも呼ぶ)
+    fn rebuild(&mut self) {
+        let kept = filter::apply(&self.rows, &self.filters);
+        self.view = order::arrange(&self.rows, kept, self.sort);
+    }
+
+    /**
+     * 絞り込みを入れ替える。
+     *
+     * 中身の無いものは持たない (絞っていないのと同じなので)
+     */
+    pub fn set_filters(&mut self, filters: Vec<ColumnFilter>) {
+        self.filters = filters.into_iter().filter(|f| !f.is_empty()).collect();
+        self.rebuild();
+    }
+
+    /// 並べ替えを入れ替える (`None` で元の並びに戻す)
+    pub fn set_sort(&mut self, sort: Option<Sort>) {
+        self.sort = sort;
+        self.rebuild();
+    }
+
+    /**
+     * 絞り込みをやめる。
+     *
+     * 列を足したり消したりすると、絞っている列の位置がずれるので、
+     * そのときは絞り込みごと落とす
+     */
+    pub fn clear_filters(&mut self) {
+        self.filters.clear();
+        self.sort = None;
+        self.view = None;
     }
 
     /// 編集操作を組み立てるための入り口 (コマンド層からも使う)
@@ -291,12 +458,24 @@ impl CsvDoc {
         Sheet {
             header: &mut self.header,
             rows: &mut self.rows,
+            head: &mut self.head,
+            tail: &mut self.tail,
         }
     }
 
-    /// 操作を適用し、取り消せるように控える
+    /**
+     * 操作を適用し、取り消せるように控える。
+     *
+     * 行が増減したときだけ絞り込みを掛け直す。
+     * セルを書き換えただけで掛け直すと、直した行がその場で消えてしまい
+     * (絞り込みの条件から外れるため) どこを直したのか分からなくなる
+     */
     pub fn apply(&mut self, e: Edit) -> Result<(), String> {
+        let before = self.rows.len();
         self.sheet().apply(&e)?;
+        if self.rows.len() != before {
+            self.rebuild();
+        }
         self.undo.push(e);
         if self.undo.len() > UNDO_LIMIT {
             self.undo.remove(0);
@@ -313,10 +492,14 @@ impl CsvDoc {
             return Ok(None);
         };
         let back = e.invert();
+        let before = self.rows.len();
         if let Err(err) = self.sheet().apply(&back) {
             // 戻せなかったら履歴も戻して、状態を変えないままにする
             self.undo.push(e);
             return Err(err);
+        }
+        if self.rows.len() != before {
+            self.rebuild();
         }
         let label = e.label().to_string();
         self.redo.push(e);
@@ -329,9 +512,13 @@ impl CsvDoc {
         let Some(e) = self.redo.pop() else {
             return Ok(None);
         };
+        let before = self.rows.len();
         if let Err(err) = self.sheet().apply(&e) {
             self.redo.push(e);
             return Err(err);
+        }
+        if self.rows.len() != before {
+            self.rebuild();
         }
         let label = e.label().to_string();
         self.undo.push(e);
@@ -359,7 +546,9 @@ impl CsvDoc {
         }
         self.has_header = on;
         self.dirty = true;
-        // 行の位置がずれるので、取り消しの履歴は続けられない
+        // 行の位置がずれるので、絞り込みは掛け直す
+        self.rebuild();
+        // 同じ理由で、取り消しの履歴も続けられない
         self.undo.clear();
         self.redo.clear();
     }
@@ -371,7 +560,7 @@ impl CsvDoc {
             all.push(self.header.clone());
         }
         all.extend(self.rows.iter().cloned());
-        io::dump(&all, &self.format)
+        io::dump(&all, &self.format, &self.head, &self.tail, &self.kinds)
     }
 
     /// 開いた (前回保存した) あとに、外部でファイルが書き換えられているか

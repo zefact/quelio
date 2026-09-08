@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.8.3"
+version = "0.8.4"
 description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -42,6 +42,10 @@ chrono = "0.4.45"
 rust_decimal = "1.42.1"
 base64 = "0.22"
 tauri-plugin-dialog = "2.7.2"
+# クリップボードの読み書き。
+# WKWebViewは操作の直後でないと navigator.clipboard を受け付けないため、
+# 表のコピー・貼り付けはRust側から行う
+tauri-plugin-clipboard-manager = "2"
 aes-gcm = "0.10"
 # OSのキーチェーンに保存時暗号化の鍵を置く。
 # 対応環境は macOS / Windows のみなので、Linuxのバックエンドは入れていない
@@ -52,6 +56,8 @@ tauri-plugin-process = "2.3.1"
 # アプリ全体のメモリ使用量 (プロセスの情報だけ使う)
 sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 csv = "1"
+# CSVエディタの検索・置換を正規表現でも行えるようにする
+regex = "1"
 encoding_rs = "0.8"
 encoding_rs_io = "0.1"
 # テーブル定義書のExcel出力 (純Rust。Cのライブラリを持ち込まない)

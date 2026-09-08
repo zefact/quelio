@@ -82,3 +82,27 @@ export function frameBox(
     height: (r.bottom - r.top + 1) * rowHeight,
   };
 }
+
+/**
+ * 外からカーソルを動かされたとき、選んでいた範囲をどうするか。
+ *
+ * 何もしないと、伸ばしていた先 (`head`) だけが取り残されて、
+ * 動く前の所と動いた先の間が選ばれた妙な四角になってしまう。
+ *
+ * @param keep 範囲を残すか (「選んだ範囲の中だけを探す」の最中は残す)
+ * @param from 動く前にカーソルがあった所
+ * @param head 範囲を伸ばしていた先 (伸ばしていなければ null)
+ * @returns `"clear"` なら範囲を消す。四角を返したらそれを固定して残す。
+ *   `null` なら足すものは無い (残っている範囲はそのまま)
+ */
+export function jumpFix(
+  keep: boolean,
+  from: CsvCursor | null,
+  head: CsvCursor | null
+): "clear" | { a: CsvCursor; b: CsvCursor } | null {
+  if (!keep) return "clear";
+  if (!from || !head) return null;
+  // 伸ばしていない (1セルだけ) なら、足しても意味が無い
+  if (head.row === from.row && head.col === from.col) return null;
+  return { a: from, b: head };
+}

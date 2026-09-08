@@ -24,9 +24,16 @@ import {
   csvExportXlsx,
   csvSave,
   csvSummary,
+  csvCopy,
+  csvPaste,
   csvSetCells,
+  csvDeleteLayout,
+  csvLayouts,
+  csvSetEdge,
   csvSetFixed,
   csvSetFormat,
+  csvSetFilters,
+  csvSetSort,
   csvSetHeader,
   csvUndo,
   openMainWindow,
@@ -37,27 +44,34 @@ import { useCsvRows } from "../../hooks/useCsvRows";
 import type { CsvRows } from "../../hooks/useCsvRows";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import type {
+  CsvColumnFilter,
   CsvDiffOptions,
   CsvSummary,
   CsvDiffOverview,
   CsvFixedLayout,
+  CsvSavedLayout,
   CsvFormatPatch,
   CsvInfo,
 } from "../../types";
 import { CsvGrid } from "./CsvGrid";
 import type { CsvCursor, CsvRange } from "./CsvGrid";
 import { selectionCells } from "./csvSelection";
+import { readClipboard, writeClipboard } from "../../gridCopy";
 import { CsvTabs } from "./CsvTabs";
 import { CsvTabMenu } from "./CsvTabMenu";
 import { CsvToolbar } from "./CsvToolbar";
 import { CsvFind } from "./CsvFind";
+import { CsvFilterMenu } from "./CsvFilterMenu";
+import { filterLabel, filterOf, isFiltered, withFilter } from "./csvFilter";
 import { CsvColumnMenu, CsvRowMenu } from "./CsvCellMenu";
 import { CsvNameDialog } from "./CsvNameDialog";
 import { CsvDiffSetup } from "./CsvDiffSetup";
 import { CsvDiffView } from "./CsvDiffView";
+import { CsvEdgeRow } from "./CsvEdgeRow";
 import { CsvFixedDialog } from "./CsvFixedDialog";
 import { CsvFormatMenu } from "./CsvFormatMenu";
 import { formatLabel } from "./csvFormat";
+import { appliedLayoutName } from "./csvFixed";
 import { MemoryChip } from "../MemoryChip";
 
 /** ウィンドウが「このファイルを開いて」と伝えられるときのイベント名 */
@@ -72,6 +86,15 @@ const FILTERS = [{ name: "CSV / TSV", extensions: ["csv", "tsv", "txt"] }];
 /** Excelで書き出すときのファイル選択の絞り込み */
 const XLSX_FILTERS = [{ name: "Excel", extensions: ["xlsx"] }];
 
+/** 絞り込みのメニューを出す列と、その位置 */
+interface FilterAt {
+  col: number;
+  x: number;
+  y: number;
+  /** 下に入らないときに折り返す先 (つまみの上端) */
+  flipY: number;
+}
+
 /** 右クリックメニューの位置と対象 */
 interface Menu {
   kind: "row" | "col";
@@ -82,6 +105,32 @@ interface Menu {
 
 /** 左右どちら側か (分割表示) */
 type Side = "left" | "right";
+
+/** 1つのファイルの検索の状態 */
+interface FindState {
+  /** 検索の欄を出しているか */
+  open: boolean;
+  /** 探している語 */
+  query: string;
+  /** 英字の大小を区別するか */
+  matchCase: boolean;
+  /** 見つかったセル (無ければ null) */
+  hit: CsvCursor | null;
+  /** 「選んだ所だけ」を入れているか */
+  scoped: boolean;
+}
+
+/** まだ何も探していない状態 */
+const NO_FIND: FindState = {
+  open: false,
+  query: "",
+  matchCase: false,
+  hit: null,
+  scoped: false,
+};
+
+/** 横位置を合わせるときの、動かした本人 */
+type EdgeWho = "grid" | "head" | "tail";
 
 /** 右クリックしたタブと、メニューを出す位置 */
 interface TabMenu {
@@ -109,7 +158,38 @@ export function CsvWindow() {
   const [closing, setClosing] = useState<CsvInfo | null>(null);
   /** 未保存のままウィンドウごと閉じようとしているか */
   const [closingWindow, setClosingWindow] = useState(false);
-  const [finding, setFinding] = useState(false);
+  /*
+   * 検索の状態は、タブごとに別々に持つ。
+   *
+   * 1つにまとめて持つと、別のファイルへ移ったときに
+   * 前のファイルで探していた語や当たった場所がそのまま残ってしまう
+   */
+  const [finds, setFinds] = useState<Record<string, FindState>>({});
+  /** そのファイルの検索の状態 (まだ探していなければ何もしていない状態) */
+  const findOf = (docId: string | null | undefined): FindState =>
+    (docId ? finds[docId] : undefined) ?? NO_FIND;
+  /** そのファイルの検索の状態を一部だけ書き換える */
+  const putFind = (docId: string, fix: Partial<FindState>) =>
+    setFinds((prev) => ({
+      ...prev,
+      [docId]: { ...(prev[docId] ?? NO_FIND), ...fix },
+    }));
+  /** 閉じたファイルの控えは捨てる */
+  const forgetFind = (...docIds: string[]) =>
+    setFinds((prev) => {
+      const next = { ...prev };
+      for (const id of docIds) delete next[id];
+      return next;
+    });
+  /*
+   * 見出しに絞り込みのつまみを出しているファイル。
+   *
+   * 絞り込みそのものはRust側が覚えているので、
+   * ここで持つのは「つまみを出しているか」だけ
+   */
+  const [filterOn, setFilterOn] = useState<Record<string, boolean>>({});
+  /** 絞り込みのメニューを出している列と、その位置 */
+  const [filterAt, setFilterAt] = useState<FilterAt | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   /** タブを右クリックして出したメニュー */
   const [tabMenu, setTabMenu] = useState<TabMenu | null>(null);
@@ -118,6 +198,10 @@ export function CsvWindow() {
   const [formatOpen, setFormatOpen] = useState(false);
   /** 固定長の桁を決める画面を出しているか */
   const [fixedOpen, setFixedOpen] = useState(false);
+  /** お気に入りに登録した固定長の桁設定 (ツールバーから選べるようにする) */
+  const [layouts, setLayouts] = useState<CsvSavedLayout[]>([]);
+  /** 削除しようとしているお気に入り */
+  const [removingLayout, setRemovingLayout] = useState<string | null>(null);
   /** 設定を出しているか (DBの画面に出さず、この窓の中に出す) */
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diffSetup, setDiffSetup] = useState(false);
@@ -138,10 +222,22 @@ export function CsvWindow() {
   const [ranges, setRanges] = useState<CsvRange[]>([]);
   /** 複数選んでいるときの合計・個数 (数えるのはRust側) */
   const [summary, setSummary] = useState<CsvSummary | null>(null);
+  /** コピーしたときの短い知らせ (情報バーに少しだけ出す) */
+  const [note, setNote] = useState<string | null>(null);
   /** 動かした側とその位置 (相方だけに伝える) */
   const [sync, setSync] = useState<{ top: number; left: number; from: Side } | null>(
     null
   );
+  /**
+   * ヘッダ・トレーラとデータ行の、横位置を合わせるための控え。
+   *
+   * 動かした本人 (from) には渡し返さない
+   */
+  const [hScroll, setHScroll] = useState<{
+    side: Side;
+    from: EdgeWho;
+    left: number;
+  } | null>(null);
 
   const leftTab = tabs.find((t) => t.docId === activeId) ?? null;
   const rightTab = split
@@ -308,6 +404,107 @@ export function CsvWindow() {
     }
   };
 
+  // 知らせは少しだけ出す (残しても次の操作の邪魔になるだけ)
+  useEffect(() => {
+    if (!note) return;
+    const timer = setTimeout(() => setNote(null), 1800);
+    return () => clearTimeout(timer);
+  }, [note]);
+
+  /**
+   * 選んでいる範囲をタブ区切りでクリップボードへ渡す (⌘/Ctrl+C)。
+   *
+   * どの表のどこを選んでいるかは表から受け取る。
+   * 分割表示でも、押した側の表がそのまま相手になる
+   */
+  const copySelection = async (docId: string, rects: CsvRange[]) => {
+    if (rects.length === 0) return;
+    try {
+      await writeClipboard(await csvCopy(docId, rects));
+      const cells = selectionCells(rects);
+      setNote(
+        cells > 1 ? `${cells.toLocaleString()}セルをコピーしました` : "コピーしました"
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  /**
+   * クリップボードの中身を、今いるセルを左上として貼り付ける (⌘/Ctrl+V)。
+   *
+   * 下に足りなければ行が増える。右にはみ出したぶんは入らないので、そのときは知らせる
+   */
+  const pasteAt = async (docId: string, at: CsvCursor) => {
+    try {
+      const text = await readClipboard();
+      if (!text) return;
+      const got = await csvPaste(docId, at.row, at.col, text);
+      update(got.info);
+      if (got.rows === 0) {
+        setNote("貼り付けるものがありませんでした");
+        return;
+      }
+      const added = got.addedRows > 0 ? ` (${got.addedRows.toLocaleString()}行を追加)` : "";
+      const over = got.clippedCols ? " ※右にはみ出した列は入れていません" : "";
+      setNote(
+        `${got.rows.toLocaleString()}行 × ${got.cols.toLocaleString()}列を貼り付けました${added}${over}`
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  /*
+   * お気に入りの桁設定を読み込む。
+   *
+   * 桁設定のダイアログ内で登録・削除ができるので、
+   * そのダイアログを閉じたときにも読み込み直す
+   */
+  useEffect(() => {
+    if (fixedOpen) return;
+    void csvLayouts()
+      .then(setLayouts)
+      .catch(() => {
+        /* 読めなくてもツールバーが空になるだけ */
+      });
+  }, [fixedOpen]);
+
+  /** お気に入りの桁設定で、開いているファイルを読み直す */
+  const applySavedLayout = async (s: CsvSavedLayout) => {
+    if (!active) return;
+    setError(null);
+    try {
+      update(
+        await csvSetFixed(active.docId, { unit: s.layout.unit, layout: s.layout })
+      );
+      setNote(`「${s.name}」の桁設定で読み直しました`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  /** 固定長のヘッダ・トレーラの値を書き換える */
+  const setEdge = async (docId: string, trailer: boolean, cells: string[]) => {
+    setError(null);
+    try {
+      update(await csvSetEdge(docId, trailer, cells));
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  /** お気に入りを削除する */
+  const deleteLayout = async (target: string) => {
+    setRemovingLayout(null);
+    try {
+      setLayouts(await csvDeleteLayout(target));
+      setNote(`「${target}」を削除しました`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const run = async (f: () => Promise<CsvInfo>) => {
     setError(null);
     try {
@@ -315,6 +512,41 @@ export function CsvWindow() {
     } catch (e) {
       setError(String(e));
     }
+  };
+
+  /** そのファイルで絞り込みのつまみを出しているか (絞っていればいつも出す) */
+  const showFilter = (tab: CsvInfo) =>
+    (filterOn[tab.docId] ?? false) || tab.filters.length > 0;
+
+  /**
+   * 絞り込みの入り切り。
+   *
+   * やめるときは、絞り込みそのものも外して全行に戻す
+   */
+  const toggleFilter = () => {
+    if (!active) return;
+    const on = !showFilter(active);
+    setFilterAt(null);
+    setFilterOn((prev) => ({ ...prev, [active.docId]: on }));
+    if (!on && active.filters.length > 0) {
+      void run(() => csvSetFilters(active.docId, []));
+    }
+  };
+
+  /** 並べ替えを変える (押した列を、小さい順・大きい順・元の並びで回す) */
+  const putSort = (col: number, desc: boolean | null) => {
+    if (!active) return;
+    setFilterAt(null);
+    void run(() =>
+      csvSetSort(active.docId, desc === null ? null : { col, desc })
+    );
+  };
+
+  /** 1つの列の絞り込みを入れ替える */
+  const putFilter = (next: CsvColumnFilter) => {
+    if (!active) return;
+    setFilterAt(null);
+    void run(() => csvSetFilters(active.docId, withFilter(active.filters, next)));
   };
 
   const save = async (asNew: boolean) => {
@@ -388,6 +620,7 @@ export function CsvWindow() {
       dropFromPanes(rest, new Set([t.docId]));
       return rest;
     });
+    forgetFind(t.docId);
   };
 
   /**
@@ -412,6 +645,7 @@ export function CsvWindow() {
       dropFromPanes(rest, ids);
       return rest;
     });
+    forgetFind(...ids);
   };
 
 
@@ -462,7 +696,7 @@ export function CsvWindow() {
         void pick();
       } else if (k === "f" && active) {
         e.preventDefault();
-        setFinding(true);
+        putFind(active.docId, { open: true });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -562,19 +796,48 @@ export function CsvWindow() {
       ? { syncTop: sync.top, syncLeft: sync.left }
       : {};
 
-  /** 片側の表を描く (分けていないときは左だけを使う) */
+  /**
+   * 片側の表を描く (分けていないときは左だけを使う)。
+   *
+   * ヘッダ・トレーラの小さな表とデータ行の表は、横だけ位置を合わせる
+   * (縦は合わせない。ヘッダとトレーラは1行しかないため)
+   */
   const pane = (
     side: Side,
     tab: CsvInfo,
     paneRows: CsvRows,
     paneCursor: CsvCursor | null,
     setPaneCursor: (c: CsvCursor) => void
-  ) => (
+  ) => {
+    const other = syncFor(side);
+    /** 自分が動かした側には渡さない (行ったり来たりを止めるため) */
+    const hFor = (who: EdgeWho) =>
+      hScroll && hScroll.side === side && hScroll.from !== who
+        ? hScroll.left
+        : undefined;
+    const hMove = (who: EdgeWho, left: number) =>
+      setHScroll({ side, from: who, left });
+
+    return (
     <div
       className={"csv-pane" + (split && focus === side ? " focus" : "")}
       style={paneWidth(side)}
       onMouseDown={() => setFocus(side)}
     >
+      {/* 種別が混ざるファイルは、ヘッダ行も同じ表に並ぶので帯は出さない */}
+      {tab.format.fixed &&
+        !tab.format.fixed.key &&
+        tab.format.fixed.header.length > 0 && (
+        <CsvEdgeRow
+          label="ヘッダ"
+          columns={tab.format.fixed.header}
+          values={tab.headRow}
+          onCommit={(cells) => void setEdge(tab.docId, false, cells)}
+          syncLeft={hFor("head")}
+          onScrollLeft={(left) => hMove("head", left)}
+        />
+      )}
+
       <CsvGrid
         key={`${side}:${tab.docId}`}
         columns={tab.columns}
@@ -588,18 +851,71 @@ export function CsvWindow() {
         onRowMenu={(row, x, y) => setMenu({ kind: "row", index: row, x, y })}
         onHeaderMenu={(col, x, y) => setMenu({ kind: "col", index: col, x, y })}
         onRange={setRanges}
+        /*
+          「選んだ範囲の中だけを探す」の最中は、選んだ範囲を残したまま
+          カーソルだけを動かす (そうでなければ、見つかった1セルだけを選ぶ)
+        */
+        keepRange={
+          findOf(tab.docId).open &&
+          findOf(tab.docId).scoped &&
+          selectionCells(ranges) > 1
+        }
+        rowClass={(i) => (paneRows.isHeadRow(i) ? "head-kind" : undefined)}
+        /* 絞り込み中は、元のファイルの行番号を出す */
+        rowNumber={(i) => paneRows.number(i)}
+        showFilter={showFilter(tab)}
+        isFiltered={(c) => isFiltered(tab.filters, c)}
+        filterTip={(c) => filterLabel(filterOf(tab.filters, c))}
+        sortMark={(c) =>
+          tab.sort?.col === c ? (tab.sort.desc ? "desc" : "asc") : undefined
+        }
+        /*
+          見出しのダブルクリックで名前を変える。
+          1行目を見出しとして扱っていないファイルは、名前を持たないので変えない
+        */
+        onRename={
+          tab.hasHeader
+            ? (col, name) => void run(() => csvRenameCol(tab.docId, col, name))
+            : undefined
+        }
+        onFilter={(col, x, y, flipY) => {
+          setActiveId(tab.docId);
+          setFilterAt((prev) =>
+            prev && prev.col === col ? null : { col, x, y, flipY }
+          );
+        }}
+        cellClass={(r, c) => {
+          const at = findOf(tab.docId).hit;
+          return at && at.row === r && at.col === c ? "found" : undefined;
+        }}
+        findQuery={findOf(tab.docId).open ? findOf(tab.docId).query : ""}
+        findCase={findOf(tab.docId).matchCase}
+        onCopy={(rs) => void copySelection(tab.docId, rs)}
+        onPaste={(at) => void pasteAt(tab.docId, at)}
         onEdge={(from, dRow, dCol) =>
           csvEdge(tab.docId, from.row, from.col, dRow, dCol)
         }
-        onScrollPos={
-          split && syncScroll
-            ? (top, left) => setSync({ top, left, from: side })
-            : undefined
-        }
-        {...syncFor(side)}
+        onScrollPos={(top, left) => {
+          if (split && syncScroll) setSync({ top, left, from: side });
+          hMove("grid", left);
+        }}
+        syncTop={other.syncTop}
+        syncLeft={hFor("grid") ?? other.syncLeft}
       />
-    </div>
-  );
+
+      {tab.format.fixed && tab.format.fixed.trailer.length > 0 && (
+        <CsvEdgeRow
+          label="トレーラ"
+          columns={tab.format.fixed.trailer}
+          values={tab.trailerRow}
+          onCommit={(cells) => void setEdge(tab.docId, true, cells)}
+          syncLeft={hFor("tail")}
+          onScrollLeft={(left) => hMove("tail", left)}
+        />
+      )}
+      </div>
+    );
+  };
 
   return (
     <div className="csv-window">
@@ -644,18 +960,39 @@ export function CsvWindow() {
         onToggleSync={() => setSyncScroll((v) => !v)}
         onSave={(asNew) => void save(asNew)}
         onExcel={() => void exportXlsx()}
-        onFind={() => setFinding(true)}
+        filterOn={!!active && showFilter(active)}
+        onToggleFilter={toggleFilter}
+        onFind={() => active && putFind(active.docId, { open: true })}
         onCompare={() => setDiffSetup(true)}
+        layouts={layouts}
+        onUseLayout={(s) => void applySavedLayout(s)}
+        onDeleteLayout={(s) => setRemovingLayout(s.name)}
+        onEditFixed={() => setFixedOpen(true)}
+        onUseDelimiter={() =>
+          void (active && run(() => csvSetFixed(active.docId, null)))
+        }
       />
 
-      {finding && active && (
+      {active && findOf(active.docId).open && (
         <CsvFind
+          // ファイルごとに作り直して、前のファイルの入力を持ち越さない
+          key={active.docId}
           docId={active.docId}
-          columns={active.columns}
+          initialQuery={findOf(active.docId).query}
+          initialMatchCase={findOf(active.docId).matchCase}
+          initialScoped={findOf(active.docId).scoped}
+          onScope={(scoped) => putFind(active.docId, { scoped })}
+          ranges={ranges}
           cursor={cursor}
-          onHit={setCursor}
+          onHit={(at) => {
+            setCursor(at);
+            putFind(active.docId, { hit: at });
+          }}
+          onQuery={(query, matchCase) =>
+            putFind(active.docId, { query, matchCase })
+          }
           onReplaced={update}
-          onClose={() => setFinding(false)}
+          onClose={() => putFind(active.docId, { ...NO_FIND })}
         />
       )}
 
@@ -726,9 +1063,18 @@ export function CsvWindow() {
           <span className="mono">
             {active.rowCount.toLocaleString()}行 × {active.columns.length}列
           </span>
+          {active.filters.length > 0 && (
+            <span
+              className="csv-note"
+              title="絞り込みを外すと、全部の行に戻ります"
+            >
+              {active.totalRows.toLocaleString()}行中
+              {active.rowCount.toLocaleString()}行を表示中
+            </span>
+          )}
           {cursor && (
             <span className="mono">
-              {(cursor.row + 1).toLocaleString()}:
+              {rows.number(cursor.row).toLocaleString()}:
               {active.columns[cursor.col] ?? ""}
               {picked > 1
                 ? `(${picked.toLocaleString()}セル)`
@@ -746,6 +1092,7 @@ export function CsvWindow() {
                 : `個数 ${summary.filled.toLocaleString()}`}
             </span>
           )}
+          {note && <span className="csv-note">{note}</span>}
           {active.ragged && (
             <span className="csv-warn" title="足りない列は空欄で埋めています">
               列数が揃っていません
@@ -781,20 +1128,33 @@ export function CsvWindow() {
                 up
                 format={active.format}
                 hasHeader={active.hasHeader}
-                fromFile={active.path !== null}
                 onChange={(patch: CsvFormatPatch) =>
                   doc((id) => csvSetFormat(id, patch))
                 }
                 onHeader={(on) => doc((id) => csvSetHeader(id, on))}
-                onFixed={() => {
-                  setFormatOpen(false);
-                  setFixedOpen(true);
-                }}
                 onClose={() => setFormatOpen(false)}
               />
             )}
           </div>
         </div>
+      )}
+
+      {filterAt && active && (
+        <CsvFilterMenu
+            // 列を変えたら中身も作り直す
+            key={`${active.docId}:${filterAt.col}`}
+            docId={active.docId}
+            col={filterAt.col}
+            name={active.columns[filterAt.col] ?? ""}
+            current={filterOf(active.filters, filterAt.col)}
+            sort={active.sort}
+            onSort={(desc) => putSort(filterAt.col, desc)}
+            x={filterAt.x}
+            y={filterAt.y}
+            flipY={filterAt.flipY}
+            onDecide={putFilter}
+            onClose={() => setFilterAt(null)}
+        />
       )}
 
       {menu && active && (
@@ -857,18 +1217,28 @@ export function CsvWindow() {
       {fixedOpen && active && (
         <CsvFixedDialog
           current={active.format.fixed}
+          applied={appliedLayoutName(layouts, active.format.fixed)}
+          layouts={layouts}
           onApply={(layout: CsvFixedLayout) => {
             setFixedOpen(false);
             void run(() =>
               csvSetFixed(active.docId, { unit: layout.unit, layout })
             );
           }}
-          onUseDelimiter={() => {
-            setFixedOpen(false);
-            void run(() => csvSetFixed(active.docId, null));
-          }}
           onClose={() => setFixedOpen(false)}
         />
+      )}
+
+      {removingLayout && (
+        <ConfirmDialog
+          title="お気に入りを削除します"
+          target={removingLayout}
+          confirmLabel="削除"
+          onConfirm={() => void deleteLayout(removingLayout)}
+          onCancel={() => setRemovingLayout(null)}
+        >
+          保存した桁設定を削除します。開いているファイルには影響しません。
+        </ConfirmDialog>
       )}
 
       {diffSetup && active && (

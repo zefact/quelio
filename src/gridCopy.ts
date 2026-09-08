@@ -140,9 +140,21 @@ export function toInsert(
 
 /**
  * クリップボードへ書き込む。
- * navigator.clipboardが使えない環境では隠しテキストエリア経由でコピーする
+ *
+ * まずアプリ側 (Rust) から書く。
+ * WKWebView (macOS) の `navigator.clipboard` は「押した直後」でないと受け付けず、
+ * 値を作るのに一度Rustへ問い合わせるような場面では必ず断られてしまう。
+ * アプリ側から書けばこの縛りが無い。
+ * それも使えないときは navigator、最後に隠しテキストエリアへ落とす
  */
 export async function writeClipboard(text: string): Promise<void> {
+  try {
+    const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+    await writeText(text);
+    return;
+  } catch {
+    /* アプリの外 (テストやブラウザ) では下へ */
+  }
   try {
     await navigator.clipboard.writeText(text);
     return;
@@ -161,4 +173,21 @@ export async function writeClipboard(text: string): Promise<void> {
   } finally {
     ta.remove();
   }
+}
+
+/**
+ * クリップボードの文字を読む。
+ *
+ * 読み取りは書き込み以上に縛りが強く、WKWebViewでは
+ * `navigator.clipboard.readText` が使えないことがある。
+ * こちらもアプリ側 (Rust) から読み、駄目なら navigator に頼る
+ */
+export async function readClipboard(): Promise<string> {
+  try {
+    const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+    return (await readText()) ?? "";
+  } catch {
+    /* アプリの外 (テストやブラウザ) では下へ */
+  }
+  return await navigator.clipboard.readText();
 }

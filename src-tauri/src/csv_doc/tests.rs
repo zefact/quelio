@@ -485,3 +485,123 @@ fn 大きさは読める形で伝える() {
     assert_eq!(io::size_label(1536 * mb), "1.5 GB");
     assert_eq!(io::size_label(3 * 1024 * mb), "3 GB");
 }
+
+// ---------- 絞り込み ----------
+
+/// 3行のCSVを開いて、名前が「あ」で始まる行だけに絞る
+fn filtered() -> CsvDoc {
+    let mut doc = open("名前,数\nあい,1\nかき,2\nあお,3\n");
+    doc.set_filters(vec![filter::ColumnFilter {
+        col: 0,
+        values: None,
+        rules: vec![filter::Rule {
+            kind: filter::Kind::StartsWith,
+            value: "あ".into(),
+        }],
+        all: true,
+    }]);
+    doc
+}
+
+#[test]
+fn 絞ると見える行だけになる() {
+    let doc = filtered();
+    assert!(doc.filtered());
+    let info = doc.info("d1");
+    assert_eq!(info.row_count, 2);
+    // ファイル全体の行数は変わらない
+    assert_eq!(info.total_rows, 3);
+}
+
+#[test]
+fn 絞ったページは元の行番号を添える() {
+    let doc = filtered();
+    let page = doc.page(0, 10);
+    assert_eq!(page.total, 2);
+    assert_eq!(page.rows[1][0], "あお");
+    // 2つめは元の3行目 (0から数えて2)
+    assert_eq!(page.numbers, vec![0, 2]);
+}
+
+#[test]
+fn 絞っていなければ行番号は添えない() {
+    let doc = open("名前\nあ\n");
+    assert!(doc.page(0, 10).numbers.is_empty());
+}
+
+#[test]
+fn 画面の行番号は元の行番号に直せる() {
+    let doc = filtered();
+    assert_eq!(doc.real(1), Ok(2));
+    assert!(doc.real(2).is_err());
+}
+
+#[test]
+fn 絞り込みをやめると全行に戻る() {
+    let mut doc = filtered();
+    doc.set_filters(Vec::new());
+    assert!(!doc.filtered());
+    assert_eq!(doc.info("d1").row_count, 3);
+}
+
+#[test]
+fn セルを直しても絞り込みは掛け直さない() {
+    let mut doc = filtered();
+    // 見えている2行目 (元の3行目) を、条件から外れる値にする
+    doc.apply(Edit::Cells(vec![CellEdit {
+        row: 2,
+        col: 0,
+        before: "あお".into(),
+        after: "さと".into(),
+    }]))
+    .unwrap();
+    // 直した行がその場で消えないこと (どこを直したのか分からなくなるため)
+    assert_eq!(doc.info("d1").row_count, 2);
+    assert_eq!(doc.page(0, 10).rows[1][0], "さと");
+}
+
+#[test]
+fn 行が増えたら絞り込みを掛け直す() {
+    let mut doc = filtered();
+    let e = doc.sheet().insert_rows(1, 1).unwrap();
+    doc.apply(e).unwrap();
+    // 足した空行は条件に当たらないので、見える数は変わらない
+    assert_eq!(doc.info("d1").row_count, 2);
+    // 番号はずれずに、元の4行目を指したままになる
+    assert_eq!(doc.page(0, 10).numbers, vec![0, 3]);
+}
+
+#[test]
+fn 並べ替えは見せる順だけを変える() {
+    let mut doc = open("名前,数\nあい,10\nかき,2\nあお,100\n");
+    doc.set_sort(Some(order::Sort {
+        col: 1,
+        desc: false,
+    }));
+    let page = doc.page(0, 10);
+    assert_eq!(page.rows[0][1], "2");
+    assert_eq!(page.numbers, vec![1, 0, 2]);
+    // ファイルの中身は動かさないので、保存すると元の並びのまま
+    let text = String::from_utf8(doc.to_bytes().unwrap()).unwrap();
+    assert!(text.starts_with("名前,数\nあい,10\n"), "{text}");
+}
+
+#[test]
+fn 絞り込みと並べ替えは重ねられる() {
+    let mut doc = filtered();
+    doc.set_sort(Some(order::Sort { col: 0, desc: true }));
+    let page = doc.page(0, 10);
+    // 「あ」で始まる2行を、大きい順 (あお→あい) に並べ替える
+    assert_eq!(page.numbers, vec![2, 0]);
+    assert_eq!(page.rows[0][0], "あお");
+}
+
+#[test]
+fn 並べ替えをやめると元の並びに戻る() {
+    let mut doc = open("名前\nう\nあ\n");
+    doc.set_sort(Some(order::Sort { col: 0, desc: false }));
+    assert!(doc.filtered());
+    doc.set_sort(None);
+    assert!(!doc.filtered());
+    assert_eq!(doc.page(0, 10).rows[0][0], "う");
+}

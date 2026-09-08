@@ -33,12 +33,47 @@ export interface CsvFixedColumn {
   name: string;
 }
 
+/**
+ * レコードの種別を、値で見分ける決まり。
+ *
+ * ヘッダ行とボディ行が交互に来るファイルのためのもの
+ */
+export interface CsvFixedKey {
+  /** 見る位置 (レコードの先頭からいくつ目か。0始まり) */
+  at: number;
+  /** 見る長さ */
+  len: number;
+  /** この値ならヘッダ行 */
+  header: string;
+}
+
 /** ファイル1つぶんの桁の並び */
 export interface CsvFixedLayout {
   unit: CsvWidthUnit;
   columns: CsvFixedColumn[];
   /** 読むときに埋め文字を落とすか */
   trim: boolean;
+  /**
+   * 行が改行で区切られているか。
+   *
+   * false のときは、ファイルに改行が無く、桁の合計ぶんずつが1行になる
+   */
+  newline: boolean;
+  /**
+   * 先頭のヘッダレコードの桁 (空なら「ヘッダは無い」)。
+   *
+   * データ行とは項目の分け方も長さも違うことがあるので、桁の並びごと別に持つ
+   */
+  header: CsvFixedColumn[];
+  /** 末尾のトレーラレコードの桁 (空なら「トレーラは無い」) */
+  trailer: CsvFixedColumn[];
+  /**
+   * レコードの種別を値で見分ける決まり (無ければ見分けない)。
+   *
+   * これを決めると、ヘッダは「先頭の1件」ではなく
+   * 「この値になっているレコードすべて」になり、1つの表に混ざって並ぶ
+   */
+  key: CsvFixedKey | null;
 }
 
 /** 固定長として読むときの指定 */
@@ -86,7 +121,14 @@ export interface CsvInfo {
   hasHeader: boolean;
   /** 列名 (ヘッダとして扱っていなければ "1", "2", …) */
   columns: string[];
+  /** 画面に出る行数 (絞り込み中は絞ったあとの数) */
   rowCount: number;
+  /** ファイル全体の行数 (絞り込みと関係なく数えた数) */
+  totalRows: number;
+  /** 列ごとの絞り込み (空なら絞っていない) */
+  filters: CsvColumnFilter[];
+  /** 並べ替え (していなければ null) */
+  sort: CsvSort | null;
   /** 保存していない編集があるか */
   dirty: boolean;
   /** 行によって列数が違っていたか (足りない分は空欄で埋めてある) */
@@ -97,6 +139,10 @@ export interface CsvInfo {
   undoLabel: string | null;
   /** やり直せる操作の名前 (無ければ null) */
   redoLabel: string | null;
+  /** 固定長のヘッダレコードの値 (無ければ空) */
+  headRow: string[];
+  /** 固定長のトレーラレコードの値 (無ければ空) */
+  trailerRow: string[];
 }
 
 /** クエリ結果をCSVタブとして開いた結果 */
@@ -112,8 +158,16 @@ export interface CsvFromQuery {
 export interface CsvPage {
   offset: number;
   rows: string[][];
-  /** 全体の行数 (スクロールバーの長さに使う) */
+  /** 画面に出る行数 (スクロールバーの長さに使う) */
   total: number;
+  /** このページの各行がヘッダ行か (種別を見分けているときだけ入る) */
+  kinds: boolean[];
+  /**
+   * このページの各行が、元のファイルの何行目か (0から数える)。
+   *
+   * 絞り込んでいるときだけ入る (絞っていなければ offset から順に並ぶ)
+   */
+  numbers: number[];
 }
 
 /** 保存する形の変更 (渡したものだけ変わる) */
@@ -124,6 +178,19 @@ export interface CsvFormatPatch {
   delimiter?: string;
   quote?: CsvQuote;
   quoting?: CsvQuoting;
+}
+
+/** 貼り付けた結果 (画面の知らせに使う) */
+export interface CsvPasteResult {
+  /** 貼り付けたあとの状態 */
+  info: CsvInfo;
+  /** 実際に入れた行数・列数 */
+  rows: number;
+  cols: number;
+  /** 足りなくて増やした行数 */
+  addedRows: number;
+  /** 右にはみ出して切り落とした列があったか */
+  clippedCols: boolean;
 }
 
 /** 書き換えるセル1つ */
@@ -141,8 +208,69 @@ export interface CsvFindOptions {
   matchCase: boolean;
   /** セルの中身がまるごと同じものだけを対象にする */
   wholeCell: boolean;
-  /** この列だけを見る (null なら全部の列) */
-  column: number | null;
+  /** 正規表現として扱う */
+  regex: boolean;
+  /** 探す範囲 (空なら表全体) */
+  areas: CsvRect[];
+}
+
+// ---------- 絞り込み ----------
+
+/** 絞り込みの条件の種類 */
+export type CsvFilterKind =
+  | "contains"
+  | "notContains"
+  | "equals"
+  | "notEquals"
+  | "startsWith"
+  | "endsWith"
+  | "gt"
+  | "ge"
+  | "lt"
+  | "le"
+  | "empty"
+  | "notEmpty";
+
+/** 絞り込みの条件1つ */
+export interface CsvFilterRule {
+  kind: CsvFilterKind;
+  value: string;
+}
+
+/** 1つの列の絞り込み */
+export interface CsvColumnFilter {
+  col: number;
+  /** 選んだ値 (null なら値では絞らない) */
+  values: string[] | null;
+  /** 条件 (空なら条件では絞らない) */
+  rules: CsvFilterRule[];
+  /** 条件どうしを「かつ」で見るか (false なら「または」) */
+  all: boolean;
+}
+
+/**
+ * 並べ替えの指定。
+ *
+ * ファイルの中身は動かさず、見せる順だけを変える
+ */
+export interface CsvSort {
+  col: number;
+  /** 大きい順に並べるか */
+  desc: boolean;
+}
+
+/** 値の一覧の1つ */
+export interface CsvFilterValue {
+  text: string;
+  /** その値の行数 */
+  count: number;
+}
+
+/** 列に入っている値の一覧 */
+export interface CsvFilterValues {
+  values: CsvFilterValue[];
+  /** 多すぎて途中で打ち切ったか */
+  truncated: boolean;
 }
 
 /** 見つかったセルの位置 */
@@ -157,6 +285,13 @@ export interface CsvFindResult {
   hit: CsvMatch | null;
   /** 引っかかったセルの数 */
   total: number;
+}
+
+/** 1つだけ置き換えた結果 */
+export interface CsvReplaceOne {
+  /** 実際に置き換えたか (今いるセルが引っかからなければ false) */
+  done: boolean;
+  info: CsvInfo;
 }
 
 // ---------- 比較 ----------

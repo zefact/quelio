@@ -16,6 +16,10 @@ import type {
   CsvExportResult,
   CsvFindOptions,
   CsvFindResult,
+  CsvColumnFilter,
+  CsvFilterValues,
+  CsvSort,
+  CsvReplaceOne,
   CsvFixedLayout,
   CsvFixedSpec,
   CsvFormatPatch,
@@ -27,6 +31,7 @@ import type {
   CsvPreview,
   CsvSavedLayout,
   CsvSummary,
+  CsvPasteResult,
   CsvRect,
   CsvPos,
   DangerousStatement,
@@ -819,6 +824,19 @@ export function csvSetFixed(
   return call("csv_set_fixed", { docId, spec });
 }
 
+/**
+ * 固定長のヘッダ・トレーラのレコードを書き換える。
+ *
+ * 項目の数は変えられないので、レコードを丸ごと渡す
+ */
+export function csvSetEdge(
+  docId: string,
+  trailer: boolean,
+  cells: string[]
+): Promise<CsvInfo> {
+  return call("csv_set_edge", { docId, trailer, cells });
+}
+
 /** 残してある固定長のレイアウト */
 export function csvLayouts(): Promise<CsvSavedLayout[]> {
   return call("csv_layouts", {});
@@ -931,6 +949,53 @@ export function csvReplaceAll(
   return call("csv_replace_all", { docId, query, replacement, options });
 }
 
+/**
+ * 今いるセル1つだけを置き換える。
+ *
+ * そのセルが引っかからなければ何もしない (`done` が false)
+ */
+export function csvReplaceOne(
+  docId: string,
+  query: string,
+  replacement: string,
+  options: CsvFindOptions,
+  at: CsvMatch
+): Promise<CsvReplaceOne> {
+  return call("csv_replace_one", { docId, query, replacement, options, at });
+}
+
+/**
+ * 列ごとの絞り込みを入れ替える。
+ *
+ * 空の一覧を渡すと絞り込みをやめる
+ */
+export function csvSetFilters(
+  docId: string,
+  filters: CsvColumnFilter[]
+): Promise<CsvInfo> {
+  return call("csv_set_filters", { docId, filters });
+}
+
+/**
+ * 並べ替えを入れ替える (null で元の並びに戻す)。
+ *
+ * ファイルの中身は動かさず、見せる順だけを変える
+ */
+export function csvSetSort(
+  docId: string,
+  sort: CsvSort | null
+): Promise<CsvInfo> {
+  return call("csv_set_sort", { docId, sort });
+}
+
+/** その列に入っている値の一覧 (他の列の絞り込みを掛けたあとで数える) */
+export function csvFilterValues(
+  docId: string,
+  col: number
+): Promise<CsvFilterValues> {
+  return call("csv_filter_values", { docId, col });
+}
+
 /** 直前の操作を取り消す */
 export function csvUndo(docId: string): Promise<CsvInfo> {
   return call("csv_undo", { docId });
@@ -979,6 +1044,29 @@ export function csvSummary(
   rects: CsvRect[]
 ): Promise<CsvSummary> {
   return call("csv_summary", { docId, rects });
+}
+
+/**
+ * 選んでいる範囲を、クリップボードへ渡すタブ区切りテキストにして返す。
+ *
+ * 画面に出ていない行を選んでいてもコピーできるよう、文字はRust側で組み立てる
+ */
+export function csvCopy(docId: string, rects: CsvRect[]): Promise<string> {
+  return call("csv_copy", { docId, rects });
+}
+
+/**
+ * クリップボードのタブ区切りテキストを、指定のセルを左上として貼り付ける。
+ *
+ * 下に足りなければ行が増える。右にはみ出したぶんは入らない
+ */
+export function csvPaste(
+  docId: string,
+  row: number,
+  col: number,
+  text: string
+): Promise<CsvPasteResult> {
+  return call("csv_paste", { docId, row, col, text });
 }
 
 /**
