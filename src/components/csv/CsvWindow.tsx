@@ -29,6 +29,7 @@ import {
   csvSetCells,
   csvDeleteLayout,
   csvLayouts,
+  csvSaveLayoutTree,
   csvSetEdge,
   csvSetFixed,
   csvSetFormat,
@@ -42,6 +43,7 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { SettingsModal } from "../SettingsModal";
 import { useCsvRows } from "../../hooks/useCsvRows";
 import type { CsvRows } from "../../hooks/useCsvRows";
+import { useDismiss } from "../../hooks/useDismiss";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import type {
   CsvColumnFilter,
@@ -49,6 +51,7 @@ import type {
   CsvSummary,
   CsvDiffOverview,
   CsvFixedLayout,
+  CsvLayoutNode,
   CsvSavedLayout,
   CsvFormatPatch,
   CsvInfo,
@@ -72,7 +75,11 @@ import { CsvFixedDialog } from "./CsvFixedDialog";
 import { CsvFormatMenu } from "./CsvFormatMenu";
 import { formatLabel } from "./csvFormat";
 import { appliedLayoutName } from "./csvFixed";
+import { flatLayouts } from "./csvLayoutTree";
 import { MemoryChip } from "../MemoryChip";
+
+/** 種別の色分けに使う色の数 (これを超える種別は最後の色を使い回す) */
+const KIND_COLORS = 4;
 
 /** ウィンドウが「このファイルを開いて」と伝えられるときのイベント名 */
 const OPEN_EVENT = "csv-open-file";
@@ -199,7 +206,7 @@ export function CsvWindow() {
   /** 固定長の桁を決める画面を出しているか */
   const [fixedOpen, setFixedOpen] = useState(false);
   /** お気に入りに登録した固定長の桁設定 (ツールバーから選べるようにする) */
-  const [layouts, setLayouts] = useState<CsvSavedLayout[]>([]);
+  const [layouts, setLayouts] = useState<CsvLayoutNode[]>([]);
   /** 削除しようとしているお気に入り */
   const [removingLayout, setRemovingLayout] = useState<string | null>(null);
   /** 設定を出しているか (DBの画面に出さず、この窓の中に出す) */
@@ -494,6 +501,18 @@ export function CsvWindow() {
     }
   };
 
+  /** 並び順やフォルダ分けを変えた結果を残す */
+  const saveLayoutTree = async (nodes: CsvLayoutNode[]) => {
+    // 先に画面へ映しておくと、掴んで放したときに待たされない
+    setLayouts(nodes);
+    try {
+      setLayouts(await csvSaveLayoutTree(nodes));
+    } catch (e) {
+      setError(String(e));
+      setLayouts(await csvLayouts());
+    }
+  };
+
   /** お気に入りを削除する */
   const deleteLayout = async (target: string) => {
     setRemovingLayout(null);
@@ -703,13 +722,8 @@ export function CsvWindow() {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  // メニューは、どこか他を触ったら閉じる
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener("mousedown", close);
-    return () => window.removeEventListener("mousedown", close);
-  }, [menu]);
+  // メニューは、どこか他を触ったら閉じる (タブバーの空いている所も含めて)
+  useDismiss(!!menu, () => setMenu(null));
 
   /** ウィンドウを本当に閉じる */
   const shutWindow = async () => {
@@ -860,7 +874,11 @@ export function CsvWindow() {
           findOf(tab.docId).scoped &&
           selectionCells(ranges) > 1
         }
-        rowClass={(i) => (paneRows.isHeadRow(i) ? "head-kind" : undefined)}
+        /* 種別が混ざったファイルは、種別ごとに色を変える */
+        rowClass={(i) => {
+          const kind = paneRows.kindOf(i);
+          return kind > 0 ? `kind-${Math.min(kind, KIND_COLORS)}` : undefined;
+        }}
         /* 絞り込み中は、元のファイルの行番号を出す */
         rowNumber={(i) => paneRows.number(i)}
         showFilter={showFilter(tab)}
@@ -967,6 +985,7 @@ export function CsvWindow() {
         layouts={layouts}
         onUseLayout={(s) => void applySavedLayout(s)}
         onDeleteLayout={(s) => setRemovingLayout(s.name)}
+        onSaveLayoutTree={(nodes) => void saveLayoutTree(nodes)}
         onEditFixed={() => setFixedOpen(true)}
         onUseDelimiter={() =>
           void (active && run(() => csvSetFixed(active.docId, null)))
@@ -1217,8 +1236,8 @@ export function CsvWindow() {
       {fixedOpen && active && (
         <CsvFixedDialog
           current={active.format.fixed}
-          applied={appliedLayoutName(layouts, active.format.fixed)}
-          layouts={layouts}
+          applied={appliedLayoutName(flatLayouts(layouts), active.format.fixed)}
+          layouts={flatLayouts(layouts)}
           onApply={(layout: CsvFixedLayout) => {
             setFixedOpen(false);
             void run(() =>

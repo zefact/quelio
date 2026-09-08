@@ -47,6 +47,25 @@ export interface CsvFixedKey {
   header: string;
 }
 
+/**
+ * レコードの種別1つ。
+ *
+ * 「決まった場所がこの値ならこの桁で切る」という決まりと、その桁の並び。
+ * 種別はいくつでも足せて、見る場所は種別ごとに違ってよい
+ */
+export interface CsvFixedKind {
+  /** 画面に出す名前 (「ヘッダ」「明細」など) */
+  name: string;
+  /** 見る位置 (レコードの先頭からいくつ目か。0始まり) */
+  at: number;
+  /** 見る長さ */
+  len: number;
+  /** この値ならこの種別 */
+  value: string;
+  /** この種別の桁の並び */
+  columns: CsvFixedColumn[];
+}
+
 /** ファイル1つぶんの桁の並び */
 export interface CsvFixedLayout {
   unit: CsvWidthUnit;
@@ -68,12 +87,19 @@ export interface CsvFixedLayout {
   /** 末尾のトレーラレコードの桁 (空なら「トレーラは無い」) */
   trailer: CsvFixedColumn[];
   /**
-   * レコードの種別を値で見分ける決まり (無ければ見分けない)。
+   * レコードの種別 (空なら見分けない)。
    *
-   * これを決めると、ヘッダは「先頭の1件」ではなく
-   * 「この値になっているレコードすべて」になり、1つの表に混ざって並ぶ
+   * 上から順に見て、はじめに当てはまった種別の桁で切る。
+   * どれにも当てはまらないレコードは `columns` の桁で切る。
+   * ヘッダが2種類あるファイルなどは、ここに並べて決める
    */
-  key: CsvFixedKey | null;
+  kinds: CsvFixedKind[];
+  /**
+   * 古い形の決まり (ヘッダ1種類だけを見分けていたころのもの)。
+   *
+   * 読み込むときに `kinds` へ直されるので、新しく作るときは使わない
+   */
+  key?: CsvFixedKey | null;
 }
 
 /** 固定長として読むときの指定 */
@@ -91,6 +117,16 @@ export interface CsvSavedLayout {
   layout: CsvFixedLayout;
   updatedAtMs: number;
 }
+
+/**
+ * お気に入りの一覧に並ぶもの。
+ *
+ * フォルダは1階層まで (フォルダの中にフォルダは入らない)。
+ * フォルダに入れていないお気に入りは、一番上の並びにそのまま置く
+ */
+export type CsvLayoutNode =
+  | { kind: "folder"; name: string; items: CsvSavedLayout[] }
+  | ({ kind: "item" } & CsvSavedLayout);
 
 /** ファイルの形 (開いたときの状態。保存の既定にもなる) */
 export interface CsvFormat {
@@ -160,8 +196,12 @@ export interface CsvPage {
   rows: string[][];
   /** 画面に出る行数 (スクロールバーの長さに使う) */
   total: number;
-  /** このページの各行がヘッダ行か (種別を見分けているときだけ入る) */
-  kinds: boolean[];
+  /**
+   * このページの各行の種別 (種別を見分けているときだけ入る)。
+   *
+   * 0 はどの種別にも当てはまらないふつうのデータ行
+   */
+  kinds: number[];
   /**
    * このページの各行が、元のファイルの何行目か (0から数える)。
    *

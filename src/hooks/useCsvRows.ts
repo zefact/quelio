@@ -26,11 +26,11 @@ export interface CsvRows {
    */
   number: (index: number) => number;
   /**
-   * その行がヘッダ行か (種別が混ざったファイルのときだけ true になりうる)。
+   * その行の種別 (種別が混ざったファイルのときだけ 1 以上になる)。
    *
-   * まだ取れていない行と、種別を見分けていないファイルでは false
+   * まだ取れていない行と、種別を見分けていないファイルでは 0
    */
-  isHeadRow: (index: number) => boolean;
+  kindOf: (index: number) => number;
   /** この範囲が見えていると伝える (足りないページを取りに行く) */
   ensure: (from: number, to: number) => void;
   /** 溜めたものを捨てる (編集したあとに使う) */
@@ -48,8 +48,8 @@ export function useCsvRows(docId: string | null, rowCount: number): CsvRows {
    * 大きなCSVでスクロールが引っかかる
    */
   const pages = useRef(new Map<number, string[][]>());
-  /** ページごとの「その行がヘッダ行か」 (種別を見分けているときだけ入る) */
-  const kinds = useRef(new Map<number, boolean[]>());
+  /** ページごとの「その行の種別」 (種別を見分けているときだけ入る) */
+  const kinds = useRef(new Map<number, number[]>());
   /** ページごとの「元の行番号」 (絞り込んでいるときだけ入る) */
   const numbers = useRef(new Map<number, number[]>());
   const loading = useRef(new Set<number>());
@@ -106,9 +106,9 @@ export function useCsvRows(docId: string | null, rowCount: number): CsvRows {
     return page?.[index % PAGE_ROWS] ?? null;
   }, []);
 
-  const isHeadRow = useCallback((index: number): boolean => {
+  const kindOf = useCallback((index: number): number => {
     const page = kinds.current.get(Math.floor(index / PAGE_ROWS));
-    return page?.[index % PAGE_ROWS] ?? false;
+    return page?.[index % PAGE_ROWS] ?? 0;
   }, []);
 
   const number = useCallback((index: number): number => {
@@ -118,5 +118,5 @@ export function useCsvRows(docId: string | null, rowCount: number): CsvRows {
     return (at ?? index) + 1;
   }, []);
 
-  return { row, number, isHeadRow, ensure, clear, error, version };
+  return { row, number, kindOf, ensure, clear, error, version };
 }

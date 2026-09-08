@@ -23,6 +23,8 @@ interface Props {
   onOpenSample: () => void;
   /** ホームでのピン留めの付け外し */
   onSetConnPinned: (id: string, pinned: boolean) => void;
+  /** ホームの「最近つないだ接続」から外す (接続先そのものは残す) */
+  onForgetRecent: (id: string) => void;
   /** フォルダを削除する (確認はこのコンポーネントで出す。失敗したら例外を投げること) */
   onDeleteFolder: (id: string) => void | Promise<void>;
   onLayout: (
@@ -90,6 +92,7 @@ export function ConnectionPicker({
   onCreateFolder,
   onOpenSample,
   onSetConnPinned,
+  onForgetRecent,
   onDeleteFolder,
   onLayout,
   onSetConnColor,
@@ -663,6 +666,7 @@ export function ConnectionPicker({
             connections={connections}
             onConnect={onConnect}
             onTogglePin={onSetConnPinned}
+            onForget={onForgetRecent}
             onNew={() => {
               onNewFavorite();
               setNewForm(true);

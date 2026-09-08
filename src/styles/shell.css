@@ -145,7 +145,6 @@
   border-radius: 5px;
   background: transparent;
   color: var(--text-faint);
-  font-size: 13px;
   line-height: 1;
   cursor: pointer;
   padding: 0;
@@ -408,6 +407,20 @@ html.macos .diff-toolbar {
   visibility: visible;
   transform: none;
   transition-delay: 0.35s;
+}
+
+/*
+ * 押せないボタンのヒント。
+ *
+ * 押せないことを薄さ (opacity) で表すと、その中に描くヒント (::after) まで
+ * 一緒に透けてしまい、後ろの文字が重なって読めない。
+ * ヒントを持つボタンは薄くせず、文字と絵の色だけを弱める
+ * (絵は currentColor で描いてあるので、色を変えれば一緒に弱まる)
+ */
+button.has-tooltip:disabled,
+button.has-tooltip[aria-disabled="true"] {
+  opacity: 1;
+  color: var(--text-faint);
 }
 
 /*

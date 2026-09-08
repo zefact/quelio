@@ -6,6 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { useEvent } from "../hooks/useEvent";
+import { CloseMark } from "./CloseMark";
 
 export interface ErPage {
   id: string;
@@ -110,7 +111,7 @@ export function ErPageTabs({
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={() => onDelete(p.id)}
                 >
-                  ×
+                  <CloseMark size={10} />
                 </span>
               )}
             </>

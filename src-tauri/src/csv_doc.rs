@@ -97,7 +97,7 @@ pub struct CsvPage {
      * 全行ぶんを1度に渡すと大きなファイルで重くなるので、
      * 行と同じくページごとに渡す
      */
-    pub kinds: Vec<bool>,
+    pub kinds: Vec<u32>,
 }
 
 /// 開いているCSV1つ
@@ -120,7 +120,7 @@ pub struct CsvDoc {
      * 行と同じ並び順。ここが空でなければ「種別が混ざったファイル」なので、
      * 行や列の増減はできない (どちらの桁で読むかが決められなくなるため)
      */
-    pub kinds: Vec<bool>,
+    pub kinds: Vec<u32>,
     pub dirty: bool,
     pub ragged: bool,
     pub replaced: bool,
@@ -214,7 +214,7 @@ impl CsvDoc {
             .format
             .fixed
             .as_ref()
-            .map(|l| l.columns.len().max(l.header.len()))
+            .map(|l| l.width())
             .unwrap_or(1)
             .max(1);
         Ok(CsvDoc {
@@ -382,7 +382,7 @@ impl CsvDoc {
             rows.push(row.clone());
             // 見分けていないときは空のまま渡す
             if !self.kinds.is_empty() {
-                kinds.push(self.kinds.get(real).copied().unwrap_or(false));
+                kinds.push(self.kinds.get(real).copied().unwrap_or(0));
             }
             if shown.filtered() {
                 numbers.push(real);

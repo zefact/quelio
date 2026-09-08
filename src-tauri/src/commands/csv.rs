@@ -133,10 +133,10 @@ pub fn csv_set_fixed(
     docs.with(&doc_id, |d| d.info(&doc_id))
 }
 
-/// 残してある固定長のレイアウト
+/// 残してある固定長のレイアウト (フォルダ分けと並び順のまま)
 #[tauri::command]
-pub fn csv_layouts(app: AppHandle) -> Result<Vec<crate::csv_layouts::SavedLayout>, String> {
-    crate::csv_layouts::load(&app)
+pub fn csv_layouts(app: AppHandle) -> Result<Vec<crate::csv_layouts::LayoutNode>, String> {
+    crate::csv_layouts::tree(&app)
 }
 
 /// 桁の並びに名前を付けて残す (同じ名前があれば上書き)
@@ -145,7 +145,7 @@ pub fn csv_save_layout(
     app: AppHandle,
     name: String,
     layout: FixedLayout,
-) -> Result<Vec<crate::csv_layouts::SavedLayout>, String> {
+) -> Result<Vec<crate::csv_layouts::LayoutNode>, String> {
     crate::csv_layouts::save(&app, &name, layout)
 }
 
@@ -154,8 +154,17 @@ pub fn csv_save_layout(
 pub fn csv_delete_layout(
     app: AppHandle,
     name: String,
-) -> Result<Vec<crate::csv_layouts::SavedLayout>, String> {
+) -> Result<Vec<crate::csv_layouts::LayoutNode>, String> {
     crate::csv_layouts::delete(&app, &name)
+}
+
+/// 並べ替えやフォルダ分けの結果を、そのまま入れ替えて残す
+#[tauri::command]
+pub fn csv_save_layout_tree(
+    app: AppHandle,
+    nodes: Vec<crate::csv_layouts::LayoutNode>,
+) -> Result<Vec<crate::csv_layouts::LayoutNode>, String> {
+    crate::csv_layouts::save_tree(&app, nodes)
 }
 
 /// 空のCSVを作る (新規作成)
@@ -996,8 +1005,14 @@ pub fn csv_export_xlsx(
     docs.with(&doc_id, |d| {
         let columns = d.columns();
         let width = columns.len();
+        /*
+         * CSVエディタから出すときは、色を付けずに枠線で囲む形にする。
+         *
+         * 元のファイルには見出しの飾りが無いので、そのまま手を入れてもらえるよう
+         * 見出しもデータ行と同じ書式にしておく
+         */
         let mut sink: Box<dyn RowSink> =
-            Box::new(crate::export_sheet::SheetSink::new(&out, "CSV")?);
+            Box::new(crate::export_sheet::SheetSink::ruled(&out, "CSV")?);
         sink.header(&columns)?;
         for row in &d.rows {
             let cells: Vec<Option<crate::export::CsvCell>> = (0..width)

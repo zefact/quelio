@@ -4,8 +4,11 @@
 //! 何百万行でもメモリが膨らまないよう、ライブラリの「一定メモリ」モードで
 //! 1行ずつファイルへ流しながら書く。
 //!
-//! 見た目は定義書と揃え、そのまま配れる形にする
-//! (見出しに色、絞り込み、見出し行の固定、列幅の自動調整)
+//! 見た目は2通りある。
+//! SQLの結果は定義書と揃えてそのまま配れる形にし (見出しに色)、
+//! CSVエディタから出すときは色を付けず、すべてのセルを枠線で囲む
+//! (元のファイルの見た目を変えず、そのまま手を入れてもらうため)。
+//! 絞り込み・見出し行の固定・列幅の自動調整はどちらも同じ
 
 use std::path::{Path, PathBuf};
 
@@ -25,6 +28,8 @@ const INK: Color = Color::RGB(0x1E2833);
 const ACCENT: Color = Color::RGB(0x2E9E8F);
 /// 本文の文字色
 const TEXT: Color = Color::RGB(0x2B3440);
+/// 枠線の色 (黒より薄くして表を軽く見せる)
+const RULE: Color = Color::RGB(0xC3C9D2);
 
 const FONT: &str = "Yu Gothic";
 
@@ -44,6 +49,20 @@ const WIDTH_SAMPLE_ROWS: u32 = 200;
 /// 末尾が丸められて別の値になる。文字列のまま置いたほうが安全
 const SAFE_INT: i64 = 9_007_199_254_740_991;
 
+/// 書き出す見た目
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Look {
+    /// 見出しに色を付ける (SQLの結果。定義書と揃えて、そのまま配れる形にする)
+    Colored,
+    /**
+     * 色を付けず、すべてのセルを枠線で囲む。
+     *
+     * CSVエディタから出すときはこちら。
+     * 見出しもデータ行と同じ書体・同じ地の色にして、元の中身の見た目を変えない
+     */
+    Ruled,
+}
+
 /// 書式の一式
 struct Styles {
     head: Format,
@@ -55,15 +74,20 @@ struct Styles {
 }
 
 impl Styles {
-    fn new() -> Self {
-        let base = || {
-            Format::new()
+    fn new(look: Look) -> Self {
+        let base = move || {
+            let f = Format::new()
                 .set_font_name(FONT)
                 .set_font_size(10)
-                .set_font_color(TEXT)
+                .set_font_color(TEXT);
+            match look {
+                // 枠線で囲む形では、どのセルにも同じ枠線を付ける
+                Look::Ruled => f.set_border(FormatBorder::Thin).set_border_color(RULE),
+                Look::Colored => f,
+            }
         };
-        Self {
-            head: base()
+        let head = match look {
+            Look::Colored => base()
                 .set_bold()
                 .set_font_color(Color::RGB(0xFFFFFF))
                 .set_background_color(INK)
@@ -71,6 +95,11 @@ impl Styles {
                 .set_align(FormatAlign::VerticalCenter)
                 .set_border_bottom(FormatBorder::Medium)
                 .set_border_bottom_color(ACCENT),
+            // 見出しもデータ行とまったく同じ書式にする
+            Look::Ruled => base(),
+        };
+        Self {
+            head,
             text: base(),
             number: base(),
             date: base().set_num_format("yyyy-mm-dd"),
@@ -172,22 +201,39 @@ pub struct SheetSink {
     row: u32,
     /// 列ごとの幅 (先頭の数行から決める)
     widths: Vec<f64>,
+    look: Look,
 }
 
 impl SheetSink {
-    /// 保存先とシート名を決めて用意する
+    /// 保存先とシート名を決めて用意する (見出しに色を付ける形)
     pub fn new(path: &Path, sheet_name: &str) -> Result<Self, String> {
+        Self::with_look(path, sheet_name, Look::Colored)
+    }
+
+    /// 色を付けず、すべてのセルを枠線で囲む形で用意する
+    pub fn ruled(path: &Path, sheet_name: &str) -> Result<Self, String> {
+        Self::with_look(path, sheet_name, Look::Ruled)
+    }
+
+    fn with_look(path: &Path, sheet_name: &str, look: Look) -> Result<Self, String> {
         let mut book = Workbook::new();
         let mut sheet = book.new_worksheet_with_constant_memory();
         sheet.set_name(sheet_name).map_err(|e| e.to_string())?;
+        /*
+         * 画面の目盛り線は消す。
+         *
+         * 色を付ける形は罫線を引かない見た目にしてあり、
+         * 枠線で囲む形は自分で枠線を引くので、どちらも目盛り線は要らない
+         */
         sheet.set_screen_gridlines(false);
         Ok(Self {
             book,
             sheet,
-            styles: Styles::new(),
+            styles: Styles::new(look),
             path: path.to_path_buf(),
             row: 0,
             widths: Vec::new(),
+            look,
         })
     }
 
@@ -216,9 +262,12 @@ impl SheetSink {
 
 impl RowSink for SheetSink {
     fn header(&mut self, names: &[String]) -> Result<(), String> {
-        self.sheet
-            .set_row_height(self.row, 22)
-            .map_err(|e| e.to_string())?;
+        // 色を付ける形だけ、見出しを少し高くする (地の色を見せるため)
+        if self.look == Look::Colored {
+            self.sheet
+                .set_row_height(self.row, 22)
+                .map_err(|e| e.to_string())?;
+        }
         for (i, name) in names.iter().enumerate() {
             self.sheet
                 .write_string_with_format(self.row, i as u16, name, &self.styles.head)
@@ -296,7 +345,7 @@ mod tests {
     use super::*;
 
     fn styles() -> Styles {
-        Styles::new()
+        Styles::new(Look::Colored)
     }
 
     #[test]
@@ -343,6 +392,40 @@ mod tests {
             clip: None,
         };
         assert!(matches!(classify(&ok, &s), Value::Number(_)));
+    }
+
+    #[test]
+    fn 枠線で囲む形では見出しもデータ行と同じ書式にする() {
+        let s = Styles::new(Look::Ruled);
+        // 太字・地の色・文字色を変えない (中身の見た目を変えないため)
+        assert_eq!(s.head, s.text);
+    }
+
+    #[test]
+    fn 枠線で囲む形では全部のセルに枠線を付ける() {
+        let ruled = Styles::new(Look::Ruled);
+        let plain = Format::new()
+            .set_font_name(FONT)
+            .set_font_size(10)
+            .set_font_color(TEXT);
+        let want = plain
+            .clone()
+            .set_border(FormatBorder::Thin)
+            .set_border_color(RULE);
+        assert_eq!(ruled.text, want);
+        assert_ne!(ruled.text, plain);
+    }
+
+    #[test]
+    fn 色を付ける形では見出しだけ別の書式にする() {
+        let s = Styles::new(Look::Colored);
+        assert_ne!(s.head, s.text);
+        // データ行には枠線を付けない (罫線の無い見た目のまま)
+        let plain = Format::new()
+            .set_font_name(FONT)
+            .set_font_size(10)
+            .set_font_color(TEXT);
+        assert_eq!(s.text, plain);
     }
 
     #[test]

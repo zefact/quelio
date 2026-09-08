@@ -6,6 +6,7 @@
  */
 import type {
   CsvFixedColumn,
+  CsvFixedKind,
   CsvFixedLayout,
   CsvSavedLayout,
   CsvWidthUnit,
@@ -20,6 +21,11 @@ export const UNIT_LABEL: Record<CsvWidthUnit, string> = {
 /** 桁1つを作る (左寄せ・空白埋め) */
 export function newColumn(width: number): CsvFixedColumn {
   return { width, align: "left", pad: " ", name: "" };
+}
+
+/** 種別1つを作る (先頭1つを見る決まりと、10桁ひとつから始める) */
+export function newKind(name: string): CsvFixedKind {
+  return { name, at: 0, len: 1, value: "", columns: [newColumn(10)] };
 }
 
 /** 「10,8,20」のような文字を幅の並びにする (数でないものは捨てる) */
@@ -64,7 +70,7 @@ export function fixedLabel(layout: CsvFixedLayout): string {
   const n = layout.columns.length;
   const total = totalWidth(layout.columns);
   const cut = layout.newline ? "" : "・改行なし";
-  const mix = layout.key ? "・種別混在" : "";
+  const mix = layout.kinds.length > 0 ? `・種別${layout.kinds.length + 1}種` : "";
   return `固定長 ${n}桁 (計${total}${UNIT_LABEL[layout.unit]}${cut}${mix})`;
 }
 
@@ -78,6 +84,21 @@ function sameColumns(a: CsvFixedColumn[], b: CsvFixedColumn[]): boolean {
       c.align === d.align &&
       c.pad === d.pad &&
       c.name === d.name
+    );
+  });
+}
+
+/** レコードの種別が同じ中身か */
+function sameKinds(a: CsvFixedKind[], b: CsvFixedKind[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((k, i) => {
+    const d = b[i];
+    return (
+      k.name === d.name &&
+      k.at === d.at &&
+      k.len === d.len &&
+      k.value === d.value &&
+      sameColumns(k.columns, d.columns)
     );
   });
 }
@@ -97,9 +118,7 @@ export function sameLayout(
   if (a.newline !== b.newline) return false;
   if (!sameColumns(a.header, b.header)) return false;
   if (!sameColumns(a.trailer, b.trailer)) return false;
-  if (a.key?.at !== b.key?.at) return false;
-  if (a.key?.len !== b.key?.len) return false;
-  if (a.key?.header !== b.key?.header) return false;
+  if (!sameKinds(a.kinds, b.kinds)) return false;
   return sameColumns(a.columns, b.columns);
 }
 

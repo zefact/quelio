@@ -73,6 +73,28 @@ pub struct FixedKey {
     pub header: String,
 }
 
+/**
+ * レコードの種別1つ。
+ *
+ * 「決まった場所がこの値ならこの桁で切る」という決まりと、
+ * その桁の並びをひとまとめにしたもの。
+ * 種別はいくつでも足せて、見る場所は種別ごとに違ってよい
+ */
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FixedKind {
+    /// 画面に出す名前 (「ヘッダ」「明細」など)
+    pub name: String,
+    /// 見る位置 (レコードの先頭からいくつ目か。0始まり。単位は桁幅と同じ)
+    pub at: usize,
+    /// 見る長さ
+    pub len: usize,
+    /// この値ならこの種別 (前後の空白は落として比べる)
+    pub value: String,
+    /// この種別の桁の並び
+    pub columns: Vec<FixedColumn>,
+}
+
 /// ファイル1つぶんの桁の並び
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,8 +131,17 @@ pub struct FixedLayout {
      * 「この値になっているレコードすべて」になる。
      * ヘッダ行とボディ行が交互に来るファイルはこの形で読む
      */
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<FixedKey>,
+    /**
+     * レコードの種別 (空なら見分けない)。
+     *
+     * 上から順に見て、はじめに当てはまった種別の桁で切る。
+     * どれにも当てはまらないレコードは `columns` の桁で切る。
+     * ヘッダが2種類あるファイルなどは、ここに並べて決める
+     */
+    #[serde(default)]
+    pub kinds: Vec<FixedKind>,
 }
 
 fn yes() -> bool {
@@ -128,12 +159,59 @@ impl FixedLayout {
             header: Vec::new(),
             trailer: Vec::new(),
             key: None,
+            kinds: Vec::new(),
         }
     }
 
     /// 項目名 (付いていない桁は空文字)
     pub fn names(&self) -> Vec<String> {
         self.columns.iter().map(|c| c.name.clone()).collect()
+    }
+
+    /**
+     * その種別の桁の並び。
+     *
+     * 0 はどの種別にも当てはまらないレコード (ふつうのデータ行)
+     */
+    pub fn columns_of(&self, kind: u32) -> &[FixedColumn] {
+        match kind.checked_sub(1).and_then(|i| self.kinds.get(i as usize)) {
+            Some(k) => &k.columns,
+            None => &self.columns,
+        }
+    }
+
+    /// 表に要る列の数 (種別によって項目の数が違うので、いちばん多いものに合わせる)
+    pub fn width(&self) -> usize {
+        self.kinds
+            .iter()
+            .map(|k| k.columns.len())
+            .chain(std::iter::once(self.columns.len()))
+            .chain(std::iter::once(self.header.len()))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /**
+     * 古い形の設定を、今の形に直したもの。
+     *
+     * 以前は「ヘッダ1種類だけ」を `key` と `header` で持っていた。
+     * それを種別の一覧へ移し替える (保存しておいたお気に入りをそのまま使えるように)
+     */
+    pub fn migrated(&self) -> FixedLayout {
+        let mut out = self.clone();
+        let Some(key) = out.key.take() else {
+            return out;
+        };
+        if out.kinds.is_empty() && !out.header.is_empty() {
+            out.kinds.push(FixedKind {
+                name: "ヘッダ".to_string(),
+                at: key.at,
+                len: key.len,
+                value: key.header,
+                columns: std::mem::take(&mut out.header),
+            });
+        }
+        out
     }
 }
 
@@ -145,31 +223,33 @@ pub fn total_width(columns: &[FixedColumn]) -> usize {
 /// 切り出す位置 (始まりと終わり)
 type Span = (usize, usize);
 
-/// 切り出す位置と、それがヘッダ行か
-pub type KeyedSpan = (usize, usize, bool);
+/// 切り出す位置と、その種別 (0 はどの種別にも当てはまらないレコード)
+pub type KindSpan = (usize, usize, u32);
 
 /**
  * 種別を見ながら、長さで切る位置を求める。
  *
  * レコードの種別ごとに長さが違うので、先頭から順に
- * 「その位置のレコードがヘッダか」を見て、その長さだけ進む。
- * 判断そのものは呼ぶ側に任せる (中身の読み方をここに持ち込まないため)
+ * 「その位置のレコードがどの種別か」を見て、その長さだけ進む。
+ * 見分けと長さは呼ぶ側に任せる (中身の読み方をここに持ち込まないため)。
+ *
+ * 長さが 0 の種別があると先へ進めないので、そこで打ち切る
  */
-pub fn spans_by_key(
+pub fn spans_by_kind(
     len: usize,
-    head: usize,
-    body: usize,
-    is_header: impl Fn(usize) -> bool,
-) -> Vec<KeyedSpan> {
+    kind_at: impl Fn(usize) -> u32,
+    width_of: impl Fn(u32) -> usize,
+) -> Vec<KindSpan> {
     let mut out = Vec::new();
-    if head == 0 || body == 0 {
-        return out;
-    }
     let mut at = 0usize;
     while at < len {
-        let header = is_header(at);
-        let end = (at + if header { head } else { body }).min(len);
-        out.push((at, end, header));
+        let kind = kind_at(at);
+        let width = width_of(kind);
+        if width == 0 {
+            break;
+        }
+        let end = (at + width).min(len);
+        out.push((at, end, kind));
         at = end;
     }
     out
@@ -376,11 +456,12 @@ pub struct LoadedFixed {
     /// 末尾のトレーラレコードの値 (無ければ空)
     pub tail: Vec<String>,
     /**
-     * 各行がヘッダ行か (種別を見分けているときだけ入る)。
+     * 各行の種別 (種別を見分けているときだけ入る)。
      *
-     * 行と同じ並び順。見分けていなければ空
+     * 行と同じ並び順で、0 はどの種別にも当てはまらないレコード。
+     * 見分けていなければ空
      */
-    pub kinds: Vec<bool>,
+    pub kinds: Vec<u32>,
 }
 
 /// 桁をどう決めて読むか
@@ -405,6 +486,18 @@ pub fn load(
     unit: WidthUnit,
     reading: Reading,
 ) -> LoadedFixed {
+    /*
+     * 古い形の設定 (ヘッダ1種類だけを `key` で決めていたもの) は、
+     * 種別の一覧に直してから読む
+     */
+    let migrated;
+    let reading = match reading {
+        Reading::Layout(l) if l.key.is_some() => {
+            migrated = l.migrated();
+            Reading::Layout(&migrated)
+        }
+        other => other,
+    };
     // 先に分かっている桁の並び (推測のときだけ無い)
     let known: Option<Vec<usize>> = match &reading {
         Reading::Layout(l) => Some(l.columns.iter().map(|c| c.width).collect()),
@@ -429,23 +522,21 @@ pub fn load(
     /*
      * レコードの種別を値で見分けるか。
      *
-     * 見分けるときは、ヘッダは「先頭の1件」ではなく
+     * 見分けるときは、種別の行も「先頭の1件」ではなく
      * 「その値になっているレコードすべて」になり、1つの表に混ざって並ぶ
      */
-    let key: Option<&FixedKey> = match &reading {
-        Reading::Layout(l) => l.key.as_ref(),
+    let by_kind: Option<&FixedLayout> = match &reading {
+        Reading::Layout(l) if !l.kinds.is_empty() => Some(l),
         _ => None,
-    }
-    .filter(|_| !head_cols.is_empty());
-    let head_total = total_width(head_cols);
+    };
 
     // レコードに切り分ける (ヘッダ・本体・トレーラ)
     let mut head_line: Option<Line> = None;
     let mut tail_line: Option<Line> = None;
-    // 各行がヘッダ行か (見分けていなければ空のまま)
-    let mut kinds: Vec<bool> = Vec::new();
-    let lines: Vec<Line> = if let Some(key) = key {
-        split_by_key(body, enc, unit, by_length, key, head_total, total_known, &mut kinds)
+    // 各行の種別 (見分けていなければ空のまま)
+    let mut kinds: Vec<u32> = Vec::new();
+    let lines: Vec<Line> = if let Some(layout) = by_kind {
+        split_by_kind(body, enc, unit, by_length, layout, total_known, &mut kinds)
     } else if by_length && unit == WidthUnit::Byte {
         let (h, b, t) = spans(
             body.len(),
@@ -506,13 +597,23 @@ pub fn load(
     }
 
     // 桁ごとに切って、文字に直す
-    let head_widths: Vec<usize> = head_cols.iter().map(|c| c.width).collect();
+    let kind_widths: Vec<Vec<usize>> = match by_kind {
+        Some(l) => l
+            .kinds
+            .iter()
+            .map(|k| k.columns.iter().map(|c| c.width).collect())
+            .collect(),
+        None => Vec::new(),
+    };
     let mut rows: Vec<Vec<String>> = Vec::with_capacity(lines.len());
     let mut ragged = false;
     for (at, line) in lines.iter().enumerate() {
-        // 種別を見分けているときは、その行の桁で切る
-        let head_row = kinds.get(at).copied().unwrap_or(false);
-        let use_widths = if head_row { &head_widths } else { &widths };
+        // 種別を見分けているときは、その行の種別の桁で切る
+        let kind = kinds.get(at).copied().unwrap_or(0);
+        let use_widths = match kind.checked_sub(1).and_then(|i| kind_widths.get(i as usize)) {
+            Some(w) => w,
+            None => &widths,
+        };
         if line.len() != use_widths.iter().sum::<usize>() {
             ragged = true;
         }
@@ -549,25 +650,26 @@ pub fn load(
                 header: Vec::new(),
                 trailer: Vec::new(),
                 key: None,
+                kinds: Vec::new(),
             }
         }
     };
 
     if out.trim {
         for (at, row) in rows.iter_mut().enumerate() {
-            let head_row = kinds.get(at).copied().unwrap_or(false);
-            unpad_row(row, if head_row { head_cols } else { &out.columns });
+            let kind = kinds.get(at).copied().unwrap_or(0);
+            unpad_row(row, out.columns_of(kind));
         }
     }
 
     /*
      * 表は四角にしておく。
      *
-     * ヘッダ行とボディ行で項目の数が違うので、
-     * 少ないほうを空欄で埋めて、どの行も同じ列数にそろえる
+     * 種別によって項目の数が違うので、少ないほうを空欄で埋めて、
+     * どの行も同じ列数にそろえる
      */
     if !kinds.is_empty() {
-        let width = widths.len().max(head_widths.len());
+        let width = out.width().max(widths.len());
         for row in &mut rows {
             row.resize(width, String::new());
         }
@@ -604,21 +706,29 @@ pub fn load(
  * どの位置のレコードも、まず決まった場所の値を見て種別を決め、
  * その種別の長さぶんだけ進む (改行で区切るファイルは、行ごとに種別を見る)
  */
-#[allow(clippy::too_many_arguments)]
-fn split_by_key<'a>(
+fn split_by_kind<'a>(
     body: &'a [u8],
     enc: &'static encoding_rs::Encoding,
     unit: WidthUnit,
     by_length: bool,
-    key: &FixedKey,
-    head_total: usize,
+    layout: &FixedLayout,
     body_total: usize,
-    kinds: &mut Vec<bool>,
+    kinds: &mut Vec<u32>,
 ) -> Vec<Line<'a>> {
-    /// その値がヘッダの印か (前後の空白は落として比べる)
-    fn hit(value: &str, key: &FixedKey) -> bool {
-        value.trim() == key.header.trim()
+    /// その位置の値が当てはまる種別 (0 はどれにも当てはまらない)
+    fn kind_of(layout: &FixedLayout, slice: impl Fn(usize, usize) -> String) -> u32 {
+        for (i, k) in layout.kinds.iter().enumerate() {
+            if k.len == 0 {
+                continue;
+            }
+            if slice(k.at, k.len).trim() == k.value.trim() {
+                return i as u32 + 1;
+            }
+        }
+        0
     }
+
+    let width_of = |kind: u32| total_width(layout.columns_of(kind));
 
     if !by_length {
         // 改行で区切るファイルは、行ごとに見分けるだけでよい
@@ -630,17 +740,33 @@ fn split_by_key<'a>(
         } else {
             raw.into_iter().map(Line::Bytes).collect()
         };
-        kinds.extend(lines.iter().map(|l| hit(&l.slice(key.at, key.len, enc), key)));
+        kinds.extend(
+            lines
+                .iter()
+                .map(|l| kind_of(layout, |at, len| l.slice(at, len, enc))),
+        );
         return lines;
     }
 
     if unit == WidthUnit::Byte {
-        let spans = spans_by_key(body.len(), head_total, body_total, |at| {
-            let from = (at + key.at).min(body.len());
-            let to = (from + key.len).min(body.len());
-            hit(&enc.decode(&body[from..to]).0, key)
-        });
-        kinds.extend(spans.iter().map(|(_, _, h)| *h));
+        let spans = spans_by_kind(
+            body.len(),
+            |at| {
+                kind_of(layout, |ka, len| {
+                    let from = (at + ka).min(body.len());
+                    let to = (from + len).min(body.len());
+                    enc.decode(&body[from..to]).0.into_owned()
+                })
+            },
+            |kind| {
+                if kind == 0 {
+                    body_total
+                } else {
+                    width_of(kind)
+                }
+            },
+        );
+        kinds.extend(spans.iter().map(|(_, _, k)| *k));
         return spans
             .into_iter()
             .map(|(f, e, _)| Line::Bytes(&body[f..e]))
@@ -650,12 +776,24 @@ fn split_by_key<'a>(
     // 文字で数えるときは、文字に直してから切る
     let text = enc.decode(body).0.into_owned();
     let chars: Vec<char> = text.chars().collect();
-    let spans = spans_by_key(chars.len(), head_total, body_total, |at| {
-        let from = (at + key.at).min(chars.len());
-        let to = (from + key.len).min(chars.len());
-        hit(&chars[from..to].iter().collect::<String>(), key)
-    });
-    kinds.extend(spans.iter().map(|(_, _, h)| *h));
+    let spans = spans_by_kind(
+        chars.len(),
+        |at| {
+            kind_of(layout, |ka, len| {
+                let from = (at + ka).min(chars.len());
+                let to = (from + len).min(chars.len());
+                chars[from..to].iter().collect::<String>()
+            })
+        },
+        |kind| {
+            if kind == 0 {
+                body_total
+            } else {
+                width_of(kind)
+            }
+        },
+    );
+    kinds.extend(spans.iter().map(|(_, _, k)| *k));
     spans
         .into_iter()
         .map(|(f, e, _)| Line::Chars(chars[f..e].to_vec()))
@@ -770,7 +908,7 @@ pub fn dump(
     newline: &str,
     head: &[String],
     tail: &[String],
-    kinds: &[bool],
+    kinds: &[u32],
 ) -> Result<Vec<u8>, Vec<TooLong>> {
     let mut out: Vec<u8> = Vec::new();
     let mut bad: Vec<TooLong> = Vec::new();
@@ -813,12 +951,8 @@ pub fn dump(
         write(head, &layout.header, Spot::Header, &mut out);
     }
     for (r, row) in rows.iter().enumerate() {
-        // 種別を見分けているときは、その行の桁で書き戻す
-        let columns = if kinds.get(r).copied().unwrap_or(false) {
-            &layout.header
-        } else {
-            &layout.columns
-        };
+        // 種別を見分けているときは、その行の種別の桁で書き戻す
+        let columns = layout.columns_of(kinds.get(r).copied().unwrap_or(0));
         write(row, columns, Spot::Row(r), &mut out);
     }
     if !tail.is_empty() {

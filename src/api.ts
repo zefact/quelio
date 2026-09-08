@@ -29,7 +29,7 @@ import type {
   CsvPage,
   CsvOptions,
   CsvPreview,
-  CsvSavedLayout,
+  CsvLayoutNode,
   CsvSummary,
   CsvPasteResult,
   CsvRect,
@@ -837,8 +837,8 @@ export function csvSetEdge(
   return call("csv_set_edge", { docId, trailer, cells });
 }
 
-/** 残してある固定長のレイアウト */
-export function csvLayouts(): Promise<CsvSavedLayout[]> {
+/** 残してある固定長のレイアウト (フォルダ分けと並び順のまま) */
+export function csvLayouts(): Promise<CsvLayoutNode[]> {
   return call("csv_layouts", {});
 }
 
@@ -846,13 +846,20 @@ export function csvLayouts(): Promise<CsvSavedLayout[]> {
 export function csvSaveLayout(
   name: string,
   layout: CsvFixedLayout
-): Promise<CsvSavedLayout[]> {
+): Promise<CsvLayoutNode[]> {
   return call("csv_save_layout", { name, layout });
 }
 
 /** 残してあるレイアウトを消す */
-export function csvDeleteLayout(name: string): Promise<CsvSavedLayout[]> {
+export function csvDeleteLayout(name: string): Promise<CsvLayoutNode[]> {
   return call("csv_delete_layout", { name });
+}
+
+/** 並べ替えやフォルダ分けの結果を、そのまま入れ替えて残す */
+export function csvSaveLayoutTree(
+  nodes: CsvLayoutNode[]
+): Promise<CsvLayoutNode[]> {
+  return call("csv_save_layout_tree", { nodes });
 }
 
 /** タブを閉じる (未保存の確認は呼ぶ側で済ませておくこと) */
@@ -1157,6 +1164,26 @@ export function exportErDiagrams(path: string): Promise<number> {
 /** JSONファイルからER図を取り込む (同名は上書き) */
 export function importErDiagrams(path: string): Promise<ImportCounts> {
   return call("import_er_diagrams", { path });
+}
+
+/** SQLのお気に入りをJSONファイルへ書き出す (件数を返す) */
+export function exportSavedSql(path: string): Promise<number> {
+  return call("export_saved_sql", { path });
+}
+
+/** JSONファイルからSQLのお気に入りを取り込む (同じIDは上書き) */
+export function importSavedSql(path: string): Promise<ImportCounts> {
+  return call("import_saved_sql", { path });
+}
+
+/** 固定長のお気に入りをJSONファイルへ書き出す (件数を返す) */
+export function exportCsvLayouts(path: string): Promise<number> {
+  return call("export_csv_layouts", { path });
+}
+
+/** JSONファイルから固定長のお気に入りを取り込む (同じ名前は上書き) */
+export function importCsvLayouts(path: string): Promise<ImportCounts> {
+  return call("import_csv_layouts", { path });
 }
 
 /** SSH秘密鍵の参照ダイアログの初期フォルダ (~/.ssh または ホーム) を返す */

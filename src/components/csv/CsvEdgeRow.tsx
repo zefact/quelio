@@ -69,8 +69,8 @@ export function CsvEdgeRow({
       row: (index) => (index === 0 ? values : null),
       // 1行しかないので、行番号は数えるまでもなく1
       number: () => 1,
-      // 種別を見分ける表ではないので、ヘッダ行の色分けは使わない
-      isHeadRow: () => false,
+      // 種別を見分ける表ではないので、色分けは使わない
+      kindOf: () => 0,
       // 全行が手元にあるので、取りに行くことも捨てることもしない
       ensure: () => {},
       clear: () => {},

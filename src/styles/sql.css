@@ -1146,11 +1146,11 @@ html[data-theme="light"] .result-banner.ng {
    * (結果グリッドやエディタは内部で個別にスクロールする) */
   overflow-x: hidden;
   /*
-   * 上下の余白は詰めておく。
-   * ここが広いと、シートのタブの上と結果の下がそのぶん空いて、
-   * 表を見られる高さが減ってしまう
+   * 上下も左右も余白は詰めておく。
+   * ここが広いと、シートのタブの上と結果の下がそのぶん空いて
+   * 表を見られる高さが減り、左右は表を出せる幅がそのぶん狭くなる
    */
-  padding: 12px 28px;
+  padding: 12px 14px;
   min-width: 0;
 }
 
@@ -1163,11 +1163,25 @@ html[data-theme="light"] .result-banner.ng {
   font-size: 13px;
 }
 
+/*
+ * テーブル名の見出し (種別の印・テーブル名・日本語名)。
+ *
+ * 文字どうしは下端 (ベースライン) をそろえる。
+ * 真ん中でそろえると、字の大きさと書体が違うぶん
+ * 日本語名だけ浮いて見えてしまう。
+ * 印やボタンは文字ではないので、こちらは真ん中でそろえる
+ */
 .content-table-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.content-table-head > .type-chip,
+.content-table-head > button,
+.content-table-head > input {
+  align-self: center;
 }
 
 /* CREATE文の表示ボタン (見出しの右端) */

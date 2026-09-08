@@ -28,7 +28,7 @@ pub struct Loaded {
     /// 固定長のトレーラレコードの値 (無ければ空)
     pub tail: Vec<String>,
     /// 各行がヘッダ行か (種別を見分けているときだけ入る)
-    pub kinds: Vec<bool>,
+    pub kinds: Vec<u32>,
     /// 行によって列数が違ったか (足りない分は空欄で埋めてある)
     pub ragged: bool,
     /// 文字コードの変換で置き換えが起きたか (文字化けの疑い)
@@ -152,7 +152,7 @@ fn dump_fixed(
     layout: &fixed::FixedLayout,
     head: &[String],
     tail: &[String],
-    kinds: &[bool],
+    kinds: &[u32],
 ) -> Result<Vec<u8>, String> {
     let enc = format::encoding_by_name(&f.encoding)?;
     let body = fixed::dump(rows, layout, enc, f.newline.as_str(), head, tail, kinds)
@@ -201,7 +201,7 @@ pub fn dump(
     f: &CsvFormat,
     head: &[String],
     tail: &[String],
-    kinds: &[bool],
+    kinds: &[u32],
 ) -> Result<Vec<u8>, String> {
     if let Some(layout) = &f.fixed {
         return dump_fixed(rows, f, layout, head, tail, kinds);

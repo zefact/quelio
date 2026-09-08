@@ -176,6 +176,54 @@ pub fn load(app: &AppHandle) -> Result<SavedSqlStore, String> {
     Ok(store)
 }
 
+/**
+ * 書き出したファイルの中身を読む (バックアップからの復元用)。
+ *
+ * 古い形 (項目を並べただけ) のファイルも読めるようにしてある
+ */
+pub fn parse(text: &str) -> Result<SavedSqlStore, String> {
+    let stored: Stored = serde_json::from_str(text)
+        .map_err(|e| format!("保存SQLのJSON形式が不正です: {e}"))?;
+    let mut store = match stored {
+        Stored::New(s) => s,
+        Stored::Old(items) => from_items(items),
+    };
+    ensure_order(&mut store);
+    Ok(store)
+}
+
+/**
+ * 取り込んだ内容を、今の保存へ混ぜる。
+ *
+ * 同じIDのものは上書きし、無いものは足す。
+ * フォルダは同じパスが無ければ足す (中身を消したりはしない)。
+ * 返すのは (足した数, 上書きした数)
+ */
+pub fn merge(app: &AppHandle, incoming: SavedSqlStore) -> Result<(usize, usize), String> {
+    let mut store = load(app)?;
+    for f in incoming.folders {
+        if !store.folders.iter().any(|x| x == &f) {
+            store.folders.push(f);
+        }
+    }
+    let mut added = 0;
+    let mut updated = 0;
+    for item in incoming.items {
+        match store.items.iter_mut().find(|x| x.id == item.id) {
+            Some(x) => {
+                *x = item;
+                updated += 1;
+            }
+            None => {
+                store.items.push(item);
+                added += 1;
+            }
+        }
+    }
+    save_all(app, &mut store)?;
+    Ok((added, updated))
+}
+
 /// 旧形式 (項目だけ) からフォルダを組み立てる
 fn from_items(items: Vec<SavedSql>) -> SavedSqlStore {
     let mut store = SavedSqlStore {
@@ -415,6 +463,32 @@ pub fn move_node(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn 書き出したものを読み直せる() {
+        let mut store = SavedSqlStore::default();
+        store.folders.push("集計".to_string());
+        store.items.push(SavedSql {
+            id: "a".into(),
+            name: "月次".into(),
+            folder: "集計".into(),
+            sql: "select 1".into(),
+            updated_at_ms: 1,
+        });
+        let text = serde_json::to_string(&store).unwrap();
+        let back = parse(&text).unwrap();
+        assert_eq!(back.items.len(), 1);
+        assert_eq!(back.folders, vec!["集計"]);
+        assert_eq!(back.order.len(), 2);
+    }
+
+    #[test]
+    fn 古い形のファイルも読める() {
+        let old = r#"[{"id":"a","name":"月次","folder":"集計","sql":"select 1","updatedAtMs":1}]"#;
+        let back = parse(old).unwrap();
+        assert_eq!(back.items.len(), 1);
+        assert_eq!(back.folders, vec!["集計"]);
+    }
     use super::*;
 
     fn item(id: &str, folder: &str) -> SavedSql {

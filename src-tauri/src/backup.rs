@@ -1,4 +1,5 @@
-//! アプリデータのエクスポート/インポート (接続一覧・ER図)。
+//! アプリデータのエクスポート/インポート
+//! (接続一覧・ER図・SQLのお気に入り・固定長のお気に入り)。
 //! 設定画面から呼ばれ、指定パスのJSONファイルと相互変換する。
 
 use std::collections::HashMap;
@@ -7,8 +8,10 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::AppHandle;
 
+use crate::csv_layouts;
 use crate::er_store;
 use crate::models::ConnectionStore;
+use crate::saved_sql;
 use crate::storage;
 
 /// インポート結果 (追加数・上書き数)
@@ -105,5 +108,41 @@ pub fn import_er_diagrams(app: &AppHandle, path: &str) -> Result<ImportResult, S
     let incoming: HashMap<String, Value> =
         serde_json::from_str(&text).map_err(|e| format!("ER図のJSON形式が不正です: {e}"))?;
     let (added, updated) = er_store::merge(app, incoming)?;
+    Ok(ImportResult { added, updated })
+}
+
+/// 保存SQL (お気に入り) をJSONファイルへ書き出す
+pub fn export_saved_sql(app: &AppHandle, path: &str) -> Result<usize, String> {
+    let store = saved_sql::load(app)?;
+    let text =
+        serde_json::to_string_pretty(&store).map_err(|e| format!("シリアライズに失敗: {e}"))?;
+    std::fs::write(path, text).map_err(|e| format!("ファイルを書き込めません: {e}"))?;
+    Ok(store.items.len())
+}
+
+/// JSONファイルから保存SQLを取り込む (同じIDのものは上書き)
+pub fn import_saved_sql(app: &AppHandle, path: &str) -> Result<ImportResult, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("ファイルを読み込めません: {e}"))?;
+    let incoming = saved_sql::parse(&text)?;
+    let (added, updated) = saved_sql::merge(app, incoming)?;
+    Ok(ImportResult { added, updated })
+}
+
+/// 固定長のお気に入りをJSONファイルへ書き出す (フォルダ分けごと)
+pub fn export_csv_layouts(app: &AppHandle, path: &str) -> Result<usize, String> {
+    let nodes = csv_layouts::tree(app)?;
+    let text =
+        serde_json::to_string_pretty(&nodes).map_err(|e| format!("シリアライズに失敗: {e}"))?;
+    std::fs::write(path, text).map_err(|e| format!("ファイルを書き込めません: {e}"))?;
+    Ok(csv_layouts::flatten(&nodes).len())
+}
+
+/// JSONファイルから固定長のお気に入りを取り込む (同じ名前のものは上書き)
+pub fn import_csv_layouts(app: &AppHandle, path: &str) -> Result<ImportResult, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("ファイルを読み込めません: {e}"))?;
+    let incoming = csv_layouts::parse(&text)?;
+    let (added, updated) = csv_layouts::merge(app, incoming)?;
     Ok(ImportResult { added, updated })
 }

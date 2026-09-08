@@ -7,7 +7,8 @@
  *
  * 固定長として読み直すのは「読み方」の変更なので、ツールバー側に置いてある
  */
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
+import { useDismiss } from "../../hooks/useDismiss";
 import type {
   CsvFormat,
   CsvFormatPatch,
@@ -57,14 +58,8 @@ export function CsvFormatMenu({
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
-  // メニューの外を触ったら閉じる
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
-    };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, [onClose]);
+  // メニューの外を触ったら閉じる (タブバーの空いている所も含めて)
+  useDismiss(true, onClose, { ref, escape: true });
 
   return (
     <div className={"csv-format-menu" + (up ? " up" : "")} ref={ref}>

@@ -37,6 +37,7 @@ import type {
   TableInfo,
   TableTab,
 } from "../types";
+import { useImeGuard } from "../hooks/useImeGuard";
 import { joinComment } from "./columnDraft";
 import { DdlDialog } from "./DdlDialog";
 import { DropColumnConfirm } from "./DropColumnConfirm";
@@ -132,6 +133,8 @@ export function TableView({
   const [collations, setCollations] = useState<string[]>([]);
   /** テーブルの日本語名 (コメント) を編集中の値。nullなら表示のみ */
   const [nameDraft, setNameDraft] = useState<string | null>(null);
+  /** 日本語入力の変換を確定したEnterを、決定と取り違えないための見張り */
+  const ime = useImeGuard();
   const [nameError, setNameError] = useState<string | null>(null);
   /** Enterとフォーカスアウトで二重に実行しないためのガード */
   const nameBusy = useRef(false);
@@ -339,9 +342,10 @@ export function TableView({
             value={nameDraft}
             placeholder="日本語名 (テーブルコメント)"
             onChange={(e) => setNameDraft(e.target.value)}
+            {...ime.props}
             onKeyDown={(e) => {
-              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-              if (e.nativeEvent.isComposing) return;
+              // 日本語入力の変換を確定したEnter/Escは拾わない
+              if (!ime.ready(e)) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 saveName();

@@ -4,9 +4,13 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   checkConfigFiles,
   exportConnections,
+  exportCsvLayouts,
   exportErDiagrams,
+  exportSavedSql,
   importConnections,
+  importCsvLayouts,
   importErDiagrams,
+  importSavedSql,
   quarantineConfigFile,
 } from "../api";
 import type { ConfigFile } from "../types";
@@ -178,6 +182,91 @@ export function SettingsBackup({ notify, onImported }: Props) {
               className="btn-secondary"
               disabled={busy}
               onClick={() => doImport(importErDiagrams, "ER図", false)}
+            >
+              復元
+            </button>
+          </div>
+        </SettingRow>
+      </section>
+
+      <section className="set-section">
+        <h3 className="set-section-title">SQLのお気に入り</h3>
+        <SettingRow
+          title="SQLのお気に入りのバックアップ / 復元"
+          desc={
+            <>
+              保存したSQLを、フォルダ分けと並び順ごとJSONファイルへ書き出し、
+              あとで読み込めます。
+              <br />
+              復元では今のお気に入りは消えません。
+              同じものは上書きし、無いものを足します。
+            </>
+          }
+        >
+          <div className="set-btn-row">
+            <button
+              className="btn-secondary"
+              disabled={busy}
+              onClick={() =>
+                doExport(
+                  `quelio_saved_sql_${today()}.json`,
+                  exportSavedSql,
+                  "SQLのお気に入り"
+                )
+              }
+            >
+              バックアップ
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={busy}
+              onClick={() =>
+                doImport(importSavedSql, "SQLのお気に入り", false)
+              }
+            >
+              復元
+            </button>
+          </div>
+        </SettingRow>
+      </section>
+
+      <section className="set-section">
+        <h3 className="set-section-title">固定長のお気に入り</h3>
+        <SettingRow
+          title="固定長のお気に入りのバックアップ / 復元"
+          desc={
+            <>
+              CSVエディタで登録した固定長の桁設定を、フォルダ分けと並び順ごと
+              JSONファイルへ書き出し、あとで読み込めます。
+              <br />
+              復元では今のお気に入りは消えません。
+              同じ名前のものは桁設定を上書きし、無いものを足します
+              (入っていたフォルダが無ければ作ります)。
+              <br />
+              CSVエディタを開いたまま復元したときは、開き直すと一覧に出ます。
+            </>
+          }
+        >
+          <div className="set-btn-row">
+            <button
+              className="btn-secondary"
+              disabled={busy}
+              onClick={() =>
+                doExport(
+                  `quelio_csv_layouts_${today()}.json`,
+                  exportCsvLayouts,
+                  "固定長のお気に入り"
+                )
+              }
+            >
+              バックアップ
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={busy}
+              onClick={() =>
+                doImport(importCsvLayouts, "固定長のお気に入り", false)
+              }
             >
               復元
             </button>

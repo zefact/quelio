@@ -1,4 +1,5 @@
 import type { CsvInfo } from "../../types";
+import { CloseMark } from "../CloseMark";
 import { isBetaVersion, useAppVersion } from "../../hooks/useAppVersion";
 import { CsvIcon } from "../CsvIcon";
 import { DbIcon } from "../DbIcon";
@@ -108,7 +109,7 @@ export function CsvTabs({
                 onClose(t);
               }}
             >
-              ×
+              <CloseMark />
             </button>
           </div>
         ))}

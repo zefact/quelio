@@ -418,34 +418,37 @@ fn keyed(body: &[usize], head: &[usize], at: usize, len: usize, mark: &str) -> F
 
 #[test]
 fn 種別を見ながら長さの違うレコードに切る() {
-    // ヘッダは6、ボディは4。並びは H B B H B
-    let kinds = "HBBHB";
-    let got = spans_by_key(6 + 4 + 4 + 6 + 4, 6, 4, |at| {
-        // 位置から何番目のレコードかを数え直す (試すためだけの単純な作り)
-        let mut i = 0;
-        let mut p = 0;
-        while p < at {
-            p += if kinds.as_bytes()[i] == b'H' { 6 } else { 4 };
-            i += 1;
-        }
-        kinds.as_bytes()[i] == b'H'
-    });
+    // 種別1は6、種別なし (ボディ) は4。並びは H B B H B
+    let marks = "HBBHB";
+    let got = spans_by_kind(
+        6 + 4 + 4 + 6 + 4,
+        |at| {
+            // 位置から何番目のレコードかを数え直す (試すためだけの単純な作り)
+            let mut i = 0;
+            let mut p = 0;
+            while p < at {
+                p += if marks.as_bytes()[i] == b'H' { 6 } else { 4 };
+                i += 1;
+            }
+            if marks.as_bytes()[i] == b'H' {
+                1
+            } else {
+                0
+            }
+        },
+        |kind| if kind == 1 { 6 } else { 4 },
+    );
     assert_eq!(
         got,
-        vec![
-            (0, 6, true),
-            (6, 10, false),
-            (10, 14, false),
-            (14, 20, true),
-            (20, 24, false),
-        ]
+        vec![(0, 6, 1), (6, 10, 0), (10, 14, 0), (14, 20, 1), (20, 24, 0)]
     );
 }
 
 #[test]
 fn 桁が決まっていなければ切る位置を出さない() {
-    assert!(spans_by_key(10, 0, 4, |_| false).is_empty());
-    assert!(spans_by_key(10, 4, 0, |_| false).is_empty());
+    // 長さ0の種別で止まる (先へ進めないため)
+    assert!(spans_by_kind(10, |_| 0, |_| 0).is_empty());
+    assert!(spans_by_kind(10, |_| 1, |k| if k == 1 { 0 } else { 4 }).is_empty());
 }
 
 #[test]
@@ -454,7 +457,7 @@ fn ヘッダ行とボディ行が交互に来るファイルを読む() {
     let bytes = to_sjis("A20260001B0001010B0002020A20260002B0003005");
     let layout = keyed(&[1, 4, 3], &[1, 8], 0, 1, "A");
     let got = load(&bytes, sjis(), WidthUnit::Byte, Reading::Layout(&layout));
-    assert_eq!(got.kinds, vec![true, false, false, true, false]);
+    assert_eq!(got.kinds, vec![1, 0, 0, 1, 0]);
     assert_eq!(got.rows[0], vec!["A", "20260001", ""], "ヘッダ行は空欄で埋める");
     assert_eq!(got.rows[1], vec!["B", "0001", "010"]);
     assert_eq!(got.rows[2], vec!["B", "0002", "020"]);
@@ -486,7 +489,7 @@ fn 見分ける位置は先頭でなくてもよい() {
     let bytes = to_sjis("01HD20260002BD0001003BD00020");
     let layout = keyed(&[2, 2, 5], &[2, 2, 6], 2, 2, "HD");
     let got = load(&bytes, sjis(), WidthUnit::Byte, Reading::Layout(&layout));
-    assert_eq!(got.kinds, vec![true, false, false]);
+    assert_eq!(got.kinds, vec![1, 0, 0]);
     assert_eq!(got.rows[0], vec!["01", "HD", "202600"]);
     assert_eq!(got.rows[1], vec!["02", "BD", "00010"]);
     assert_eq!(got.rows[2], vec!["03", "BD", "00020"]);
@@ -505,7 +508,7 @@ fn 改行のあるファイルでも種別を見分けられる() {
         ..FixedLayout::from_widths(WidthUnit::Byte, &[1, 4, 3])
     };
     let got = load(&bytes, sjis(), WidthUnit::Byte, Reading::Layout(&layout));
-    assert_eq!(got.kinds, vec![true, false, false]);
+    assert_eq!(got.kinds, vec![1, 0, 0]);
     assert_eq!(got.rows[0], vec!["A", "20260001", ""]);
     assert_eq!(got.rows[2], vec!["B", "0002", "020"]);
 }
@@ -526,4 +529,117 @@ fn ヘッダの桁を決めていなければ種別は見分けない() {
     let got = load(&bytes, sjis(), WidthUnit::Byte, Reading::Layout(&layout));
     assert!(got.kinds.is_empty());
     assert_eq!(got.rows.len(), 2);
+}
+
+// ---------- 種別が3つ以上あるファイル ----------
+
+/// 種別を1つ作る
+fn kind(name: &str, at: usize, len: usize, value: &str, widths: &[usize]) -> FixedKind {
+    FixedKind {
+        name: name.to_string(),
+        at,
+        len,
+        value: value.to_string(),
+        columns: widths.iter().map(|w| FixedColumn::new(*w)).collect(),
+    }
+}
+
+#[test]
+fn ヘッダが2種類あるファイルを読む() {
+    /*
+     * H1 (先頭が A): "A" + 伝票番号8 = 9バイト
+     * H2 (先頭が C): "C" + 得意先4 + 名前6 = 11バイト
+     * ボディ (それ以外): "B" + 商品4 + 数量3 = 8バイト
+     */
+    let bytes = to_sjis("A20260001C0001あいうB0001010A20260002B0002020");
+    let layout = FixedLayout {
+        newline: false,
+        kinds: vec![
+            kind("伝票ヘッダ", 0, 1, "A", &[1, 8]),
+            kind("得意先ヘッダ", 0, 1, "C", &[1, 4, 6]),
+        ],
+        ..FixedLayout::from_widths(WidthUnit::Byte, &[1, 4, 3])
+    };
+    let got = load(&bytes, sjis(), WidthUnit::Byte, Reading::Layout(&layout));
+    assert_eq!(got.kinds, vec![1, 2, 0, 1, 0]);
+    assert_eq!(got.rows[0], vec!["A", "20260001", ""]);
+    assert_eq!(got.rows[1], vec!["C", "0001", "あいう"]);
+    assert_eq!(got.rows[2], vec!["B", "0001", "010"]);
+    assert_eq!(got.rows[3], vec!["A", "20260002", ""]);
+}
+
+#[test]
+fn 種別ごとに見る位置が違ってもよい() {
+    /*
+     * H1: 先頭1バイトが "A" (長さ5)
+     * H2: 3バイト目からの2バイトが "ZZ" (長さ8)
+     * ボディ: それ以外 (長さ4)
+     */
+    let bytes = to_sjis("A1234B0ZZ9999C123");
+    let layout = FixedLayout {
+        newline: false,
+        kinds: vec![
+            kind("種別A", 0, 1, "A", &[1, 4]),
+            kind("種別Z", 2, 2, "ZZ", &[2, 2, 4]),
+        ],
+        ..FixedLayout::from_widths(WidthUnit::Byte, &[1, 3])
+    };
+    let got = load(&bytes, sjis(), WidthUnit::Byte, Reading::Layout(&layout));
+    assert_eq!(got.kinds, vec![1, 2, 0]);
+    assert_eq!(got.rows[0], vec!["A", "1234", ""]);
+    assert_eq!(got.rows[1], vec!["B0", "ZZ", "9999"]);
+    assert_eq!(got.rows[2], vec!["C", "123", ""]);
+}
+
+#[test]
+fn 種別が3つでも元のバイトに戻る() {
+    let bytes = to_sjis("A20260001C0001あいうB0001010A20260002B0002020");
+    let layout = FixedLayout {
+        newline: false,
+        kinds: vec![
+            kind("伝票ヘッダ", 0, 1, "A", &[1, 8]),
+            kind("得意先ヘッダ", 0, 1, "C", &[1, 4, 6]),
+        ],
+        ..FixedLayout::from_widths(WidthUnit::Byte, &[1, 4, 3])
+    };
+    let got = load(&bytes, sjis(), WidthUnit::Byte, Reading::Layout(&layout));
+    let back = dump(&got.rows, &got.layout, sjis(), "\n", &[], &[], &got.kinds)
+        .expect("書けること");
+    assert_eq!(back, bytes);
+}
+
+#[test]
+fn 改行のあるファイルでも種別を2つ見分けられる() {
+    let bytes = to_sjis("A20260001\nC0001あいう\nB0001010\n");
+    let layout = FixedLayout {
+        kinds: vec![
+            kind("伝票ヘッダ", 0, 1, "A", &[1, 8]),
+            kind("得意先ヘッダ", 0, 1, "C", &[1, 4, 6]),
+        ],
+        ..FixedLayout::from_widths(WidthUnit::Byte, &[1, 4, 3])
+    };
+    let got = load(&bytes, sjis(), WidthUnit::Byte, Reading::Layout(&layout));
+    assert_eq!(got.kinds, vec![1, 2, 0]);
+    assert_eq!(got.rows[1], vec!["C", "0001", "あいう"]);
+}
+
+#[test]
+fn 古い形の設定は種別の一覧に直して読む() {
+    let old = keyed(&[1, 4, 3], &[1, 8], 0, 1, "A");
+    let now = old.migrated();
+    assert!(now.key.is_none());
+    assert_eq!(now.kinds.len(), 1);
+    assert_eq!(now.kinds[0].value, "A");
+    assert_eq!(now.kinds[0].columns.len(), 2);
+    // 直したあとは、ヘッダの桁は種別のほうが持つ
+    assert!(now.header.is_empty());
+}
+
+#[test]
+fn 表に要る列の数は種別の中でいちばん多いものに合わせる() {
+    let layout = FixedLayout {
+        kinds: vec![kind("A", 0, 1, "A", &[1, 2, 3, 4])],
+        ..FixedLayout::from_widths(WidthUnit::Byte, &[1, 2])
+    };
+    assert_eq!(layout.width(), 4);
 }

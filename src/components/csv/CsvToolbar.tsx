@@ -6,10 +6,11 @@
  *
  * 並ぶのは絵だけ。何をする所かは、載せたときに出る吹き出しで伝える
  */
-import { useState } from "react";
-import type { CsvInfo, CsvSavedLayout } from "../../types";
+import { useMemo, useState } from "react";
+import type { CsvInfo, CsvLayoutNode, CsvSavedLayout } from "../../types";
 import { CsvFixedMenu } from "./CsvFixedMenu";
 import { appliedLayoutName } from "./csvFixed";
+import { flatLayouts } from "./csvLayoutTree";
 import {
   SaveIcon,
   SaveAsIcon,
@@ -42,12 +43,14 @@ interface Props {
   /** 分けているとき、スクロールを合わせるか */
   syncScroll: boolean;
   onToggleSync: () => void;
-  /** お気に入りに登録した固定長の桁設定 */
-  layouts: CsvSavedLayout[];
+  /** お気に入りに登録した固定長の桁設定 (フォルダ分けと並び順のまま) */
+  layouts: CsvLayoutNode[];
   /** お気に入りの桁設定で読み直す */
   onUseLayout: (s: CsvSavedLayout) => void;
   /** お気に入りを削除する */
   onDeleteLayout: (s: CsvSavedLayout) => void;
+  /** 並び順やフォルダ分けを変えた結果を残す */
+  onSaveLayoutTree: (nodes: CsvLayoutNode[]) => void;
   /** 桁設定のダイアログを開く */
   onEditFixed: () => void;
   /** 区切り文字として読み直す */
@@ -70,6 +73,7 @@ export function CsvToolbar({
   layouts,
   onUseLayout,
   onDeleteLayout,
+  onSaveLayoutTree,
   onEditFixed,
   onUseDelimiter,
 }: Props) {
@@ -83,7 +87,8 @@ export function CsvToolbar({
    * 覚えておくのではなく、今の桁設定と中身を見比べて求める
    * (取り消しや読み直しのあとでもずれない)
    */
-  const applied = appliedLayoutName(layouts, active?.format.fixed ?? null);
+  const flat = useMemo(() => flatLayouts(layouts), [layouts]);
+  const applied = appliedLayoutName(flat, active?.format.fixed ?? null);
 
   return (
     <div className="csv-toolbar">
@@ -137,7 +142,7 @@ export function CsvToolbar({
         {fixedOpen && active && (
           <CsvFixedMenu
             fixed={!!active.format.fixed}
-            layouts={layouts}
+            nodes={layouts}
             applied={applied}
             onUse={(s) => {
               setFixedOpen(false);
@@ -147,6 +152,7 @@ export function CsvToolbar({
               setFixedOpen(false);
               onDeleteLayout(s);
             }}
+            onSaveTree={onSaveLayoutTree}
             onEdit={() => {
               setFixedOpen(false);
               onEditFixed();

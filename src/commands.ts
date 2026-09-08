@@ -24,7 +24,7 @@ import type {
   CsvFilterValues,
   CsvFindResult,
   CsvFromQuery,
-  CsvSavedLayout,
+  CsvLayoutNode,
   CsvInfo,
   CsvPage,
   CsvPreview,
@@ -113,14 +113,17 @@ export interface CommandResults {
   end_txn: string;
   export_connections: number;
   export_er_diagrams: number;
+  export_saved_sql: number;
+  export_csv_layouts: number;
   export_plan_csv: CsvExportResult;
   csv_open: CsvInfo;
   csv_open_fixed: CsvInfo;
   csv_set_fixed: CsvInfo;
   csv_set_edge: CsvInfo;
-  csv_layouts: CsvSavedLayout[];
-  csv_save_layout: CsvSavedLayout[];
-  csv_delete_layout: CsvSavedLayout[];
+  csv_layouts: CsvLayoutNode[];
+  csv_save_layout: CsvLayoutNode[];
+  csv_delete_layout: CsvLayoutNode[];
+  csv_save_layout_tree: CsvLayoutNode[];
   csv_new: CsvInfo;
   csv_from_query: CsvFromQuery;
   csv_from_rows: CsvInfo;
@@ -174,6 +177,8 @@ export interface CommandResults {
   import_connections: ImportCounts;
   import_csv: ImportResult;
   import_er_diagrams: ImportCounts;
+  import_saved_sql: ImportCounts;
+  import_csv_layouts: ImportCounts;
   job_status: JobStatus;
   kill_process: void;
   kv_apply: void;
@@ -301,6 +306,7 @@ export const COMMAND_NAMES = [
   "csv_redo",
   "csv_rename_col",
   "csv_save_layout",
+  "csv_save_layout_tree",
   "csv_replace_all",
   "csv_replace_one",
   "csv_set_filters",
@@ -330,6 +336,8 @@ export const COMMAND_NAMES = [
   "end_txn",
   "export_connections",
   "export_er_diagrams",
+  "export_saved_sql",
+  "export_csv_layouts",
   "export_plan_csv",
   "export_query_log",
   "export_query_rows",
@@ -349,6 +357,8 @@ export const COMMAND_NAMES = [
   "import_connections",
   "import_csv",
   "import_er_diagrams",
+  "import_saved_sql",
+  "import_csv_layouts",
   "job_status",
   "kill_process",
   "kv_apply",

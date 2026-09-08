@@ -22,6 +22,12 @@ interface Props {
   onConnect: (profile: ConnectionProfile) => void;
   /** ピン留めの付け外し */
   onTogglePin: (id: string, pinned: boolean) => void;
+  /**
+   * 「最近つないだ接続」から外す。
+   *
+   * 接続先そのものは残し、最後に繋いだ時刻だけを消す
+   */
+  onForget: (id: string) => void;
   /** 新しい接続先を作る画面へ */
   onNew: () => void;
   /** お試し用のサンプルDBを開く */
@@ -35,11 +41,14 @@ function Card({
   conn,
   onConnect,
   onTogglePin,
+  onForget,
   connecting,
 }: {
   conn: ConnectionProfile;
   onConnect: (p: ConnectionProfile) => void;
   onTogglePin: (id: string, pinned: boolean) => void;
+  /** 「最近」から外す (渡さなければボタンを出さない) */
+  onForget?: (id: string) => void;
   connecting: boolean;
 }) {
   const sub =
@@ -88,6 +97,15 @@ function Card({
       >
         {conn.pinned ? "★" : "☆"}
       </button>
+      {onForget && (
+        <button
+          className="home-pin home-forget"
+          title="この一覧から消す (接続先は残ります)"
+          onClick={() => onForget(conn.id)}
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }
@@ -96,6 +114,7 @@ export function PickerHome({
   connections,
   onConnect,
   onTogglePin,
+  onForget,
   onNew,
   onOpenSample,
   connecting,
@@ -139,6 +158,7 @@ export function PickerHome({
                 conn={c}
                 onConnect={onConnect}
                 onTogglePin={onTogglePin}
+                onForget={onForget}
                 connecting={connecting}
               />
             ))}
@@ -149,7 +169,7 @@ export function PickerHome({
       {pinned.length === 0 && recent.length === 0 && (
         <p className="home-empty">
           左の一覧から接続先を選ぶと、次回からここに出ます。
-          よく使うものは ☆ でピン留めできます
+          よく使うものは ☆ でピン留めでき、✕ でこの一覧から消せます
         </p>
       )}
 
@@ -163,11 +183,11 @@ export function PickerHome({
       </div>
 
       {/*
-        CSVエディタはDBに繋がなくても使う道具なので、
+        CSVエディタはDBに繋がなくても使うツールなので、
         接続を選ぶ前のこの画面から開けるようにしておく
       */}
       <section className="home-group">
-        <h2 className="home-group-title">道具</h2>
+        <h2 className="home-group-title">ツール</h2>
         <button
           className="home-tool"
           onClick={() =>

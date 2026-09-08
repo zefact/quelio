@@ -544,9 +544,16 @@
   letter-spacing: 0.04em;
 }
 
+/*
+ * 接続のカード。
+ *
+ * 広い画面でも2列までにする (横に並べすぎると目で追いにくい)。
+ * 狭いときは1列に落ちるよう、列数ではなく幅で決めている
+ */
 .home-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  max-width: 720px;
   gap: 8px;
 }
 
@@ -651,6 +658,16 @@
 
 .home-pin.on {
   color: var(--accent-2, #a5b4fc);
+}
+
+/* 「最近つないだ接続」から外す (接続先そのものは消さない) */
+.home-forget {
+  font-size: 12px;
+}
+
+.home-forget:hover {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--danger);
 }
 
 .home-empty {

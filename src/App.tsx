@@ -261,6 +261,23 @@ function App() {
   };
 
   /**
+   * ホームの「最近つないだ接続」から外す。
+   *
+   * 接続先そのものは残し、最後に繋いだ時刻だけを消す
+   * (時刻が無いものは「最近」に出さない作りになっている)
+   */
+  const handleForgetRecent = async (id: string) => {
+    const conn = store.connections.find((c) => c.id === id);
+    if (!conn) return;
+    try {
+      await saveConnection({ ...conn, lastUsedAt: undefined });
+      await reload();
+    } catch {
+      /* 無視 */
+    }
+  };
+
+  /**
    * 「最後に繋いだ時刻」を記録する (ホームの並びに使う)。
    *
    * 画面が持っているプロファイルは編集中かもしれないので、
@@ -1866,6 +1883,7 @@ function App() {
             onSetConnPinned={(id, pinned) =>
               void handleSetConnPinned(id, pinned)
             }
+            onForgetRecent={(id) => void handleForgetRecent(id)}
             onCreateFolder={handleCreateFolder}
             onDeleteFolder={handleDeleteFolder}
             onLayout={handleLayout}

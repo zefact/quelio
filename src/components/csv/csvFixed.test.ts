@@ -10,7 +10,7 @@ function layout(widths: number[], fix: Partial<CsvFixedLayout> = {}): CsvFixedLa
     newline: true,
     header: [],
     trailer: [],
-    key: null,
+    kinds: [],
     columns: widths.map((width) => ({
       width,
       align: "left" as const,
@@ -67,13 +67,21 @@ describe("sameLayout", () => {
   });
 
   it("種別の見分け方が違えば別もの", () => {
-    const keyed = layout([10], {
-      key: { at: 0, len: 1, header: "A" },
+    const kind = (value: string) => ({
+      name: "ヘッダ",
+      at: 0,
+      len: 1,
+      value,
+      columns: [{ width: 4, align: "left" as const, pad: " ", name: "" }],
     });
+    const keyed = layout([10], { kinds: [kind("A")] });
     expect(sameLayout(layout([10]), keyed)).toBe(false);
+    expect(sameLayout(keyed, layout([10], { kinds: [kind("B")] }))).toBe(false);
+    // 種別の数が違うときも別もの
     expect(
-      sameLayout(keyed, layout([10], { key: { at: 0, len: 1, header: "B" } }))
+      sameLayout(keyed, layout([10], { kinds: [kind("A"), kind("C")] }))
     ).toBe(false);
+    expect(sameLayout(keyed, layout([10], { kinds: [kind("A")] }))).toBe(true);
   });
 
   it("寄せが違えば別もの", () => {

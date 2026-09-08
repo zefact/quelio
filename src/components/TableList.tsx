@@ -8,6 +8,7 @@
  * (そのため、渡す関数は呼び出し側で useCallback に包んでおくこと)
  */
 import { memo } from "react";
+import { useImeGuard } from "../hooks/useImeGuard";
 import { tableKey } from "../tableSql";
 import { splitPinned } from "../pinnedTables";
 import type { TableInfo } from "../types";
@@ -65,6 +66,8 @@ function RenameRow({
   onCancel: () => void;
 }) {
   const badge = typeLabel(table.tableType);
+  /** 日本語入力の変換を確定したEnterを、決定と取り違えないための見張り */
+  const ime = useImeGuard();
   return (
     <>
       <div className="rename-table-row">
@@ -75,9 +78,10 @@ function RenameRow({
           value={value}
           onChange={(e) => onInput(e.target.value)}
           title="Enterで確定 / Escで取消"
+          {...ime.props}
           onKeyDown={(e) => {
-            // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-            if (e.nativeEvent.isComposing) return;
+            // 日本語入力の変換を確定したEnter/Escは拾わない
+            if (!ime.ready(e)) return;
             if (e.key === "Enter") {
               e.preventDefault();
               onCommit(table);

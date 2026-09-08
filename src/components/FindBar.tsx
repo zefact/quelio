@@ -14,6 +14,7 @@ import { editorFinder } from "../editorSearch";
  *  - `[data-find-skip]` … 画面の枠 (タブ列・ツールバー・左の一覧)。
  *    どれも自前の絞り込みを持っている
  *  - ボタン・ラベル・選択欄 … 押す・選ぶためのもの
+ *  - 表の見出し・行番号・テーブルの属性 … 中身ではなく表の飾り
  */
 const SKIP = [
   // 検索バー自身 (自分の入力を数えない)
@@ -23,6 +24,12 @@ const SKIP = [
   "label",
   "select",
   "option",
+  // 表の見出しの行 (カラム名・「型」などの見出し)
+  "thead",
+  // 行番号の列 (値ではないので、数字で探したときに邪魔になる)
+  ".rownum-cell",
+  // テーブルの属性 (エンジン・サイズ・コメントなどのチップ)
+  ".info-chips",
   // 見た目はボタンでも button 要素ではないもの
   '[role="button"]',
   '[role="tab"]',
@@ -34,6 +41,14 @@ const SKIP = [
   '[role="switch"]',
   '[role="option"]',
 ].join(",");
+
+/**
+ * 中身が変わっても数え直さなくてよい所。
+ *
+ * 状態バーの時計やメモリの表示は数秒おきに変わるが、
+ * 探す対象ではないので、これだけが変わったときは何もしない
+ */
+const QUIET = ".find-bar,[data-find-skip]";
 
 /**
  * ページ内の可視テキストから query の一致範囲を列挙する。
@@ -52,9 +67,19 @@ function collectMatches(query: string): Range[] {
     const cached = visible.get(el);
     if (cached !== undefined) return cached;
     const fn = (
-      el as Element & { checkVisibility?: () => boolean }
+      el as Element & {
+        checkVisibility?: (opts?: Record<string, boolean>) => boolean;
+      }
     ).checkVisibility;
-    const v = fn ? fn.call(el) : true;
+    /*
+     * 見えていない所は数えない。
+     *
+     * 既定では display:none しか見てくれないので、
+     * visibility で隠しているもの (幅を測るための控えの文字など) も外す
+     */
+    const v = fn
+      ? fn.call(el, { visibilityProperty: true, contentVisibilityAuto: true })
+      : true;
     visible.set(el, v);
     return v;
   };
@@ -268,6 +293,50 @@ export function FindBar() {
     },
     [query, keepFocus]
   );
+
+  /*
+   * 画面の中身が入れ替わったら、一致を集め直す。
+   *
+   * 別のテーブルを選んだときなど、DOMの形はそのままで文字だけが変わることがある。
+   * 覚えている範囲はその新しい文字の上に残るので、
+   * 集め直さないと関係のない所が塗られたままになる
+   */
+  useEffect(() => {
+    if (!open || !query) return;
+    let timer = 0;
+    const refresh = () => {
+      const matches = collectMatches(query);
+      matchesRef.current = matches;
+      const n = matches.length;
+      // 見ていた位置はできるだけ残す (件数が減ったら末尾へ寄せる)
+      const at = Math.min(indexRef.current, Math.max(0, n - 1));
+      indexRef.current = at;
+      setTotal(n);
+      setPos(n > 0 ? at + 1 : 0);
+      applyHighlights(matches, at);
+    };
+    const watch = new MutationObserver((records) => {
+      // 探さない所だけが変わったのなら、数え直さない
+      const matters = records.some((m) => {
+        const el =
+          m.target instanceof Element ? m.target : m.target.parentElement;
+        return !el || !el.closest(QUIET);
+      });
+      if (!matters) return;
+      window.clearTimeout(timer);
+      // 続けて変わることが多いので、落ち着いてから数え直す
+      timer = window.setTimeout(refresh, 120);
+    });
+    watch.observe(document.body, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    return () => {
+      window.clearTimeout(timer);
+      watch.disconnect();
+    };
+  }, [open, query]);
 
   const close = useCallback(() => {
     setOpen(false);

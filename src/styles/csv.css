@@ -121,8 +121,7 @@ html.macos .csv-tabs {
  * 閉じる印。
  *
  * DBのウィンドウのタブ (.tab-close) と同じ形にしてある。
- * 字だけを置くと、行の高さのぶん下へずれて見えるので、
- * 大きさを決めた四角の真ん中に置く
+ * 中身は絵 (CloseMark) なので、四角の真ん中に置くだけでよい
  */
 .csv-tab-close {
   display: flex;
@@ -136,7 +135,6 @@ html.macos .csv-tabs {
   background: transparent;
   color: inherit;
   opacity: 0.6;
-  font-size: 13px;
   line-height: 1;
   cursor: pointer;
 }
@@ -229,26 +227,111 @@ html.macos .csv-tabs {
 }
 
 /*
- * 種別が混ざったファイルのヘッダ行。
+ * 種別が混ざったファイルの、ふつうのデータ行でない行。
  *
- * データ行と同じ表に並ぶので、色で見分けられるようにする
+ * データ行と同じ表に並ぶので、種別ごとに色を変えて見分けられるようにする
+ * (種別が色の数より多いときは、最後の色を使い回す)
  */
-.csv-row.head-kind .csv-cell {
-  background: rgba(99, 102, 241, 0.12);
+.csv-row[class*="kind-"] .csv-cell {
   font-weight: 700;
 }
 
-.csv-row.head-kind .csv-num {
+.csv-row.kind-1 .csv-cell {
+  background: rgba(99, 102, 241, 0.12);
+}
+
+.csv-row.kind-1 .csv-num {
   color: var(--accent);
 }
 
-/* 見る位置と長さを並べる */
+.csv-row.kind-2 .csv-cell {
+  background: rgba(34, 211, 238, 0.12);
+}
+
+.csv-row.kind-2 .csv-num {
+  color: #22d3ee;
+}
+
+.csv-row.kind-3 .csv-cell {
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.csv-row.kind-3 .csv-num {
+  color: #34d399;
+}
+
+.csv-row.kind-4 .csv-cell {
+  background: rgba(251, 191, 36, 0.14);
+}
+
+.csv-row.kind-4 .csv-num {
+  color: #fbbf24;
+}
+
+.csv-kind-name {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.csv-kind-name:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.csv-kind-total {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+/* 見分ける値 */
+.csv-kind-value {
+  flex: 1 1 90px;
+  min-width: 60px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.csv-kind-value:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/*
+ * 見分け方の1行 (位置・長さ・値)。
+ *
+ * 幅が足りないときは折り返す (右へはみ出させない)
+ */
 .csv-key-where {
+  flex: 1;
+  min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   font-size: 12.5px;
   color: var(--text-dim);
+}
+
+/*
+ * 位置と長さは数字だけなので、伸ばさない。
+ *
+ * 入力欄は放っておくと中身の幅まで広がるので、min-width も外しておく
+ */
+.csv-key-where .csv-fixed-w {
+  flex: 0 0 64px;
+  width: 64px;
+  min-width: 0;
 }
 
 /*
@@ -1266,11 +1349,142 @@ body.col-resizing {
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
 }
 
+/* 見出しの行 (「お気に入り」と、フォルダを作るボタン) */
+.csv-fav-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  /* 「お気に入り」が縦に折り返さないようにする */
+  white-space: nowrap;
+}
+
+.csv-fav-addfolder {
+  padding: 1px 6px;
+  border-color: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.csv-fav-addfolder:hover {
+  color: var(--text);
+}
+
+.csv-fixed-menu-error {
+  padding: 2px 4px 4px;
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* お気に入りの並び (掴んで動かせる) */
+.csv-fav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 掴んでいる間は、字が選ばれないようにする */
+.csv-fav-dragging {
+  user-select: none;
+  cursor: grabbing;
+}
+
+.csv-fav-dragging * {
+  cursor: grabbing;
+}
+
 /* お気に入りの1行 (名前を押すと読み直し、✕で削除) */
 .csv-fixed-menu-row {
   display: flex;
   align-items: center;
   gap: 2px;
+  /* 放す場所の線を、行の中に引くため */
+  position: relative;
+  border-radius: var(--radius-sm);
+}
+
+/* フォルダに入れているものは、右へ寄せて中身だと分かるようにする */
+.csv-fixed-inside .context-item {
+  padding-left: 30px;
+}
+
+/* フォルダの行 */
+.csv-fixed-folder {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 3px 4px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 12px;
+  cursor: grab;
+}
+
+.csv-fixed-folder:hover {
+  background: rgba(var(--ink), 0.04);
+}
+
+.csv-fixed-folder-icon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.csv-fixed-folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.csv-fixed-folder-input {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 4px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/*
+ * 放す場所の目印。
+ *
+ * 行の上か下に線を引く。フォルダの中へ入れるときは、フォルダを囲む
+ */
+.csv-drop-above::before,
+.csv-drop-below::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.csv-drop-above::before {
+  top: -1px;
+}
+
+.csv-drop-below::after {
+  bottom: -1px;
+}
+
+.csv-drop-in {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* 一番下へ置くための場所 (何も出さないが、放せる高さを持たせる) */
+.csv-fixed-drop-end {
+  position: relative;
+  height: 10px;
 }
 
 .csv-fixed-menu-row .context-item {
@@ -1281,14 +1495,22 @@ body.col-resizing {
   gap: var(--space-3);
 }
 
-/* ✕は普段は目立たせず、行に指を載せたときだけはっきり出す */
-.csv-fixed-menu-row .csv-fixed-del {
+/* 行の右の小さなボタンは普段は目立たせず、指を載せたときだけはっきり出す */
+.csv-fixed-menu-row .csv-fixed-del,
+.csv-fixed-folder .csv-fixed-del,
+.csv-fixed-folder .csv-fav-act {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  padding: 2px 4px;
   border-color: transparent;
   opacity: 0.45;
 }
 
-.csv-fixed-menu-row:hover .csv-fixed-del {
+.csv-fixed-menu-row:hover .csv-fixed-del,
+.csv-fixed-folder:hover .csv-fixed-del,
+.csv-fixed-folder:hover .csv-fav-act {
   opacity: 1;
 }
 
@@ -1359,6 +1581,16 @@ body.col-resizing {
 .csv-form-row > span {
   flex: 0 0 96px;
   color: var(--text-dim);
+}
+
+/*
+ * 1行に並べる入力欄は、上の余白を持たない。
+ *
+ * `.csv-name-box` は列名を変える画面で見出しの下に置くための余白を持っているが、
+ * 横に並べるとその余白のぶんだけ文字が下へずれて、見出しと高さが合わなくなる
+ */
+.csv-form-row > .csv-name-box {
+  margin-top: 0;
 }
 
 
@@ -1539,13 +1771,75 @@ body.col-resizing {
 /*
  * 中身を縮めない。
  *
- * ヘッダ行・トレーラ行の桁も出すと縦に長くなるが、縮むに任せると
- * 上の桁の表が数ピクセルまで潰れて入力できなくなる。
- * 入り切らないぶんは、ダイアログ全体をスクロールさせる
+ * 縮むに任せると、桁の表が数ピクセルまで潰れて入力できなくなる。
+ * 入り切らないぶんは、桁の表そのものをスクロールさせる
  */
 .csv-fixed-modal > *,
 .csv-fixed-part > * {
   flex-shrink: 0;
+}
+
+/* 上の2つ (お気に入り名・桁幅の単位) は横に並べる */
+.csv-fixed-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+/* 入り切りは2列に並べる (縦に長くならないように) */
+.csv-fixed-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px var(--space-3);
+}
+
+/* 桁を決める場所の切り替え */
+.csv-fixed-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.csv-fixed-tab {
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.csv-fixed-tab:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.06);
+}
+
+/* 今出している場所 */
+.csv-fixed-tab.on {
+  border-color: var(--border);
+  border-bottom-color: transparent;
+  background: rgba(99, 102, 241, 0.16);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* 種別を足す */
+.csv-fixed-tab.add {
+  color: var(--text-faint);
+}
+
+/* 桁の表は、多いときだけここが送られる (ダイアログは伸ばさない) */
+.csv-fixed-scroll {
+  display: flex;
+  flex-direction: column;
+  /* 一括入力の欄と桁の表がくっつかないように空ける */
+  gap: var(--space-4);
+  max-height: 38vh;
+  overflow-y: auto;
 }
 
 /* 幅をまとめて入れる欄 */

@@ -209,6 +209,36 @@ pub fn import_connections(
     crate::backup::import_connections(&app, &path)
 }
 
+/// SQLのお気に入りをJSONファイルへ書き出す (件数を返す)
+#[tauri::command]
+pub fn export_saved_sql(app: AppHandle, path: String) -> Result<usize, String> {
+    crate::backup::export_saved_sql(&app, &path)
+}
+
+/// JSONファイルからSQLのお気に入りを取り込む
+#[tauri::command]
+pub fn import_saved_sql(
+    app: AppHandle,
+    path: String,
+) -> Result<crate::backup::ImportResult, String> {
+    crate::backup::import_saved_sql(&app, &path)
+}
+
+/// 固定長のお気に入りをJSONファイルへ書き出す (件数を返す)
+#[tauri::command]
+pub fn export_csv_layouts(app: AppHandle, path: String) -> Result<usize, String> {
+    crate::backup::export_csv_layouts(&app, &path)
+}
+
+/// JSONファイルから固定長のお気に入りを取り込む
+#[tauri::command]
+pub fn import_csv_layouts(
+    app: AppHandle,
+    path: String,
+) -> Result<crate::backup::ImportResult, String> {
+    crate::backup::import_csv_layouts(&app, &path)
+}
+
 /// SSH秘密鍵の参照ダイアログの初期フォルダを返す
 /// (~/.ssh があればそこ、無ければホームディレクトリ)
 #[tauri::command]

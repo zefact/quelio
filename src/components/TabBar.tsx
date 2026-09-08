@@ -1,4 +1,5 @@
 import { emitAppEvent, FIND_EVENT } from "../appEvents";
+import { CloseMark } from "./CloseMark";
 import { isBetaVersion, useAppVersion } from "../hooks/useAppVersion";
 import { dotStyle, profileColor } from "../colors";
 import type { WorkTab } from "../types";
@@ -86,7 +87,7 @@ export function TabBar({
                 onClose(t.key);
               }}
             >
-              ×
+              <CloseMark />
             </button>
           </div>
         ))}
