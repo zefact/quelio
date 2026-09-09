@@ -799,3 +799,23 @@ fn 標準の件数指定にも足さない() {
     );
     assert!(!p.pageable, "{}", p.sql);
 }
+
+#[test]
+fn ユーザーと権限の操作も確認の対象にする() {
+    let d = Dialect::of(DbType::Mysql);
+    let got = dangerous_statements(d, "DROP USER 'app'@'%'");
+    assert_eq!(got.len(), 1);
+    assert!(got[0].kind.contains("ユーザーの削除"));
+
+    let got = dangerous_statements(d, "GRANT SELECT ON `d`.* TO 'app'@'%'");
+    assert_eq!(got.len(), 1);
+    // 消えるわけではないので、設定で確認を省ける側に入れる
+    assert!(got[0].definition_change);
+
+    let got = dangerous_statements(d, "REVOKE SELECT ON `d`.* FROM 'app'@'%'");
+    assert_eq!(got.len(), 1);
+
+    // ふつうの DROP は今までどおりの文言
+    let got = dangerous_statements(d, "DROP TABLE t");
+    assert!(got[0].kind.contains("テーブルやデータベース"));
+}

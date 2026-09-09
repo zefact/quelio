@@ -189,6 +189,60 @@ pub async fn kill_process(
     sessions::kill_process(&state, &qlog, &session_id, &database, target, action).await
 }
 
+/// DBのユーザー (PostgreSQL ではロール) の一覧を返す
+#[tauri::command]
+pub async fn list_db_users(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+) -> Result<crate::catalog::DbUsersInfo, String> {
+    sessions::list_users(&state, &qlog, &session_id, &database).await
+}
+
+/// 1人ぶんの権限を返す (key は MySQL なら `'名前'@'ホスト'`)
+#[tauri::command]
+pub async fn db_user_grants(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+    key: String,
+) -> Result<Vec<crate::catalog::DbGrant>, String> {
+    sessions::user_grants(&state, &qlog, &session_id, &database, &key).await
+}
+
+/// 範囲ごとに選べる権限の名前 (画面の選択肢を作るのに使う)
+#[tauri::command]
+pub async fn db_privileges(
+    state: State<'_, Sessions>,
+    session_id: String,
+) -> Result<crate::catalog::PrivilegeChoices, String> {
+    sessions::user_privileges(&state, &session_id).await
+}
+
+/// 実行せずに、変更で流すことになるSQLを返す (確認の画面に出す)
+#[tauri::command]
+pub async fn preview_db_user_change(
+    state: State<'_, Sessions>,
+    session_id: String,
+    change: crate::dbuser::UserChange,
+) -> Result<Vec<String>, String> {
+    sessions::preview_change(&state, &session_id, change).await
+}
+
+/// ユーザー (ロール) への変更を実行する
+#[tauri::command]
+pub async fn apply_db_user_change(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+    change: crate::dbuser::UserChange,
+) -> Result<(), String> {
+    sessions::apply_change(&state, &qlog, &session_id, &database, change).await
+}
+
 /// スキーマの読み込み (専用接続) を中止する
 #[tauri::command]
 pub async fn cancel_schema_load(

@@ -694,7 +694,8 @@ html[data-theme="light"] .result-banner.ng {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin-left: 14px;
+  /* ツールバーの間隔だけで足りるので、ここでは足さない */
+  margin-left: 0;
   min-width: 0;
   /* ウィンドウが狭いときは切り捨てずに横スクロールできるようにする */
   overflow-x: auto;

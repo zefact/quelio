@@ -43,6 +43,7 @@ import { CreateTableModal } from "./createTable/CreateTableModal";
 import { DropTableConfirm } from "./DropTableConfirm";
 import { QueryPanel } from "./QueryPanel";
 import { ProcessDialog } from "./ProcessDialog";
+import { DbUsersDialog } from "./dbUsers/DbUsersDialog";
 import { CsvImportDialog } from "./csvImport/CsvImportDialog";
 import { TestDataDialog } from "./testData/TestDataDialog";
 import { DbAdminDialog } from "./dbAdmin/DbAdminDialog";
@@ -147,6 +148,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
   const [showRoutines, setShowRoutines] = useState(false);
   /** プロセス一覧 (サーバー側の接続) を出しているか */
   const [showProcesses, setShowProcesses] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
   /** 右クリックから数えた正確な件数 (テーブルキー → 表示文字列) */
   const [counts, setCounts] = useState<Record<string, string>>({});
   /** 「コピーしました」などの一時表示 */
@@ -569,6 +571,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
 
         {/* SQLiteは1ファイル=1DBなので選択メニューは出さない */}
         {!isSqlite && (
+          <div className="db-tools">
           <div className="db-select-wrap">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
               <ellipse cx="12" cy="5.5" rx="8" ry="3" stroke="currentColor" strokeWidth="2" />
@@ -594,6 +597,35 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
                   <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                </svg>
+              </button>
+            )}
+            </div>
+            {/*
+              * ユーザーと権限は「今どのDBを見ているか」と地続きなので、
+              * ツールへ入れずにデータベースの選択のすぐ隣へ置く。
+              * 読むだけの画面なので、読み取り専用の接続でも出す
+              */}
+            {profile.dbType !== "valkey" && (
+              <button
+                className="db-users-btn has-tooltip"
+                data-tooltip={
+                  selectedDb
+                    ? "ユーザーと権限を見る (読むだけ)"
+                    : "データベースを選んでください"
+                }
+                aria-label="ユーザーと権限"
+                disabled={!selectedDb}
+                onClick={() => setShowUsers(true)}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <circle cx="12" cy="8" r="3.6" stroke="currentColor" strokeWidth="2" />
+                  <path
+                    d="M4.5 20c0-3.6 3.4-5.6 7.5-5.6s7.5 2 7.5 5.6"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </button>
             )}
@@ -904,6 +936,16 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
           database={selectedDb}
           readOnly={profile.readOnly ?? false}
           onClose={() => setShowProcesses(false)}
+        />
+      )}
+
+      {showUsers && selectedDb && (
+        <DbUsersDialog
+          sessionId={tab.key}
+          database={selectedDb}
+          databases={databases}
+          dbType={profile.dbType}
+          onClose={() => setShowUsers(false)}
         />
       )}
 

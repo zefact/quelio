@@ -1,0 +1,533 @@
+/* ---- ユーザーと権限の一覧 ---- */
+
+/*
+ * データベースの選択と、その隣のボタンのまとまり。
+ *
+ * ツールバーの間隔 (12px) のままだと離れて見えるので、
+ * ここだけ狭くして「データベースまわりの一組」として見せる
+ */
+.db-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /*
+   * ここは縮めない。
+   * 縮むと中身 (選択とボタン) が枠からはみ出して、
+   * 右にあるサーバー情報の上に重なってしまう。
+   * 幅が足りないときは、横スクロールできるサーバー情報側で吸収する
+   */
+  flex-shrink: 0;
+}
+
+/*
+ * ユーザーと権限を開くボタン。
+ *
+ * データベースの選択と同じ高さ・同じ角の丸みにして、隣に並べる
+ */
+.db-users-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-btn);
+  background: var(--input-bg);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.db-users-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.modal.dbusers-modal {
+  width: min(1100px, 96vw);
+}
+
+.dbusers-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.dbusers-toolbar .routine-filter {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * 左が一覧、右がその中身。
+ *
+ * 高さは中身によらず決め打ちにする。
+ * 権限の数で伸び縮みすると、ユーザーを選ぶたびに画面が動いて追えなくなる
+ */
+.dbusers-body {
+  display: flex;
+  gap: var(--space-3);
+  height: min(58vh, 480px);
+  margin-bottom: var(--space-3);
+}
+
+.dbusers-list {
+  flex: 0 0 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding-right: 4px;
+  border-right: 1px solid var(--border);
+}
+
+.dbusers-detail {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+/* 読み込み中もこの枠の中に収める (出たり消えたりで高さを変えない) */
+.dbusers-body > .routine-empty {
+  flex: 1;
+}
+
+/* 一覧の1行 */
+.dbusers-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.dbusers-row:hover {
+  background: rgba(var(--ink), 0.04);
+}
+
+.dbusers-row.picked {
+  border-color: var(--accent);
+  background: rgba(var(--ink), 0.05);
+}
+
+/* ログインしないロールは、ユーザーと見分けが付くよう色を落とす */
+.dbusers-row.is-role .dbusers-name {
+  color: var(--text-dim);
+}
+
+.dbusers-name {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.dbusers-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dbusers-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-dim);
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.dbusers-self {
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+/* 右側 */
+.dbusers-grants {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.dbusers-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dbusers-head-name {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.dbusers-head-note {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+.dbusers-roles {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+.dbusers-grant-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 権限1行 (範囲・対象・権限の名前) */
+.dbusers-grant {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.dbusers-grant:nth-child(odd) {
+  background: rgba(var(--ink), 0.03);
+}
+
+.dbusers-scope {
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.dbusers-target {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.dbusers-privs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dbusers-priv {
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink), 0.06);
+  font-size: 10.5px;
+  line-height: 1.8;
+  white-space: nowrap;
+}
+
+.dbusers-priv.grantable {
+  background: transparent;
+  border: 1px dashed var(--border-strong);
+  color: var(--text-dim);
+}
+
+.dbusers-foot {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+/* ---- 作成・変更 ---- */
+
+.modal.dbusers-form {
+  width: min(560px, 94vw);
+}
+
+/* 入り切りの並び (2列に折り返す) */
+.dbusers-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+/* 権限の見出しと、まとめて選ぶ・外す */
+.dbusers-privs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.dbusers-pick-all {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.dbusers-pick-all button {
+  padding: 1px 8px;
+  border-color: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.dbusers-pick-all button:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* 権限は数が多いので、幅いっぱいに詰めて並べる */
+.dbusers-checks.wide {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--space-1) var(--space-3);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+/*
+ * 入り切り1つぶん。
+ *
+ * `.form-grid label` は縦積みが既定なので、ここで横並びに戻す
+ * (共通の `.switch` はつまみが大きく、権限のように数が多いと並べきれない)
+ */
+.dbusers-check,
+.form-grid label.dbusers-check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.form-grid label.dbusers-check.span2 {
+  margin-top: var(--space-2);
+}
+
+/* 権限の見出しと「権限を付ける」 */
+.dbusers-grant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.dbusers-grant-title {
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+/* 権限1行の右に付く取り消し (行に指を載せたときだけはっきり出す) */
+.dbusers-revoke {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-color: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  opacity: 0;
+}
+
+.dbusers-grant:hover .dbusers-revoke {
+  opacity: 1;
+}
+
+.dbusers-revoke:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.dbusers-revoke:disabled {
+  color: var(--text-faint);
+}
+
+/* 選んでいるユーザーへの操作 */
+.dbusers-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+.dbusers-actions .btn-secondary.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.dbusers-blocked {
+  margin: var(--space-4) 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+/* 実行するSQLの下読み */
+.dbusers-sql {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+}
+
+.dbusers-sql pre {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink), 0.05);
+  font-size: 11.5px;
+  line-height: 1.6;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.dbusers-note {
+  margin: 0 0 var(--space-3);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+/* 入力を1つだけ聞く行 */
+.dbusers-type {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+/* 削除の前に片付けるかの指定 (操作の並びの下に置く) */
+.dbusers-cleanup {
+  flex-basis: 100%;
+  color: var(--text-dim);
+  font-size: 11.5px;
+}
+
+/* ---- ヘルプ ---- */
+
+/* ツールバーの「?」 (文字1つなので四角く見えるよう幅をそろえる) */
+.dbusers-help-btn {
+  flex-shrink: 0;
+  width: 30px;
+  padding-left: 0;
+  padding-right: 0;
+  font-weight: 700;
+}
+
+.modal.dbusers-help {
+  width: min(820px, 96vw);
+}
+
+.dbusers-help-part {
+  margin-bottom: var(--space-5);
+}
+
+.dbusers-help-part:last-child {
+  margin-bottom: 0;
+}
+
+.dbusers-help-part h4 {
+  margin: 0 0 var(--space-3);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.dbusers-help-list {
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+.dbusers-help-text {
+  margin: 0 0 var(--space-2);
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.8;
+}
+
+/* DBの決まり (見出しと説明の2列) */
+.dbusers-help-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.dbusers-help-rule {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.dbusers-help-rule:nth-child(odd) {
+  background: rgba(var(--ink), 0.03);
+}
+
+.dbusers-help-rule dt {
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.dbusers-help-rule dd {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.8;
+}
+
+/* 権限の意味 */
+.dbusers-help-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.dbusers-help-privs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 2px var(--space-4);
+  margin: 0;
+}
+
+.dbusers-help-priv {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.dbusers-help-priv dt {
+  font-size: 11px;
+  color: var(--text);
+}
+
+.dbusers-help-priv dd {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.7;
+}

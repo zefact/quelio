@@ -33,6 +33,10 @@ pub use pg::*;
 mod sqlite;
 pub use sqlite::*;
 
+/// ユーザー (ロール) と権限の読み出し
+mod users;
+pub use users::*;
+
 const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// スキーマ全体をまとめて取るクエリのタイムアウト (テーブル数が多いぶん長め)

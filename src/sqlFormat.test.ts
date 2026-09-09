@@ -41,8 +41,43 @@ describe("formatSql", () => {
   it("MySQLのREPLACE関数を文と取り違えない", () => {
     // REPLACE INTO と読まれると、関数なのに改行が入ってしまう
     const out = formatSql("select replace(a, 'x', 'y') from t", "mysql");
-    expect(out).toContain("REPLACE(");
-    expect(out).not.toMatch(/REPLACE\s*\n/);
+    // 関数の名前は書いたとおりのまま (整形器も関数の大小は変えない)
+    expect(out).toContain("replace(");
+    expect(out).not.toMatch(/replace\s*\n/i);
+  });
+
+  it("TRUNCATE関数の行も字下げする", () => {
+    /*
+     * TRUNCATE文と読まれると、その行から字下げが 0 に戻ってしまい、
+     * 続く行までまとめて左へ寄る
+     */
+    const out = formatSql(
+      "select a, TRUNCATE(x * 1.1, 0) as v, b from t",
+      "mysql"
+    );
+    for (const line of out.split("\n")) {
+      if (line.includes("TRUNCATE(") || line.trim().startsWith("b")) {
+        expect(line, out).toMatch(/^\s+\S/);
+      }
+    }
+    expect(out).toContain("TRUNCATE(");
+  });
+
+  it("文としてのTRUNCATEはそのまま整形する", () => {
+    const out = formatSql("truncate table t", "mysql");
+    expect(out).toContain("TRUNCATE TABLE");
+  });
+
+  it("INSERT関数・REPEAT関数も文と取り違えない", () => {
+    const ins = formatSql("select a, INSERT(s, 1, 2, 'x') as v, b from t", "mysql");
+    expect(ins).toContain("INSERT(");
+    expect(ins.split("\n").filter((l) => l.includes("INSERT("))[0]).toMatch(
+      /^\s+\S/
+    );
+    const rep = formatSql("select a, REPEAT('-', 3) as v, b from t", "mysql");
+    expect(rep.split("\n").filter((l) => l.includes("REPEAT("))[0]).toMatch(
+      /^\s+\S/
+    );
   });
 
   it("整形できないSQLは例外にする", () => {

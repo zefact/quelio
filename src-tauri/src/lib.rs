@@ -13,6 +13,10 @@ mod memory;
 mod search;
 mod csv_job;
 mod csv_layouts;
+/// ユーザーと権限のSQLを組み立てる
+mod dbuser;
+/// SQLに書かれたパスワードを、記録に残す前に伏せる
+mod sql_secret;
 mod db;
 mod ddl;
 mod ddl_table;
@@ -290,6 +294,11 @@ pub fn run() {
             commands::plan_test_data,
             commands::generate_test_data,
             commands::kill_process,
+            commands::list_db_users,
+            commands::db_user_grants,
+            commands::db_privileges,
+            commands::preview_db_user_change,
+            commands::apply_db_user_change,
             commands::table_ddl,
             commands::reveal_path,
             commands::csv_export_status,

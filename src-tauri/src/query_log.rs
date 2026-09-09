@@ -64,6 +64,13 @@ impl QueryLog {
         let time = chrono::Local::now().format("%H:%M:%S").to_string();
         // SQL内の連続空白を1つにまとめて読みやすくする
         let query = query.split_whitespace().collect::<Vec<_>>().join(" ");
+        /*
+         * パスワードはここで伏せる。
+         *
+         * 記録に残す入口を1つにしておけば、どの経路から実行されても
+         * 平文がコンソールや履歴に残ることはない
+         */
+        let query = crate::sql_secret::mask(&query);
         let mut guard = self.inner.lock().unwrap();
         let (seq, entries) = &mut *guard;
         *seq += 1;

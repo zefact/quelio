@@ -250,6 +250,17 @@ fn top_level_where_condition(body: &str) -> Option<&str> {
     Some(&rest[..end])
 }
 
+/// 文の先頭がその語で始まるか (`DROP USER` のように2語で見分けるのに使う)
+fn starts_with_word(body: &str, word: &str) -> bool {
+    let head: String = body
+        .trim_start()
+        .chars()
+        .take(word.len() + 1)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    head == word || head.starts_with(&format!("{word} ")) || head.starts_with(&format!("{word}\t"))
+}
+
 /// 実行前に確認したいSQLを抜き出す。
 /// 消えると戻せないもの (DROP/TRUNCATE) と、
 /// 対象を絞っていない一括更新・一括削除 (WHERE の無い UPDATE/DELETE) が対象
@@ -272,7 +283,15 @@ pub fn dangerous_statements(d: Dialect, sql: &str) -> Vec<DangerousStatement> {
         // サブクエリの中のWHEREは対象の絞り込みにならないため、括弧の外だけを見る
         let has_where = has_top_level_word(body, "WHERE");
         let kind = match head {
+            "DROP" if starts_with_word(body, "DROP USER")
+                || starts_with_word(body, "DROP ROLE") =>
+            {
+                Some("DROP USER / DROP ROLE (ユーザーの削除)")
+            }
             "DROP" => Some("DROP (テーブルやデータベースごと削除)"),
+            // 誰が何をできるかが変わる。消えるわけではないので設定で確認を省ける
+            "GRANT" => Some("GRANT (権限の付与)"),
+            "REVOKE" => Some("REVOKE (権限の取り消し)"),
             "TRUNCATE" => Some("TRUNCATE (全行削除)"),
             // ALTER・RENAME はデータが消えるわけではないので、設定で確認を省ける
             "ALTER" => Some("ALTER (定義の変更)"),
@@ -280,12 +299,8 @@ pub fn dangerous_statements(d: Dialect, sql: &str) -> Vec<DangerousStatement> {
             "DELETE" if !has_where => Some("WHERE の無い DELETE (全行削除)"),
             "UPDATE" if !has_where => Some("WHERE の無い UPDATE (全行更新)"),
             // 条件はあるが、常に真なので全行が対象になるもの
-            "DELETE" if where_is_tautology(body) => {
-                Some("条件が常に真の DELETE (全行削除)")
-            }
-            "UPDATE" if where_is_tautology(body) => {
-                Some("条件が常に真の UPDATE (全行更新)")
-            }
+            "DELETE" if where_is_tautology(body) => Some("条件が常に真の DELETE (全行削除)"),
+            "UPDATE" if where_is_tautology(body) => Some("条件が常に真の UPDATE (全行更新)"),
             // WITH の中で更新するCTE (WITH x AS (DELETE ...) ...) も実際にデータが変わる
             "WITH" if a.contains_write_keyword() => {
                 Some("データを変更する WITH (CTEの中で INSERT / UPDATE / DELETE)")
@@ -293,9 +308,7 @@ pub fn dangerous_statements(d: Dialect, sql: &str) -> Vec<DangerousStatement> {
             // EXPLAIN ANALYZE は対象のSQLを実際に実行する
             // EXPLAIN (ANALYZE) … のように括弧で指定する書き方もあるため、
             // ANALYZE は括弧の外に限らず探す
-            "EXPLAIN"
-                if contains_word(body, "ANALYZE") && a.contains_write_keyword() =>
-            {
+            "EXPLAIN" if contains_word(body, "ANALYZE") && a.contains_write_keyword() => {
                 Some("EXPLAIN ANALYZE (対象のSQLが実際に実行されます)")
             }
             _ => None,
@@ -312,7 +325,7 @@ pub fn dangerous_statements(d: Dialect, sql: &str) -> Vec<DangerousStatement> {
             found.push(DangerousStatement {
                 kind: kind.to_string(),
                 sql,
-                definition_change: matches!(head, "ALTER" | "RENAME"),
+                definition_change: matches!(head, "ALTER" | "RENAME" | "GRANT" | "REVOKE"),
             });
         }
     }
@@ -343,8 +356,8 @@ pub fn changes_dialect(d: Dialect, sql: &str) -> bool {
 /// MySQLで暗黙コミットを起こす文の先頭キーワード。
 /// 開いていたトランザクションはここで終わるので、覚えている状態も落とす
 const MYSQL_IMPLICIT_COMMIT: [&str; 12] = [
-    "CREATE", "ALTER", "DROP", "RENAME", "TRUNCATE", "GRANT", "REVOKE", "LOCK", "UNLOCK",
-    "FLUSH", "ANALYZE", "OPTIMIZE",
+    "CREATE", "ALTER", "DROP", "RENAME", "TRUNCATE", "GRANT", "REVOKE", "LOCK", "UNLOCK", "FLUSH",
+    "ANALYZE", "OPTIMIZE",
 ];
 
 /// `SET autocommit = …` の指定がONかどうか (大文字化・詰め済みの文字列を渡す)
@@ -491,7 +504,6 @@ fn is_read_only_pragma(body: &str) -> bool {
 pub fn is_analyzable(d: Dialect, sql: &str) -> bool {
     Analyzed::new(d, sql).is_analyzable()
 }
-
 
 /// 大文字化済みの文字列に、単語として word が含まれるか
 pub(super) fn contains_word(haystack: &str, word: &str) -> bool {

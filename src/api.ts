@@ -62,6 +62,10 @@ import type {
   NewTableSpec,
   ObjectSearchResult,
   ProcessAction,
+  DbGrant,
+  DbPrivilegeChoices,
+  DbUserChange,
+  DbUsersInfo,
   ProcessInfo,
   QueryLogEntry,
   RoutineInfo,
@@ -593,6 +597,23 @@ export function listProcesses(
   log: boolean
 ): Promise<ProcessInfo[]> {
   return call("list_processes", { sessionId, database, log });
+}
+
+/** DBのユーザー (PostgreSQLではロール) の一覧を返す */
+export function listDbUsers(
+  sessionId: string,
+  database: string
+): Promise<DbUsersInfo> {
+  return call("list_db_users", { sessionId, database });
+}
+
+/** 1人ぶんの権限を返す (key は listDbUsers が返したもの) */
+export function dbUserGrants(
+  sessionId: string,
+  database: string,
+  key: string
+): Promise<DbGrant[]> {
+  return call("db_user_grants", { sessionId, database, key });
 }
 
 /** 他の接続のSQLを中止する / 接続を切る */
@@ -1184,6 +1205,28 @@ export function exportCsvLayouts(path: string): Promise<number> {
 /** JSONファイルから固定長のお気に入りを取り込む (同じ名前は上書き) */
 export function importCsvLayouts(path: string): Promise<ImportCounts> {
   return call("import_csv_layouts", { path });
+}
+
+/** 範囲ごとに選べる権限の名前 (画面の選択肢を作るのに使う) */
+export function dbPrivileges(sessionId: string): Promise<DbPrivilegeChoices> {
+  return call("db_privileges", { sessionId });
+}
+
+/** 実行せずに、変更で流すことになるSQLを返す (確認の画面に出す) */
+export function previewDbUserChange(
+  sessionId: string,
+  change: DbUserChange
+): Promise<string[]> {
+  return call("preview_db_user_change", { sessionId, change });
+}
+
+/** ユーザー (ロール) への変更を実行する */
+export function applyDbUserChange(
+  sessionId: string,
+  database: string,
+  change: DbUserChange
+): Promise<void> {
+  return call("apply_db_user_change", { sessionId, database, change });
 }
 
 /** SSH秘密鍵の参照ダイアログの初期フォルダ (~/.ssh または ホーム) を返す */

@@ -1,4 +1,8 @@
 import { format } from "sql-formatter";
+import {
+  escapeKeywordFunctions,
+  restoreKeywordFunctions,
+} from "./sqlFnEscape";
 import type { DbType, SqlFormatSettings } from "./types";
 import { defaultSqlFormat } from "./types";
 
@@ -16,15 +20,6 @@ function language(dbType: DbType): "mysql" | "postgresql" | "sqlite" {
   if (dbType === "sqlite") return "sqlite";
   return "postgresql";
 }
-
-/*
- * MySQL方言は `REPLACE(...)` を「REPLACE INTO文」と読んでしまい、
- * 関数呼び出しなのに改行が入った形になる。
- * 整形の間だけ別の名前へ逃がして、戻すときに元へ戻す
- */
-const REPLACE_FN = /\breplace\s*\(/gi;
-const REPLACE_MARK = "QUELIO_REPLACE_FN(";
-const REPLACE_BACK = /QUELIO_REPLACE_FN\s*\(/g;
 
 /**
  * 行末のカンマを次行の先頭に移す (カンマ先頭スタイル)。
@@ -128,8 +123,12 @@ export function formatSql(
   options?: SqlFormatSettings
 ): string {
   const opts = sanitize(options);
-  const escaped = sql.replace(REPLACE_FN, REPLACE_MARK);
-  const formatted = format(escaped, {
+  /*
+   * `TRUNCATE(...)` `REPLACE(...)` などは、そのまま渡すと
+   * 文の始まりと読まれて字下げが崩れる。整形の間だけ名前を逃がす
+   */
+  const escaped = escapeKeywordFunctions(sql);
+  const formatted = format(escaped.sql, {
     language: language(dbType),
     keywordCase: opts.keywordCase,
     indentStyle: opts.indentStyle,
@@ -145,7 +144,7 @@ export function formatSql(
      */
     paramTypes: { named: [":", "@"] },
   });
-  let out = formatted.replace(REPLACE_BACK, "REPLACE(");
+  let out = restoreKeywordFunctions(formatted, escaped.names);
   if (opts.onClause === "newline") {
     out = toOnNewline(out, indentUnit(opts.indent));
   }

@@ -48,6 +48,9 @@ import type {
   KvScanResult,
   KvSearchResult,
   ObjectSearchResult,
+  DbGrant,
+  DbPrivilegeChoices,
+  DbUsersInfo,
   ProcessInfo,
   QueryLogEntry,
   RoutineInfo,
@@ -195,6 +198,11 @@ export interface CommandResults {
   list_er_diagrams: string[];
   list_pinned_tables: string[];
   list_processes: ProcessInfo[];
+  list_db_users: DbUsersInfo;
+  db_user_grants: DbGrant[];
+  db_privileges: DbPrivilegeChoices;
+  preview_db_user_change: string[];
+  apply_db_user_change: void;
   list_routines: RoutineInfo[];
   list_schemas: string[];
   list_sessions: SessionSummary[];
@@ -375,6 +383,11 @@ export const COMMAND_NAMES = [
   "list_er_diagrams",
   "list_pinned_tables",
   "list_processes",
+  "list_db_users",
+  "db_user_grants",
+  "db_privileges",
+  "preview_db_user_change",
+  "apply_db_user_change",
   "list_routines",
   "list_schemas",
   "list_sessions",

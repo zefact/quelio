@@ -189,6 +189,10 @@ pub use rows::*;
 mod csv;
 pub use csv::*;
 
+/// DBのユーザー (ロール) と権限の参照
+mod users;
+pub use users::*;
+
 /// 日本語のテストデータを作って入れる
 mod testdata;
 pub use testdata::*;

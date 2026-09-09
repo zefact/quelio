@@ -544,6 +544,28 @@
               <td class="c"><span class="mark n">—</span></td>
               <td class="c"><span class="mark n">—</span></td>
             </tr>
+            <tr class="grp"><td colspan="5">ユーザー・権限</td></tr>
+            <tr>
+              <td>ユーザー／ロールと権限の一覧<span class="note">見る権限が足りない接続では、見えるぶんだけを出して断り書きを添えます</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">ユーザーの概念が無い</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">未実装</span></td>
+            </tr>
+            <tr>
+              <td>作成・パスワード変更・改名・停止・削除<span class="note">サーバー既定のユーザーと、今つないでいる自分自身は変更できません</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">名前と接続元ホストの2つ組で1人</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">停止は NOLOGIN。削除は権限と持ち物を片付けてから</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>権限の付け外し（GRANT / REVOKE）</td>
+              <td class="c"><span class="mark y">✓</span><span class="note">サーバー全体／データベース／テーブル</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">データベース／スキーマ／テーブル<br>列単位と既定権限は表示のみ</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -572,13 +594,16 @@
               <li><b>外部キーの追加・削除</b>（ON DELETE / ON UPDATE の指定つき）</li>
               <li><b>テーブル・データベースの作成</b>（文字コードと照合順序を選択）</li>
               <li>CSV / TSVファイルの取り込み、mysqldump / mysql を使ったエクスポート・インポート</li>
+              <li><b>ユーザーと権限の管理</b>（作成・パスワード変更・改名・停止・削除、GRANT / REVOKE）。
+                8.0 の動的権限（<span class="mono">ROLE_ADMIN</span> など）も、付いているものは外せます</li>
             </ul>
           </div>
           <div class="col cannot">
             <h4>できないこと</h4>
             <ul>
               <li><b>ビュー・ストアドプロシージャ・関数・トリガ</b>の編集（定義の表示はできます。未実装）</li>
-              <li><b>ユーザー・権限管理</b>、パーティション操作（未実装）</li>
+              <li>パーティション操作（未実装）</li>
+              <li>ユーザー・権限は<b>ロールの作成と、所属の付け外し</b>が未実装（所属は一覧に出ます）</li>
               <li>生成カラム（GENERATED）の変更 — 式が失われるため受け付けません</li>
               <li>主キー・UNIQUE制約に紐づくインデックスの変更 — 制約側の操作が必要なため</li>
               <li>EXPLAIN ANALYZE は 8.0.18 未満では使えません（DBの仕様）</li>
@@ -603,6 +628,8 @@
               <li><b>外部キーの追加・削除</b>、<b>スキーマ・データベースの作成／削除</b></li>
               <li>パーティションの表示（CREATE 文・ALTER 文の生成にも <span class="mono">PARTITION BY / PARTITION OF</span> を反映）</li>
               <li>EXPLAIN / EXPLAIN ANALYZE、CSV取り込み、pg_dump / psql 連携</li>
+              <li><b>ロールと権限の管理</b>（作成・パスワード変更・改名・停止・削除、GRANT / REVOKE）。
+                ロールの削除では、先に権限と持ち物を片付けます</li>
             </ul>
           </div>
           <div class="col cannot">
@@ -612,7 +639,11 @@
               <li>照合順序だけを変える構文が無いため、<b>型の指定とまとめて実行</b>します（DBの仕様）</li>
               <li><b>ビュー・マテリアライズドビューの定義編集</b>、REFRESH（未実装。一覧表示と削除は可能）</li>
               <li><b>関数・トリガの編集</b>（定義の表示はできます。未実装）</li>
-              <li><b>拡張機能・ロール／権限</b>の管理（未実装）</li>
+              <li><b>拡張機能</b>の管理（未実装）</li>
+              <li>権限は<b>列単位と既定権限（DEFAULT PRIVILEGES）が表示のみ</b>（未実装）</li>
+              <li><b>ロールの所属（メンバー）の付け外し</b>（未実装。所属は一覧に出ます）</li>
+              <li>スキーマ・テーブルの権限は<b>つないでいるデータベースのぶんだけ</b>表示されます（DBの仕様）。
+                他のデータベースへ付けるときは、そのデータベースへ繋ぎ直してから実行します</li>
             </ul>
           </div>
         </div>
