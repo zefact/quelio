@@ -58,6 +58,8 @@ import type {
 } from "../../types";
 import { CsvGrid } from "./CsvGrid";
 import type { CsvCursor, CsvRange } from "./CsvGrid";
+import type { CsvBlock } from "./csvSelection";
+import { fillPatches, pasteAnchor, singleValue } from "./csvPasteFill";
 import { selectionCells } from "./csvSelection";
 import { readClipboard, writeClipboard } from "../../gridCopy";
 import { CsvTabs } from "./CsvTabs";
@@ -80,6 +82,14 @@ import { MemoryChip } from "../MemoryChip";
 
 /** 種別の色分けに使う色の数 (これを超える種別は最後の色を使い回す) */
 const KIND_COLORS = 4;
+
+/**
+ * 1つの値で埋められるセルの数の上限。
+ *
+ * 指定はセル1つにつき1件を渡すので、多すぎると受け渡しが重くなる。
+ * 手で選べる範囲としては十分な数
+ */
+const FILL_MAX = 200_000;
 
 /** ウィンドウが「このファイルを開いて」と伝えられるときのイベント名 */
 const OPEN_EVENT = "csv-open-file";
@@ -108,6 +118,8 @@ interface Menu {
   index: number;
   x: number;
   y: number;
+  /** 押した所と地続きで選ばれている行 (列) のかたまり */
+  block: CsvBlock;
 }
 
 /** 左右どちら側か (分割表示) */
@@ -438,15 +450,32 @@ export function CsvWindow() {
   };
 
   /**
-   * クリップボードの中身を、今いるセルを左上として貼り付ける (⌘/Ctrl+V)。
+   * クリップボードの中身を、選んでいる範囲へ貼り付ける (⌘/Ctrl+V)。
    *
+   * 値が1つだけなら、選んだ範囲を全部その値で埋める (表計算ソフトと同じ)。
+   * 表のときは選んだ範囲の左上から流し込む。
    * 下に足りなければ行が増える。右にはみ出したぶんは入らないので、そのときは知らせる
    */
-  const pasteAt = async (docId: string, at: CsvCursor) => {
+  const pasteAt = async (docId: string, at: CsvCursor, rs: CsvRange[]) => {
     try {
       const text = await readClipboard();
       if (!text) return;
-      const got = await csvPaste(docId, at.row, at.col, text);
+      const one = singleValue(text);
+      if (one !== null && selectionCells(rs) > 1) {
+        const cells = fillPatches(rs, one);
+        if (cells.length > FILL_MAX) {
+          setError(
+            `選んでいる範囲が広すぎます (${cells.length.toLocaleString()}セル)。` +
+              `${FILL_MAX.toLocaleString()}セルまでです`
+          );
+          return;
+        }
+        update(await csvSetCells(docId, cells));
+        setNote(`${cells.length.toLocaleString()}セルに貼り付けました`);
+        return;
+      }
+      const top = pasteAnchor(at, rs);
+      const got = await csvPaste(docId, top.row, top.col, text);
       update(got.info);
       if (got.rows === 0) {
         setNote("貼り付けるものがありませんでした");
@@ -862,8 +891,24 @@ export function CsvWindow() {
         onEdit={(row, col, value) =>
           void run(() => csvSetCells(tab.docId, [{ row, col, value }]))
         }
-        onRowMenu={(row, x, y) => setMenu({ kind: "row", index: row, x, y })}
-        onHeaderMenu={(col, x, y) => setMenu({ kind: "col", index: col, x, y })}
+        /*
+         * 引用符で囲まない形式と固定長では、セルの中の改行が
+         * そのままファイルの改行になってしまうので入れさせない
+         */
+        canNewline={!tab.format.fixed && tab.format.quote !== "none"}
+        onDenyNewline={() =>
+          setNote(
+            tab.format.fixed
+              ? "固定長では、セルの中で改行できません"
+              : "この形式では、セルの中で改行できません (引用符が「なし」のため)"
+          )
+        }
+        onRowMenu={(row, x, y, block) =>
+          setMenu({ kind: "row", index: row, x, y, block })
+        }
+        onHeaderMenu={(col, x, y, block) =>
+          setMenu({ kind: "col", index: col, x, y, block })
+        }
         onRange={setRanges}
         /*
           「選んだ範囲の中だけを探す」の最中は、選んだ範囲を残したまま
@@ -909,7 +954,7 @@ export function CsvWindow() {
         findQuery={findOf(tab.docId).open ? findOf(tab.docId).query : ""}
         findCase={findOf(tab.docId).matchCase}
         onCopy={(rs) => void copySelection(tab.docId, rs)}
-        onPaste={(at) => void pasteAt(tab.docId, at)}
+        onPaste={(at, rs) => void pasteAt(tab.docId, at, rs)}
         onEdge={(from, dRow, dCol) =>
           csvEdge(tab.docId, from.row, from.col, dRow, dCol)
         }
@@ -1186,27 +1231,42 @@ export function CsvWindow() {
           {menu.kind === "row" ? (
             <CsvRowMenu
               row={menu.index}
-              onInsertAbove={() => doc((id) => csvInsertRows(id, menu.index, 1))}
-              onInsertBelow={() =>
-                doc((id) => csvInsertRows(id, menu.index + 1, 1))
+              at={menu.block.at}
+              count={menu.block.count}
+              onInsertAbove={(n) =>
+                doc((id) => csvInsertRows(id, menu.block.at, n))
               }
-              onDelete={() => doc((id) => csvDeleteRows(id, menu.index, 1))}
+              onInsertBelow={(n) =>
+                doc((id) =>
+                  csvInsertRows(id, menu.block.at + menu.block.count, n)
+                )
+              }
+              onDelete={(at, n) => doc((id) => csvDeleteRows(id, at, n))}
             />
           ) : (
             <CsvColumnMenu
               name={active.columns[menu.index] ?? ""}
-              canDelete={active.columns.length > 1}
-              onInsertLeft={() =>
-                doc((id) => csvInsertCol(id, menu.index, "新しい列"))
+              at={menu.block.at}
+              count={menu.block.count}
+              canDelete={(n) => active.columns.length > n}
+              onInsertLeft={(n) =>
+                doc((id) => csvInsertCol(id, menu.block.at, "新しい列", n))
               }
-              onInsertRight={() =>
-                doc((id) => csvInsertCol(id, menu.index + 1, "新しい列"))
+              onInsertRight={(n) =>
+                doc((id) =>
+                  csvInsertCol(
+                    id,
+                    menu.block.at + menu.block.count,
+                    "新しい列",
+                    n
+                  )
+                )
               }
               onRename={() => {
                 setRenaming(menu.index);
                 setMenu(null);
               }}
-              onDelete={() => doc((id) => csvDeleteCol(id, menu.index))}
+              onDelete={(at, n) => doc((id) => csvDeleteCol(id, at, n))}
             />
           )}
         </div>

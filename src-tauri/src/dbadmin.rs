@@ -50,12 +50,16 @@ fn check_option(label: &str, value: &str) -> Result<(), String> {
     if value.is_empty() || value.len() > 64 {
         return Err(format!("{label}の指定が正しくありません"));
     }
+    /*
+     * ピリオドは PostgreSQL のロケール名 (`ja_JP.UTF-8`) に要る。
+     * 引用符や逆斜線が入らないので、SQLの文字列に書いても壊れない
+     */
     if !value
         .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
     {
         return Err(format!(
-            "{label}には英数字・アンダースコア・ハイフンだけが使えます"
+            "{label}には英数字・アンダースコア・ハイフン・ピリオドだけが使えます"
         ));
     }
     Ok(())
@@ -72,7 +76,7 @@ pub fn create_database_sql(
     name: &str,
     // encoding: MySQLは文字コード、PostgreSQLはエンコーディング
     encoding: Option<&str>,
-    // collation: MySQLの照合順序 (PostgreSQLでは使わない)
+    // collation: MySQLは照合順序、PostgreSQLは LC_COLLATE のロケール名
     collation: Option<&str>,
 ) -> Result<String, String> {
     check_name(db, name)?;
@@ -92,13 +96,26 @@ pub fn create_database_sql(
         }
         DbType::Postgresql => {
             let mut sql = format!("CREATE DATABASE {quoted}");
-            if let Some(enc) = opt(encoding) {
+            let enc = opt(encoding);
+            let col = opt(collation);
+            if let Some(enc) = enc {
                 check_option("エンコーディング", enc)?;
-                /*
-                 * template1 と違うエンコーディングは作れないので、
-                 * 指定があるときは template0 から作る
-                 */
-                sql.push_str(&format!(" ENCODING '{enc}' TEMPLATE template0"));
+                sql.push_str(&format!(" ENCODING '{enc}'"));
+            }
+            /*
+             * 照合順序は LC_COLLATE (並び順) で指定する。
+             * LC_CTYPE (文字の種類の扱い) は template0 のものを引き継ぐ
+             */
+            if let Some(col) = col {
+                check_option("照合順序", col)?;
+                sql.push_str(&format!(" LC_COLLATE '{col}'"));
+            }
+            /*
+             * template1 と違うエンコーディングやロケールでは作れないので、
+             * どちらかの指定があるときは template0 から作る
+             */
+            if enc.is_some() || col.is_some() {
+                sql.push_str(" TEMPLATE template0");
             }
             Ok(sql)
         }
@@ -209,13 +226,8 @@ mod tests {
             "CREATE DATABASE `shop`"
         );
         assert_eq!(
-            create_database_sql(
-                DbType::Mysql,
-                "sh`op",
-                Some("utf8mb4"),
-                Some("utf8mb4_bin")
-            )
-            .unwrap(),
+            create_database_sql(DbType::Mysql, "sh`op", Some("utf8mb4"), Some("utf8mb4_bin"))
+                .unwrap(),
             "CREATE DATABASE `sh``op` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"
         );
     }
@@ -230,6 +242,32 @@ mod tests {
             create_database_sql(DbType::Postgresql, "shop", Some("UTF8"), None).unwrap(),
             "CREATE DATABASE \"shop\" ENCODING 'UTF8' TEMPLATE template0"
         );
+    }
+
+    #[test]
+    fn postgresqlの照合順序はlc_collateで指定する() {
+        assert_eq!(
+            create_database_sql(
+                DbType::Postgresql,
+                "shop",
+                Some("UTF8"),
+                Some("ja_JP.UTF-8")
+            )
+            .unwrap(),
+            "CREATE DATABASE \"shop\" ENCODING 'UTF8' \
+             LC_COLLATE 'ja_JP.UTF-8' TEMPLATE template0"
+        );
+        // 照合順序だけでも template0 から作る
+        assert_eq!(
+            create_database_sql(DbType::Postgresql, "shop", None, Some("C")).unwrap(),
+            "CREATE DATABASE \"shop\" LC_COLLATE 'C' TEMPLATE template0"
+        );
+    }
+
+    #[test]
+    fn 照合順序の指定に記号は使えない() {
+        let e = create_database_sql(DbType::Postgresql, "shop", None, Some("C'; DROP"));
+        assert!(e.is_err());
     }
 
     #[test]
@@ -287,8 +325,7 @@ mod tests {
          */
         for name in ["information_schema", "mysql", "performance_schema", "sys"] {
             assert!(is_system_database(DbType::Mysql, name), "{name}");
-            let err = drop_database_sql(DbType::Mysql, name)
-                .expect_err("組み立ての時点で断る");
+            let err = drop_database_sql(DbType::Mysql, name).expect_err("組み立ての時点で断る");
             assert!(err.contains("削除できません"), "{name}: {err}");
         }
         // 大小を無視して見る (MySQLは設定で区別しないことがある)
@@ -298,7 +335,10 @@ mod tests {
         // PostgreSQLはテンプレートと postgres を守る
         for name in ["postgres", "template0", "template1"] {
             assert!(is_system_database(DbType::Postgresql, name), "{name}");
-            assert!(drop_database_sql(DbType::Postgresql, name).is_err(), "{name}");
+            assert!(
+                drop_database_sql(DbType::Postgresql, name).is_err(),
+                "{name}"
+            );
         }
 
         // 利用者のデータベースはこれまでどおり消せる

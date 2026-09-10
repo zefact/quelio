@@ -53,6 +53,50 @@ export function selectionCells(rs: CsvRange[]): number {
   );
 }
 
+/** その行がどれかの四角に掛かっているか (行番号の色付けなどに使う) */
+export function rowInAny(rs: CsvRange[], row: number): boolean {
+  return rs.some((r) => row >= r.top && row <= r.bottom);
+}
+
+/** その列がどれかの四角に掛かっているか (見出しの色付けなどに使う) */
+export function colInAny(rs: CsvRange[], col: number): boolean {
+  return rs.some((r) => col >= r.left && col <= r.right);
+}
+
+/** 続いて選ばれている行 (列) のひとかたまり */
+export interface CsvBlock {
+  /** かたまりの先頭 */
+  at: number;
+  /** かたまりの本数 (1以上) */
+  count: number;
+}
+
+/**
+ * その行を含む、続いた選択行のかたまりを返す。
+ *
+ * 右クリックのメニューで「まとめて追加・削除」を出すのに使う。
+ * ⌘+クリックで離れた所も選べるので、押した所と地続きのぶんだけを見る。
+ * 選んでいない行なら、その行1本だけのかたまりとして返す
+ */
+export function rowBlock(rs: CsvRange[], row: number): CsvBlock {
+  if (!rowInAny(rs, row)) return { at: row, count: 1 };
+  let at = row;
+  while (at > 0 && rowInAny(rs, at - 1)) at--;
+  let end = row;
+  while (rowInAny(rs, end + 1)) end++;
+  return { at, count: end - at + 1 };
+}
+
+/** その列を含む、続いた選択列のかたまり (考え方は rowBlock と同じ) */
+export function colBlock(rs: CsvRange[], col: number): CsvBlock {
+  if (!colInAny(rs, col)) return { at: col, count: 1 };
+  let at = col;
+  while (at > 0 && colInAny(rs, at - 1)) at--;
+  let end = col;
+  while (colInAny(rs, end + 1)) end++;
+  return { at, count: end - at + 1 };
+}
+
 /** 四角を画面に置くときの位置と大きさ (選んだ範囲を枠で囲むのに使う) */
 export interface FrameBox {
   left: number;

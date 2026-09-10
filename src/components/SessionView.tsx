@@ -44,6 +44,8 @@ import { DropTableConfirm } from "./DropTableConfirm";
 import { QueryPanel } from "./QueryPanel";
 import { ProcessDialog } from "./ProcessDialog";
 import { DbUsersDialog } from "./dbUsers/DbUsersDialog";
+import { HelpDialog } from "./help/HelpDialog";
+import { topicsFor } from "./help/helpTopics";
 import { CsvImportDialog } from "./csvImport/CsvImportDialog";
 import { TestDataDialog } from "./testData/TestDataDialog";
 import { DbAdminDialog } from "./dbAdmin/DbAdminDialog";
@@ -149,6 +151,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
   /** プロセス一覧 (サーバー側の接続) を出しているか */
   const [showProcesses, setShowProcesses] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
+  /** ヘルプを開いているか */
+  const [showHelp, setShowHelp] = useState(false);
   /** 右クリックから数えた正確な件数 (テーブルキー → 表示文字列) */
   const [counts, setCounts] = useState<Record<string, string>>({});
   /** 「コピーしました」などの一時表示 */
@@ -636,6 +640,29 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
 
         <span className="toolbar-spacer" />
         {/*
+          * 使い方の説明。ツールの左に置く。
+          * 出せる話が1つも無い接続では、押しても空なので出さない
+          */}
+        {topicsFor(profile.dbType).length > 0 && (
+          <button
+            className="help-btn has-tooltip"
+            data-tooltip="照合順序などの説明"
+            aria-label="ヘルプ"
+            onClick={() => setShowHelp(true)}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.9" />
+              <path
+                d="M9.6 9.3a2.5 2.5 0 1 1 3.2 2.4c-.7.25-1 .8-1 1.5v.4"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+              />
+              <circle cx="11.8" cy="16.6" r="1" fill="currentColor" />
+            </svg>
+          </button>
+        )}
+        {/*
           * ときどき開くものは「ツール」にまとめる。
           * 常に使う「SQL」だけをボタンのまま残す
           */}
@@ -936,6 +963,13 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
           database={selectedDb}
           readOnly={profile.readOnly ?? false}
           onClose={() => setShowProcesses(false)}
+        />
+      )}
+
+      {showHelp && (
+        <HelpDialog
+          dbType={profile.dbType}
+          onClose={() => setShowHelp(false)}
         />
       )}
 

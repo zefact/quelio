@@ -629,6 +629,18 @@ body.col-resizing {
   color: var(--text-dim);
 }
 
+/* 中身のある表では、押すと全体を選べる */
+.csv-num.head.all {
+  cursor: pointer;
+}
+
+.csv-num.head.all:hover {
+  background:
+    linear-gradient(rgba(var(--ink), 0.12), rgba(var(--ink), 0.12)),
+    var(--bg);
+  color: var(--text);
+}
+
 /*
  * セルは flex ではなく block にしてある。
  * flex コンテナだと text-overflow: ellipsis が効かず、長い値が
@@ -710,6 +722,25 @@ body.col-resizing {
 }
 
 /* 編集中の入力欄 (セルにぴたりと重ねる) */
+/*
+ * セルの中の改行の印。
+ *
+ * 行の高さは決め打ちなので改行しては出せない。
+ * 値の一部と見間違えないよう、色を変えて細く出す
+ */
+.csv-nl {
+  padding: 0 2px;
+  color: var(--accent);
+  opacity: 0.85;
+}
+
+/*
+ * セルの入力欄。
+ *
+ * Option+Enter でセルの中に改行を入れられるよう textarea にしてある。
+ * 1行のときは行の高さ (26px) にそろえたいので、行の高さで中央に置き、
+ * 上下の詰めは持たせない
+ */
 .csv-editor {
   position: absolute;
   z-index: 3;
@@ -720,7 +751,12 @@ body.col-resizing {
   background: var(--bg-panel);
   color: var(--text);
   font-size: 12px;
+  line-height: 22px;
   outline: none;
+  /* 中身より広げないので、右下のつまみは出さない */
+  resize: none;
+  overflow: auto;
+  white-space: pre;
 }
 
 /* ---------- 何も開いていないとき ---------- */
@@ -1349,142 +1385,11 @@ body.col-resizing {
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
 }
 
-/* 見出しの行 (「お気に入り」と、フォルダを作るボタン) */
-.csv-fav-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  /* 「お気に入り」が縦に折り返さないようにする */
-  white-space: nowrap;
-}
-
-.csv-fav-addfolder {
-  padding: 1px 6px;
-  border-color: transparent;
-  color: var(--text-dim);
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.csv-fav-addfolder:hover {
-  color: var(--text);
-}
-
-.csv-fixed-menu-error {
-  padding: 2px 4px 4px;
-  color: var(--danger);
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-/* お気に入りの並び (掴んで動かせる) */
-.csv-fav-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* 掴んでいる間は、字が選ばれないようにする */
-.csv-fav-dragging {
-  user-select: none;
-  cursor: grabbing;
-}
-
-.csv-fav-dragging * {
-  cursor: grabbing;
-}
-
 /* お気に入りの1行 (名前を押すと読み直し、✕で削除) */
 .csv-fixed-menu-row {
   display: flex;
   align-items: center;
   gap: 2px;
-  /* 放す場所の線を、行の中に引くため */
-  position: relative;
-  border-radius: var(--radius-sm);
-}
-
-/* フォルダに入れているものは、右へ寄せて中身だと分かるようにする */
-.csv-fixed-inside .context-item {
-  padding-left: 30px;
-}
-
-/* フォルダの行 */
-.csv-fixed-folder {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 3px 4px;
-  border-radius: var(--radius-sm);
-  color: var(--text-dim);
-  font-size: 12px;
-  cursor: grab;
-}
-
-.csv-fixed-folder:hover {
-  background: rgba(var(--ink), 0.04);
-}
-
-.csv-fixed-folder-icon {
-  display: flex;
-  flex-shrink: 0;
-  color: var(--accent);
-}
-
-.csv-fixed-folder-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-}
-
-.csv-fixed-folder-input {
-  flex: 1;
-  min-width: 0;
-  padding: 1px 4px;
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-/*
- * 放す場所の目印。
- *
- * 行の上か下に線を引く。フォルダの中へ入れるときは、フォルダを囲む
- */
-.csv-drop-above::before,
-.csv-drop-below::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--accent);
-  border-radius: 1px;
-  pointer-events: none;
-}
-
-.csv-drop-above::before {
-  top: -1px;
-}
-
-.csv-drop-below::after {
-  bottom: -1px;
-}
-
-.csv-drop-in {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-
-/* 一番下へ置くための場所 (何も出さないが、放せる高さを持たせる) */
-.csv-fixed-drop-end {
-  position: relative;
-  height: 10px;
 }
 
 .csv-fixed-menu-row .context-item {
@@ -1495,22 +1400,14 @@ body.col-resizing {
   gap: var(--space-3);
 }
 
-/* 行の右の小さなボタンは普段は目立たせず、指を載せたときだけはっきり出す */
-.csv-fixed-menu-row .csv-fixed-del,
-.csv-fixed-folder .csv-fixed-del,
-.csv-fixed-folder .csv-fav-act {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* ✕は普段は目立たせず、行に指を載せたときだけはっきり出す */
+.csv-fixed-menu-row .csv-fixed-del {
   flex-shrink: 0;
-  padding: 2px 4px;
   border-color: transparent;
   opacity: 0.45;
 }
 
-.csv-fixed-menu-row:hover .csv-fixed-del,
-.csv-fixed-folder:hover .csv-fixed-del,
-.csv-fixed-folder:hover .csv-fav-act {
+.csv-fixed-menu-row:hover .csv-fixed-del {
   opacity: 1;
 }
 

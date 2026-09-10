@@ -165,7 +165,10 @@ select,
 .result-detail,
 .info-chip-value,
 .ddl-bar-text.ng,
-.new-table-error {
+.new-table-error,
+/* 読んで写すための場所 (ヘルプの説明・関数リファレンスの書式や例) */
+.help-detail,
+.fn-right {
   user-select: text;
   -webkit-user-select: text;
 }

@@ -18,11 +18,21 @@ import {
   useState,
 } from "react";
 import type { CsvRows } from "../../hooks/useCsvRows";
+import { insertNewline, lineCount, lineParts } from "./csvCellEdit";
 import { markSegments } from "./csvMark";
 import { edgeGap } from "./csvScrollbar";
 import { MAX_W, MIN_W, fitWidth } from "./csvWidth";
-import type { CsvCursor, CsvRange } from "./csvSelection";
-import { frameBox, inAny, jumpFix, normalize } from "./csvSelection";
+import type { CsvBlock, CsvCursor, CsvRange } from "./csvSelection";
+import {
+  colBlock,
+  colInAny,
+  frameBox,
+  inAny,
+  jumpFix,
+  normalize,
+  rowBlock,
+  rowInAny,
+} from "./csvSelection";
 
 /** 1行の高さ (揃えておかないと、見える範囲を高さから割り出せない) */
 export const ROW_H = 26;
@@ -35,6 +45,9 @@ const OVERSCAN = 8;
 
 /** 開いたときに列幅を決めるために中身を見る行数 */
 const WIDTH_SAMPLE = 50;
+
+/** セルの入力欄を伸ばす上限 (行数) */
+const EDIT_MAX_LINES = 6;
 
 /** 幅を中身に合わせるとき (仕切りのダブルクリック) に見る行数 */
 const FIT_SAMPLE = 300;
@@ -57,10 +70,24 @@ interface Props {
   keepRange?: boolean;
   /** セルの中身を書き換える (編集を入れないときは省略) */
   onEdit?: (row: number, col: number, value: string) => void;
-  /** 列の見出しを右クリックしたとき */
-  onHeaderMenu?: (col: number, x: number, y: number) => void;
-  /** 行を右クリックしたとき */
-  onRowMenu?: (row: number, x: number, y: number) => void;
+  /**
+   * セルの中で改行できるか (Option/Alt + Enter)。
+   *
+   * 引用符で囲まない形式や固定長では、改行を入れるとファイルが壊れるので
+   * 呼び出し側が false を渡す
+   */
+  canNewline?: boolean;
+  /** 改行できない形式で入れようとしたとき (理由を出すのに使う) */
+  onDenyNewline?: () => void;
+  /**
+   * 列の見出しを右クリックしたとき。
+   *
+   * `block` は押した所と地続きで選ばれている列のかたまり
+   * (「まとめて追加・削除」を出すのに使う)
+   */
+  onHeaderMenu?: (col: number, x: number, y: number, block: CsvBlock) => void;
+  /** 行を右クリックしたとき (`block` の意味は onHeaderMenu と同じ) */
+  onRowMenu?: (row: number, x: number, y: number, block: CsvBlock) => void;
   /** セルに色を付ける (比較の差分表示などで使う) */
   cellClass?: (row: number, col: number) => string | undefined;
   /**
@@ -123,9 +150,10 @@ interface Props {
   /**
    * クリップボードの中身を貼り付ける (⌘/Ctrl+V)。
    *
-   * 渡すのは貼り付けの左上にするセル。中身の読み取りは受け取った側の仕事
+   * カーソルと、今選んでいる範囲を渡す。中身の読み取りは受け取った側の仕事。
+   * 値1つを範囲へ貼るときは範囲を全部埋めるので、範囲も一緒に要る
    */
-  onPaste?: (at: CsvCursor) => void;
+  onPaste?: (at: CsvCursor, ranges: CsvRange[]) => void;
   /** スクロール位置を外へ伝える (分割表示の同期スクロールで使う) */
   onScrollPos?: (top: number, left: number) => void;
   /**
@@ -146,6 +174,8 @@ export function CsvGrid({
   onCursor,
   keepRange,
   onEdit,
+  canNewline = true,
+  onDenyNewline,
   onHeaderMenu,
   onRowMenu,
   cellClass,
@@ -174,6 +204,10 @@ export function CsvGrid({
   const [editing, setEditing] = useState<{ at: CsvCursor; text: string } | null>(
     null
   );
+  /** 入力欄 (改行を入れたあとに印の位置を戻すのに使う) */
+  const editRef = useRef<HTMLTextAreaElement>(null);
+  /** 次の描画で当てる印の位置 (要らないときは null) */
+  const caret = useRef<number | null>(null);
   const [widths, setWidths] = useState<number[]>([]);
   /**
    * 選んでいる範囲のもう一方の端。
@@ -276,6 +310,17 @@ export function CsvGrid({
   }, [rows, first, last]);
 
   /*
+   * 改行を入れたあと、印を入れた場所へ戻す。
+   *
+   * 中身を差し替えると印は末尾へ飛ぶので、描いたあとに置き直す
+   */
+  useEffect(() => {
+    if (caret.current === null) return;
+    editRef.current?.setSelectionRange(caret.current, caret.current);
+    caret.current = null;
+  });
+
+  /*
    * 相方に合わせてスクロールする。
    *
    * 既にその位置なら何もしない。これを外すと、合わせた側の onScroll が
@@ -372,16 +417,33 @@ export function CsvGrid({
     setEditing({ at, text: initial ?? cur });
   };
 
-  const commit = (move: "down" | "right" | "none") => {
+  const commit = (move: "down" | "up" | "right" | "none") => {
     if (!editing || !onEdit) return;
     onEdit(editing.at.row, editing.at.col, editing.text);
     setEditing(null);
+    /*
+     * 入力欄が消えると印がどこにも無くなり、矢印キーが表に届かなくなる。
+     * 表へ戻しておく
+     */
+    wrapRef.current?.focus();
     if (move === "down" && editing.at.row + 1 < rowCount) {
       putCursor({ row: editing.at.row + 1, col: editing.at.col });
       reveal(editing.at.row + 1);
+    } else if (move === "up" && editing.at.row > 0) {
+      putCursor({ row: editing.at.row - 1, col: editing.at.col });
+      reveal(editing.at.row - 1);
     } else if (move === "right" && editing.at.col + 1 < columns.length) {
       putCursor({ row: editing.at.row, col: editing.at.col + 1 });
     }
+  };
+
+  /** 表全体を選ぶ (左上の「#」と ⌘/Ctrl+A) */
+  const selectAll = () => {
+    if (rowCount === 0 || columns.length === 0) return;
+    wrapRef.current?.focus();
+    setExtra([]);
+    putCursor({ row: 0, col: 0 });
+    setHead({ row: rowCount - 1, col: columns.length - 1 });
   };
 
   /** 端 (先頭・末尾) まで一気に飛ぶ (⌘+矢印) */
@@ -429,6 +491,12 @@ export function CsvGrid({
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (editing) return;
+    // ⌘/Ctrl+A は表全体を選ぶ (まだどこも選んでいなくても効く)
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      selectAll();
+      return;
+    }
     if (!cursor) return;
     /*
      * ⌘/Ctrl+C で、選んでいる範囲をタブ区切りでコピーする。
@@ -443,10 +511,10 @@ export function CsvGrid({
       onCopy(ranges);
       return;
     }
-    // ⌘/Ctrl+V は、今いるセルを左上として貼り付ける
+    // ⌘/Ctrl+V は、選んでいる範囲へ貼り付ける
     if (onPaste && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "v") {
       e.preventDefault();
-      onPaste(cursor);
+      onPaste(cursor, ranges);
       return;
     }
     /*
@@ -498,6 +566,11 @@ export function CsvGrid({
       case "Enter":
       case "F2":
         e.preventDefault();
+        // 編集していないときの Shift+Enter は、上のセルへ動くだけ
+        if (e.key === "Enter" && e.shiftKey) {
+          move(-1, 0);
+          return;
+        }
         startEdit(cursor);
         return;
     }
@@ -593,6 +666,25 @@ export function CsvGrid({
    *
    * 探している語があるときだけ切り分けて、当たった所に印を付ける
    */
+  /**
+   * 1行ぶんの高さしか無いので、セルの中の改行はそのままでは消えてしまう。
+   * 見える印にして、値がつながって見えないようにする
+   */
+  const cellText = (text: string) => {
+    const parts = lineParts(text);
+    if (parts.length === 1) return mark(text);
+    return parts.map((p, i) => (
+      <Fragment key={i}>
+        {i > 0 && (
+          <span className="csv-nl" title="ここで改行しています">
+            ↵
+          </span>
+        )}
+        {mark(p)}
+      </Fragment>
+    ));
+  };
+
   const mark = (text: string) => {
     if (!findQuery) return text;
     const parts = markSegments(text, findQuery, !!findCase);
@@ -639,13 +731,13 @@ export function CsvGrid({
         onContextMenu={(e) => {
           if (!onRowMenu) return;
           e.preventDefault();
-          onRowMenu(i, e.clientX, e.clientY);
+          onRowMenu(i, e.clientX, e.clientY, rowBlock(ranges, i));
         }}
       >
         <div
           className={
             "csv-num" +
-            (ranges.some((r) => i >= r.top && i <= r.bottom) ? " on" : "")
+            (rowInAny(ranges, i) ? " on" : "")
           }
           style={{ width: NUM_W }}
           title="押すとこの行を選びます"
@@ -657,6 +749,17 @@ export function CsvGrid({
             e.preventDefault();
             wrapRef.current?.focus();
             const end = { row: i, col: Math.max(0, columns.length - 1) };
+            /*
+             * 右押しは、選んでいる中ならそのまま残す (メニューを出すだけ)。
+             * 外を押したときは、その行だけを選び直してからメニューを出す
+             */
+            if (e.button !== 0) {
+              if (rowInAny(ranges, i)) return;
+              setExtra([]);
+              putCursor({ row: i, col: 0 });
+              setHead(end);
+              return;
+            }
             if (e.shiftKey && cursor) {
               setHead(end);
               return;
@@ -695,6 +798,17 @@ export function CsvGrid({
             onMouseDown={(e) => {
               // 押下を止める枝があるので、印は自分で移しておく
               wrapRef.current?.focus();
+              /*
+               * 右押しは、選んでいる中ならそのまま残す (メニューを出すだけ)。
+               * 外を押したときは、そのセルだけを選び直してからメニューを出す
+               */
+              if (e.button !== 0) {
+                if (inAny(ranges, i, c)) return;
+                setExtra([]);
+                setHead(null);
+                putCursor({ row: i, col: c });
+                return;
+              }
               if (e.shiftKey && cursor) {
                 e.preventDefault();
                 setHead({ row: i, col: c });
@@ -722,7 +836,7 @@ export function CsvGrid({
             }}
             onDoubleClick={() => startEdit({ row: i, col: c })}
           >
-            {cells === null ? "" : mark(cells[c] ?? "")}
+            {cells === null ? "" : cellText(cells[c] ?? "")}
           </div>
         ))}
       </div>
@@ -741,7 +855,18 @@ export function CsvGrid({
       }}
     >
       <div className="csv-head" style={{ width: total, height: HEAD_H }}>
-        <div className="csv-num head" style={{ width: NUM_W }}>
+        <div
+          className={
+            "csv-num head" + (rowCount > 0 && columns.length > 0 ? " all" : "")
+          }
+          style={{ width: NUM_W }}
+          title="押すと表全体を選びます (⌘/Ctrl+A)"
+          onMouseDown={(e) => {
+            // 押下を止めるので、印は自分で移す (⌘C を表へ届かせるため)
+            e.preventDefault();
+            selectAll();
+          }}
+        >
           #
         </div>
         {columns.map((name, c) => (
@@ -750,20 +875,31 @@ export function CsvGrid({
             className={
               "csv-col" +
               // 選んでいる列 (見出しにも分かるようにする)
-              (ranges.some((r) => c >= r.left && c <= r.right) ? " on" : "")
+              (colInAny(ranges, c) ? " on" : "")
             }
             style={{ left: lefts[c], width: widths[c] }}
             title={name}
             onContextMenu={(e) => {
               if (!onHeaderMenu) return;
               e.preventDefault();
-              onHeaderMenu(c, e.clientX, e.clientY);
+              onHeaderMenu(c, e.clientX, e.clientY, colBlock(ranges, c));
             }}
             onMouseDown={(e) => {
               // 押下を止めるので、印は自分で移す (⌘C を表へ届かせるため)
               e.preventDefault();
               wrapRef.current?.focus();
               const bottom = Math.max(0, rowCount - 1);
+              /*
+               * 右押しは、選んでいる中ならそのまま残す (メニューを出すだけ)。
+               * 外を押したときは、その列だけを選び直してからメニューを出す
+               */
+              if (e.button !== 0) {
+                if (colInAny(ranges, c)) return;
+                setExtra([]);
+                putCursor({ row: 0, col: c });
+                setHead({ row: bottom, col: c });
+                return;
+              }
               if (e.shiftKey && cursor) {
                 setHead({ row: bottom, col: c });
                 return;
@@ -921,15 +1057,19 @@ export function CsvGrid({
         })}
         {items}
         {editing && (
-          <input
+          <textarea
             className="csv-editor mono"
             autoFocus
+            ref={editRef}
             value={editing.text}
+            spellCheck={false}
+            wrap="off"
             style={{
               top: editing.at.row * ROW_H,
               left: lefts[editing.at.col],
               width: widths[editing.at.col],
-              height: ROW_H,
+              // 改行を入れたぶんだけ下へ伸ばす (伸びすぎないよう頭打ちにする)
+              height: ROW_H * Math.min(EDIT_MAX_LINES, lineCount(editing.text)),
             }}
             onChange={(e) =>
               setEditing({ at: editing.at, text: e.target.value })
@@ -939,13 +1079,35 @@ export function CsvGrid({
               if (e.nativeEvent.isComposing) return;
               if (e.key === "Enter") {
                 e.preventDefault();
-                commit("down");
+                /*
+                 * Option (Windowsでは Alt) を押しながらなら、
+                 * セルの中で改行する
+                 */
+                if (e.altKey) {
+                  if (!canNewline) {
+                    onDenyNewline?.();
+                    return;
+                  }
+                  const el = e.currentTarget;
+                  const got = insertNewline(
+                    editing.text,
+                    el.selectionStart,
+                    el.selectionEnd
+                  );
+                  caret.current = got.caret;
+                  setEditing({ at: editing.at, text: got.text });
+                  return;
+                }
+                // Shift+Enter は上のセルへ (表計算ソフトと同じ)
+                commit(e.shiftKey ? "up" : "down");
               } else if (e.key === "Tab") {
                 e.preventDefault();
                 commit("right");
               } else if (e.key === "Escape") {
                 e.preventDefault();
                 setEditing(null);
+                // やめたときも、続けて矢印キーで動けるように表へ戻す
+                wrapRef.current?.focus();
               }
             }}
             onBlur={() => commit("none")}

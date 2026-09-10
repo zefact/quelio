@@ -206,6 +206,11 @@ export function ConnectionForm({
                     const selected = await open({
                       multiple: false,
                       title: "SQLiteのデータベースファイルを選択",
+                      /*
+                       * すでに指定してあれば、そのファイルのある所から開く
+                       * (毎回いつもの場所まで辿り直さずに済む)
+                       */
+                      defaultPath: profile.database?.trim() || undefined,
                       filters: [
                         {
                           name: "SQLite",

@@ -195,6 +195,21 @@ fn has_bom(bytes: &[u8]) -> bool {
         || bytes.starts_with(&[0xFE, 0xFF])
 }
 
+/**
+ * セルの中の改行を LF にそろえる。
+ *
+ * 読み込んだファイルの改行コードによっては `\r\n` や `\r` が混ざる。
+ * そのまま書くと、CRLF 指定のときに `\r\r\n` になってしまうので、
+ * いったん LF に直してから最後にまとめて置き換える。
+ * 改行が無ければ借りたまま返す (ほとんどの値はこちら)
+ */
+fn to_lf(v: &str) -> std::borrow::Cow<'_, str> {
+    if !v.contains(['\r', '\n']) {
+        return std::borrow::Cow::Borrowed(v);
+    }
+    std::borrow::Cow::Owned(v.replace("\r\n", "\n").replace('\r', "\n"))
+}
+
 /// 行をCSVのバイト列にする (指定の文字コード・改行・区切り・引用符で)
 pub fn dump(
     rows: &[Vec<String>],
@@ -222,15 +237,36 @@ pub fn dump(
             b.quote_style(csv::QuoteStyle::Never);
         }
     }
+    let quoted = f.quote.as_byte().is_some();
     let mut w = b.from_writer(Vec::new());
+    // 行ごとに作り直さずに済むよう、入れ物は外に置く
+    let mut row: Vec<std::borrow::Cow<'_, str>> = Vec::new();
     for r in rows {
-        w.write_record(r)
+        row.clear();
+        row.extend(r.iter().map(|v| to_lf(v)));
+        /*
+         * 囲まない指定では、セルの中の改行がそのまま行の切れ目になり、
+         * 読み直したときに別の行になってしまう。
+         * 黙って壊すより、保存を断って知らせる
+         */
+        if !quoted && row.iter().any(|v| v.contains('\n')) {
+            return Err(
+                "セルの中に改行があるため、引用符「なし」では保存できません \
+                 (書式の引用符を \" などに変えてください)"
+                    .into(),
+            );
+        }
+        w.write_record(row.iter().map(|v| v.as_ref()))
             .map_err(|e| format!("CSVを組み立てられません: {e}"))?;
     }
     let text = w
         .into_inner()
         .map_err(|e| format!("CSVを組み立てられません: {e}"))?;
     let mut text = String::from_utf8(text).map_err(|e| format!("CSVを組み立てられません: {e}"))?;
+    /*
+     * ここまで改行はすべて LF なので、まとめて指定の改行コードに直す。
+     * 行の切れ目だけでなく、セルの中の改行も同じコードになる
+     */
     if f.newline != Newline::Lf {
         text = text.replace('\n', f.newline.as_str());
     }
@@ -336,4 +372,77 @@ pub fn mtime(path: &Path) -> Option<u64> {
     t.duration_since(std::time::UNIX_EPOCH)
         .ok()
         .map(|d| d.as_secs())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fmt(newline: Newline, quote: Quote) -> CsvFormat {
+        CsvFormat {
+            encoding: "UTF-8".into(),
+            bom: false,
+            newline,
+            delimiter: ',',
+            quote,
+            quoting: Quoting::Necessary,
+            fixed: None,
+        }
+    }
+
+    fn row(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// 書き出した中身を文字で見る
+    fn text(rows: &[Vec<String>], f: &CsvFormat) -> String {
+        String::from_utf8(dump(rows, f, &[], &[], &[]).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn セルの中の改行もファイルの改行コードにそろえる() {
+        let rows = vec![row(&["a\nb", "c"])];
+        assert_eq!(
+            text(&rows, &fmt(Newline::Lf, Quote::Double)),
+            "\"a\nb\",c\n"
+        );
+        assert_eq!(
+            text(&rows, &fmt(Newline::Crlf, Quote::Double)),
+            "\"a\r\nb\",c\r\n"
+        );
+    }
+
+    #[test]
+    fn 元がcrlfのセルでも二重にならない() {
+        // 読み込んだファイルに \r\n のまま入っていることがある
+        let rows = vec![row(&["a\r\nb"])];
+        assert_eq!(
+            text(&rows, &fmt(Newline::Crlf, Quote::Double)),
+            "\"a\r\nb\"\r\n"
+        );
+        // LF を選べば、セルの中も LF になる
+        assert_eq!(text(&rows, &fmt(Newline::Lf, Quote::Double)), "\"a\nb\"\n");
+    }
+
+    #[test]
+    fn 単独のcrも改行として扱う() {
+        let rows = vec![row(&["a\rb"])];
+        assert_eq!(text(&rows, &fmt(Newline::Lf, Quote::Double)), "\"a\nb\"\n");
+    }
+
+    #[test]
+    fn 改行が無ければそのまま書く() {
+        let rows = vec![row(&["a", "b"]), row(&["c", "d"])];
+        assert_eq!(text(&rows, &fmt(Newline::Lf, Quote::Double)), "a,b\nc,d\n");
+    }
+
+    #[test]
+    fn 囲まない指定で改行入りのセルは断る() {
+        let rows = vec![row(&["a\nb"])];
+        let e = dump(&rows, &fmt(Newline::Lf, Quote::None), &[], &[], &[]).unwrap_err();
+        assert!(e.contains("引用符"), "{e}");
+        // 改行が無ければ、囲まない指定でも書ける
+        let rows = vec![row(&["ab"])];
+        assert_eq!(text(&rows, &fmt(Newline::Lf, Quote::None)), "ab\n");
+    }
 }

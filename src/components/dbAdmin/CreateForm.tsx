@@ -75,20 +75,34 @@ export function CreateForm({
     [charsets]
   );
 
-  /** 照合順序は文字コードに属するので、選ばれているものだけを出す */
+  const pg = dbType === "postgresql";
+
+  /** MySQLの照合順序は文字コードに属するので、選ばれているものだけを出す */
   const selected = charsets.find((c) => c.name === encoding);
-  const collationOptions = useMemo(
-    () => [
+
+  /*
+   * PostgreSQL の照合順序 (LC_COLLATE) はエンコーディングに属さず、
+   * サーバーのOSが持っているロケールから選ぶ。
+   * どのエンコーディングにも同じ一覧が付いてくるので、重なりを外して使う
+   */
+  const pgCollations = useMemo(
+    () => [...new Set(charsets.flatMap((c) => c.collations))].sort(),
+    [charsets]
+  );
+
+  const collationOptions = useMemo(() => {
+    const list = pg ? pgCollations : (selected?.collations ?? []);
+    return [
       {
         value: DEFAULT,
-        label: selected?.defaultCollation
-          ? `既定のまま (${selected.defaultCollation})`
-          : "既定のまま",
+        label:
+          !pg && selected?.defaultCollation
+            ? `既定のまま (${selected.defaultCollation})`
+            : "既定のまま",
       },
-      ...(selected?.collations ?? []).map((c) => ({ value: c, label: c })),
-    ],
-    [selected]
-  );
+      ...list.map((c) => ({ value: c, label: c })),
+    ];
+  }, [pg, pgCollations, selected]);
 
   const trimmed = name.trim();
   const canGo = !!trimmed && !busy && !disabled;
@@ -168,27 +182,29 @@ export function CreateForm({
               onChange={(v) => {
                 setEncoding(v);
                 // 前の文字コードの照合順序が残らないようにする
-                setCollation(DEFAULT);
+                // (PostgreSQLはエンコーディングに属さないので、そのまま)
+                if (!pg) setCollation(DEFAULT);
               }}
             />
           </div>
-          {dbType === "mysql" && (
-            <div className="db-admin-opt-field">
-              <span className="db-admin-opt-label">照合順序</span>
-              <SelectMenu
-                className="select-field mono"
-                value={collation}
-                options={collationOptions}
-                // 照合順序は文字コードに属するので、先に文字コードを選んでもらう
-                disabled={disabled || busy || !selected}
-                placeholder={
-                  selected ? "既定のまま" : "先に文字コードを選んでください"
-                }
-                popFixed
-                onChange={setCollation}
-              />
-            </div>
-          )}
+          <div className="db-admin-opt-field">
+            <span className="db-admin-opt-label">照合順序</span>
+            <SelectMenu
+              className="select-field mono"
+              value={collation}
+              options={collationOptions}
+              /*
+               * MySQLの照合順序は文字コードに属するので、先に文字コードを選んでもらう。
+               * PostgreSQLは属さないので、いつでも選べる
+               */
+              disabled={disabled || busy || (!pg && !selected)}
+              placeholder={
+                pg || selected ? "既定のまま" : "先に文字コードを選んでください"
+              }
+              popFixed
+              onChange={setCollation}
+            />
+          </div>
         </div>
       )}
 

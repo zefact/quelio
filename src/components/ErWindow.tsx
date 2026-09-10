@@ -363,16 +363,16 @@ export function ErWindow() {
    * 一覧は開いてから取りに行く (件数が多いと時間がかかるため先に画面を出す)。
    * 新規なら全部を選んだ状態、更新なら何も選んでいない状態から始める
    * (更新では、チェックしたものだけをDBから読み直す) */
-  const openPicker = async (preselect?: Set<string>) => {
+  const openPicker = async () => {
     if (!sel.sessionId || !sel.database) return;
     const keep = new Set(entriesRef.current?.map((e) => e.table.name) ?? []);
-    const first = preselect ?? new Set<string>();
-    setPicker({ tables: [], initial: first, existing: keep, loading: true });
+    const none = new Set<string>();
+    setPicker({ tables: [], initial: none, existing: keep, loading: true });
     try {
       const tables = await listTables(sel.sessionId, sel.database);
       setPicker({
         tables,
-        initial: keep.size > 0 ? first : new Set(tables.map((t) => t.name)),
+        initial: keep.size > 0 ? none : new Set(tables.map((t) => t.name)),
         existing: keep,
         loading: false,
       });
@@ -587,12 +587,6 @@ export function ErWindow() {
 
   /** テーブルを図から削除する (複数可。リバースしても再追加されない) */
   const removeTables = (names: string[]) => deleteSelection([], names);
-
-  /** 図から外したテーブルを選んだ状態で、テーブルの選択画面を開く */
-  const restoreRemovedTables = () => {
-    if (removedTables.size === 0) return;
-    void openPicker(new Set(removedTables));
-  };
 
   /** ノードのドラッグ移動 (ヘッダ・カラム部どこからでも掴める)。
    * 複数選択中に選択済みのテーブルを掴むと、選択中の全テーブルをまとめて動かす。
@@ -879,7 +873,7 @@ export function ErWindow() {
         (names.length === 1
           ? `${names[0]} を図から削除しますか？`
           : `選択中の${names.length}テーブルを図から削除しますか？`) +
-        " (戻したい場合はリバース時に「削除したテーブルも復活させる」を選べます)",
+        " (戻したい場合は、リバースでそのテーブルを選び直します)",
       sub: "DBからは削除されません",
       action: () => removeTables(names),
     });
@@ -895,7 +889,9 @@ export function ErWindow() {
     if (edgeIdxs.length > 0 && tableNames.length > 0) {
       setConfirm({
         title: "選択中の要素を削除",
-        message: `${tableNames.length}テーブルと${edgeIdxs.length}本の線を削除しますか？ (テーブルはリバース時に「削除したテーブルも復活させる」で戻せます)`,
+        message:
+          `${tableNames.length}テーブルと${edgeIdxs.length}本の線を削除しますか？` +
+          " (テーブルは、リバースで選び直せば戻せます)",
         sub: "DBからは削除されません",
         action: () => deleteSelection(edgeIdxs, tableNames),
       });
@@ -1945,17 +1941,12 @@ export function ErWindow() {
 
           {ctxMenu.kind === "canvas" && (
             <CanvasMenu
-              removedCount={removedTables.size}
               onAddFrame={() => {
                 addFrame(ctxMenu.worldX, ctxMenu.worldY);
                 setCtxMenu(null);
               }}
               onAddText={() => {
                 addText(ctxMenu.worldX, ctxMenu.worldY);
-                setCtxMenu(null);
-              }}
-              onRestoreRemoved={() => {
-                restoreRemovedTables();
                 setCtxMenu(null);
               }}
             />

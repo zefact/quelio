@@ -1,12 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  colBlock,
+  colInAny,
   frameBox,
   inAny,
   inRange,
   jumpFix,
   normalize,
+  rowBlock,
+  rowInAny,
   selectionCells,
 } from "./csvSelection";
+import type { CsvRange } from "./csvSelection";
 
 describe("normalize", () => {
   it("どちらを先に渡しても同じ四角になる", () => {
@@ -108,5 +113,71 @@ describe("jumpFix", () => {
     expect(jumpFix(true, from, from)).toBeNull();
     expect(jumpFix(true, from, null)).toBeNull();
     expect(jumpFix(true, null, head)).toBeNull();
+  });
+});
+
+describe("行や列が選ばれているか", () => {
+  const rs: CsvRange[] = [
+    { top: 2, left: 1, bottom: 4, right: 3 },
+    { top: 8, left: 6, bottom: 8, right: 6 },
+  ];
+
+  it("四角に掛かっている行だけを数える", () => {
+    expect(rowInAny(rs, 1)).toBe(false);
+    expect(rowInAny(rs, 2)).toBe(true);
+    expect(rowInAny(rs, 4)).toBe(true);
+    expect(rowInAny(rs, 5)).toBe(false);
+    expect(rowInAny(rs, 8)).toBe(true);
+  });
+
+  it("四角に掛かっている列だけを数える", () => {
+    expect(colInAny(rs, 0)).toBe(false);
+    expect(colInAny(rs, 1)).toBe(true);
+    expect(colInAny(rs, 3)).toBe(true);
+    expect(colInAny(rs, 5)).toBe(false);
+    expect(colInAny(rs, 6)).toBe(true);
+  });
+
+  it("何も選んでいなければ false", () => {
+    expect(rowInAny([], 0)).toBe(false);
+    expect(colInAny([], 0)).toBe(false);
+  });
+});
+
+describe("続いて選ばれているかたまり", () => {
+  it("選んだ範囲の先頭と本数を返す", () => {
+    const rs: CsvRange[] = [{ top: 2, left: 1, bottom: 6, right: 3 }];
+    expect(rowBlock(rs, 4)).toEqual({ at: 2, count: 5 });
+    expect(colBlock(rs, 2)).toEqual({ at: 1, count: 3 });
+  });
+
+  it("離れた所は別のかたまりとして数える", () => {
+    const rs: CsvRange[] = [
+      { top: 0, left: 0, bottom: 1, right: 0 },
+      { top: 5, left: 0, bottom: 7, right: 0 },
+    ];
+    expect(rowBlock(rs, 0)).toEqual({ at: 0, count: 2 });
+    expect(rowBlock(rs, 6)).toEqual({ at: 5, count: 3 });
+  });
+
+  it("隣り合う範囲は地続きとして数える", () => {
+    const rs: CsvRange[] = [
+      { top: 0, left: 0, bottom: 1, right: 0 },
+      { top: 2, left: 0, bottom: 3, right: 0 },
+    ];
+    expect(rowBlock(rs, 1)).toEqual({ at: 0, count: 4 });
+  });
+
+  it("選んでいない所は、その1本だけ", () => {
+    const rs: CsvRange[] = [{ top: 2, left: 2, bottom: 3, right: 2 }];
+    expect(rowBlock(rs, 9)).toEqual({ at: 9, count: 1 });
+    expect(colBlock(rs, 0)).toEqual({ at: 0, count: 1 });
+    expect(rowBlock([], 4)).toEqual({ at: 4, count: 1 });
+  });
+
+  it("先頭の行や列でも上へ行き過ぎない", () => {
+    const rs: CsvRange[] = [{ top: 0, left: 0, bottom: 0, right: 0 }];
+    expect(rowBlock(rs, 0)).toEqual({ at: 0, count: 1 });
+    expect(colBlock(rs, 0)).toEqual({ at: 0, count: 1 });
   });
 });

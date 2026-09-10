@@ -434,17 +434,18 @@ pub fn csv_delete_rows(
     })?
 }
 
-/// 空の列を足す
+/// 空の列を `count` 本足す
 #[tauri::command]
 pub fn csv_insert_col(
     docs: State<'_, CsvDocuments>,
     doc_id: String,
     at: usize,
     name: String,
+    count: usize,
 ) -> Result<CsvInfo, String> {
     docs.with_mut(&doc_id, |d| {
         d.can_reshape()?;
-        let e = d.sheet().insert_col(at, &name)?;
+        let e = d.sheet().insert_cols(at, &name, count)?;
         d.apply(e)?;
         // 列の位置がずれるので、絞り込みは落とす
         d.clear_filters();
@@ -452,16 +453,17 @@ pub fn csv_insert_col(
     })?
 }
 
-/// 列を消す
+/// 列を `at` から `count` 本消す
 #[tauri::command]
 pub fn csv_delete_col(
     docs: State<'_, CsvDocuments>,
     doc_id: String,
     at: usize,
+    count: usize,
 ) -> Result<CsvInfo, String> {
     docs.with_mut(&doc_id, |d| {
         d.can_reshape()?;
-        let e = d.sheet().delete_col(at)?;
+        let e = d.sheet().delete_cols(at, count)?;
         d.apply(e)?;
         // 列の位置がずれるので、絞り込みは落とす
         d.clear_filters();

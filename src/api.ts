@@ -932,14 +932,19 @@ export function csvDeleteRows(
 export function csvInsertCol(
   docId: string,
   at: number,
-  name: string
+  name: string,
+  count = 1
 ): Promise<CsvInfo> {
-  return call("csv_insert_col", { docId, at, name });
+  return call("csv_insert_col", { docId, at, name, count });
 }
 
-/** 列を消す */
-export function csvDeleteCol(docId: string, at: number): Promise<CsvInfo> {
-  return call("csv_delete_col", { docId, at });
+/** 列を `at` から `count` 本消す (まとめて消しても取り消しは1回) */
+export function csvDeleteCol(
+  docId: string,
+  at: number,
+  count = 1
+): Promise<CsvInfo> {
+  return call("csv_delete_col", { docId, at, count });
 }
 
 /** 列の名前を変える */

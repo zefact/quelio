@@ -462,8 +462,8 @@
             </tr>
             <tr>
               <td>データベース・スキーマの作成・削除</td>
-              <td class="c"><span class="mark y">✓</span><span class="note">システムDBは削除不可</span></td>
-              <td class="c"><span class="mark y">✓</span><span class="note">スキーマも対応</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">文字コード・照合順序も指定<br>システムDBは削除不可</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">エンコーディング・照合順序も指定<br>スキーマも対応</span></td>
               <td class="c"><span class="mark n">—</span><span class="note">1ファイル＝1DB</span></td>
               <td class="c"><span class="mark n">—</span><span class="note">DB番号は固定</span></td>
             </tr>
@@ -625,7 +625,8 @@
               <li>テーブル定義のその場編集、<span class="mono">COMMENT ON</span> によるコメント編集</li>
               <li>接続先の <span class="mono">pg_type</span> から取得した型を選択（enum・ドメイン・PostGISの型も候補に出ます）</li>
               <li>インデックス種別の指定（btree / hash / gist / gin / spgist / brin）</li>
-              <li><b>外部キーの追加・削除</b>、<b>スキーマ・データベースの作成／削除</b></li>
+              <li><b>外部キーの追加・削除</b>、<b>スキーマ・データベースの作成／削除</b>
+                （エンコーディングと照合順序 <span class="mono">LC_COLLATE</span> を指定できます）</li>
               <li>パーティションの表示（CREATE 文・ALTER 文の生成にも <span class="mono">PARTITION BY / PARTITION OF</span> を反映）</li>
               <li>EXPLAIN / EXPLAIN ANALYZE、CSV取り込み、pg_dump / psql 連携</li>
               <li><b>ロールと権限の管理</b>（作成・パスワード変更・改名・停止・削除、GRANT / REVOKE）。

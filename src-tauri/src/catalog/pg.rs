@@ -139,20 +139,44 @@ pub async fn pg_encodings(
     ctx.log(sql);
     let rows = timeout(
         QUERY_TIMEOUT,
-        sqlx::query_scalar::<_, String>(sql).fetch_all(conn),
+        sqlx::query_scalar::<_, String>(sql).fetch_all(&mut *conn),
     )
     .await
     .map_err(|_| AppError::timeout("クエリ"))?
     .map_err(db_error)?;
+    /*
+     * 照合順序 (LC_COLLATE) に使えるのは、サーバーのOSが持っているロケールだけ。
+     * サーバーが知っているものを聞いて、どのエンコーディングにも同じものを付ける
+     * (MySQLと違い、PostgreSQLの LC_COLLATE はエンコーディングに属さない)
+     */
+    let locales = pg_locales(conn, ctx).await;
     Ok(rows
         .into_iter()
         .map(|name| CharsetInfo {
             name,
             description: String::new(),
             default_collation: String::new(),
-            collations: Vec::new(),
+            collations: locales.clone(),
         })
         .collect())
+}
+
+/// PostgreSQL: LC_COLLATE に指定できるロケール名。
+///
+/// 取れなくても作成そのものは (既定のまま) できるので、
+/// 失敗したときは空の一覧を返す
+async fn pg_locales(conn: &mut PgConnection, ctx: &LogCtx<'_>) -> Vec<String> {
+    let sql = "SELECT DISTINCT collcollate FROM pg_collation              WHERE collprovider = 'c' AND collcollate <> ''              ORDER BY 1";
+    ctx.log(sql);
+    match timeout(
+        QUERY_TIMEOUT,
+        sqlx::query_scalar::<_, String>(sql).fetch_all(conn),
+    )
+    .await
+    {
+        Ok(Ok(v)) => v,
+        _ => Vec::new(),
+    }
 }
 
 /// PostgreSQL: pg_attribute の1行 → カラム情報
@@ -388,10 +412,7 @@ pub async fn pg_column_types(
 
 /// PostgreSQL: カラムに使える型の一覧。
 /// ユーザー定義のenumやドメイン、拡張 (PostGISのgeometry等) も含めたいのでDBから取る
-pub async fn pg_types(
-    conn: &mut PgConnection,
-    ctx: &LogCtx<'_>,
-) -> Result<Vec<String>, AppError> {
+pub async fn pg_types(conn: &mut PgConnection, ctx: &LogCtx<'_>) -> Result<Vec<String>, AppError> {
     // typtype: b=基本型 e=列挙型 d=ドメイン r=範囲型
     // typelem<>0 は配列なので除く (要素型のほうを候補に出す)
     let sql = "SELECT DISTINCT format_type(t.oid, NULL) AS name \
@@ -461,9 +482,9 @@ pub async fn pg_tables(
              ORDER BY n.nspname, c.relname";
     ctx.log(sql);
     let rows = timeout(QUERY_TIMEOUT, sqlx::query(sql).fetch_all(conn))
-    .await
-    .map_err(|_| AppError::timeout("クエリ"))?
-    .map_err(db_error)?;
+        .await
+        .map_err(|_| AppError::timeout("クエリ"))?
+        .map_err(db_error)?;
 
     rows.iter()
         .map(|row| {
@@ -502,8 +523,14 @@ pub async fn pg_table_detail(
 ) -> Result<TableDetail, AppError> {
     // カラム
     let binds = [schema, table];
-    let rows =
-        pg_rows(conn, &pg_columns_sql(Scope::One), &binds, QUERY_TIMEOUT, ctx).await?;
+    let rows = pg_rows(
+        conn,
+        &pg_columns_sql(Scope::One),
+        &binds,
+        QUERY_TIMEOUT,
+        ctx,
+    )
+    .await?;
 
     let mut columns = Vec::with_capacity(rows.len());
     for r in &rows {
@@ -511,8 +538,14 @@ pub async fn pg_table_detail(
     }
 
     // インデックス
-    let rows =
-        pg_rows(conn, &pg_indexes_sql(Scope::One), &binds, QUERY_TIMEOUT, ctx).await?;
+    let rows = pg_rows(
+        conn,
+        &pg_indexes_sql(Scope::One),
+        &binds,
+        QUERY_TIMEOUT,
+        ctx,
+    )
+    .await?;
 
     let mut indexes = Vec::with_capacity(rows.len());
     for r in &rows {
@@ -561,8 +594,7 @@ pub async fn pg_schema_details(
     let mut out: HashMap<(String, String), TableDetail> = HashMap::new();
 
     // カラム
-    let rows =
-        pg_rows(conn, &pg_columns_sql(Scope::All), &[], SCHEMA_TIMEOUT, ctx).await?;
+    let rows = pg_rows(conn, &pg_columns_sql(Scope::All), &[], SCHEMA_TIMEOUT, ctx).await?;
     for r in &rows {
         let key = (
             r.try_get::<String, _>("schema").map_err(db_error)?,
@@ -572,8 +604,7 @@ pub async fn pg_schema_details(
     }
 
     // インデックス
-    let rows =
-        pg_rows(conn, &pg_indexes_sql(Scope::All), &[], SCHEMA_TIMEOUT, ctx).await?;
+    let rows = pg_rows(conn, &pg_indexes_sql(Scope::All), &[], SCHEMA_TIMEOUT, ctx).await?;
     for r in &rows {
         let key = (
             r.try_get::<String, _>("schema").map_err(db_error)?,
@@ -670,8 +701,14 @@ pub async fn pg_table_ddl(
         }
         part_key = r.try_get::<Option<String>, _>("partkey").ok().flatten();
         let bound = r.try_get::<Option<String>, _>("partbound").ok().flatten();
-        let ps = r.try_get::<Option<String>, _>("parent_schema").ok().flatten();
-        let pt = r.try_get::<Option<String>, _>("parent_table").ok().flatten();
+        let ps = r
+            .try_get::<Option<String>, _>("parent_schema")
+            .ok()
+            .flatten();
+        let pt = r
+            .try_get::<Option<String>, _>("parent_table")
+            .ok()
+            .flatten();
         if let (Some(bound), Some(ps), Some(pt)) = (bound, ps, pt) {
             part_of = Some((format!("{}.{}", ident(&ps), ident(&pt)), bound));
         }
@@ -800,7 +837,12 @@ pub async fn pg_table_ddl(
 /// 列は親から引き継ぐので並べ直さない。
 /// `bound` は `pg_get_expr(relpartbound, oid)` の値
 /// (`FOR VALUES FROM (…) TO (…)` や `DEFAULT` の形で返る)
-pub(super) fn pg_partition_of(full: &str, parent: &str, bound: &str, sub_key: Option<&str>) -> String {
+pub(super) fn pg_partition_of(
+    full: &str,
+    parent: &str,
+    bound: &str,
+    sub_key: Option<&str>,
+) -> String {
     let mut out = format!("CREATE TABLE {full} PARTITION OF {parent}\n    {bound}");
     // 子がさらに分かれている場合
     if let Some(key) = sub_key {
@@ -875,7 +917,10 @@ async fn pg_table_extras(
     .map_err(|_| AppError::timeout("クエリ"))?
     .map_err(db_error)?;
     if let Some(c) = row.and_then(|r| r.try_get::<Option<String>, _>("comment").ok().flatten()) {
-        out.push_str(&format!("\n\nCOMMENT ON TABLE {full} IS {};", pg_literal(&c)));
+        out.push_str(&format!(
+            "\n\nCOMMENT ON TABLE {full} IS {};",
+            pg_literal(&c)
+        ));
     }
     Ok(out)
 }
@@ -995,7 +1040,10 @@ pub async fn pg_foreign_key_defs(
     ctx.log(sql);
     let rows = timeout(
         QUERY_TIMEOUT,
-        sqlx::query(sql).bind(schema).bind(table).fetch_all(&mut *conn),
+        sqlx::query(sql)
+            .bind(schema)
+            .bind(table)
+            .fetch_all(&mut *conn),
     )
     .await
     .map_err(|_| AppError::timeout("クエリ"))?
@@ -1009,11 +1057,11 @@ pub async fn pg_foreign_key_defs(
                 name: r.try_get("name").map_err(db_error)?,
                 columns: r.try_get("cols").map_err(db_error)?,
                 // 同じスキーマなら省いて読みやすくする (MySQL側と同じ扱い)
-            ref_schema: match r.try_get::<String, _>("ref_schema") {
-                Ok(ns) if ns == schema => String::new(),
-                Ok(ns) => ns,
-                Err(e) => return Err(db_error(e)),
-            },
+                ref_schema: match r.try_get::<String, _>("ref_schema") {
+                    Ok(ns) if ns == schema => String::new(),
+                    Ok(ns) => ns,
+                    Err(e) => return Err(db_error(e)),
+                },
                 ref_table: r.try_get("ref_table").map_err(db_error)?,
                 ref_columns: r.try_get("ref_cols").map_err(db_error)?,
                 on_delete: pg_fk_action(r.try_get("del").unwrap_or(b'a' as i8)),

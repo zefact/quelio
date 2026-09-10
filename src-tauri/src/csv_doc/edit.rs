@@ -294,6 +294,59 @@ impl Sheet<'_> {
         })
     }
 
+    /// 空の列をまとめて入れる操作を作る (取り消し1回で戻る)
+    pub fn insert_cols(&self, at: usize, name: &str, count: usize) -> Result<Edit, String> {
+        if count == 0 {
+            return Err("追加する列数を指定してください".into());
+        }
+        if at > self.width() {
+            return Err("その位置には列を足せません".into());
+        }
+        if count == 1 {
+            return self.insert_col(at, name);
+        }
+        // 左から順に入れるので、i 番目は at + i の位置に入る
+        let edits = (0..count)
+            .map(|i| Edit::InsertCol {
+                at: at + i,
+                name: name.to_string(),
+                values: vec![String::new(); self.rows.len()],
+            })
+            .collect();
+        Ok(Edit::Group {
+            label: "列の追加",
+            edits,
+        })
+    }
+
+    /// 列をまとめて消す操作を作る (取り消し1回で戻る)
+    pub fn delete_cols(&self, at: usize, count: usize) -> Result<Edit, String> {
+        if count == 0 || at + count > self.width() {
+            return Err("その列は見つかりません".into());
+        }
+        if self.width() <= count {
+            return Err("最後の1列は消せません".into());
+        }
+        if count == 1 {
+            return self.delete_col(at);
+        }
+        /*
+         * 1つ消すたびに右が左へ詰まるので、消す位置はいつも `at`。
+         * 控えは元の並びから順に取る
+         */
+        let edits = (0..count)
+            .map(|i| Edit::DeleteCol {
+                at,
+                name: self.header[at + i].clone(),
+                values: self.rows.iter().map(|r| r[at + i].clone()).collect(),
+            })
+            .collect();
+        Ok(Edit::Group {
+            label: "列の削除",
+            edits,
+        })
+    }
+
     /// 列の名前を変える操作を作る
     pub fn rename_col(&self, at: usize, name: &str) -> Result<Edit, String> {
         if at >= self.width() {
@@ -341,6 +394,89 @@ mod tests {
             before: before.to_string(),
             after: after.to_string(),
         }
+    }
+
+    #[test]
+    fn 列をまとめて足す() {
+        let mut header = text(&["a", "b"]);
+        let mut rows = vec![text(&["1", "2"]), text(&["3", "4"])];
+        let mut edges = Edges {
+            head: Vec::new(),
+            tail: Vec::new(),
+        };
+        let e = sheet(&mut rows, &mut header, &mut edges)
+            .insert_cols(1, "新しい列", 3)
+            .unwrap();
+        assert_eq!(e.label(), "列の追加");
+        let mut sh = sheet(&mut rows, &mut header, &mut edges);
+        sh.apply(&e).unwrap();
+        assert_eq!(header, text(&["a", "新しい列", "新しい列", "新しい列", "b"]));
+        assert_eq!(rows[0], text(&["1", "", "", "", "2"]));
+        // 取り消し1回で元へ戻る
+        sheet(&mut rows, &mut header, &mut edges)
+            .apply(&e.invert())
+            .unwrap();
+        assert_eq!(header, text(&["a", "b"]));
+        assert_eq!(rows[0], text(&["1", "2"]));
+    }
+
+    #[test]
+    fn 列をまとめて消す() {
+        let mut header = text(&["a", "b", "c", "d"]);
+        let mut rows = vec![text(&["1", "2", "3", "4"]), text(&["5", "6", "7", "8"])];
+        let mut edges = Edges {
+            head: Vec::new(),
+            tail: Vec::new(),
+        };
+        let e = sheet(&mut rows, &mut header, &mut edges)
+            .delete_cols(1, 2)
+            .unwrap();
+        assert_eq!(e.label(), "列の削除");
+        sheet(&mut rows, &mut header, &mut edges).apply(&e).unwrap();
+        assert_eq!(header, text(&["a", "d"]));
+        assert_eq!(rows[0], text(&["1", "4"]));
+        assert_eq!(rows[1], text(&["5", "8"]));
+        // 取り消し1回で、中身も並びも元どおり
+        sheet(&mut rows, &mut header, &mut edges)
+            .apply(&e.invert())
+            .unwrap();
+        assert_eq!(header, text(&["a", "b", "c", "d"]));
+        assert_eq!(rows[0], text(&["1", "2", "3", "4"]));
+        assert_eq!(rows[1], text(&["5", "6", "7", "8"]));
+    }
+
+    #[test]
+    fn 全部の列は消せない() {
+        let mut header = text(&["a", "b"]);
+        let mut rows = vec![text(&["1", "2"])];
+        let mut edges = Edges {
+            head: Vec::new(),
+            tail: Vec::new(),
+        };
+        let sh = sheet(&mut rows, &mut header, &mut edges);
+        assert!(sh.delete_cols(0, 2).is_err());
+        // 端をはみ出す指定も断る
+        assert!(sh.delete_cols(1, 2).is_err());
+        assert!(sh.delete_cols(0, 0).is_err());
+    }
+
+    #[test]
+    fn 一本だけならまとめない() {
+        let mut header = text(&["a", "b"]);
+        let mut rows = vec![text(&["1", "2"])];
+        let mut edges = Edges {
+            head: Vec::new(),
+            tail: Vec::new(),
+        };
+        let sh = sheet(&mut rows, &mut header, &mut edges);
+        assert!(matches!(
+            sh.insert_cols(0, "x", 1).unwrap(),
+            Edit::InsertCol { .. }
+        ));
+        assert!(matches!(
+            sh.delete_cols(0, 1).unwrap(),
+            Edit::DeleteCol { .. }
+        ));
     }
 
     #[test]
