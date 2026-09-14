@@ -83,11 +83,7 @@ pub fn create_temp_upload(app: AppHandle, file_name: String) -> Result<String, S
 
 /// 一時ファイルへチャンクを追記する (D&Dファイルの転送用)
 #[tauri::command]
-pub fn append_temp_upload(
-    app: AppHandle,
-    path: String,
-    data_base64: String,
-) -> Result<(), String> {
+pub fn append_temp_upload(app: AppHandle, path: String, data_base64: String) -> Result<(), String> {
     use base64::Engine as _;
     use std::io::Write;
     let dir = crate::uploads::dir(&app)?;
@@ -234,7 +230,10 @@ pub async fn export_schema_xlsx(
     // 設定の「保存先フォルダ」に従う (未設定ならOSのダウンロードフォルダ)
     let dir = crate::app_settings::download_dir(&app)?;
     let stem = crate::filename::safe_stem(&database);
-    let path = dir.join(format!("{stem}_定義書_{}.xlsx", now.format("%Y%m%d_%H%M%S")));
+    let path = dir.join(format!(
+        "{stem}_定義書_{}.xlsx",
+        now.format("%Y%m%d_%H%M%S")
+    ));
     crate::outfile::write(&path, bytes).map_err(|e| format!("Excelを書き込めません: {e}"))?;
     Ok(path.to_string_lossy().to_string())
 }
@@ -249,23 +248,4 @@ pub async fn search_objects(
     keyword: String,
 ) -> Result<crate::search::ObjectSearchResult, String> {
     sessions::search_objects(&state, &qlog, &session_id, database, &keyword).await
-}
-
-/// 値の中から文字列を探す
-#[tauri::command]
-pub async fn search_values(
-    state: State<'_, Sessions>,
-    qlog: State<'_, QueryLog>,
-    jobs: State<'_, CsvJobs>,
-    session_id: String,
-    database: Option<String>,
-    options: crate::search::ValueSearchOptions,
-    job_id: String,
-) -> Result<crate::search::ValueSearchResult, String> {
-    let job = jobs.start(&job_id, &session_id);
-    let res =
-        sessions::search_values(&state, &qlog, &session_id, database, options, Some(&job))
-            .await;
-    jobs.finish(&job_id, &job);
-    res
 }

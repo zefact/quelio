@@ -1,3 +1,4 @@
+import { SelectMenu } from "../SelectMenu";
 import type { CsvOptions, ImportMode } from "../../types";
 
 /** 区切り文字の選択肢 (値はバックエンドへそのまま渡す) */
@@ -77,55 +78,39 @@ export function CsvSettings({
     <div className="csv-settings">
       <label className="csv-field">
         <span className="csv-field-label">区切り文字</span>
-        <select
+        <SelectMenu
+          className="select-field"
           value={options.delimiter ?? ""}
+          options={DELIMITERS}
           disabled={readDisabled}
-          onChange={(e) =>
-            onOptions({ ...options, delimiter: e.target.value || undefined })
+          onChange={(v) =>
+            onOptions({ ...options, delimiter: v || undefined })
           }
-        >
-          {DELIMITERS.map((d) => (
-            <option key={d.value} value={d.value}>
-              {d.label}
-            </option>
-          ))}
-        </select>
+        />
       </label>
 
       <label className="csv-field">
         <span className="csv-field-label">文字コード</span>
-        <select
+        <SelectMenu
+          className="select-field"
           value={options.encoding ?? ""}
+          options={ENCODINGS}
           disabled={readDisabled}
-          onChange={(e) =>
-            onOptions({ ...options, encoding: e.target.value || undefined })
-          }
-        >
-          {ENCODINGS.map((x) => (
-            <option key={x.value} value={x.value}>
-              {x.label}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => onOptions({ ...options, encoding: v || undefined })}
+        />
       </label>
 
       <label className="csv-field">
         <span className="csv-field-label">重複したとき</span>
-        <select
+        <SelectMenu
+          className="select-field"
           value={mode}
+          options={MODES.map((m) => ({ value: m.value, label: m.label }))}
           disabled={disabled}
-          onChange={(e) =>
-            onMode(
-              MODES.find((m) => m.value === e.target.value)?.value ?? mode
-            )
+          onChange={(v) =>
+            onMode(MODES.find((m) => m.value === v)?.value ?? mode)
           }
-        >
-          {MODES.map((m) => (
-            <option key={m.value} value={m.value}>
-              {m.label}
-            </option>
-          ))}
-        </select>
+        />
       </label>
 
       <label className="switch">

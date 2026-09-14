@@ -117,8 +117,31 @@ export function ConnectionPicker({
   useEffect(() => {
     if (profile.id) setNewForm(false);
   }, [profile.id]);
+  /**
+   * ホームから繋ぎ始めたか。
+   *
+   * 接続すると、そのタブに接続先の内容が入る。
+   * そのままだと繋いでいるあいだ「接続の編集」が開いてしまい、
+   * 一瞬だけ触れる画面になるので、繋ぎ終わるまでホームのまま待たせる
+   */
+  const [waitHome, setWaitHome] = useState(false);
+  useEffect(() => {
+    if (busy !== "connect") setWaitHome(false);
+  }, [busy]);
+
   /** 何も選んでおらず、新規作成でもないならホームを出す */
-  const showHome = !profile.id && !newForm;
+  const showHome = (!profile.id && !newForm) || waitHome;
+
+  /**
+   * つなぐ。
+   *
+   * ホームから始めたときだけ、繋ぎ終わるまでホームを出したままにする
+   * (編集画面の「接続」から呼ぶときは showHome が false なので立たない)
+   */
+  const connect = (p: ConnectionProfile) => {
+    if (showHome) setWaitHome(true);
+    onConnect(p);
+  };
 
   const [menu, setMenu] = useState<MenuState | null>(null);
   // メニューが画面の外へはみ出さないように位置を補正する
@@ -476,7 +499,7 @@ export function ConnectionPicker({
         onDragOver={(e) => dragOver(e, connDropTarget(e, c.id))}
         onDrop={(e) => handleDrop(e, connDropTarget(e, c.id))}
         onClick={() => onSelectFavorite(c)}
-        onDoubleClick={() => onConnect(c)}
+        onDoubleClick={() => connect(c)}
         onContextMenu={(e) => openMenu(e, { kind: "conn", id: c.id })}
         title="クリック: 選択 / ダブルクリック: 接続"
       >
@@ -664,7 +687,7 @@ export function ConnectionPicker({
         {showHome ? (
           <PickerHome
             connections={connections}
-            onConnect={onConnect}
+            onConnect={connect}
             onTogglePin={onSetConnPinned}
             onForget={onForgetRecent}
             onNew={() => {
@@ -796,7 +819,7 @@ export function ConnectionPicker({
                 const c = connections.find(
                   (x) => menu.target.kind === "conn" && x.id === menu.target.id
                 );
-                if (c) onConnect(c);
+                if (c) connect(c);
                 setMenu(null);
               }}
             >

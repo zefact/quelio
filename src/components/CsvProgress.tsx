@@ -11,6 +11,11 @@ interface Props {
   verb?: string;
   /** 数えているものの単位 (行 / 件 / テーブル) */
   unit?: string;
+  /**
+   * 全部でいくつあるか (分かっていれば進み具合の帯を出す)。
+   * 分からないときは今までどおり件数と時間だけを出す
+   */
+  total?: number | null;
 }
 
 /** 更新間隔 (ms) */
@@ -44,6 +49,7 @@ export function CsvProgress({
   startedAt,
   verb = "出力",
   unit = "行",
+  total = null,
 }: Props) {
   const [state, setState] = useState<{
     rows: number;
@@ -77,17 +83,34 @@ export function CsvProgress({
   }, [jobId, startedAt]);
 
   const busy = state.phase === "working" ? null : state.phase;
+  /*
+   * 進み具合の割合。
+   * 数えた総数より多く入ることは無いはずだが、
+   * 重複を飛ばす取り込みなどでずれても帯がはみ出さないよう頭打ちにする
+   */
+  const pct =
+    total && total > 0
+      ? Math.min(100, Math.round((state.rows / total) * 100))
+      : null;
 
   return (
     <span
-      className="capture-msg mono csv-progress"
+      className="csv-progress-wrap"
       role="status"
       aria-live="polite"
       title={busy ? PHASE_TIP[busy] : undefined}
     >
-      {state.rows.toLocaleString()}
-      {unit} {busy ? PHASE_LABEL[busy] : `${verb}中`}... (
-      {(state.elapsed / 1000).toFixed(1)}s)
+      <span className="capture-msg mono csv-progress">
+        {state.rows.toLocaleString()}
+        {total ? ` / ${total.toLocaleString()}` : ""}
+        {unit} {busy ? PHASE_LABEL[busy] : `${verb}中`}...
+        {pct !== null && ` ${pct}%`} ({(state.elapsed / 1000).toFixed(1)}s)
+      </span>
+      {pct !== null && !busy && (
+        <span className="job-bar csv-progress-bar">
+          <span className="job-bar-fill" style={{ width: `${pct}%` }} />
+        </span>
+      )}
     </span>
   );
 }

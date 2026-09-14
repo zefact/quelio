@@ -18,6 +18,7 @@ import {
   listCollations,
   listColumnTypes,
   previewColumnDdl,
+  previewIndexDdl,
   setTableComment,
 } from "../api";
 import { buildColumnTips } from "../columnTips";
@@ -148,6 +149,10 @@ export function TableView({
   /** 実行せずに、生成されるSQLだけを取得する (並べ替えの確認用) */
   const previewDdl = (change: ColumnChange) =>
     previewColumnDdl(sessionId, table.schema, table.name, change);
+
+  /** インデックスを作るSQLだけを組み立てる (画面で見せる用) */
+  const previewIndex = (change: IndexChange) =>
+    previewIndexDdl(sessionId, table.schema, table.name, change);
 
   /** インデックスの変更をそのまま実行する */
   const applyIndex = async (change: IndexChange) => {
@@ -443,6 +448,7 @@ export function TableView({
             onPreviewDdl={previewDdl}
             onRequestDrop={setDropping}
             onApplyIndexDdl={applyIndex}
+            onPreviewIndexDdl={previewIndex}
             onApplyForeignKeyDdl={applyForeignKey}
             types={types}
             collations={collations}

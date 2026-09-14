@@ -71,6 +71,8 @@ export interface ErPageData {
   removedEdges?: string[];
   /** 図から削除したテーブル名 (リバースしても再追加しない) */
   removedTables?: string[];
+  /** 図の上だけで作ったテーブル名 (DBには無い。直す・消すの判断に使う) */
+  manualTables?: string[];
   /** テーブルごとの横幅の上書き (px。未設定は内容に合わせて自動) */
   tableWidths?: Record<string, number>;
   /** 手動で追加したリレーション */
@@ -82,6 +84,8 @@ export interface ErPageData {
   edgeColumns?: Record<string, { from: string[]; to: string[] }>;
   /** 線ごとの見た目 (線種・色。キーはfrom.col->to.col形式) */
   edgeStyles?: Record<string, ErEdgeStyle>;
+  /** カラムごとの文字色 (#rrggbb。キーはテーブル名.カラム名) */
+  columnColors?: Record<string, string>;
   /** 注釈枠 */
   frames?: ErFrame[];
 }
@@ -109,5 +113,6 @@ export interface ErDiagramData {
   anchors?: Record<string, { from?: ErAnchorPoint; to?: ErAnchorPoint }>;
   edgeColumns?: Record<string, { from: string[]; to: string[] }>;
   edgeStyles?: Record<string, ErEdgeStyle>;
+  columnColors?: Record<string, string>;
   frames?: ErFrame[];
 }

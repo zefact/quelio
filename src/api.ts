@@ -87,8 +87,6 @@ import type {
   ToolSettings,
   ToolStatus,
   TxnStatus,
-  ValueSearchOptions,
-  ValueSearchResult,
 } from "./types";
 import type { ParamValue } from "./sqlParams";
 import type { ExportFormat } from "./exportFormat";
@@ -474,19 +472,6 @@ export function searchObjects(
   return call("search_objects", { sessionId, database, keyword });
 }
 
-/**
- * 値の中から文字列を探す (選んだデータベースの中を総当たりする)。
- *
- * @param jobId 進捗の取得・中止に使うID
- */
-export function searchValues(
-  sessionId: string,
-  database: string | undefined,
-  options: ValueSearchOptions,
-  jobId: string
-): Promise<ValueSearchResult> {
-  return call("search_values", { sessionId, database, options, jobId });
-}
 
 // ---------- Valkey: 一括削除と値検索 ----------
 
@@ -726,6 +711,20 @@ export function previewColumnDdl(
   change: ColumnChange
 ): Promise<string[]> {
   return call("preview_column_ddl", { sessionId, schema, table, change });
+}
+
+/**
+ * インデックスを作るSQLを組み立てて返す (実行はしない)。
+ *
+ * 画面で「このインデックスを作るSQL」を見せるのに使う
+ */
+export function previewIndexDdl(
+  sessionId: string,
+  schema: string | undefined,
+  table: string,
+  change: IndexChange
+): Promise<string[]> {
+  return call("preview_index_ddl", { sessionId, schema, table, change });
 }
 
 /** カラム変更を実行する (実行したSQLを返す) */
@@ -1306,7 +1305,10 @@ export function openSchema(
 }
 
 /** ER図ウィンドウを開く */
-export function openEr(sessionId: string, database: string): Promise<void> {
+export function openEr(
+  sessionId?: string,
+  database?: string
+): Promise<void> {
   return call("open_er", { sessionId, database });
 }
 

@@ -70,29 +70,43 @@ pub async fn open_schema(
 #[tauri::command]
 pub async fn open_er(
     app: AppHandle,
-    session_id: String,
-    database: String,
+    session_id: Option<String>,
+    database: Option<String>,
 ) -> Result<(), String> {
-    let url = format!(
-        "index.html?er=1&session={}&db={}",
-        url_encode(&session_id),
-        url_encode(&database)
-    );
+    /*
+     * 接続を指定せずに開くこともできる (ホームの「ツール」から)。
+     * その場合はウィンドウ側で接続とDBを選ぶか、
+     * 保存した図を開くか、図の上だけのテーブルを置いて使う
+     */
+    let url = match (&session_id, &database) {
+        (Some(s), Some(d)) => format!(
+            "index.html?er=1&session={}&db={}",
+            url_encode(s),
+            url_encode(d)
+        ),
+        _ => "index.html?er=1".to_string(),
+    };
     if let Some(w) = app.get_webview_window("er") {
-        // 別の接続・DBから開き直したときは、その内容に差し替える
-        reload_if_needed(&w, &url);
+        /*
+         * 別の接続・DBから開き直したときは、その内容に差し替える。
+         * 接続を指定していないときは前に出すだけにする
+         * (開いている図を捨ててしまわないため)
+         */
+        if session_id.is_some() {
+            reload_if_needed(&w, &url);
+        }
         let _ = w.set_focus();
         return Ok(());
     }
     let b = tauri::WebviewWindowBuilder::new(&app, "er", tauri::WebviewUrl::App(url.into()))
-        .title("Quelio — ER図")
+        .title("Quelio ER")
         .inner_size(1300.0, 820.0)
         .min_inner_size(800.0, 480.0);
     #[cfg(target_os = "macos")]
     let b = b
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0));
+        .traffic_light_position(tauri::LogicalPosition::new(20.0, 22.0));
     b.build().map_err(|e| format!("ER図を開けません: {e}"))?;
     Ok(())
 }

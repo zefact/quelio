@@ -8,6 +8,19 @@ function two(): WorkTab[] {
 }
 
 describe("tabsReducer", () => {
+  it("ドラッグした並びのとおりにタブを入れ替える", () => {
+    const tabs = [emptyTab("a"), emptyTab("b"), emptyTab("c")];
+    const next = tabsReducer(tabs, { type: "move", from: 0, to: 2 });
+    expect(next.map((t) => t.key)).toEqual(["b", "c", "a"]);
+    // 中身はそのまま持ち回る (接続や書きかけのSQLを落とさない)
+    expect(next[2]).toBe(tabs[0]);
+  });
+
+  it("同じ場所へ動かしたら、そのままの一覧を返す", () => {
+    const tabs = two();
+    expect(tabsReducer(tabs, { type: "move", from: 1, to: 1 })).toBe(tabs);
+  });
+
   it("指定のタブだけを差し替える", () => {
     const tabs = two();
     const next = tabsReducer(tabs, {

@@ -76,6 +76,8 @@ html.macos .csv-tabs {
   font-size: 12.5px;
   cursor: pointer;
   white-space: nowrap;
+  /* transform は並べ替えで滑らせるため (量はJS側が決める) */
+  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* 左右のどちら側に出しているかの印 */
@@ -1623,6 +1625,27 @@ body.col-resizing {
   pointer-events: none;
 }
 
+/*
+ * 仕切りの掴める所。
+ *
+ * 線そのものは .csv-diff-split が細く描くので、
+ * こちらは透明なまま当たり判定だけを広く取る
+ * (細い線を狙わせると、掴めずに何度もやり直すことになる)
+ */
+.csv-diff-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 11px;
+  margin-left: -5px;
+  z-index: 3;
+  cursor: col-resize;
+}
+
+.csv-diff-grip:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
 /* ---------- ファイルの落とし込み ---------- */
 
 .csv-drop {
@@ -1868,4 +1891,19 @@ body.col-resizing {
   padding: 4px 19px 4px 6px;
   font-size: 12px;
   background-position: right 5px center;
+}
+
+/*
+ * ドラッグでの並べ替え。
+ *
+ * 掴んだタブは指について動き、まわりのタブは場所を空けるように横へ滑る。
+ * 滑る動きはここ (transition) が受け持ち、動かす量はJS側が決める。
+ * 掴んでいるタブだけは遅れて追う動きを切る (指からずれて見えるため)。
+ * 3つの画面 (DB・ER図・CSV) で同じ見せ方にそろえている
+ */
+.csv-tab.dragging {
+  opacity: 0.85;
+  cursor: grabbing;
+  /* 滑っていくタブの上に重ねる */
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }

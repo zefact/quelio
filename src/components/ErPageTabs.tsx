@@ -4,8 +4,8 @@
  * 1つの保存ファイルに複数の図を持てるので、その切り替えと並べ替え。
  * 図の中身とは関係のない操作なので、ErWindow から分けている
  */
-import { useEffect, useRef, useState } from "react";
-import { useEvent } from "../hooks/useEvent";
+import { useState } from "react";
+import { TAB_MARK, useTabReorder } from "../hooks/useTabReorder";
 import { CloseMark } from "./CloseMark";
 
 export interface ErPage {
@@ -38,8 +38,11 @@ export function ErPageTabs({
   /** 名前を変更中のタブ */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
-  /** 並べ替えでつまんでいるタブの位置 (ドラッグ中だけ入る) */
-  const dragIdx = useRef<number | null>(null);
+  /*
+   * ドラッグで並べ替える。
+   * 動かし終わったときだけ保存する (掴んだだけでは書かない)
+   */
+  const drag = useTabReorder({ onMove: onReorder, onEnd: onReorderEnd });
 
   /** 名前の変更を確定する (空にはできない) */
   const commitRename = () => {
@@ -49,37 +52,24 @@ export function ErPageTabs({
     setEditingId(null);
   };
 
-  /*
-   * 並べ替えの終わり。
-   * タブの外でボタンを離しても終われるよう、documentで受ける
-   */
-  const endReorder = useEvent(() => {
-    if (dragIdx.current === null) return;
-    dragIdx.current = null;
-    onReorderEnd();
-  });
-  useEffect(() => {
-    document.addEventListener("mouseup", endReorder);
-    return () => document.removeEventListener("mouseup", endReorder);
-  }, [endReorder]);
-
   return (
     <div className="er-tabs" data-find-skip>
       {pages.map((p, i) => (
         <div
           key={p.id}
-          className={"er-tab" + (p.id === activeId ? " active" : "")}
+          {...{ [TAB_MARK]: i }}
+          className={
+            "er-tab" +
+            (p.id === activeId ? " active" : "") +
+            (drag.dragging === i ? " dragging" : "")
+          }
+          style={drag.styleOf(i)}
           title="クリックで切替 / ダブルクリックで名前変更 / ドラッグで並べ替え"
           onMouseDown={(e) => {
+            // 名前を打っている最中は、掴ませない
             if (e.button !== 0 || editingId === p.id) return;
-            dragIdx.current = i;
+            drag.start(i, e);
             if (p.id !== activeId) onSwitch(p.id);
-          }}
-          onMouseEnter={() => {
-            const from = dragIdx.current;
-            if (from === null || from === i) return;
-            onReorder(from, i);
-            dragIdx.current = i;
           }}
           onDoubleClick={() => {
             setEditingId(p.id);

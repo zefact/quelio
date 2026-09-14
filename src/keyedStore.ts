@@ -48,7 +48,13 @@ export function createKeyedStore<T extends object>(empty: T): KeyedStore<T> {
     },
     drop(key) {
       states.delete(key);
-      listeners.delete(key);
+      /*
+       * 捨てたことを、見ている画面へ必ず知らせる。
+       * 知らせずに購読ごと消すと、画面は古い状態のまま残ってしまう
+       * (CSV取り込みの画面が「閉じる」で閉じられなかった)。
+       * 購読の後始末は、画面が外れるときに購読側が行う
+       */
+      listeners.get(key)?.forEach((fn) => fn());
     },
     reset() {
       states.clear();

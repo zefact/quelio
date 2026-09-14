@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePopupPosition } from "../hooks/usePopupPosition";
 import { useDismiss } from "../hooks/useDismiss";
 
 export interface SelectOption {
   value: string;
   label: string;
+  /** この項目の上に区切り線を引く (かたまりの切れ目に使う) */
+  separator?: boolean;
 }
 
 interface Props {
@@ -170,8 +172,10 @@ export function SelectMenu({
             <div className="select-menu-empty">(選択肢がありません)</div>
           )}
           {options.map((o, i) => (
+            <Fragment key={o.value}>
+              {/* かたまりの切れ目 (先頭には引かない) */}
+              {o.separator && i > 0 && <div className="select-menu-sep" />}
             <button
-              key={o.value}
               type="button"
               role="option"
               aria-selected={o.value === value}
@@ -197,6 +201,7 @@ export function SelectMenu({
               </span>
               {o.label}
             </button>
+            </Fragment>
           ))}
         </div>
       )}

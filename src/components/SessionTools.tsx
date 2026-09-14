@@ -10,10 +10,13 @@ interface Props {
   selectedDb: string | null;
   dbType: DbType;
   onSearch: () => void;
-  onEr: () => void;
   onSchema: () => void;
   onRoutines: () => void;
   onProcesses: () => void;
+  /** ヘルプ (照合順序などの説明) */
+  onHelp: () => void;
+  /** 出せる説明が1つも無い接続では、ヘルプを出さない */
+  hasHelp: boolean;
 }
 
 /** メニューの1項目 */
@@ -42,34 +45,17 @@ function SearchIcon() {
   );
 }
 
-function ErIcon() {
+function HelpIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect
-        x="3"
-        y="3"
-        width="8"
-        height="6"
-        rx="1.5"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
-      <rect
-        x="13"
-        y="15"
-        width="8"
-        height="6"
-        rx="1.5"
-        stroke="currentColor"
-        strokeWidth="2"
-      />
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.9" />
       <path
-        d="M7 9v6h6M17 15V9h-3"
+        d="M9.6 9.3a2.5 2.5 0 1 1 3.2 2.4c-.7.25-1 .8-1 1.5v.4"
         stroke="currentColor"
-        strokeWidth="2"
+        strokeWidth="1.9"
         strokeLinecap="round"
-        strokeLinejoin="round"
       />
+      <circle cx="11.8" cy="16.6" r="1" fill="currentColor" />
     </svg>
   );
 }
@@ -179,10 +165,11 @@ export function SessionTools({
   selectedDb,
   dbType,
   onSearch,
-  onEr,
   onSchema,
   onRoutines,
   onProcesses,
+  onHelp,
+  hasHelp,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState({ x: 0, y: 0, top: 0 });
@@ -201,23 +188,6 @@ export function SessionTools({
   const noDb = selectedDb ? null : "データベースを選んでください";
   const tools: Tool[] = [
     {
-      key: "search",
-      label: "検索",
-      note: "テーブル名・カラム名・値から探す",
-      icon: <SearchIcon />,
-      blocked: noDb,
-      run: onSearch,
-    },
-    {
-      key: "er",
-      label: "ER図",
-      note: "リレーションを図で見る (PNG出力)",
-      icon: <ErIcon />,
-      // DB未選択でも開ける (ER図のウィンドウ側で接続とDBを選べる)
-      blocked: null,
-      run: onEr,
-    },
-    {
       key: "schema",
       label: "スキーマ",
       note: "テーブル・カラムの一覧と定義書の出力",
@@ -235,6 +205,14 @@ export function SessionTools({
       run: onRoutines,
     },
     {
+      key: "search",
+      label: "名前で探す",
+      note: "テーブル名・カラム名・コメントを探す",
+      icon: <SearchIcon />,
+      blocked: noDb,
+      run: onSearch,
+    },
+    {
       key: "processes",
       label: "プロセス一覧",
       note: "今の接続と実行中のSQLを見る・止める",
@@ -248,6 +226,17 @@ export function SessionTools({
       run: onProcesses,
     },
   ];
+  // 出せる説明がある接続でだけ、ヘルプを末尾に足す
+  if (hasHelp) {
+    tools.push({
+      key: "help",
+      label: "ヘルプ",
+      note: "照合順序などの説明",
+      icon: <HelpIcon />,
+      blocked: null,
+      run: onHelp,
+    });
+  }
 
   const toggle = () => {
     const r = wrapRef.current?.getBoundingClientRect();

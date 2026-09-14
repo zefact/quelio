@@ -1,46 +1,16 @@
 import { useModal } from "../hooks/useModal";
-import { CTRL, MOD, SHIFT } from "../keyLabel";
+import { QUICK_SHORTCUTS } from "../shortcuts";
 
 interface Props {
   onClose: () => void;
 }
 
-/** 見出しと、そのグループのショートカット */
-const GROUPS: [string, [string, string][]][] = [
-  [
-    "タブ・ウィンドウ",
-    [
-      [`${MOD}T`, "新しいタブ"],
-      [`${MOD}W`, "タブを閉じる"],
-      [`${MOD}1〜9`, "そのタブへ切り替え"],
-      [`${CTRL}Tab`, "次のタブ (⇧で前のタブ)"],
-      [`${MOD}K`, "接続先・アクションを探して実行"],
-      [`${MOD}/`, "このショートカット一覧"],
-    ],
-  ],
-  [
-    "SQLエディタ",
-    [
-      [`${MOD}Enter`, "実行 (選択部分 / カーソルのある文)"],
-      [`${MOD}${SHIFT}Enter`, "全体を実行 (書いてあるSQLすべて)"],
-      [`${MOD}S`, "書いているSQLをお気に入りへ保存"],
-      [`${MOD}${SHIFT}F`, "SQLを整形 (カンマ先頭)"],
-      [`${MOD}F`, "ページ内検索 (F3 / ⇧F3 で次・前へ)"],
-    ],
-  ],
-  [
-    "結果グリッド",
-    [
-      [`${MOD}A`, "表示中の行をすべて選択"],
-      [`${MOD}C`, "選択した行 (未選択なら全行) をコピー"],
-      ["ダブルクリック", "セルの編集 (データタブ・定義タブ)"],
-      ["右クリック", "コピーの形式や、行・カラムの操作"],
-      ["Enter / Esc", "編集の反映 / 取り消し"],
-    ],
-  ],
-];
-
-/** ショートカットの一覧 (⌘/) */
+/**
+ * ショートカットの一覧 (⌘/)。
+ *
+ * ここはDBの画面でよく使うぶんだけを出す。
+ * CSVエディタ・ER図まで含めた全部は、ヘルプの「ショートカット」で見られる
+ */
 export function ShortcutHelp({ onClose }: Props) {
   const boxRef = useModal(onClose);
   return (
@@ -59,7 +29,7 @@ export function ShortcutHelp({ onClose }: Props) {
         </div>
 
         <div className="shortcut-body">
-          {GROUPS.map(([title, items]) => (
+          {QUICK_SHORTCUTS.map(({ title, items }) => (
             <section className="shortcut-group" key={title}>
               <h3 className="shortcut-title">{title}</h3>
               <dl className="shortcut-list">

@@ -100,6 +100,15 @@ async fn mysql_index_rows(
 }
 
 /// MySQL: バージョン・デフォルト文字コード・照合順序など
+/// MySQL系サーバーが MariaDB かどうか (@@version の文字列で見分ける)。
+///
+/// MariaDB は `@@version` に必ず自分の名前を入れる
+/// (例: 10.11.14-MariaDB-0ubuntu0.24.04.1)。
+/// 本家 MySQL とは実行計画の出し方が違うので、接続時に見分けておく
+pub fn is_mariadb(version: &str) -> bool {
+    version.to_ascii_lowercase().contains("mariadb")
+}
+
 pub async fn mysql_server_info(
     conn: &mut MySqlConnection,
     ctx: &LogCtx<'_>,
@@ -119,7 +128,16 @@ pub async fn mysql_server_info(
     let tz: Option<String> = row.try_get("tz").map_err(db_error)?;
 
     let mut info = vec![
-        ("バージョン".to_string(), format!("MySQL {version}")),
+        (
+            "バージョン".to_string(),
+            // MariaDB はバージョン文字列に名前が入っている。
+            // それを「MySQL 10.11.x-MariaDB」と出すと誤解を生む
+            if is_mariadb(&version) {
+                format!("MariaDB {version}")
+            } else {
+                format!("MySQL {version}")
+            },
+        ),
         ("文字コード".into(), charset),
         ("照合順序".into(), collation),
     ];
@@ -781,4 +799,27 @@ pub async fn mysql_processes(
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_mariadb;
+
+    #[test]
+    fn mariadbは版の文字列で見分ける() {
+        // MariaDB は @@version に必ず自分の名前を入れる
+        assert!(is_mariadb("10.11.14-MariaDB-0ubuntu0.24.04.1"));
+        assert!(is_mariadb("11.4.2-MariaDB"));
+        // 大文字小文字の書き方が変わっても拾う
+        assert!(is_mariadb("10.6.18-mariadb-log"));
+    }
+
+    #[test]
+    fn 本家mysqlはmariadbではない() {
+        assert!(!is_mariadb("8.0.36"));
+        assert!(!is_mariadb("8.4.2-log"));
+        assert!(!is_mariadb("5.7.44"));
+        // 版が取れなかったとき (空) も本家扱いにしておく
+        assert!(!is_mariadb(""));
+    }
 }

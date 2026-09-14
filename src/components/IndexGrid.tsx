@@ -9,6 +9,7 @@ import type {
   IndexSpec,
 } from "../types";
 import { IndexColumnsDialog } from "./IndexColumnsDialog";
+import { IndexSqlDialog } from "./IndexSqlDialog";
 import { GridColumn, GridRow, ResizableGrid } from "./ResizableGrid";
 import { useDismiss } from "../hooks/useDismiss";
 import {
@@ -28,6 +29,8 @@ interface Props {
   resetKey: string | number;
   /** 変更を実行する。失敗したら例外を投げること */
   onApply: (change: IndexChange) => Promise<void>;
+  /** 実行せずに、そのインデックスを作るSQLだけを取る */
+  onPreview?: (change: IndexChange) => Promise<string[]>;
 }
 
 /** 追加行に使う行キー (既存インデックス名と衝突しない値) */
@@ -197,6 +200,7 @@ export function IndexGrid({
   dbType,
   resetKey,
   onApply,
+  onPreview,
 }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
   const { busy, error, setError, run } = useAsyncApply<IndexChange>(onApply);
@@ -204,6 +208,12 @@ export function IndexGrid({
   const [picking, setPicking] = useState(false);
   /** 削除の確認中のインデックス名 (作り直しに時間がかかるため確認を出す) */
   const [dropping, setDropping] = useState<IndexInfo | null>(null);
+  /** 作るSQLを見せているインデックス (sql が null なら組み立て中) */
+  const [showSql, setShowSql] = useState<{
+    name: string;
+    sql: string[] | null;
+    error: string | null;
+  } | null>(null);
   /** 種別の説明ポップアップの位置 (画面外へはみ出さないよう上下を切り替える) */
   const [help, setHelp] = useState<{
     x: number;
@@ -251,6 +261,36 @@ export function IndexGrid({
     (dbType === "sqlite"
       ? "CREATE / DROP INDEX では変更できず、テーブルを作り直す必要があります。"
       : "CREATE / DROP INDEX では変更できません。制約 (テーブル定義) 側の変更が必要です。");
+
+  /**
+   * そのインデックスの CREATE INDEX 文を出す。
+   *
+   * 組み立ては接続先の書き方に合わせる必要があるので、
+   * 画面では作らずバックエンドに任せる (実行するものと同じ組み立てを使う)
+   */
+  const openSql = (ix: IndexInfo) => {
+    if (!onPreview) return;
+    setShowSql({ name: ix.name, sql: null, error: null });
+    onPreview({
+      kind: "add",
+      index: {
+        name: ix.name,
+        unique: ix.unique,
+        columns: toColumns(ix.columns),
+        indexType: ix.indexType ?? "",
+      },
+    })
+      .then((sql) =>
+        setShowSql((c) => (c && c.name === ix.name ? { ...c, sql } : c))
+      )
+      .catch((e) =>
+        setShowSql((c) =>
+          c && c.name === ix.name
+            ? { ...c, sql: [], error: String(e) }
+            : c
+        )
+      );
+  };
 
   /** 既存インデックスの編集を始める (別の行を編集中なら何もしない) */
   const startEdit = (ix: IndexInfo, field: IndexField) => {
@@ -581,11 +621,27 @@ export function IndexGrid({
         }
         rowMenuHead={(key) => (key === NEW_ROW ? undefined : key)}
         rowMenuItems={(key) => {
-          if (!canEdit || key === NEW_ROW || busy || editing) return [];
+          if (key === NEW_ROW || busy || editing) return [];
           const ix = indexes.find((x) => x.name === key);
           if (!ix) return [];
           const reason = ix.constrained ? constrainedReason() : undefined;
+          /*
+           * 文を出すだけなら、定義を変えられない接続でも役に立つ
+           * (別の環境へ同じインデックスを作るときに写せる)
+           */
+          const sqlItem = onPreview
+            ? [
+                {
+                  label: "CREATE INDEX 文を表示...",
+                  disabled: ix.constrained,
+                  title: reason,
+                  onSelect: () => openSql(ix),
+                },
+              ]
+            : [];
+          if (!canEdit) return sqlItem;
           return [
+            ...sqlItem,
             {
               label: "このインデックスを編集",
               disabled: ix.constrained,
@@ -639,6 +695,15 @@ export function IndexGrid({
           </div>,
           document.body
         )}
+
+      {showSql && (
+        <IndexSqlDialog
+          name={showSql.name}
+          sql={showSql.sql}
+          error={showSql.error}
+          onClose={() => setShowSql(null)}
+        />
+      )}
 
       {dropping && (
         <ConfirmDialog

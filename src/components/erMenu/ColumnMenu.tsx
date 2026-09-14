@@ -1,6 +1,12 @@
+import { ColorSwatches } from "./ColorSwatches";
+
 interface Props {
   table: string;
   column: string;
+  /** 今の文字色 (未設定は既定の色) */
+  color: string | undefined;
+  /** 文字色を変える (undefined で既定に戻す) */
+  onChangeColor: (color: string | undefined) => void;
   /**
    * 選択中の線に対して、このカラムを「対応カラム」にできるか。
    * できないとき (線を選んでいない・代表カラム自身) は null
@@ -16,6 +22,8 @@ interface Props {
 /** カラムを右クリックしたときのメニュー (線の追加・対応カラムの増減) */
 export function ColumnMenu({
   table,
+  color,
+  onChangeColor,
   edgeColumn,
   linkSrc,
   onConnectHere,
@@ -47,6 +55,14 @@ export function ColumnMenu({
           線の追加をキャンセル
         </button>
       )}
+      <div className="context-sep" />
+      <div className="context-caption">この行の文字色</div>
+      <ColorSwatches
+        value={color}
+        onSelect={onChangeColor}
+        defaultColor="#9aa1b5"
+        defaultTitle="既定 (色を付けない)"
+      />
     </>
   );
 }

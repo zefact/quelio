@@ -54,6 +54,8 @@ import { QueryResultView } from "./QueryResultView";
 import { ResultChart } from "./ResultChart";
 import { numericColumns } from "../chart/chartData";
 import { SqlEditor, SqlEditorHandle } from "./SqlEditor";
+import { SqlFindBar } from "./SqlFindBar";
+import { toInList } from "../inList";
 import { SqlFunctionsDialog } from "./SqlFunctionsDialog";
 import { useDismiss } from "../hooks/useDismiss";
 import { useCsvExport } from "../hooks/useCsvExport";
@@ -252,6 +254,34 @@ export function QueryPanel({
   /** 直前の実行でキャプチャを要求されたか */
   const captureReq = useRef(false);
   const editorRef = useRef<SqlEditorHandle>(null);
+  /**
+   * エディタ内検索を開いているか。
+   *
+   * 開くときに、選んでいた文字を検索語として入れておく
+   * (毎回打ち直さなくて済むように)
+   */
+  const [find, setFind] = useState<{ query: string } | null>(null);
+
+  /**
+   * 選んでいる値の並びを、IN句の中身に整える。
+   *
+   * 表計算やメモから貼った縦並びを、そのままIN句へ入れられる形にする
+   */
+  const toIn = useCallback((quote: boolean) => {
+    const ed = editorRef.current;
+    const picked = ed?.getSelectedText();
+    if (!ed || !picked) return;
+    const out = toInList(picked, { quote });
+    // 値が1つも無い (空白だけを選んだ) ときは何もしない
+    if (out !== "") ed.replaceSelection(out);
+  }, []);
+
+  /** エディタ内検索を開く (虫眼鏡ボタンと ⌘/Ctrl+F から) */
+  const openFind = useCallback(() => {
+    const picked = editorRef.current?.getSelectedText() ?? "";
+    // 複数行を選んでいるときは、それを検索語にしても使い道が無いので入れない
+    setFind({ query: picked.includes("\n") ? "" : picked });
+  }, []);
   /**
    * 押してから実行を依頼するまでを仕切る門 (二重実行の防止)。
    *
@@ -830,6 +860,7 @@ export function QueryPanel({
           onSelectionChange={setHasSelection}
           onSaveFile={() => void saveSqlToFile()}
           onFunctions={() => setShowFunctions(true)}
+          onFind={openFind}
           statements={runScope === "all" ? EMPTY_SPANS : spans}
           onTarget={(index, total) =>
             setTarget((prev) =>
@@ -846,6 +877,49 @@ export function QueryPanel({
           // 整形の「字下げ」は、エディタのTabや改行の字下げにも使う
           indent={appSettings.sqlFormat.indent}
         />
+        {/* エディタの中だけを探す (⌘/Ctrl+F)。開いている間はボタンを隠す */}
+        {!find && (
+          <button
+            className="editor-find-btn has-tooltip tooltip-left"
+            data-tooltip={`エディタ内を検索・置換 (${MOD}F)`}
+            aria-label="エディタ内を検索・置換"
+            // 押しても入力位置 (カーソル) を失わないようにする
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={openFind}
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              aria-hidden
+            >
+              <circle
+                cx="11"
+                cy="11"
+                r="6.2"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
+              <path
+                d="M15.6 15.6 20 20"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
+
+        {find && (
+          <SqlFindBar
+            editor={editorRef}
+            sql={sql}
+            initialQuery={find.query}
+            onClose={() => setFind(null)}
+          />
+        )}
+
         {/* エディタを画面いっぱいに広げる / 元に戻す (アイコンは開閉で反転) */}
         <button
           className={"editor-size-btn" + (editorFull ? " on" : "")}
@@ -899,6 +973,31 @@ export function QueryPanel({
           >
             SQLを整形 (カンマ先頭)
             <span className="context-key">{`${MOD}${SHIFT}F`}</span>
+          </button>
+          <div className="context-sep" aria-hidden />
+          {/*
+            * 選んだ値の並びをIN句の形にする。
+            * 選んでいないと何を整えるか決まらないので、そのときは押せない
+            */}
+          <button
+            className="context-item"
+            disabled={!hasSelection}
+            onClick={() => {
+              setCtxMenu(null);
+              toIn(true);
+            }}
+          >
+            選択をIN句の形に ('値', で囲む)
+          </button>
+          <button
+            className="context-item"
+            disabled={!hasSelection}
+            onClick={() => {
+              setCtxMenu(null);
+              toIn(false);
+            }}
+          >
+            選択をIN句の形に (値, のまま)
           </button>
           <div className="context-sep" aria-hidden />
           <button

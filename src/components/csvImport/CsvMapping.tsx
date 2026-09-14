@@ -1,3 +1,4 @@
+import { SelectMenu } from "../SelectMenu";
 import type { ColumnInfo, CsvPreview } from "../../types";
 
 /** 空文字は「取り込まない」を表す (selectの値にnullは置けないため) */
@@ -42,24 +43,25 @@ export function CsvMapping({
                 <span className="csv-map-name mono" title={name}>
                   {name}
                 </span>
-                <select
+                <SelectMenu
                   className={
-                    "csv-map-select" +
+                    "select-field csv-map-select" +
                     (target === null ? " skip" : "") +
                     (target !== null && dup.has(target) ? " dup" : "")
                   }
-                  aria-label={`${name} の取り込み先`}
+                  // 表は横スクロールするので、選択肢は窓基準で出す
+                  popFixed
                   value={target ?? SKIP}
+                  options={[
+                    { value: SKIP, label: "取り込まない" },
+                    ...targets.map((c) => ({
+                      value: c.name,
+                      label: `${c.name} (${c.colType})`,
+                    })),
+                  ]}
                   disabled={disabled}
-                  onChange={(e) => onChange(i, e.target.value || null)}
-                >
-                  <option value={SKIP}>取り込まない</option>
-                  {targets.map((c) => (
-                    <option key={c.name} value={c.name}>
-                      {c.name} ({c.colType})
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => onChange(i, v || null)}
+                />
               </th>
               );
             })}

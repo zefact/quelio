@@ -30,6 +30,8 @@ interface Props {
   onRequestDrop: (column: ColumnInfo) => void;
   /** インデックスの変更を実行する (失敗したら例外を投げる) */
   onApplyIndexDdl: (change: IndexChange) => Promise<void>;
+  /** 実行せずに、インデックスを作るSQLだけを取得する */
+  onPreviewIndexDdl: (change: IndexChange) => Promise<string[]>;
   /** 外部キーの変更を実行する (失敗したら例外を投げる) */
   onApplyForeignKeyDdl: (change: ForeignKeyChange) => Promise<void>;
   /** 型の選択肢 */
@@ -51,6 +53,7 @@ export function StructureView({
   onPreviewDdl,
   onRequestDrop,
   onApplyIndexDdl,
+  onPreviewIndexDdl,
   onApplyForeignKeyDdl,
   types,
   collations,
@@ -102,6 +105,7 @@ export function StructureView({
             dbType={dbType}
             resetKey={resetKey}
             onApply={onApplyIndexDdl}
+            onPreview={onPreviewIndexDdl}
           />
 
           <ForeignKeyGrid

@@ -157,7 +157,8 @@ export function drawErPng(v: ErDrawInput): string {
     n.columns.forEach((c, i) => {
       const cy = y + NODE_HEAD_H + i * ROW_H + ROW_H / 2;
       const nameText = colMarker(c) + c.name;
-      ctx.fillStyle = c.isPk ? pal.pk : pal.dim;
+      // 手で決めた文字色があればそれを使う (画面と同じ見た目にする)
+      ctx.fillStyle = c.color ?? (c.isPk ? pal.pk : pal.dim);
       ctx.fillText(nameText, x + 9, cy);
       if (c.type) {
         ctx.fillStyle = pal.faint;

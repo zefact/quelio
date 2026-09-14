@@ -172,6 +172,8 @@ export interface CsvPreview {
   encoding: string;
   /** 読み取り中に見つかった問題 */
   warning: string | null;
+  /** 取り込める行の総数 (数え切れなかったときは null) */
+  totalRows: number | null;
 }
 
 /** 取り込みの結果 */

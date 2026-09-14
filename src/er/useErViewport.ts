@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { rafThrottle } from "../rafThrottle";
+import { fitView, type ErBox } from "./erFit";
 
 /** 表示変換 (図をどこに、どの大きさで出すか) */
 export interface ErView {
@@ -34,8 +35,8 @@ export interface ErViewport {
   toWorld: (clientX: number, clientY: number) => { x: number; y: number };
   /** キャンバス中央を基準に拡大・縮小する */
   zoomBy: (factor: number) => void;
-  /** 図全体 (右下が maxX, maxY) が収まるように合わせる */
-  fitTo: (maxX: number, maxY: number) => void;
+  /** 図全体 (囲む四角) が収まるように合わせる */
+  fitTo: (box: ErBox) => void;
   /** 背景ドラッグでの移動 (押した位置からの差分で動かす) */
   startPan: (e: React.MouseEvent) => void;
   /** 指定のぶんだけ動かす (検索の一致位置を中央に出すときなど) */
@@ -95,17 +96,26 @@ export function useErViewport(initial?: Partial<ErView>): ErViewport {
     [zoomAt]
   );
 
-  const fitTo = useCallback((maxX: number, maxY: number) => {
+  /*
+   * 図全体を画面に収める。
+   *
+   * 左や上へ動かしたテーブルは座標がマイナスになるので、
+   * 右下だけでなく左上も見て、囲む四角そのものを受け取る
+   */
+  const fitTo = useCallback((box: ErBox) => {
     const el = canvasRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    // 余白 (40px) を残して収める。広げすぎない (等倍が上限)
-    const scale = Math.min(
-      1,
-      (rect.width - 40) / (maxX + 40),
-      (rect.height - 40) / (maxY + 40)
+    setView(
+      fitView(box, {
+        width: rect.width,
+        height: rect.height,
+        // 余白を残して収める。広げすぎない (等倍が上限)
+        pad: 40,
+        minScale: MIN_SCALE,
+        maxScale: 1,
+      })
     );
-    setView({ x: 20, y: 20, scale: Math.max(MIN_SCALE, scale) });
   }, []);
 
   const panBy = useCallback((dx: number, dy: number) => {

@@ -177,76 +177,6 @@ pub async fn search_objects(
     Ok(crate::search::ObjectSearchResult { hits, truncated })
 }
 
-/// 値の中から文字列を探す (選んだデータベースの中を総当たりする)
-pub async fn search_values(
-    sessions: &Sessions,
-    qlog: &QueryLog,
-    session_id: &str,
-    database: Option<String>,
-    opts: crate::search::ValueSearchOptions,
-    job: Option<&crate::csv_job::CsvJob>,
-) -> Result<crate::search::ValueSearchResult, String> {
-    if opts.needle.trim().is_empty() {
-        return Err("探す文字列を入力してください".into());
-    }
-    let arc = get_session(sessions, session_id).await?;
-    let mut guard = arc.lock().await;
-    let session = &mut *guard;
-    ensure_alive(session, qlog).await?;
-    // ここから先は接続を握っている。サーバーへ中止を送っても、無関係なSQLを止めることはない
-    if let Some(j) = job {
-        j.mark_running();
-    }
-    if matches!(session.conn, DbConn::Kv(_)) {
-        return Err("Valkey接続ではこの操作はできません".into());
-    }
-    // SQLite以外はどのデータベースを見るかが決まっていないと探せない
-    if !matches!(session.conn, DbConn::Sqlite(_))
-        && database.as_deref().unwrap_or("").is_empty()
-    {
-        return Err("データベースを選んでください".into());
-    }
-    let label = conn_label(&session.profile);
-    let db_label = database.clone().unwrap_or_default();
-    ensure_database(session, database.as_ref(), qlog, &label).await?;
-    let ctx = LogCtx {
-        qlog,
-        connection: &label,
-        database: &db_label,
-    };
-
-    // まず対象の列を集めてから、テーブル単位で見に行く
-    let found = match &mut session.conn {
-        DbConn::MySql(c) => crate::search::mysql_value_columns(c, &db_label, &ctx).await,
-        DbConn::Pg(c) => crate::search::pg_value_columns(c, &ctx).await,
-        DbConn::Sqlite(c) => crate::search::sqlite_value_columns(c, &ctx).await,
-        DbConn::Kv(_) => unreachable!(),
-    };
-    // 打ち切った接続は状態がずれうるので、次の操作で生存確認させる
-    let columns = note_timeout(session, found)?;
-    let tables = crate::search::group_by_table(columns);
-
-    let out = match &mut session.conn {
-        DbConn::MySql(c) => crate::search::mysql_values(c, tables, &opts, job, &ctx).await,
-        DbConn::Pg(c) => crate::search::pg_values(c, tables, &opts, job, &ctx).await,
-        DbConn::Sqlite(c) => {
-            crate::search::sqlite_values(c, tables, &opts, job, &ctx).await
-        }
-        DbConn::Kv(_) => unreachable!(),
-    };
-    qlog.add(
-        &label,
-        &db_label,
-        &format!(
-            "-- 値の検索{} {}テーブルを確認・{}件",
-            if out.cancelled { "を中止" } else { "完了" },
-            out.scanned,
-            out.hits.len()
-        ),
-    );
-    Ok(out)
-}
-
 /// Valkey: パターンに一致するキーを数える (消す前の確認用)
 pub async fn kv_count_keys(
     sessions: &Sessions,
@@ -268,7 +198,11 @@ pub async fn kv_count_keys(
     // 数えるだけなら全件のパターンも許す (消すときだけ確認を取る)
     crate::kv_bulk::check_pattern(pattern, true)?;
     let label = conn_label(&session.profile);
-    qlog.add(&label, database, &format!("-- キーを数える MATCH {pattern}"));
+    qlog.add(
+        &label,
+        database,
+        &format!("-- キーを数える MATCH {pattern}"),
+    );
     match &mut session.conn {
         DbConn::Kv(c) => crate::kv_bulk::count_keys(c, pattern, job).await,
         _ => Err("Valkey接続ではありません".into()),
@@ -335,11 +269,7 @@ pub async fn kv_search(
     }
     ensure_kv_db(session, database, qlog).await?;
     let label = conn_label(&session.profile);
-    qlog.add(
-        &label,
-        database,
-        &format!("-- 値を検索 MATCH {pattern}"),
-    );
+    qlog.add(&label, database, &format!("-- 値を検索 MATCH {pattern}"));
     match &mut session.conn {
         DbConn::Kv(c) => crate::kv_bulk::search_values(c, pattern, &opts, job).await,
         _ => Err("Valkey接続ではありません".into()),

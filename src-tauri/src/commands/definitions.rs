@@ -105,6 +105,23 @@ pub async fn apply_index_ddl(
     Ok(statements)
 }
 
+/**
+ * インデックス変更のSQLを組み立てて返す (実行はしない)。
+ *
+ * 画面で「このインデックスを作るSQL」を見せるのに使う
+ */
+#[tauri::command]
+pub async fn preview_index_ddl(
+    state: State<'_, Sessions>,
+    session_id: String,
+    schema: Option<String>,
+    table: String,
+    change: ddl::IndexChange,
+) -> Result<Vec<String>, String> {
+    let db_type = sessions::session_db_type(&state, &session_id).await?;
+    ddl::build_index(db_type, schema.as_deref(), &table, &change)
+}
+
 /// 外部キーの追加・削除を実行し、実行したSQLを返す
 #[tauri::command]
 pub async fn apply_foreign_key_ddl(

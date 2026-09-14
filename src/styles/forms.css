@@ -645,3 +645,10 @@
   font-size: 11.5px;
   line-height: 1.7;
 }
+
+/* セレクトメニューのかたまりの切れ目 */
+.select-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}

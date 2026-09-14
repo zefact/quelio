@@ -220,7 +220,8 @@ export function drawErSvg(v: ErDrawInput, measure?: MeasureText): string {
           midY(ry, 11),
           11,
           FONT_MONO,
-          c.isPk ? pal.pk : pal.dim,
+          // 手で決めた文字色があればそれを使う (画面と同じ見た目にする)
+          c.color ?? (c.isPk ? pal.pk : pal.dim),
           colMarker(c) + c.name
         )
       );

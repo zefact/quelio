@@ -243,6 +243,8 @@ pub struct Session {
     /// この接続で実際に通用するSQLの書き方 (サーバー設定から解決したもの)。
     /// 接続を張り直したら必ず解決し直す
     dialect: query::Dialect,
+    /// MariaDB につないでいるか (実行計画の実測の書き方が本家と違う)
+    mariadb: bool,
     /// Quelioが張ったトランザクションの状態 (利用者がSQLに直接書いた
     /// BEGIN は対象外)。開いたままなら次の操作の入口で接続を張り直す
     txn: TxnState,
@@ -1172,7 +1174,18 @@ pub async fn run_query(
                 // 読みやすいEXPLAIN QUERY PLANを使う (ANALYZEは無い)
                 "EXPLAIN QUERY PLAN "
             } else if mode == "analyze" {
-                "EXPLAIN ANALYZE "
+                /*
+                 * 実測付きの実行計画。
+                 *
+                 * 本家MySQL (8.0.18以降) は EXPLAIN ANALYZE、
+                 * MariaDB (10.1以降) は ANALYZE と書く。
+                 * MariaDBに EXPLAIN ANALYZE を送ると構文エラーになる
+                 */
+                if session.mariadb {
+                    "ANALYZE "
+                } else {
+                    "EXPLAIN ANALYZE "
+                }
             } else {
                 "EXPLAIN "
             };

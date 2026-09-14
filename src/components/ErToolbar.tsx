@@ -257,9 +257,19 @@ export function ErToolbar({
       {/* テキスト形式。図をそのままリポジトリやWikiへ貼れるようにする */}
       <div className="er-opts" ref={textRef}>
         <button
-          className="btn-secondary has-tooltip tooltip-left tooltip-wrap"
+          /*
+           * 開いているあいだはヒントを出さない。
+           * 押したあともマウスがボタンの上にあるので、
+           * 出したままだと選択肢に重なって読めない
+           */
+          className={
+            "btn-secondary tooltip-left tooltip-wrap" +
+            (textOpen ? "" : " has-tooltip")
+          }
           data-tooltip={
-            "Mermaid / PlantUML / SVG で書き出します\n(GitHubやNotionはMermaidをそのまま図にします。SVGは見たままの図)"
+            textOpen
+              ? undefined
+              : "Mermaid / PlantUML / SVG で書き出します\n(GitHubやNotionはMermaidをそのまま図にします。SVGは見たままの図)"
           }
           disabled={!canExportPng}
           onClick={() => setTextOpen(!textOpen)}

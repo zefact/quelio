@@ -5,6 +5,8 @@ import { dotStyle, profileColor } from "../colors";
 import type { WorkTab } from "../types";
 import { AppMenu } from "./AppMenu";
 import { DbIcon } from "./DbIcon";
+import { ErIcon } from "./ErIcon";
+import { TAB_MARK, useTabReorder } from "../hooks/useTabReorder";
 
 interface Props {
   tabs: WorkTab[];
@@ -15,7 +17,10 @@ interface Props {
   onOpenConsole: () => void;
   onOpenDiff: () => void;
   onOpenCsv: () => void;
+  onOpenEr: () => void;
   onOpenSettings: () => void;
+  /** ドラッグでタブの並びを変える */
+  onReorder: (from: number, to: number) => void;
 }
 
 export function TabBar({
@@ -27,8 +32,12 @@ export function TabBar({
   onOpenConsole,
   onOpenDiff,
   onOpenCsv,
+  onOpenEr,
   onOpenSettings,
+  onReorder,
 }: Props) {
+  // ドラッグで並べ替える (掴んだタブが、通りかかったタブと入れ替わる)
+  const drag = useTabReorder({ onMove: onReorder });
   const isBeta = isBetaVersion(useAppVersion());
   /**
    * スキーマ差分は接続中のセッションから選ぶため、
@@ -51,11 +60,19 @@ export function TabBar({
       </div>
 
       <div className="tabbar-tabs">
-        {tabs.map((t) => (
+        {tabs.map((t, i) => (
           <div
             key={t.key}
-            className={"tab" + (activeKey === t.key ? " active" : "")}
+            {...{ [TAB_MARK]: i }}
+            className={
+              "tab" +
+              (activeKey === t.key ? " active" : "") +
+              (drag.dragging === i ? " dragging" : "")
+            }
+            style={drag.styleOf(i)}
+            title="クリックで切替 / ドラッグで並べ替え"
             onClick={() => onActivate(t.key)}
+            onMouseDown={(e) => drag.start(i, e)}
             role="tab"
             aria-selected={activeKey === t.key}
           >
@@ -171,6 +188,14 @@ export function TabBar({
             strokeLinecap="round"
           />
         </svg>
+      </button>
+
+      <button
+        className="console-btn has-tooltip"
+        data-tooltip="ER図 (テーブルのつながりを図で見る)"
+        onClick={onOpenEr}
+      >
+        <ErIcon />
       </button>
 
       <button

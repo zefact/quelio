@@ -81,7 +81,10 @@ async fn verify_read_only(
         }
         DbConn::Pg(c) => {
             qlog.add(label, db_label, PG_RO);
-            match sqlx::query_scalar::<_, String>(PG_RO).fetch_one(&mut *c).await {
+            match sqlx::query_scalar::<_, String>(PG_RO)
+                .fetch_one(&mut *c)
+                .await
+            {
                 Ok(v) => Some(v.eq_ignore_ascii_case("on")),
                 Err(e) => {
                     verify_failed(qlog, label, db_label, &db::format_db_error(e));
@@ -250,12 +253,11 @@ fn summarize_server_info(
 async fn fetch_tls_state(conn: &mut DbConn) -> Option<String> {
     match conn {
         DbConn::MySql(c) => {
-            let row = sqlx::query_as::<_, (String, String)>(
-                "SHOW SESSION STATUS LIKE 'Ssl_cipher'",
-            )
-            .fetch_optional(&mut *c)
-            .await
-            .ok()??;
+            let row =
+                sqlx::query_as::<_, (String, String)>("SHOW SESSION STATUS LIKE 'Ssl_cipher'")
+                    .fetch_optional(&mut *c)
+                    .await
+                    .ok()??;
             Some(if row.1.is_empty() {
                 "なし (平文)".to_string()
             } else {
@@ -341,7 +343,12 @@ pub async fn connect(
 
     // TLS設定 (SSHトンネル経由ではホスト名を検証できないので、その旨も渡す)
     let tls = db::TlsConfig::from_profile(&profile, ep.tunnel.is_some());
-    let (mut conn, databases, current_db, server_info) = match profile.db_type {
+    /*
+     * mariadb は「MariaDB につないだか」。
+     * 実行計画の実測 (ANALYZE) の書き方が本家 MySQL と違うので、
+     * 接続時に見分けて覚えておく
+     */
+    let (mut conn, databases, current_db, server_info, mariadb) = match profile.db_type {
         DbType::Mysql => {
             let mut c = db::connect_mysql(
                 &ep.host,
@@ -359,7 +366,17 @@ pub async fn connect(
             };
             let dbs = catalog::mysql_databases(&mut c, &ctx).await?;
             let info = catalog::mysql_server_info(&mut c, &ctx).await?;
-            (DbConn::MySql(c), dbs, database.map(str::to_string), info)
+            let version: String = sqlx::query_scalar("SELECT @@version")
+                .fetch_one(&mut c)
+                .await
+                .unwrap_or_default();
+            (
+                DbConn::MySql(c),
+                dbs,
+                database.map(str::to_string),
+                info,
+                catalog::is_mariadb(&version),
+            )
         }
         DbType::Postgresql => {
             // PostgreSQLは必ずどこかのDBに接続する必要があるため、
@@ -380,7 +397,7 @@ pub async fn connect(
             };
             let dbs = catalog::pg_databases(&mut c, &ctx).await?;
             let info = catalog::pg_server_info(&mut c, &ctx).await?;
-            (DbConn::Pg(c), dbs, Some(actual_db), info)
+            (DbConn::Pg(c), dbs, Some(actual_db), info, false)
         }
         DbType::Sqlite => {
             // SQLiteはファイルを直接開く (ホスト・ポート・SSHは使わない)
@@ -397,6 +414,7 @@ pub async fn connect(
                 vec![SQLITE_DB.to_string()],
                 Some(SQLITE_DB.to_string()),
                 info,
+                false,
             )
         }
         DbType::Valkey => {
@@ -420,18 +438,13 @@ pub async fn connect(
             .await
             // 踏み台→接続先の失敗はローカルには接続リセットとしか見えないため、
             // トンネル側に控えた理由があればそちらを表示する
-            .map_err(|e| {
-                ep.tunnel
-                    .as_ref()
-                    .and_then(|t| t.take_error())
-                    .unwrap_or(e)
-            })?;
+            .map_err(|e| ep.tunnel.as_ref().and_then(|t| t.take_error()).unwrap_or(e))?;
             let info = kv::server_info(&mut c).await?;
             // 論理DBの数はサーバーの設定で変わる (既定は16)
             let dbs: Vec<String> = (0..kv::db_count(&mut c).await)
                 .map(|i| i.to_string())
                 .collect();
-            (DbConn::Kv(c), dbs, Some(db_index.to_string()), info)
+            (DbConn::Kv(c), dbs, Some(db_index.to_string()), info, false)
         }
     };
 
@@ -526,6 +539,7 @@ pub async fn connect(
         tunnel: ep.tunnel,
         conn,
         dialect,
+        mariadb,
         txn: TxnState::None,
         current_db: current_db.clone(),
         databases: databases.clone(),
@@ -679,7 +693,10 @@ async fn reconnect(session: &mut Session, qlog: &QueryLog, dead: bool) -> Result
                     &session.profile.password,
                     db_index,
                     session.profile.tls,
-                    session.tunnel.is_some().then_some(session.profile.host.as_str()),
+                    session
+                        .tunnel
+                        .is_some()
+                        .then_some(session.profile.host.as_str()),
                 )
                 .await
                 .map_err(|e| {
@@ -764,7 +781,10 @@ pub(super) async fn ensure_alive(session: &mut Session, qlog: &QueryLog) -> Resu
          * まず ROLLBACK をやり直す。
          * 通れば接続はそのまま使えるので、一時テーブルやセッション変数を失わずに済む
          */
-        if end_txn(session, qlog, &label, &db_label, false).await.is_ok() {
+        if end_txn(session, qlog, &label, &db_label, false)
+            .await
+            .is_ok()
+        {
             /*
              * 接続を張り直した直後にサーバー側の読み取り専用を掛け損ねている
              * 可能性があるので、掛け直してから使う (同じ指定を繰り返しても害はない)
@@ -801,8 +821,7 @@ pub(super) async fn ensure_alive(session: &mut Session, qlog: &QueryLog) -> Resu
 /// そのたびに延ばしてしまうため、放っておくとロックが解放されない
 pub async fn keepalive_all(sessions: &Sessions, qlog: &QueryLog) {
     // マップのロックはArcの複製だけで即解放し、pingはセッション個別に行う
-    let list: Vec<Arc<Mutex<Session>>> =
-        sessions.0.lock().await.values().cloned().collect();
+    let list: Vec<Arc<Mutex<Session>>> = sessions.0.lock().await.values().cloned().collect();
     for arc in list {
         // 使用中 (クエリ実行中など) のセッションはスキップ (使われている = 生きている)
         let Ok(mut session) = arc.try_lock() else {

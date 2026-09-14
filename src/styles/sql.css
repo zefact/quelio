@@ -775,6 +775,17 @@ html[data-theme="light"] .result-banner.ng {
   border-radius: 3px;
 }
 
+/* エディタ内検索で見つかった所 (今いる1か所だけ濃くする) */
+.cm-find {
+  background: rgba(234, 179, 8, 0.28);
+  border-radius: 2px;
+}
+
+.cm-find-active {
+  background: rgba(249, 115, 22, 0.55);
+  border-radius: 2px;
+}
+
 /* ============ 画面いちばん下の状態表示 ============ */
 
 .status-bar {
@@ -1262,6 +1273,205 @@ html[data-theme="light"] .result-banner.ng {
   overflow: hidden;
   /* 右下の「広げる」ボタンを枠の中に置くための基準 */
   position: relative;
+}
+
+/* ============ SQLエディタの中だけを探す (検索・置換) ============ */
+
+/*
+ * エディタの右上に浮かせる。
+ * 下の「広げる」ボタンと同じく、枠 (.sql-editor) の中に置く
+ */
+.sql-find {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: calc(100% - 12px);
+  padding: 5px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--menu-bg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  animation: slide-in 0.12s ease;
+}
+
+.sql-find-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.sql-find-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sql-find-input {
+  width: 190px;
+  min-width: 0;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.sql-find-input:focus {
+  border-color: var(--accent);
+}
+
+/* 見つからない・正規表現が壊れているときは枠と件数を赤くする */
+.sql-find.not-found .sql-find-row:first-child .sql-find-input {
+  border-color: var(--danger);
+}
+
+/* 探し方の切り替え (Aa / ab| / .*) */
+.sql-find-opt {
+  flex-shrink: 0;
+  min-width: 24px;
+  padding: 4px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sql-find-opt:hover {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.sql-find-opt.on {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.18);
+  color: var(--text);
+}
+
+/* 「3/12」や「見つかりません」 */
+.sql-find-count {
+  flex-shrink: 0;
+  min-width: 58px;
+  padding: 0 2px;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sql-find.not-found .sql-find-count {
+  color: var(--danger);
+}
+
+.sql-find-nav {
+  flex-shrink: 0;
+  padding: 4px 5px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.sql-find-nav:hover:not(:disabled) {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.sql-find-nav:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 「置換」「全て置換」 */
+.sql-find-do {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  line-height: 1.3;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sql-find-do:hover:not(:disabled) {
+  border-color: rgba(var(--ink), 0.3);
+  color: var(--text);
+}
+
+.sql-find-do:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 置換の行を開く矢印 (開くと下を向く) */
+.sql-find-more {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.sql-find-more:hover {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.sql-find-more svg {
+  transition: transform 0.14s ease;
+}
+
+.sql-find-more.on svg {
+  transform: rotate(90deg);
+}
+
+/* 検索バーを閉じているときに出る虫眼鏡 (エディタの右上) */
+.editor-find-btn {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  /* 下の行の文字と重なっても読めるよう、エディタと同じ色で塗る */
+  background: var(--input-bg);
+  color: var(--text-faint);
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.editor-find-btn:hover {
+  background: rgba(34, 211, 238, 0.15);
+  color: var(--accent-2);
 }
 
 .sql-editor:focus-within {

@@ -38,7 +38,6 @@ import {
 } from "@codemirror/state";
 import type { Line } from "@codemirror/state";
 import type { Command } from "@codemirror/view";
-import { setEditorFinder } from "../editorSearch";
 import type { SqlSpan } from "../sqlSpans";
 import {
   setSpansEffect,
@@ -102,6 +101,40 @@ const flashField = StateField.define<DecorationSet>({
 
 /** 光らせておく時間 (ミリ秒) */
 const FLASH_MS = 900;
+
+/*
+ * 検索で見つかった所に色を付ける仕組み。
+ *
+ * 本物の選択は「今いる1か所」にしか使えないので、
+ * 残りの見つかった所は飾りとして自分で塗る
+ */
+const setFindsEffect = StateEffect.define<{
+  ranges: { from: number; to: number }[];
+  active: number;
+}>();
+
+const findMark = Decoration.mark({ class: "cm-find" });
+const findActiveMark = Decoration.mark({ class: "cm-find-active" });
+
+const findField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(deco, tr) {
+    let next = deco.map(tr.changes);
+    for (const e of tr.effects) {
+      if (!e.is(setFindsEffect)) continue;
+      const { ranges, active } = e.value;
+      next = Decoration.set(
+        ranges
+          .filter((r) => r.to > r.from)
+          .map((r, i) =>
+            (i === active ? findActiveMark : findMark).range(r.from, r.to)
+          )
+      );
+    }
+    return next;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
 
 /** 実行対象になる文の行に敷く帯 */
 const targetLine = Decoration.line({ class: "cm-target" });
@@ -220,6 +253,23 @@ export interface SqlEditorHandle {
   flashRange(from: number, to: number): void;
   /** カーソルの位置に文字列を差し込む (関数リファレンスから使う) */
   insertAtCursor(text: string): void;
+  /** 本文そのもの (エディタ内検索が探す相手) */
+  getText(): string;
+  /** 今の選択範囲 (選んでいなければ from と to が同じ) */
+  getRange(): { from: number; to: number };
+  /** 範囲を選び、その位置まで画面を送る (入力位置は奪わない) */
+  selectRange(from: number, to: number): void;
+  /** 範囲をまとめて置き換える (置換。changes は前から順・重なり無し) */
+  applyChanges(changes: { from: number; to: number; insert: string }[]): void;
+  /**
+   * 選んでいる範囲を差し替え、入れた文字をそのまま選び直す
+   * (何に変わったかがすぐ見えるように)
+   */
+  replaceSelection(text: string): void;
+  /** 見つかった所に色を付ける (空の配列で消す) */
+  markFinds(ranges: { from: number; to: number }[], active: number): void;
+  /** エディタへ入力位置を戻す */
+  focusEditor(): void;
 }
 
 interface Props {
@@ -237,6 +287,8 @@ interface Props {
   onSaveFile: () => void;
   /** ⌘/Ctrl+Shift+H (関数リファレンスを開く) */
   onFunctions?: () => void;
+  /** ⌘/Ctrl+F (エディタの中を探す) */
+  onFind?: () => void;
   /**
    * 文ごとに分けた範囲。
    * 分け方は方言によるのでバックエンドが決め、ここは受け取るだけ
@@ -442,6 +494,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     onFormat,
     onSaveFile,
     onFunctions,
+    onFind,
     statements,
     onTarget,
     onSelectionChange,
@@ -483,6 +536,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     onFormat,
     onSaveFile,
     onFunctions,
+    onFind,
     onTarget,
     onSelectionChange,
     onContextMenu,
@@ -494,6 +548,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     onFormat,
     onSaveFile,
     onFunctions,
+    onFind,
     onTarget,
     onSelectionChange,
     onContextMenu,
@@ -538,6 +593,57 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         viewRef.current?.dispatch({ effects: flashRangeEffect.of(null) });
       }, FLASH_MS);
     },
+    getText() {
+      return viewRef.current?.state.doc.toString() ?? "";
+    },
+    getRange() {
+      const main = viewRef.current?.state.selection.main;
+      return { from: main?.from ?? 0, to: main?.to ?? 0 };
+    },
+    /**
+     * 見つかった所を選んで、そこまで画面を送る。
+     *
+     * ここで入力位置をエディタへ移すと検索欄から文字が打てなくなるので、
+     * 選ぶだけにする (選択は drawSelection が自前で描くので、
+     * 入力位置がエディタに無くても見える)
+     */
+    selectRange(from: number, to: number) {
+      viewRef.current?.dispatch({
+        selection: { anchor: from, head: to },
+        scrollIntoView: true,
+      });
+    },
+    applyChanges(changes) {
+      const view = viewRef.current;
+      if (!view || changes.length === 0) return;
+      const last = changes[changes.length - 1];
+      // 置き換え終わりに入力位置を置く (最後に触った所が見えるように)
+      const at = last.from + last.insert.length;
+      view.dispatch({
+        changes,
+        selection: { anchor: at },
+        scrollIntoView: true,
+      });
+    },
+    replaceSelection(text: string) {
+      const view = viewRef.current;
+      if (!view) return;
+      const { from, to } = view.state.selection.main;
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from, head: from + text.length },
+        scrollIntoView: true,
+      });
+      view.focus();
+    },
+    markFinds(ranges, active) {
+      viewRef.current?.dispatch({
+        effects: setFindsEffect.of({ ranges, active }),
+      });
+    },
+    focusEditor() {
+      viewRef.current?.focus();
+    },
   }));
 
   useEffect(() => {
@@ -554,6 +660,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         drawSelection(),
         // 実行した範囲を短い間だけ光らせる (選択はしない)
         flashField,
+        // 検索で見つかった所に色を付ける
+        findField,
         // 実行対象になる文に帯を敷く
         spansField,
         EditorView.decorations.compute(
@@ -638,6 +746,14 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
               },
             },
             {
+              // エディタの中を探す (置換もここから開く)
+              key: "Mod-f",
+              run: () => {
+                cbRef.current.onFind?.();
+                return true;
+              },
+            },
+            {
               key: "Tab",
               run: (v) => {
                 // 補完の候補が出ているときはTabで確定する
@@ -704,32 +820,20 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     }
 
     /*
-     * ページ内検索から呼ばれる本文検索。
-     * 画面外の行も対象にし、見つかったら選択してその位置まで送る
+     * 選んだ所を右クリックしても、選択が外れないようにする。
+     *
+     * 何もしないとブラウザがそこへカーソルを移してしまい、
+     * 「選択をIN句の形に」のように選んだ文字を使うメニューが
+     * 押せなくなってしまう
      */
-    setEditorFinder((query, forward) => {
-      const v = viewRef.current;
-      if (!v || !query) return false;
-      const text = v.state.doc.toString().toLowerCase();
-      const q = query.toLowerCase();
-      const head = v.state.selection.main;
-      let at: number;
-      if (forward) {
-        at = text.indexOf(q, head.to);
-        if (at === -1) at = text.indexOf(q);
-      } else {
-        at = text.lastIndexOf(q, Math.max(0, head.from - 1));
-        if (at === -1) at = text.lastIndexOf(q);
-      }
-      if (at === -1) return false;
-      v.dispatch({
-        selection: { anchor: at, head: at + query.length },
-        scrollIntoView: true,
-      });
-      // ここでフォーカスを移すと検索欄から入力が奪われ、
-      // 次のEnterがSQLの改行になってしまうので移さない
-      return true;
-    });
+    const keepSelection = (e: MouseEvent) => {
+      if (e.button !== 2) return;
+      const sel = view.state.selection.main;
+      if (sel.empty) return;
+      const at = view.posAtCoords({ x: e.clientX, y: e.clientY });
+      if (at !== null && at >= sel.from && at <= sel.to) e.preventDefault();
+    };
+    view.dom.addEventListener("mousedown", keepSelection, { capture: true });
 
     const handleCtx = (e: MouseEvent) => {
       e.preventDefault();
@@ -738,8 +842,10 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     view.dom.addEventListener("contextmenu", handleCtx);
 
     return () => {
+      view.dom.removeEventListener("mousedown", keepSelection, {
+        capture: true,
+      });
       view.dom.removeEventListener("contextmenu", handleCtx);
-      setEditorFinder(null);
       view.destroy();
       viewRef.current = null;
     };

@@ -3,6 +3,7 @@ import {
   buildEdges,
   buildNodes,
   charUnits,
+  colKey,
   colMarker,
   colTracks,
   edgeKey,
@@ -143,6 +144,26 @@ describe("buildNodes", () => {
     expect(n.logical).toBe("利用者");
   });
 
+  it("手で決めた文字色をカラムに付ける", () => {
+    const [n] = buildNodes(entries, true, false, false, "（", {
+      [colKey("users", "name")]: "#ef4444",
+    });
+    expect(n.columns[0].color).toBeUndefined();
+    expect(n.columns[1].color).toBe("#ef4444");
+  });
+
+  it("色の指定が無ければ、どのカラムにも色を付けない", () => {
+    const [n] = buildNodes(entries, true, false, false, "（");
+    expect(n.columns.every((c) => c.color === undefined)).toBe(true);
+  });
+
+  it("他のテーブルの同じ名前の色を取り違えない", () => {
+    const [n] = buildNodes(entries, true, false, false, "（", {
+      [colKey("orders", "name")]: "#ef4444",
+    });
+    expect(n.columns.every((c) => c.color === undefined)).toBe(true);
+  });
+
   it("高さはヘッダ+行数×行高+下余白", () => {
     const [one] = buildNodes(entries, false, false, false, "（");
     const [two] = buildNodes(entries, true, false, false, "（");
@@ -265,5 +286,15 @@ describe("buildEdges", () => {
       entry("nodes", [col("id", { key: "PRI" }), col("nodes_id")]),
     ];
     expect(buildEdges(entries, [])).toEqual([]);
+  });
+});
+
+describe("colKey", () => {
+  it("テーブル名とカラム名をつなぐ", () => {
+    expect(colKey("users", "id")).toBe("users.id");
+  });
+
+  it("テーブルが違えば別のキーになる", () => {
+    expect(colKey("users", "id")).not.toBe(colKey("orders", "id"));
   });
 });

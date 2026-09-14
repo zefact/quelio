@@ -168,6 +168,44 @@
 
 /* ============ ER図のページ (タブ) バー ============ */
 
+/*
+ * 一番上の名乗りの帯。
+ *
+ * DB・CSVのウィンドウと同じ位置に出す。
+ * macOSでは信号機ボタンのぶんだけ左を空ける
+ * (このウィンドウでは、この帯が一番上になるので、下の道具の帯からは外す)
+ */
+.er-brandbar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  /* 高さと余白はDB・CSVのウィンドウと同じにする
+     (信号機ボタンの位置を同じ値でそろえられるようにするため) */
+  padding: 8px 12px 0;
+  background: var(--bg-panel);
+  flex-shrink: 0;
+}
+
+html.macos .er-brandbar {
+  padding-left: 86px;
+}
+
+html.macos .er-window .diff-toolbar {
+  padding-left: 16px;
+}
+
+/* 名乗りとアイコンの間 (ここを掴んでもウィンドウを動かせる) */
+.er-brandbar-drag {
+  flex: 1;
+  min-width: 40px;
+  align-self: stretch;
+}
+
+/* ER図の名乗りは、DB・CSVと見分けが付く色にする */
+.brand-mark.er-mark {
+  background: linear-gradient(135deg, var(--accent-2), var(--accent));
+}
+
 .er-tabs {
   display: flex;
   align-items: center;
@@ -177,6 +215,12 @@
   background: var(--bg-panel);
   flex-shrink: 0;
   overflow-x: auto;
+  /*
+   * 縦には動かさない。
+   * 片方だけ auto にすると、もう片方も auto になって
+   * 出るはずのない縦のスクロールバーが出る
+   */
+  overflow-y: hidden;
   user-select: none;
 }
 
@@ -194,6 +238,8 @@
   border-radius: var(--radius-btn) var(--radius-btn) 0 0;
   cursor: pointer;
   white-space: nowrap;
+  /* transform は並べ替えで滑らせるため (量はJS側が決める) */
+  transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .er-tab:hover {
@@ -1123,4 +1169,75 @@
 /* 一覧を出すダイアログ (リバースするテーブルの選択) は少し広くする */
 .er-modal.er-modal-wide {
   width: 520px;
+}
+
+/*
+ * 図の上だけのテーブルを入れる画面。
+ *
+ * 列は「名前・型・日本語名・主キー・NOT NULL・並べ替え」の6列で並べる。
+ * 数が増えても縦に伸びるだけにして、中でスクロールさせる
+ */
+.modal.er-table-modal {
+  width: min(900px, 96vw);
+}
+
+.er-table-cols {
+  margin-top: var(--space-3);
+}
+
+.er-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.er-table-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1.2fr 1.4fr 64px 84px 96px;
+  gap: 6px;
+  align-items: center;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.er-table-th {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.er-table-th.center,
+.er-table-cell.center {
+  text-align: center;
+}
+
+.er-table-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.er-table-ops {
+  gap: 2px;
+}
+
+.er-table-ops .btn-ghost {
+  padding: 2px 6px;
+  line-height: 1;
+}
+
+/*
+ * ドラッグでの並べ替え。
+ *
+ * 掴んだタブは指について動き、まわりのタブは場所を空けるように横へ滑る。
+ * 滑る動きはここ (transition) が受け持ち、動かす量はJS側が決める。
+ * 掴んでいるタブだけは遅れて追う動きを切る (指からずれて見えるため)。
+ * 3つの画面 (DB・ER図・CSV) で同じ見せ方にそろえている
+ */
+.er-tab.dragging {
+  opacity: 0.85;
+  cursor: grabbing;
+  /* 滑っていくタブの上に重ねる */
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }

@@ -748,20 +748,24 @@ export function ResizableGrid({
                   (canSort ? " sortable" : "") +
                   (c.cellClass ? ` ${c.cellClass}` : "")
                 }
-                onClick={
+                /*
+                 * 並び替えは右クリックで出す。
+                 * ふつうのクリックで出していたころは、幅を変えようとした指が
+                 * 少しずれただけでメニューが開いてしまっていた
+                 */
+                onContextMenu={
                   canSort
                     ? (e) => {
-                        const r = (
-                          e.currentTarget as HTMLElement
-                        ).getBoundingClientRect();
+                        e.preventDefault();
                         setSortMenu((cur) =>
                           cur?.id === c.id
                             ? null
-                            : { id: c.id, x: r.left, y: r.bottom + 2 }
+                            : { id: c.id, x: e.clientX, y: e.clientY }
                         );
                       }
                     : undefined
                 }
+                title={canSort ? "右クリックで並び替え" : undefined}
               >
                 {/* ソートメニューを開いている列はツールチップを出さない (メニューと重なるため) */}
                 <HoverTip

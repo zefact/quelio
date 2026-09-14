@@ -7,6 +7,7 @@ import {
 import {
   listSessions,
   listTables,
+  openMainWindow,
   saveCapture,
   saveTextFile,
   schemaWithForeignKeys,
@@ -43,6 +44,11 @@ import {
 } from "./ErDialogs";
 import { TablePicker } from "./TablePicker";
 import { CanvasMenu } from "./erMenu/CanvasMenu";
+import { ErBrandBar } from "./er/ErBrandBar";
+import { SettingsModal } from "./SettingsModal";
+import { ErTableDialog } from "./er/ErTableDialog";
+import { fromSchemaEntry, toSchemaEntry } from "../er/newTable";
+import type { ErTableSpec } from "../er/newTable";
 import { ColumnMenu } from "./erMenu/ColumnMenu";
 import { EdgeMenu } from "./erMenu/EdgeMenu";
 import { FrameMenu } from "./erMenu/FrameMenu";
@@ -59,11 +65,13 @@ import { ErFrameLayer, type FrameHandlers } from "./ErFrameLayer";
 import { ErPageTabs } from "./ErPageTabs";
 import { useEvent } from "../hooks/useEvent";
 import { useErViewport } from "../er/useErViewport";
+import { boundingBox } from "../er/erFit";
 import { useErSelection } from "../er/useErSelection";
 
 import {
   buildEdges,
   buildNodes,
+  colKey,
   edgeKey,
   ErEdge,
   ErNode,
@@ -103,6 +111,8 @@ export function ErWindow() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** 設定を開いているか */
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // ドラッグで動かしたノードの位置 (自動レイアウトへの上書き。state更新は再描画トリガrevで行う)
   const posRef = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -173,6 +183,21 @@ export function ErWindow() {
   const [removedEdges, setRemovedEdges] = useState<Set<string>>(new Set());
   /** 図から削除したテーブル名 (リバースしても再追加しない) */
   const [removedTables, setRemovedTables] = useState<Set<string>>(new Set());
+  /**
+   * 図の上だけで作ったテーブル名。
+   *
+   * DBには無いので、直せるのはこれだけ。
+   * 消すときも「リバースで戻す」ものではないので、覚えずにそのまま消す
+   */
+  const [manualTables, setManualTables] = useState<Set<string>>(new Set());
+  /** テーブルを入れる画面 (新しく作るなら table は null) */
+  const [tableForm, setTableForm] = useState<{
+    /** 直す相手 (新しく作るなら null) */
+    table: string | null;
+    /** 置く場所 (新しく作るときだけ使う) */
+    x: number;
+    y: number;
+  } | null>(null);
   /** テーブルごとの横幅の上書き (px。未設定は内容に合わせて自動=Fit) */
   const [tableWidths, setTableWidths] = useState<Record<string, number>>({});
   /** 手動で追加したリレーション */
@@ -189,6 +214,8 @@ export function ErWindow() {
   const [edgeStyles, setEdgeStyles] = useState<Record<string, ErEdgeStyle>>(
     {}
   );
+  /** カラムごとの文字色 (キーはcolKey。未設定は既定の色) */
+  const [columnColors, setColumnColors] = useState<Record<string, string>>({});
   /** 線の追加モード (接続元→接続先の順にカラムをクリック) */
   const [linkMode, setLinkMode] = useState(false);
   const [linkSrc, setLinkSrc] = useState<{
@@ -242,11 +269,13 @@ export function ErWindow() {
     }
     setRemovedEdges(new Set(d.removedEdges ?? []));
     setRemovedTables(new Set(d.removedTables ?? []));
+    setManualTables(new Set(d.manualTables ?? []));
     setTableWidths(d.tableWidths ?? {});
     setCustomEdges(d.customEdges ?? []);
     setAnchors(d.anchors ?? {});
     setEdgeCols(d.edgeColumns ?? {});
     setEdgeStyles(d.edgeStyles ?? {});
+    setColumnColors(d.columnColors ?? {});
     setFrames(d.frames ?? []);
     setEntries(d.entries.length > 0 ? d.entries : null);
     setFks(d.fks ?? []);
@@ -267,11 +296,13 @@ export function ErWindow() {
       options: { allCols, showLogical, showTypes },
       removedEdges,
       removedTables,
+      manualTables,
       tableWidths,
       customEdges,
       anchors,
       edgeColumns: edgeCols,
       edgeStyles,
+      columnColors,
       frames,
     }),
     apply: applyPageData,
@@ -487,10 +518,23 @@ export function ErWindow() {
   // ノードとエッジの組み立て (横幅の上書きがあれば適用。未設定は内容にFit)
   const nodes: ErNode[] = useMemo(() => {
     if (!entries) return [];
-    return buildNodes(entries, allCols, showTypes, showLogical, delim).map(
-      (n) => (tableWidths[n.name] ? { ...n, w: tableWidths[n.name] } : n)
-    );
-  }, [entries, allCols, showTypes, showLogical, delim, tableWidths]);
+    return buildNodes(
+      entries,
+      allCols,
+      showTypes,
+      showLogical,
+      delim,
+      columnColors
+    ).map((n) => (tableWidths[n.name] ? { ...n, w: tableWidths[n.name] } : n));
+  }, [
+    entries,
+    allCols,
+    showTypes,
+    showLogical,
+    delim,
+    tableWidths,
+    columnColors,
+  ]);
 
   const edges = useMemo(() => {
     if (!entries) return [];
@@ -569,16 +613,17 @@ export function ErWindow() {
   useEffect(() => {
     if (fitTick === 0 || nodes.length === 0) return;
     if (doneFitRef.current === fitTick) return;
-    doneFitRef.current = fitTick;
-    let maxX = 400;
-    let maxY = 300;
+    const boxes = [];
     for (const nd of nodes) {
       const p = posRef.current.get(nd.name);
       if (!p) continue;
-      maxX = Math.max(maxX, p.x + nd.w);
-      maxY = Math.max(maxY, p.y + nd.h);
+      boxes.push({ x: p.x, y: p.y, w: nd.w, h: nd.h });
     }
-    fitTo(maxX, maxY);
+    const box = boundingBox(boxes);
+    // 位置がまだ決まっていないときは、次に置き直されたときにやり直す
+    if (!box) return;
+    doneFitRef.current = fitTick;
+    fitTo(box);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitTick, nodes.length]);
 
@@ -813,10 +858,26 @@ export function ErWindow() {
       (e) => !nameSet.has(e.table.name)
     );
     const removedT = new Set(removedTables);
+    const manualT = new Set(manualTables);
     for (const n of tableNames) {
-      removedT.add(n);
+      /*
+       * 図の上だけで作ったテーブルは、リバースで戻ってこない。
+       * 「消したもの」として覚えても意味が無いので、そのまま消す
+       */
+      if (manualT.has(n)) manualT.delete(n);
+      else removedT.add(n);
       posRef.current.delete(n);
     }
+    // 消したテーブルのカラム色は、もう使わないので捨てる
+    const nextColors = { ...columnColors };
+    for (const n of tableNames) {
+      const head = `${n}.`;
+      for (const k of Object.keys(nextColors)) {
+        if (k.startsWith(head)) delete nextColors[k];
+      }
+    }
+    if (tableNames.length > 0) setColumnColors(nextColors);
+
     setRemovedEdges(removed);
     setCustomEdges(custom);
     setAnchors(nextAnchors);
@@ -824,6 +885,7 @@ export function ErWindow() {
     setEdgeStyles(nextEdgeStyles);
     if (tableNames.length > 0) {
       setRemovedTables(removedT);
+      setManualTables(manualT);
       setEntries(ents);
     }
     setSelEdge(null);
@@ -847,6 +909,8 @@ export function ErWindow() {
       edgeColumns: nextEdgeCols,
       edgeStyles: nextEdgeStyles,
       removedTables: removedT,
+      manualTables: manualT,
+      columnColors: nextColors,
     });
   };
   const deleteEdgesByIdx = (idxs: number[]) => deleteSelection(idxs, []);
@@ -1143,6 +1207,82 @@ export function ErWindow() {
     inside: ".er-text-edit, .er-inline-input",
   });
 
+  /** 図にあるテーブルを、入れ直せる形にする (直すときに使う) */
+  const erTableSpec = (name: string): ErTableSpec | undefined => {
+    const e = (entriesRef.current ?? []).find((x) => x.table.name === name);
+    return e ? fromSchemaEntry(e, delim) : undefined;
+  };
+
+  /**
+   * 図の上だけのテーブルを、入れた内容から置く (新規・直しの両方)。
+   *
+   * DBには作らない。読み込んだスキーマと同じ形にして混ぜるので、
+   * 線を引くのも幅を変えるのも、DBから読んだテーブルと同じようにできる
+   */
+  const putTable = (spec: ErTableSpec, at: { x: number; y: number } | null) => {
+    const entry = toSchemaEntry(spec);
+    const before = tableForm?.table ?? null;
+    const prev = entriesRef.current ?? [];
+    const ents =
+      before === null
+        ? [...prev, entry]
+        : prev.map((e) => (e.table.name === before ? entry : e));
+
+    // 名前を変えたら、位置と幅も新しい名前へ移す
+    const widths = { ...tableWidths };
+    if (before !== null && before !== entry.table.name) {
+      const pos = posRef.current.get(before);
+      posRef.current.delete(before);
+      if (pos) posRef.current.set(entry.table.name, pos);
+      if (widths[before] !== undefined) {
+        widths[entry.table.name] = widths[before];
+        delete widths[before];
+        setTableWidths(widths);
+      }
+    }
+    if (at) posRef.current.set(entry.table.name, at);
+
+    // 名前を変えたら、カラムの文字色も新しい名前へ移す
+    let colors = columnColors;
+    if (before !== null && before !== entry.table.name) {
+      colors = {};
+      for (const [k, v] of Object.entries(columnColors)) {
+        colors[k.startsWith(`${before}.`)
+          ? `${entry.table.name}.${k.slice(before.length + 1)}`
+          : k] = v;
+      }
+      setColumnColors(colors);
+    }
+
+    /*
+     * 「図の上だけのテーブルか」は、直しても変わらない。
+     *
+     * DBから読んだテーブルを直しても、それはDBのテーブルのままで、
+     * リバースでそのテーブルを選び直せば元に戻る。
+     * 名前を変えたときだけ、印を新しい名前へ移す
+     */
+    const manual = new Set(manualTables);
+    const wasManual = before === null || manual.has(before);
+    if (before !== null) manual.delete(before);
+    if (wasManual) manual.add(entry.table.name);
+    setManualTables(manual);
+    setEntries(ents);
+    setTableForm(null);
+    setRev((r) => r + 1);
+    setNotice(
+      before === null
+        ? `${entry.table.name} を図に追加しました`
+        : `${entry.table.name} を直しました`
+    );
+    persist({
+      entries: ents,
+      positions: posRef.current,
+      manualTables: manual,
+      tableWidths: widths,
+      columnColors: colors,
+    });
+  };
+
   /** 枠を追加してテキスト編集ダイアログを開く */
   const addFrame = (worldX: number, worldY: number) => {
     const f: ErFrame = {
@@ -1302,6 +1442,24 @@ export function ErWindow() {
         edgeStyles: next,
       });
     }
+  };
+
+  /**
+   * カラムの文字色を変える。
+   *
+   * 既定に戻すときは覚えておかない (保存するものを増やさない)
+   */
+  const setColumnColor = (
+    table: string,
+    column: string,
+    color: string | undefined
+  ) => {
+    const key = colKey(table, column);
+    const next = { ...columnColors };
+    if (color) next[key] = color;
+    else delete next[key];
+    setColumnColors(next);
+    if (entriesRef.current) persist({ columnColors: next });
   };
 
   /** 選択中の線の対応カラムを追加/解除する (複合キーなど複数カラムの対応用)。
@@ -1636,6 +1794,16 @@ export function ErWindow() {
 
   return (
     <div className="er-window">
+      {/* 名乗りと、DB・CSVのウィンドウと同じ並びのアイコン */}
+      <ErBrandBar
+        onOpenDb={() =>
+          void openMainWindow().catch((e) =>
+            setError(`DBの画面を開けませんでした: ${e}`)
+          )
+        }
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
+
       <ErToolbar
         diagName={diagName}
         diagList={diagList}
@@ -1718,9 +1886,7 @@ export function ErWindow() {
       )}
       {!loading && !error && !entries && (
         <div className="content-placeholder dim-center">
-          {sel.sessionId
-            ? "図は空です。「リバース」でDBから作成するか、図メニューから保存済みの図を開いてください"
-            : "接続とデータベースを選択してください"}
+          図は空です。図メニューから保存済みの図を開くか、接続を選んで「リバース」でDBから作成してください
         </div>
       )}
 
@@ -1920,9 +2086,14 @@ export function ErWindow() {
             <NodeMenu
               table={ctxMenu.table}
               hasWidth={tableWidths[ctxMenu.table] !== undefined}
+              manual={manualTables.has(ctxMenu.table)}
               selectedCount={
                 selNodes.has(ctxMenu.table) ? selNodes.size : 1
               }
+              onEdit={() => {
+                setTableForm({ table: ctxMenu.table, x: 0, y: 0 });
+                setCtxMenu(null);
+              }}
               onResetWidth={() => {
                 resetTableWidth(ctxMenu.table);
                 setCtxMenu(null);
@@ -1941,6 +2112,14 @@ export function ErWindow() {
 
           {ctxMenu.kind === "canvas" && (
             <CanvasMenu
+              onAddTable={() => {
+                setTableForm({
+                  table: null,
+                  x: ctxMenu.worldX,
+                  y: ctxMenu.worldY,
+                });
+                setCtxMenu(null);
+              }}
               onAddFrame={() => {
                 addFrame(ctxMenu.worldX, ctxMenu.worldY);
                 setCtxMenu(null);
@@ -1986,6 +2165,11 @@ export function ErWindow() {
             <ColumnMenu
               table={ctxMenu.table}
               column={ctxMenu.column}
+              color={columnColors[colKey(ctxMenu.table, ctxMenu.column)]}
+              onChangeColor={(color) => {
+                setColumnColor(ctxMenu.table, ctxMenu.column, color);
+                setCtxMenu(null);
+              }}
               edgeColumn={edgeColumnAction(ctxMenu.table, ctxMenu.column)}
               linkSrc={linkSrc}
               onConnectHere={() => {
@@ -2088,6 +2272,36 @@ export function ErWindow() {
             </div>
           );
         })()}
+
+      {tableForm && (
+        <ErTableDialog
+          initial={
+            tableForm.table === null
+              ? undefined
+              : erTableSpec(tableForm.table)
+          }
+          taken={(entriesRef.current ?? [])
+            .map((e) => e.table.name)
+            .filter((n) => n !== tableForm.table)}
+          onDecide={(spec) =>
+            putTable(
+              spec,
+              tableForm.table === null
+                ? { x: tableForm.x, y: tableForm.y }
+                : null
+            )
+          }
+          onCancel={() => setTableForm(null)}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+          // この窓には接続の一覧が無いので、読み直すものは無い
+          onImported={() => {}}
+        />
+      )}
 
       <ErDialogs
         confirm={confirm}

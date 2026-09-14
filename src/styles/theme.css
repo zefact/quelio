@@ -133,8 +133,12 @@ html[data-theme="light"] {
   --syn-paren-2: #a21caf;
   --syn-paren-3: #1d4ed8;
   --syn-paren-bad: #dc2626;
-  --indent-guide: rgba(var(--ink), 0.16);
-  --indent-guide-on: rgba(var(--ink), 0.4);
+  /*
+   * 白地では、同じ濃さでも線がはっきり出て字より目立ってしまうので、
+   * 暗いテーマより薄くする (カーソルのいる線だけは追えるように残す)
+   */
+  --indent-guide: rgba(var(--ink), 0.07);
+  --indent-guide-on: rgba(var(--ink), 0.2);
 }
 
 * {

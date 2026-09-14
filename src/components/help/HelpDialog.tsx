@@ -74,20 +74,43 @@ export function HelpDialog({ dbType, onClose }: Props) {
                 {current.sections(dbType).map((s) => (
                   <section key={s.title}>
                     <h4>{s.title}</h4>
-                    {s.lines.map((line) => (
+                    {s.lines?.map((line) => (
                       <p key={line}>{line}</p>
                     ))}
+                    {s.table && (
+                      /* 幅が足りないときは、この枠の中だけ横に動かす */
+                      <div className="help-table-wrap">
+                        <table className="help-table">
+                          <thead>
+                            <tr>
+                              {s.table.head.map((h) => (
+                                <th key={h}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {s.table.rows.map((row) => (
+                              <tr key={row[0]}>
+                                {row.map((cell, i) => (
+                                  <td
+                                    // 1列目は用語なので、折り返さず等幅で出す
+                                    className={i === 0 ? "help-term" : undefined}
+                                    key={s.table?.head[i] ?? i}
+                                  >
+                                    {cell}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </section>
                 ))}
               </>
             )}
           </div>
-        </div>
-
-        <div className="form-actions">
-          <button className="btn-secondary" onClick={onClose}>
-            閉じる
-          </button>
         </div>
       </div>
     </div>

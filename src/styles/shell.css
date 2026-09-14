@@ -77,7 +77,9 @@
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
-  transition: background 0.12s ease, color 0.12s ease;
+  /* transform は並べ替えで滑らせるため (量はJS側が決める) */
+  transition: background 0.12s ease, color 0.12s ease,
+    transform 0.16s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .tab:hover {
@@ -566,4 +568,19 @@ html.win-blur .hover-tip {
   color: var(--text);
   border-color: var(--accent);
   background: rgba(99, 102, 241, 0.1);
+}
+
+/*
+ * ドラッグでの並べ替え。
+ *
+ * 掴んだタブは指について動き、まわりのタブは場所を空けるように横へ滑る。
+ * 滑る動きはここ (transition) が受け持ち、動かす量はJS側が決める。
+ * 掴んでいるタブだけは遅れて追う動きを切る (指からずれて見えるため)。
+ * 3つの画面 (DB・ER図・CSV) で同じ見せ方にそろえている
+ */
+.tab.dragging {
+  opacity: 0.85;
+  cursor: grabbing;
+  /* 滑っていくタブの上に重ねる */
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }

@@ -68,7 +68,6 @@ import type {
   TestDataResult,
   ToolSettings,
   ToolStatus,
-  ValueSearchResult,
 } from "./types";
 
 /** コマンド名 → 戻り値の型 */
@@ -215,6 +214,7 @@ export interface CommandResults {
   open_schema: void;
   plan_test_data: TestDataColumn[];
   preview_column_ddl: string[];
+  preview_index_ddl: string[];
   preview_create_database: string;
   preview_create_schema: string;
   preview_create_table: string;
@@ -237,7 +237,6 @@ export interface CommandResults {
   schema_snapshot: SchemaEntry[];
   schema_with_foreign_keys: { entries: SchemaEntry[]; foreignKeys: FkInfo[] };
   search_objects: ObjectSearchResult;
-  search_values: ValueSearchResult;
   set_pinned_table: string[];
   set_table_comment: string[];
   split_sql_statements: string[];
@@ -400,6 +399,7 @@ export const COMMAND_NAMES = [
   "open_schema",
   "plan_test_data",
   "preview_column_ddl",
+  "preview_index_ddl",
   "preview_create_database",
   "preview_create_schema",
   "preview_create_table",
@@ -422,7 +422,6 @@ export const COMMAND_NAMES = [
   "schema_snapshot",
   "schema_with_foreign_keys",
   "search_objects",
-  "search_values",
   "set_pinned_table",
   "set_table_comment",
   "split_sql_statements",

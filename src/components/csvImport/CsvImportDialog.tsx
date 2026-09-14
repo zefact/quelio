@@ -254,6 +254,7 @@ export function CsvImportDialog({
 
         <CsvFilePicker
           file={file}
+          rows={preview?.data.totalRows ?? null}
           onFile={(f) => {
             csvImportStore.patch(sessionId, { result: null, error: null });
             patchForm({ file: f, imported: false });
@@ -347,6 +348,12 @@ export function CsvImportDialog({
                 jobId={job.id}
                 startedAt={job.startedAt}
                 verb="取り込み"
+                /*
+                 * 読み取ったときに数えた行数を渡して、進み具合の帯を出す。
+                 * 「重複は飛ばす」では入る行のほうが少なくなるので、
+                 * 帯が最後まで届かないことがある
+                 */
+                total={preview?.data.totalRows ?? null}
               />
               <button
                 className="btn-secondary"

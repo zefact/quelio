@@ -21,6 +21,8 @@ export interface ErColumn {
   type: string;
   /** 日本語名 (コメントの論理名。表示オプションOFFなら空) */
   logical: string;
+  /** 手で決めた文字色 (#rrggbb。未設定は既定の色) */
+  color?: string;
 }
 
 /** カラム先頭のマーク (● = NOT NULL / ○ = NULL許容。PKは色で区別) */
@@ -54,6 +56,15 @@ export interface ErEdge {
   manual?: boolean;
 }
 
+/**
+ * カラムの識別キー (文字色の記憶に使う)。
+ *
+ * 線のキー (edgeKey) と同じ「テーブル.カラム」の書き方にそろえる
+ */
+export function colKey(table: string, column: string): string {
+  return `${table}.${column}`;
+}
+
 /** エッジの識別キー (削除の記憶に使う) */
 export function edgeKey(e: {
   from: string;
@@ -70,7 +81,9 @@ export function buildNodes(
   allCols: boolean,
   showTypes: boolean,
   showLogical: boolean,
-  delim: string
+  delim: string,
+  /** 手で決めたカラムの文字色 (キーは colKey)。画面にも書き出しにも同じ色を使う */
+  colors: Record<string, string> = {}
 ): ErNode[] {
   return entries.map((e) => {
     const all: ErColumn[] = e.detail.columns.map((c) => ({
@@ -79,6 +92,7 @@ export function buildNodes(
       notNull: !c.nullable,
       type: showTypes ? c.colType : "",
       logical: showLogical ? parseComment(c.comment ?? "", delim)[0] : "",
+      color: colors[colKey(e.table.name, c.name)],
     }));
     const columns = allCols ? all : all.filter((c) => c.isPk);
     // テーブルの日本語名 (テーブルコメントの論理名)

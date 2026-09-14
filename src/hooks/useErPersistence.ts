@@ -33,11 +33,15 @@ export interface ErPageSnapshot {
   options: { allCols: boolean; showLogical: boolean; showTypes: boolean };
   removedEdges: Set<string>;
   removedTables: Set<string>;
+  /** 図の上だけで作ったテーブル名 */
+  manualTables: Set<string>;
   tableWidths: Record<string, number>;
   customEdges: ErCustomEdge[];
   anchors: Record<string, { from?: ErAnchorPoint; to?: ErAnchorPoint }>;
   edgeColumns: Record<string, { from: string[]; to: string[] }>;
   edgeStyles: Record<string, ErEdgeStyle>;
+  /** カラムごとの文字色 (キーは colKey) */
+  columnColors: Record<string, string>;
   frames: ErFrame[];
 }
 
@@ -68,11 +72,13 @@ function toPageData(id: string, name: string, s: ErPageSnapshot): ErPageData {
     options: s.options,
     removedEdges: [...s.removedEdges],
     removedTables: [...s.removedTables],
+    manualTables: [...s.manualTables],
     tableWidths: s.tableWidths,
     customEdges: s.customEdges,
     anchors: s.anchors,
     edgeColumns: s.edgeColumns,
     edgeStyles: s.edgeStyles,
+    columnColors: s.columnColors,
     frames: s.frames,
   };
 }
@@ -229,6 +235,7 @@ export function useErPersistence({
                   anchors: data.anchors,
                   edgeColumns: data.edgeColumns,
                   edgeStyles: data.edgeStyles,
+                  columnColors: data.columnColors,
                   frames: data.frames,
                 },
               ];

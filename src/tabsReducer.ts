@@ -6,6 +6,7 @@
  * ここに集めておくと、遷移だけを取り出してテストできる
  * (Reactに依存しない純粋な関数なので、画面を動かさずに確かめられる)
  */
+import { moveItem } from "./moveItem";
 import type {
   EditorOptions,
   QuerySheet,
@@ -22,6 +23,8 @@ export type TabAction =
   | { type: "add"; tab: WorkTab }
   /** 1枚閉じる (表示中タブの移動は呼び出し側で行う) */
   | { type: "close"; key: string }
+  /** 並びを入れ替える (タブをドラッグしたとき) */
+  | { type: "move"; from: number; to: number }
   /** タブ自体の項目を差し替える */
   | { type: "patchTab"; key: string; patch: Partial<WorkTab> }
   /** SQLエディタまわり (実行中かどうか・シートの並び) */
@@ -77,6 +80,9 @@ export function tabsReducer(tabs: WorkTab[], action: TabAction): WorkTab[] {
 
     case "close":
       return tabs.filter((t) => t.key !== action.key);
+
+    case "move":
+      return moveItem(tabs, action.from, action.to);
 
     case "patchTab":
       return patchOne(tabs, action.key, (t) => ({ ...t, ...action.patch }));

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FIND_EVENT } from "../appEvents";
-import { editorFinder } from "../editorSearch";
 
 /**
  * 探さないところ。
@@ -206,8 +205,6 @@ export function FindBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const openRef = useRef(open);
   openRef.current = open;
-  /** SQLエディタから開いたか (エディタ本文の検索へ渡す) */
-  const editorMode = useRef(false);
   /** 現在の一致一覧 (queryと対応。DOM変化時はfindFreshで再収集される) */
   const matchesRef = useRef<Range[]>([]);
   const indexRef = useRef(0);
@@ -247,23 +244,6 @@ export function FindBar() {
   /** 次(前)の一致へ移動。ページ送り等でDOMが変わった場合は集め直す */
   const findNext = useCallback(
     (backwards: boolean) => {
-      /*
-       * SQLエディタから開いたときは、エディタ本文を直接探す。
-       * 画面に出ている行だけを見る方式では、
-       * 画面外の行 (CodeMirrorが描いていない行) が見つからないため
-       */
-      if (editorMode.current) {
-        const find = editorFinder();
-        if (find) {
-          const hit = find(query, !backwards);
-          setTotal(hit ? 1 : 0);
-          setPos(hit ? 1 : 0);
-          // エディタ側にフォーカスが移った場合に備えて戻す
-          keepFocus();
-          requestAnimationFrame(keepFocus);
-          return;
-        }
-      }
       let matches = matchesRef.current;
       // 範囲が壊れている(0幅になった)場合はDOMが変わったとみなして再収集
       if (matches.length === 0 || matches.some((r) => r.collapsed)) {
@@ -352,21 +332,44 @@ export function FindBar() {
 
   /** 検索を開く (ボタンからも呼ぶ) */
   const openFind = useCallback(() => {
-    // SQLエディタで開いた場合は、エディタ本文も探せるようにする
-    // (画面に出ている行だけを見る方式だと、折りたたまれた行が見つからない)
-    editorMode.current = !!(
-      document.activeElement as HTMLElement | null
-    )?.closest(".cm-editor");
     setOpen(true);
     requestAnimationFrame(() => inputRef.current?.select());
   }, []);
 
-  // ツールバーの検索ボタンからも開けるようにする
+  /*
+   * ツールバーの虫眼鏡ボタン。
+   *
+   * 同じボタンをもう一度押したら閉じる (開けっぱなしにしない)。
+   * ⌘/Ctrl+F のほうは、開いていれば打ち直せるよう選び直すだけにする
+   */
   useEffect(() => {
-    const onFind = () => openFind();
+    const onFind = () => {
+      if (openRef.current) close();
+      else openFind();
+    };
     window.addEventListener(FIND_EVENT, onFind);
     return () => window.removeEventListener(FIND_EVENT, onFind);
-  }, [openFind]);
+  }, [openFind, close]);
+
+  /*
+   * モーダルが開いたら検索バーを閉じる。
+   *
+   * 開いたままだと、見えていないモーダルの後ろの文字が光り、
+   * 入力もモーダルと取り合いになって、どこを打っているのか分からなくなる。
+   * (検索バーを開いた時点ですでに出ているものは、閉じる理由にしない)
+   */
+  useEffect(() => {
+    if (!open) return;
+    const hasModal = () => document.querySelector(".modal-overlay") !== null;
+    let was = hasModal();
+    const watch = new MutationObserver(() => {
+      const now = hasModal();
+      if (now && !was) close();
+      was = now;
+    });
+    watch.observe(document.body, { childList: true, subtree: true });
+    return () => watch.disconnect();
+  }, [open, close]);
 
   // グローバルショートカット (Cmd/Ctrl+F で開く、F3 で次へ、Esc で閉じる)
   useEffect(() => {
@@ -380,6 +383,14 @@ export function FindBar() {
        * ここで受け取ってしまうと整形の代わりに検索が開いてしまう
        */
       if (ctrl && !e.shiftKey && e.key.toLowerCase() === "f") {
+        /*
+         * SQLエディタの中にいるときは、エディタ専用の検索に譲る。
+         * あちらは本文そのものを相手にするので画面外の行も見つかり、
+         * 置換もできる (ここで受け取らずCodeMirrorへ通す)
+         */
+        if ((document.activeElement as HTMLElement | null)?.closest(".cm-editor")) {
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
         openFind();

@@ -38,6 +38,11 @@ interface Props {
   onResizeMouseDown: (e: React.MouseEvent, table: string) => void;
 }
 
+/** 手で決めた文字色 (無ければ何も指定しない = CSSの既定のまま) */
+function colStyle(color: string | undefined): CSSProperties | undefined {
+  return color ? { color } : undefined;
+}
+
 function ErNodeViewInner({
   node: n,
   x,
@@ -101,8 +106,24 @@ function ErNodeViewInner({
         {n.columns.map((c, i) => (
           // 行ごとにまとめる (display:contents なので見た目は変わらない)。
           // ●ハンドルはCSSのhoverだけで出し入れする
-          <div className="er-col-row" key={i}>
+          <div
+            className="er-col-row"
+            key={i}
+            /*
+             * 右クリックは行のどこでも受ける。
+             *
+             * この div は display:contents で箱を持たないが、
+             * 中の名前・型・日本語名から上がってくるので拾える
+             * (最後の列はノードの右端まで伸びているので、右側の余白も含む)
+             */
+            onContextMenu={(ev) => onColumnContextMenu(ev, n.name, c.name)}
+          >
             <span
+              /*
+               * 手で決めた文字色は、名前・型・日本語名の3つに直接乗せる。
+               * CSS側がそれぞれ色を決めているので、行にまとめて置いても効かない
+               */
+              style={colStyle(c.color)}
               className={
                 "er-col-name" +
                 (c.isPk ? " pk" : "") +
@@ -118,13 +139,13 @@ function ErNodeViewInner({
                     : " (NULL可)")
               }
               onClick={() => onColumnClick(n.name, c.name)}
-              onContextMenu={(ev) => onColumnContextMenu(ev, n.name, c.name)}
             >
               {colMarker(c)}
               {c.name}
             </span>
             {showTypes && (
               <span
+                style={colStyle(c.color)}
                 className={
                   "er-col-type" + (selectedColumn === c.name ? " sel" : "")
                 }
@@ -136,6 +157,7 @@ function ErNodeViewInner({
             )}
             {showLogical && (
               <span
+                style={colStyle(c.color)}
                 className={
                   "er-col-logical" + (selectedColumn === c.name ? " sel" : "")
                 }

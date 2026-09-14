@@ -3,6 +3,7 @@ import { CloseMark } from "../CloseMark";
 import { isBetaVersion, useAppVersion } from "../../hooks/useAppVersion";
 import { CsvIcon } from "../CsvIcon";
 import { DbIcon } from "../DbIcon";
+import { TAB_MARK, useTabReorder } from "../../hooks/useTabReorder";
 
 interface Props {
   tabs: CsvInfo[];
@@ -21,6 +22,8 @@ interface Props {
   /** DBの画面を前に出す (閉じていれば開き直す) */
   onOpenDb: () => void;
   onOpenSettings: () => void;
+  /** ドラッグでタブの並びを変える */
+  onReorder: (from: number, to: number) => void;
 }
 
 /**
@@ -57,8 +60,11 @@ export function CsvTabs({
   onAdd,
   onOpenDb,
   onOpenSettings,
+  onReorder,
 }: Props) {
   const isBeta = isBetaVersion(useAppVersion());
+  // ドラッグで並べ替える (掴んだタブが、通りかかったタブと入れ替わる)
+  const drag = useTabReorder({ onMove: onReorder });
   return (
     <div className="csv-tabs" data-tauri-drag-region data-find-skip>
       {/* DBのウィンドウと同じ位置に名乗りを置く (どのウィンドウか一目で分かるように) */}
@@ -76,22 +82,29 @@ export function CsvTabs({
         はみ出し隠しで切られて読めなくなる
       */}
       <div className="csv-tabs-list">
-        {tabs.map((t) => (
+        {tabs.map((t, i) => (
           <div
             key={t.docId}
+            {...{ [TAB_MARK]: i }}
             className={
               "csv-tab" +
               (t.docId === activeId ? " active" : "") +
               // 分割の相方は、触っている側より控えめに印を付ける
               (t.docId !== activeId && t.docId === rightId ? " side" : "") +
-              (t.docId !== activeId && t.docId === leftId ? " side" : "")
+              (t.docId !== activeId && t.docId === leftId ? " side" : "") +
+              (drag.dragging === i ? " dragging" : "")
             }
-            onMouseDown={() => onSelect(t.docId)}
+            style={drag.styleOf(i)}
+            onMouseDown={(e) => {
+              if (e.button !== 0) return;
+              onSelect(t.docId);
+              drag.start(i, e);
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               onMenu(t, e.clientX, e.clientY);
             }}
-            title={t.path ?? t.name}
+            title={(t.path ?? t.name) + "\n(ドラッグで並べ替え)"}
           >
             {/* 左右のどちら側に出しているかを、名前の前に小さく出す */}
             {split && sideMark(t.docId, leftId, rightId) && (

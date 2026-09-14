@@ -48,6 +48,28 @@ describe("createKeyedStore", () => {
     expect(store.get("a")).toBe(empty);
   });
 
+  it("捨てたことも知らせる", () => {
+    // 知らせないと、見ている画面が古い状態のまま残ってしまう
+    const store = createKeyedStore(empty);
+    const seen = vi.fn();
+    store.subscribe("a", seen);
+    store.patch("a", { count: 1 });
+    store.drop("a");
+    expect(seen).toHaveBeenCalledTimes(2);
+  });
+
+  it("捨てたあとも、同じ購読で次の変化を受け取れる", () => {
+    const store = createKeyedStore(empty);
+    const seen = vi.fn();
+    const off = store.subscribe("a", seen);
+    store.drop("a");
+    store.patch("a", { count: 1 });
+    expect(seen).toHaveBeenCalledTimes(2);
+    off();
+    store.patch("a", { count: 2 });
+    expect(seen).toHaveBeenCalledTimes(2);
+  });
+
   it("置き場どうしは混ざらない", () => {
     const one = createKeyedStore(empty);
     const two = createKeyedStore(empty);

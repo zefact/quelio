@@ -210,35 +210,3 @@ export interface ObjectHit {
   comment: string;
 }
 
-/** 値で探した結果の1件 */
-export interface ValueHit {
-  schema: string;
-  table: string;
-  column: string;
-  /** 見つかった値の先頭 */
-  value: string;
-  /**
-   * DB側の照合順序のほうが広くて当たった行 (全角と半角を同じとみなす等)。
-   * どの列で当たったのかまでは分からない
-   */
-  approximate: boolean;
-}
-
-/** 値検索の結果 */
-export interface ValueSearchResult {
-  hits: ValueHit[];
-  /** 見に行ったテーブル数 */
-  scanned: number;
-  cancelled: boolean;
-  /** 上限に達して打ち切った */
-  truncated: boolean;
-  /** 読めなかったテーブル (権限が無いなど) */
-  skipped: string[];
-}
-
-/** 値検索の条件 */
-export interface ValueSearchOptions {
-  needle: string;
-  /** 大文字小文字を区別しない */
-  ignoreCase: boolean;
-}

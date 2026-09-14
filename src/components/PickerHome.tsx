@@ -5,9 +5,10 @@
  * ここから選べば、一覧をたどって開く手間が要らない
  */
 import { useState } from "react";
-import { openCsvWindow } from "../api";
+import { openCsvWindow, openEr } from "../api";
 import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
 import { CsvIcon } from "./CsvIcon";
+import { ErIcon } from "./ErIcon";
 import { envColor, envLabel } from "../types";
 import {
   pinnedConnections,
@@ -183,7 +184,7 @@ export function PickerHome({
       </div>
 
       {/*
-        CSVエディタはDBに繋がなくても使うツールなので、
+        CSVエディタとER図はDBに繋がなくても使うツールなので、
         接続を選ぶ前のこの画面から開けるようにしておく
       */}
       <section className="home-group">
@@ -203,6 +204,26 @@ export function PickerHome({
             <span className="home-tool-name">CSVエディタ</span>
             <span className="home-tool-sub">
               CSV・固定長ファイルを開いて編集し、2つのファイルを比べます
+              (DBに繋がなくても使えます)
+            </span>
+          </span>
+        </button>
+        <button
+          className="home-tool"
+          onClick={() =>
+            void openEr().catch((e) =>
+              setToolError(`ER図を開けませんでした: ${e}`)
+            )
+          }
+        >
+          <span className="home-tool-mark">
+            <ErIcon />
+          </span>
+          <span className="home-tool-body">
+            <span className="home-tool-name">ER図</span>
+            <span className="home-tool-sub">
+              保存した図を開いて描き、テーブルを置いて線をつなぎます。
+              つないでいる接続があれば、そこからリバースもできます
               (DBに繋がなくても使えます)
             </span>
           </span>

@@ -4,11 +4,12 @@ import {
   APP_SETTINGS_EVENT,
   countTableRows,
   getAppSettings,
-  openEr,
   openSchema,
   renameTable,
   schemaColumns,
+  systemDatabases,
 } from "../api";
+import { databaseOptions } from "../dbOrder";
 import { writeClipboard } from "../gridCopy";
 import { parseComment } from "../comment";
 import {
@@ -246,6 +247,26 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     tableMenu?.y ?? 0
   );
   const { profile, databases, selectedDb, tables, loadingTables } = tab;
+
+  /**
+   * サーバーが自分のために持っているDBの名前。
+   *
+   * 接続先の種類だけで決まるので一度取れば足りる。
+   * 取れなくても選択そのものは出せるので、失敗したら空のままにする
+   */
+  const [systemDbs, setSystemDbs] = useState<string[]>([]);
+  useEffect(() => {
+    systemDatabases(profile.dbType)
+      .then(setSystemDbs)
+      .catch(() => setSystemDbs([]));
+  }, [profile.dbType]);
+
+  /** データベースの選択の中身 (自分のDBが先、サーバーのDBは区切りの下) */
+  const dbOptions = useMemo(
+    () => databaseOptions(databases, systemDbs),
+    [databases, systemDbs]
+  );
+
 
   /*
    * DBを切り替えたらCSV取り込みの画面は閉じる
@@ -585,7 +606,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               className="mono"
               value={selectedDb ?? ""}
               placeholder="データベースを選択"
-              options={databases.map((d) => ({ value: d, label: d }))}
+              options={dbOptions}
               onChange={onSelectDb}
             />
             {!readOnly && (
@@ -639,29 +660,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
         <ServerInfo items={tab.serverInfo} />
 
         <span className="toolbar-spacer" />
-        {/*
-          * 使い方の説明。ツールの左に置く。
-          * 出せる話が1つも無い接続では、押しても空なので出さない
-          */}
-        {topicsFor(profile.dbType).length > 0 && (
-          <button
-            className="help-btn has-tooltip"
-            data-tooltip="照合順序などの説明"
-            aria-label="ヘルプ"
-            onClick={() => setShowHelp(true)}
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.9" />
-              <path
-                d="M9.6 9.3a2.5 2.5 0 1 1 3.2 2.4c-.7.25-1 .8-1 1.5v.4"
-                stroke="currentColor"
-                strokeWidth="1.9"
-                strokeLinecap="round"
-              />
-              <circle cx="11.8" cy="16.6" r="1" fill="currentColor" />
-            </svg>
-          </button>
-        )}
+
         {/*
           * ときどき開くものは「ツール」にまとめる。
           * 常に使う「SQL」だけをボタンのまま残す
@@ -670,12 +669,6 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
           selectedDb={selectedDb}
           dbType={profile.dbType}
           onSearch={() => setShowSearch(true)}
-          onEr={() => {
-            // DB未選択でも開ける (ER図ウィンドウ側で接続・DBを選べる)
-            openEr(tab.key, selectedDb ?? "").catch((e) =>
-              setWinError(`ER図を開けませんでした: ${e}`)
-            );
-          }}
           onSchema={() => {
             if (!selectedDb) return;
             openSchema(tab.key, selectedDb, profile.name).catch((e) =>
@@ -684,6 +677,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
           }}
           onRoutines={() => setShowRoutines(true)}
           onProcesses={() => setShowProcesses(true)}
+          onHelp={() => setShowHelp(true)}
+          hasHelp={topicsFor(profile.dbType).length > 0}
         />
         <button
           className={

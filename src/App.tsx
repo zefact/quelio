@@ -1459,11 +1459,11 @@ function App() {
       id: "er",
       label: "ER図を開く",
       keywords: "er diagram relation",
-      disabledReason: activeTab.connected ? undefined : "接続してから使えます",
       run: () =>
-        void openEr(activeKeyNow, activeTab.selectedDb ?? "").catch((e) =>
-          setWinError(`ER図を開けませんでした: ${e}`)
-        ),
+        void openEr(
+          activeTab.connected ? activeKeyNow : undefined,
+          activeTab.connected ? (activeTab.selectedDb ?? undefined) : undefined
+        ).catch((e) => setWinError(`ER図を開けませんでした: ${e}`)),
     },
     {
       id: "schema",
@@ -1679,7 +1679,15 @@ function App() {
             setWinError(`CSVエディタを開けませんでした: ${e}`)
           )
         }
+        onOpenEr={() =>
+          // ER図は単独で開ける。接続中なら、その接続とDBを最初から選んでおく
+          openEr(
+            activeTab.connected ? activeTab.key : undefined,
+            activeTab.connected ? (activeTab.selectedDb ?? undefined) : undefined
+          ).catch((e) => setWinError(`ER図を開けませんでした: ${e}`))
+        }
         onOpenSettings={() => setShowSettings(true)}
+        onReorder={(from, to) => dispatch({ type: "move", from, to })}
       />
 
       {winError && (

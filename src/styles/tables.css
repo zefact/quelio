@@ -247,8 +247,8 @@
   text-overflow: ellipsis;
 }
 
+/* 並び替えは右クリックで出すので、押せる見た目 (指カーソル) にはしない */
 .grid th.sortable {
-  cursor: pointer;
   user-select: none;
 }
 

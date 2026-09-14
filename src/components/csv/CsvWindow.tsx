@@ -63,6 +63,7 @@ import { fillPatches, pasteAnchor, singleValue } from "./csvPasteFill";
 import { selectionCells } from "./csvSelection";
 import { readClipboard, writeClipboard } from "../../gridCopy";
 import { CsvTabs } from "./CsvTabs";
+import { moveItem } from "../../moveItem";
 import { CsvTabMenu } from "./CsvTabMenu";
 import { CsvToolbar } from "./CsvToolbar";
 import { CsvFind } from "./CsvFind";
@@ -1004,6 +1005,7 @@ export function CsvWindow() {
           }
         }}
         onClose={(t) => void closeTab(t)}
+        onReorder={(from, to) => setTabs((prev) => moveItem(prev, from, to))}
         onMenu={(tab, x, y) => setTabMenu({ tab, x, y })}
         onAdd={() => void create()}
         onOpenDb={() =>

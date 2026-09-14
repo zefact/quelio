@@ -67,6 +67,8 @@ pub struct CsvPreview {
     pub encoding: String,
     /// 読み取り中に見つかった問題 (列数の不一致など)
     pub warning: Option<String>,
+    /// 取り込める行の総数 (数え切れなかったときは None)
+    pub total_rows: Option<usize>,
 }
 
 /// 取り込みの結果
@@ -162,14 +164,12 @@ fn open_reader(path: &Path, opts: &CsvOptions) -> Result<OpenedCsv, String> {
      * 名前付きパイプやデバイスを渡されると終わりが来ず、画面が固まってしまう。
      * 普通のファイルだけを相手にする
      */
-    let meta =
-        std::fs::metadata(path).map_err(|e| format!("ファイルを開けません: {e}"))?;
+    let meta = std::fs::metadata(path).map_err(|e| format!("ファイルを開けません: {e}"))?;
     if !meta.is_file() {
         return Err("普通のファイルではありません".to_string());
     }
 
-    let mut file =
-        std::fs::File::open(path).map_err(|e| format!("ファイルを開けません: {e}"))?;
+    let mut file = std::fs::File::open(path).map_err(|e| format!("ファイルを開けません: {e}"))?;
     // read は1回で埋まる保証が無いので、読み切るまで繰り返す
     let mut head = Vec::with_capacity(SNIFF_BYTES);
     file.by_ref()
@@ -185,8 +185,9 @@ fn open_reader(path: &Path, opts: &CsvOptions) -> Result<OpenedCsv, String> {
     let (head_text, _, _) = enc.decode(&head);
     // 指定が読めない区切り文字なら、黙って自動判定に落とさずエラーにする
     let delim = match opts.delimiter.as_deref() {
-        Some(s) if !s.is_empty() => delimiter_byte(s)
-            .ok_or_else(|| format!("区切り文字として使えません: {s}"))?,
+        Some(s) if !s.is_empty() => {
+            delimiter_byte(s).ok_or_else(|| format!("区切り文字として使えません: {s}"))?
+        }
         _ => sniff_delimiter(&head_text),
     };
 
@@ -262,6 +263,7 @@ pub fn preview(path: &Path, opts: &CsvOptions) -> Result<CsvPreview, String> {
                 delimiter,
                 encoding,
                 warning: Some("ファイルが空です".to_string()),
+                total_rows: Some(0),
             })
         }
     };
@@ -306,13 +308,39 @@ pub fn preview(path: &Path, opts: &CsvOptions) -> Result<CsvPreview, String> {
         warnings.push("読めない文字があります (文字コードを指定してください)");
     }
 
+    /*
+     * 残りの行を数えて、全部で何行あるかを出す。
+     * 進み具合の割合と「◯◯行」の表示に使う。
+     * 読めない行があっても数えられたところで打ち切る
+     * (取り込みのときに同じ所で止まるので、ここでは断らない)
+     */
+    let total_rows = count_rest(&mut records).map(|rest| rows.len() + rest);
+
     Ok(CsvPreview {
         columns,
         rows,
         delimiter,
         encoding,
         warning: (!warnings.is_empty()).then(|| warnings.join(" / ")),
+        total_rows,
     })
+}
+
+/**
+ * 残りのデータ行を数える。
+ *
+ * 読み取りでつまずいたら、その時点で諦めて None を返す。
+ * 数えられなくても取り込みそのものはできるので、断らずに進める
+ */
+fn count_rest<R: Read>(records: &mut csv::StringRecordsIter<'_, R>) -> Option<usize> {
+    let mut n = 0usize;
+    loop {
+        match next_record(records) {
+            Ok(Some(_)) => n += 1,
+            Ok(None) => return Some(n),
+            Err(_) => return None,
+        }
+    }
 }
 
 /// 取り込み先の1列
@@ -622,11 +650,7 @@ pub fn max_params(db: crate::models::DbType) -> usize {
 ///
 /// 見比べるのはCSVの文字そのままなので、`1` と `01` のように
 /// DBの型に直すと同じになる書き方までは揃えられない
-pub fn dedupe_rows(
-    params: &mut Vec<Option<String>>,
-    width: usize,
-    key_idx: &[usize],
-) -> usize {
+pub fn dedupe_rows(params: &mut Vec<Option<String>>, width: usize, key_idx: &[usize]) -> usize {
     // 列が無ければ行も無い / まとめる手掛かりが無ければそのまま
     if width == 0 {
         params.clear();
@@ -707,12 +731,77 @@ mod tests {
             .collect()
     }
 
+    /// 一時ファイルへ書いてから読み取る (preview はパスを受け取るため)
+    fn preview_text(body: &str, has_header: bool) -> CsvPreview {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "quelio_preview_{}_{}.csv",
+            std::process::id(),
+            body.len()
+        ));
+        std::fs::write(&path, body).unwrap();
+        let got = preview(
+            &path,
+            &CsvOptions {
+                has_header,
+                ..Default::default()
+            },
+        );
+        let _ = std::fs::remove_file(&path);
+        got.unwrap()
+    }
+
+    #[test]
+    fn 取り込める行数を数える() {
+        // 見出しの下に3行
+        let p = preview_text("a,b\n1,2\n3,4\n5,6\n", true);
+        assert_eq!(p.total_rows, Some(3));
+        assert_eq!(p.rows.len(), 3);
+
+        // 見出し無しなら1行目も数える
+        let p = preview_text("1,2\n3,4\n", false);
+        assert_eq!(p.total_rows, Some(2));
+    }
+
+    #[test]
+    fn 先頭に出す分より多くても全部数える() {
+        let mut body = String::from("a,b\n");
+        for i in 0..(PREVIEW_ROWS * 3) {
+            body.push_str(&format!("{i},x\n"));
+        }
+        let p = preview_text(&body, true);
+        assert_eq!(p.total_rows, Some(PREVIEW_ROWS * 3));
+        // 画面に出すのは先頭だけ
+        assert_eq!(p.rows.len(), PREVIEW_ROWS);
+    }
+
+    #[test]
+    fn 空行は数に入れない() {
+        let p = preview_text("a,b\n1,2\n\n\n3,4\n", true);
+        assert_eq!(p.total_rows, Some(2));
+    }
+
+    #[test]
+    fn 空のファイルは0行() {
+        let p = preview_text("", true);
+        assert_eq!(p.total_rows, Some(0));
+    }
+
+    #[test]
+    fn 見出しだけのファイルは0行() {
+        let p = preview_text("a,b\n", true);
+        assert_eq!(p.total_rows, Some(0));
+    }
+
     #[test]
     fn 文字コードを見分ける() {
         assert_eq!(sniff_encoding("あいう".as_bytes()), encoding_rs::UTF_8);
         assert_eq!(sniff_encoding(b"plain ascii"), encoding_rs::UTF_8);
         // BOM付きはUTF-8
-        assert_eq!(sniff_encoding(&[0xEF, 0xBB, 0xBF, b'a']), encoding_rs::UTF_8);
+        assert_eq!(
+            sniff_encoding(&[0xEF, 0xBB, 0xBF, b'a']),
+            encoding_rs::UTF_8
+        );
         // Shift_JISの「あ」(0x82 0xA0) はUTF-8として読めない
         let sjis = [0x82u8, 0xA0, 0x82, 0xA2, 0x82, 0xA4, b'\n', b'x'];
         assert_eq!(sniff_encoding(&sjis), encoding_rs::SHIFT_JIS);
@@ -761,10 +850,7 @@ mod tests {
             ImportMode::Append,
             &[],
         );
-        assert_eq!(
-            sql,
-            "INSERT INTO `t` (`a`, `b`) VALUES (?, ?), (?, ?)"
-        );
+        assert_eq!(sql, "INSERT INTO `t` (`a`, `b`) VALUES (?, ?), (?, ?)");
     }
 
     #[test]
@@ -789,15 +875,11 @@ mod tests {
         assert!(skip_sq.starts_with("INSERT INTO"));
         assert!(skip_sq.ends_with("ON CONFLICT DO NOTHING"));
 
-        let rep_sq =
-            build_insert(DbType::Sqlite, "\"t\"", &c, 1, ImportMode::Replace, &pk);
+        let rep_sq = build_insert(DbType::Sqlite, "\"t\"", &c, 1, ImportMode::Replace, &pk);
         assert!(rep_sq.starts_with("INSERT INTO"));
-        assert!(
-            rep_sq.ends_with(r#"ON CONFLICT ("id") DO UPDATE SET "name" = excluded."name""#)
-        );
+        assert!(rep_sq.ends_with(r#"ON CONFLICT ("id") DO UPDATE SET "name" = excluded."name""#));
 
-        let skip_pg =
-            build_insert(DbType::Postgresql, "\"t\"", &c, 1, ImportMode::Skip, &pk);
+        let skip_pg = build_insert(DbType::Postgresql, "\"t\"", &c, 1, ImportMode::Skip, &pk);
         assert!(skip_pg.ends_with("ON CONFLICT DO NOTHING"));
     }
 

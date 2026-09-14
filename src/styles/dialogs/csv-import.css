@@ -86,6 +86,13 @@
   max-width: 200px;
 }
 
+/* SelectMenu は外側のdivが幅を持たないと、中のボタンが伸びない */
+.csv-map-table th .select-menu-wrap,
+.csv-field .select-menu-wrap {
+  width: 100%;
+  min-width: 0;
+}
+
 .csv-map-select.skip {
   color: var(--text-faint);
 }
@@ -112,4 +119,22 @@
 .csv-import-hint {
   flex: 1;
   font-size: 11px;
+}
+
+/* 取り込み中の進み具合 (件数の下に帯を出す) */
+.csv-progress-wrap {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.csv-progress-bar {
+  display: block;
+  width: 100%;
+}
+
+.csv-progress-bar .job-bar-fill {
+  display: block;
 }
