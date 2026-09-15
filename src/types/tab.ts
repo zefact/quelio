@@ -173,6 +173,8 @@ export interface WorkTab {
   columnTips: Record<string, string>;
   /** columnTipsを読み込み済みのDB名 (未読込はnull) */
   columnTipsDb: string | null;
+  /** SQL結果ヘッダに出す日本語名 (カラム名(小文字) → 論理名) */
+  columnLabels: Record<string, string>;
   /** 接続後の右ペイン表示 (構造 or SQLエディタ) */
   view: "structure" | "query";
   /** SQLエディタまわり (まとめて画面へ渡す) */
@@ -210,6 +212,7 @@ export function emptyTab(key: string): WorkTab {
     kv: {},
     columnTips: {},
     columnTipsDb: null,
+    columnLabels: {},
     view: "structure",
     editor: emptyEditorState(),
     error: null,

@@ -3,6 +3,7 @@ import type {
   CellValue,
   ColumnInfo,
   DbType,
+  HeaderLabelMode,
   RowCell,
   RowChange,
 } from "../types";
@@ -26,6 +27,8 @@ import {
   useEscapeCancel,
   useGridFocus,
 } from "../hooks/useEditableGrid";
+import { HeaderLabelPicker } from "./HeaderLabelPicker";
+import { headerText, headerWidth } from "../headerLabel";
 
 interface Props {
   /** データタブの状態と操作 (上の画面から素通しで渡ってくる) */
@@ -34,6 +37,11 @@ interface Props {
   showRowNumbers: boolean;
   /** カラム名(小文字) → 論理名・補足・型の説明 (ヘッダのツールチップ用) */
   columnTips: Record<string, string>;
+  /** カラム名(小文字) → 日本語名 (ヘッダに出す名前用) */
+  columnLabels: Record<string, string>;
+  /** ヘッダに出す名前 (英語名 / 日本語名 / 両方) */
+  headerMode: HeaderLabelMode;
+  onChangeHeaderMode: (mode: HeaderLabelMode) => void;
   /** テーブルのカラム定義 (主キーの判定に使う。未取得なら空) */
   tableColumns: ColumnInfo[];
   /** データを編集できるか (ビュー・Valkey以外) */
@@ -97,6 +105,9 @@ function TableDataViewInner({
   pane,
   showRowNumbers,
   columnTips,
+  columnLabels,
+  headerMode,
+  onChangeHeaderMode,
   tableColumns,
   canEdit,
   editDisabledReason,
@@ -212,16 +223,23 @@ function TableDataViewInner({
   );
 
   const columns: GridColumn[] = useMemo(() => {
-    const cols: GridColumn[] = dataColumns.map((name, i) => ({
-      id: `c${i}`,
-      label: name,
-      width: Math.min(260, Math.max(90, name.length * 10 + 40)),
-      minWidth: 60,
-      align: kindAlign(colKinds[i] ?? "text"),
-      cellClass: kindClass(colKinds[i] ?? "text"),
-      // 定義から読み取った論理名・補足をヘッダのツールチップに出す
-      description: columnTips[name.toLowerCase()],
-    }));
+    const cols: GridColumn[] = dataColumns.map((name, i) => {
+      const head = headerText(name, columnLabels[name.toLowerCase()], headerMode);
+      return {
+        id: `c${i}`,
+        label: head.main,
+        // INSERT文はDBのカラム名で組み立てる
+        name,
+        subLabel: head.sub,
+        labelJa: head.mainJa,
+        width: headerWidth(head.main, head.sub),
+        minWidth: 60,
+        align: kindAlign(colKinds[i] ?? "text"),
+        cellClass: kindClass(colKinds[i] ?? "text"),
+        // 定義から読み取った論理名・補足をヘッダのツールチップに出す
+        description: columnTips[name.toLowerCase()],
+      };
+    });
     if (showRowNumbers && cols.length > 0) {
       // 表示中の最大行番号に合わせて幅を決める
       const maxNum = (data?.offset ?? 0) + (data?.rows.length ?? 0);
@@ -238,7 +256,7 @@ function TableDataViewInner({
       });
     }
     return cols;
-  }, [data, dataColumns, showRowNumbers, columnTips, colKinds]);
+  }, [data, dataColumns, showRowNumbers, columnTips, columnLabels, headerMode, colKinds]);
 
   /** グリッドに表示するソート状態 (サーバーサイドソートの結果をそのまま反映) */
   const sort: SortState | null = useMemo(() => {
@@ -268,9 +286,11 @@ function TableDataViewInner({
             data.rows.length,
             data.orderBy ?? "",
             data.orderDir ?? "",
+            // ヘッダの出し方を変えたら、列幅も測り直す (2段になると幅が変わる)
+            headerMode,
           ].join("|")
         : "",
-    [data, dataColumns]
+    [data, dataColumns, headerMode]
   );
 
   /** 指定行の編集を始める */
@@ -539,6 +559,9 @@ function TableDataViewInner({
         >
           条件を作る
         </button>
+        {/* ヘッダに出す名前の切り替え (グリッドのすぐ上に置く) */}
+        <HeaderLabelPicker mode={headerMode} onChange={onChangeHeaderMode} />
+
         {/* 行の追加は絞り込みとは別の操作なので、間を空けて右側へ置く */}
         <span className="table-data-gap" />
         {editable && (

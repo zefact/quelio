@@ -44,6 +44,7 @@ import { SettingsModal } from "../SettingsModal";
 import { useCsvRows } from "../../hooks/useCsvRows";
 import type { CsvRows } from "../../hooks/useCsvRows";
 import { useDismiss } from "../../hooks/useDismiss";
+import { usePopupPosition } from "../../hooks/usePopupPosition";
 import { useFileDrop } from "../../hooks/useFileDrop";
 import type {
   CsvColumnFilter,
@@ -226,6 +227,13 @@ export function CsvWindow() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [diffSetup, setDiffSetup] = useState(false);
   const [compare, setCompare] = useState<Compare | null>(null);
+  /**
+   * 比較のタブを出しているか。
+   *
+   * 比較の結果 (compare) を持ったままファイルのタブへ戻れるように、
+   * 「結果があるか」と「今それを見ているか」を分けて持つ
+   */
+  const [showCompare, setShowCompare] = useState(false);
   /** 左右に分けて出しているか */
   const [split, setSplit] = useState(false);
   /** 右側に出しているファイル */
@@ -664,6 +672,7 @@ export function CsvWindow() {
     }
     // 閉じたファイルを使った比較は見せたままにしない
     setCompare(null);
+    setShowCompare(false);
     setTabs((prev) => {
       const rest = prev.filter((x) => x.docId !== t.docId);
       dropFromPanes(rest, new Set([t.docId]));
@@ -689,6 +698,7 @@ export function CsvWindow() {
     }
     // 閉じたファイルを使った比較は見せたままにしない
     setCompare(null);
+    setShowCompare(false);
     setTabs((prev) => {
       const rest = prev.filter((x) => !ids.has(x.docId));
       dropFromPanes(rest, ids);
@@ -722,6 +732,8 @@ export function CsvWindow() {
         leftName: tabs.find((t) => t.docId === leftId)?.name ?? "",
         rightName: tabs.find((t) => t.docId === rightId)?.name ?? "",
       });
+      // 出来上がったら、その場で比較のタブへ移る
+      setShowCompare(true);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -754,6 +766,17 @@ export function CsvWindow() {
 
   // メニューは、どこか他を触ったら閉じる (タブバーの空いている所も含めて)
   useDismiss(!!menu, () => setMenu(null));
+
+  /*
+   * 右クリックメニューの位置。
+   *
+   * 画面の右端・下端で開いたときに、はみ出して読めなくならないよう
+   * 折り返してもらう (置き場所の計算はフックに任せる)
+   */
+  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
+    menu?.x ?? 0,
+    menu?.y ?? 0
+  );
 
   /** ウィンドウを本当に閉じる */
   const shutWindow = async () => {
@@ -884,6 +907,8 @@ export function CsvWindow() {
 
       <CsvGrid
         key={`${side}:${tab.docId}`}
+        // 開いた直後から、そのまま打てる・動かせるようにする
+        autoFocus={focus === side}
         columns={tab.columns}
         rowCount={tab.rowCount}
         rows={paneRows}
@@ -996,6 +1021,8 @@ export function CsvWindow() {
         leftId={activeId}
         rightId={split ? rightId : null}
         onSelect={(id) => {
+          // ファイルを選んだら、比較のタブから戻る
+          setShowCompare(false);
           if (split && focus === "right") {
             setRightId(id);
             setRightCursor({ row: 0, col: 0 });
@@ -1014,6 +1041,20 @@ export function CsvWindow() {
           )
         }
         onOpenSettings={() => setSettingsOpen(true)}
+        diff={
+          compare
+            ? {
+                label: "比較",
+                title: `比較: ${compare.leftName} ⇔ ${compare.rightName}`,
+                active: showCompare,
+              }
+            : null
+        }
+        onSelectDiff={() => setShowCompare(true)}
+        onCloseDiff={() => {
+          setCompare(null);
+          setShowCompare(false);
+        }}
       />
 
       <CsvToolbar
@@ -1074,13 +1115,16 @@ export function CsvWindow() {
         </div>
       )}
 
-      {compare ? (
+      {compare && showCompare ? (
         <CsvDiffView
           overview={compare.overview}
           token={compare.token}
           leftName={compare.leftName}
           rightName={compare.rightName}
-          onClose={() => setCompare(null)}
+          onClose={() => {
+            setCompare(null);
+            setShowCompare(false);
+          }}
         />
       ) : leftTab ? (
         <div
@@ -1124,7 +1168,7 @@ export function CsvWindow() {
         </div>
       )}
 
-      {active && !compare && (
+      {active && !showCompare && (
         <div className="csv-status" data-find-skip>
           <span className="mono">
             {active.rowCount.toLocaleString()}行 × {active.columns.length}列
@@ -1226,7 +1270,8 @@ export function CsvWindow() {
       {menu && active && (
         <div
           className="context-menu"
-          style={{ left: menu.x, top: menu.y }}
+          ref={menuRef}
+          style={menuStyle}
           onMouseDown={(e) => e.stopPropagation()}
           onContextMenu={(e) => e.preventDefault()}
         >

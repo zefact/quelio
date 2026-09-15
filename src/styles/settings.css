@@ -1172,6 +1172,14 @@
   min-width: 0;
 }
 
+/* 左寄りのボタン類 (列名の切り替え・グラフ) */
+.result-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
 /* CSV出力・件数・ページ送りはまとめて右端へ寄せる */
 .result-bar-right {
   display: flex;

@@ -8,6 +8,7 @@ import type { AppSettings } from "../types";
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   commentDelimiter: "（",
   structureCommentMode: "comment",
+  headerLabelMode: "name",
   showRowNumbers: true,
   queryTimeoutSecs: 60,
   downloadDir: "",

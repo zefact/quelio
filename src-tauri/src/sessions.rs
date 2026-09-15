@@ -812,6 +812,7 @@ async fn ensure_database(
 
 /// SQL 1文の結果を全件CSVファイルへ書き出す。
 /// 画面のページング (1000行) とは無関係に、対象SQLの全行を出力する。
+/// headers を渡すと、見出し行をその名前で書く (画面と同じ見出しにするため)。
 /// jobを渡すと進捗の共有とキャンセルができる。
 /// 戻り値は (書き出した行数, キャンセルされたか)
 #[allow(clippy::too_many_arguments)]
@@ -825,6 +826,8 @@ pub async fn export_query_rows(
     order_dir: Option<String>,
     path: &std::path::Path,
     format: crate::export_rows::RowFormat,
+    // 見出しに使う名前 (画面で日本語名を出しているとき)。None ならカラム名のまま
+    headers: Option<Vec<String>>,
     job: Option<&crate::csv_job::CsvJob>,
 ) -> Result<(usize, bool), String> {
     /*
@@ -848,6 +851,11 @@ pub async fn export_query_rows(
             Box::new(crate::export_sheet::SheetSink::new(path, "結果")?)
         }
     };
+
+    // 画面と同じ見出しで書き出す (指定が無ければカラム名のまま)
+    if let Some(names) = headers {
+        sink = Box::new(crate::export_rows::RenameSink::new(sink, names));
+    }
 
     let (rows, cancelled) = export_query_to_sink(
         sessions,

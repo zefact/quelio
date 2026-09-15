@@ -29,7 +29,27 @@ import { useToast } from "../hooks/useToast";
 
 export interface GridColumn {
   id: string;
+  /**
+   * ヘッダに出す名前。
+   *
+   * コピー・書き出しの見出しにもこれを使う (画面と同じ見出しになる)
+   */
   label: string;
+  /**
+   * DBの本当のカラム名 (未指定なら label と同じ)。
+   *
+   * INSERT文の組み立てだけはこちらを使う。
+   * 日本語名を出しているときに label を使うと、動かないSQLになってしまう
+   */
+  name?: string;
+  /**
+   * ヘッダの2段目に出す文字 (英語名の下に出す日本語名など)。
+   *
+   * コピーや書き出しには出てこない、見た目だけのもの
+   */
+  subLabel?: string;
+  /** 1段目が日本語か (英語名向けの大文字化・字間を外して読みやすくする) */
+  labelJa?: boolean;
   /** 初期幅(px) */
   width: number;
   minWidth?: number;
@@ -469,8 +489,17 @@ export function ResizableGrid({
         const cs = getComputedStyle(cell);
         pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
       }
-      meas.textContent = cell.textContent ?? "";
-      max = Math.max(max, meas.offsetWidth + pad + 12);
+      // ヘッダは2段 (英語名＋日本語名) になることがあるので、
+      // つないだ1行として測らず、段ごとに測って広いほうを採る
+      const lines = cell.querySelector(".th-sub")
+        ? Array.from(cell.querySelectorAll<HTMLElement>(".th-line, .th-sub")).map(
+            (e) => e.textContent ?? ""
+          )
+        : [cell.textContent ?? ""];
+      for (const line of lines) {
+        meas.textContent = line;
+        max = Math.max(max, meas.offsetWidth + pad + 12);
+      }
     });
     meas.remove();
 
@@ -615,7 +644,11 @@ export function ResizableGrid({
       text = toInsert(
         data,
         insertTable,
-        cols.map(({ c }) => insertColumn?.(c.id, c.label) ?? c.label),
+        // INSERT文の列名は、画面の見出しではなくDBのカラム名を使う
+        cols.map(({ c }) => {
+          const name = c.name ?? c.label;
+          return insertColumn?.(c.id, name) ?? name;
+        }),
         insertDbType
       );
     } else text = toTsv(data, format === "tsvHeader" ? labels : undefined);
@@ -769,20 +802,26 @@ export function ResizableGrid({
               >
                 {/* ソートメニューを開いている列はツールチップを出さない (メニューと重なるため) */}
                 <HoverTip
-                  className="th-label"
+                  className={"th-label" + (c.subLabel ? " two-line" : "")}
                   text={c.description}
                   disabled={sortMenu?.id === c.id}
                 >
-                  {c.label}
-                  {/* 並び替え中の列だけ、方向を矢印で示す */}
-                  {sort?.id === c.id && (
-                    <span
-                      className="sort-arrow"
-                      title={sort.dir === "asc" ? "昇順" : "降順"}
-                    >
-                      {sort.dir === "asc" ? "▲" : "▼"}
+                  <span className="th-line">
+                    <span className={"th-main" + (c.labelJa ? " th-ja" : "")}>
+                      {c.label}
                     </span>
-                  )}
+                    {/* 並び替え中の列だけ、方向を矢印で示す */}
+                    {sort?.id === c.id && (
+                      <span
+                        className="sort-arrow"
+                        title={sort.dir === "asc" ? "昇順" : "降順"}
+                      >
+                        {sort.dir === "asc" ? "▲" : "▼"}
+                      </span>
+                    )}
+                  </span>
+                  {/* 2段目 (日本語名)。1段目より小さく、控えめな色で出す */}
+                  {c.subLabel && <span className="th-sub">{c.subLabel}</span>}
                 </HoverTip>
                 <span
                   className="col-resizer"

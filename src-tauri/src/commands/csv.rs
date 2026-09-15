@@ -227,6 +227,7 @@ pub async fn csv_from_query(
     order_dir: Option<String>,
     name: String,
     job_id: String,
+    headers: Option<Vec<String>>,
 ) -> Result<CsvFromQuery, String> {
     // 大きな結果は時間が掛かるので、進捗とキャンセルを出せるようにする
     let job = jobs.start(&job_id, &session_id);
@@ -269,7 +270,13 @@ pub async fn csv_from_query(
         .map_err(|_| "表を受け取れません".to_string())?
         .take()
         .ok_or_else(|| "表を受け取れません".to_string())?;
-    let mut doc = CsvDoc::from_rows(&name, got.header, got.rows);
+    // 画面で日本語名を出しているときは、見出しも画面と同じ名前にする
+    // (列数が合わないときは、取り違えるより元のカラム名のほうが安全)
+    let header = match headers {
+        Some(h) if h.len() == got.header.len() => h,
+        _ => got.header,
+    };
+    let mut doc = CsvDoc::from_rows(&name, header, got.rows);
     // ファイルから開いたものではないが、まだ何も直していない
     doc.dirty = false;
 

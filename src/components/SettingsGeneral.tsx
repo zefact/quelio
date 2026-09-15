@@ -106,6 +106,28 @@ export function SettingsGeneral({ notify }: Props) {
       <section className="set-section">
         <h3 className="set-section-title">SQL結果</h3>
         <SettingRow
+          title="ヘッダに出す名前"
+          desc="SQL実行結果とデータタブの列見出しに出す名前です。日本語名はカラムコメントの論理名で、コメントの無いカラムは英語名のままになります。結果の上の「列名」からも切り替えられます。コピー・CSV/Excel出力・CSVエディタ連携の見出しも、ここで選んだ名前になります (「両方」のときは英語名)。"
+        >
+          <div className="segmented">
+            {(
+              [
+                ["name", "英語名"],
+                ["logical", "日本語名"],
+                ["both", "両方"],
+              ] as const
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                className={"segment" + (app.headerLabelMode === m ? " active" : "")}
+                onClick={() => saveApp({ ...app, headerLabelMode: m })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </SettingRow>
+        <SettingRow
           title="行番号を表示"
           desc="SQL実行結果の左端に「行」の列 (取得結果の通し番号) を表示します。"
         >

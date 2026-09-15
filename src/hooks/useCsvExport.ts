@@ -42,6 +42,8 @@ export interface CsvExportRequest {
   index: number;
   /** CSV か Excel か */
   format: ExportFormat;
+  /** 見出しに使う名前 (未指定ならDBのカラム名のまま) */
+  headers?: string[];
 }
 
 /** CSVエディタで開くときの対象 */
@@ -56,6 +58,8 @@ export interface CsvEditorRequest {
   index: number;
   /** タブに出す名前 */
   name: string;
+  /** 見出しに使う名前 (未指定ならDBのカラム名のまま) */
+  headers?: string[];
 }
 
 /**
@@ -95,7 +99,8 @@ export function useCsvExport(key: string) {
         started.id,
         req.format,
         req.orderBy,
-        req.orderDir
+        req.orderDir,
+        req.headers
       );
       if (out.cancelled) {
         show(
@@ -135,7 +140,8 @@ export function useCsvExport(key: string) {
         req.name,
         started.id,
         req.orderBy,
-        req.orderDir
+        req.orderDir,
+        req.headers
       );
       if (out.cancelled || !out.info) {
         show(

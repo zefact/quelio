@@ -38,6 +38,89 @@
   color: var(--text);
 }
 
+/*
+ * タブと検索欄のまとまり。
+ *
+ * 一覧が長いとメニューごとスクロールするので、
+ * 探す欄がすぐ見えなくならないよう上に留める
+ */
+.lib-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--menu-bg);
+}
+
+/* ============ 履歴・お気に入りの検索欄 ============ */
+
+.lib-search {
+  display: flex;
+  align-items: center;
+  position: relative;
+  margin: 0 8px 6px;
+}
+
+.lib-search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 26px 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(var(--ink), 0.04);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.lib-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-panel);
+}
+
+.lib-search-input::placeholder {
+  color: var(--text-faint);
+}
+
+/* 打ち込んだ語を消す × (入力欄の右端に重ねる) */
+.lib-search-clear {
+  position: absolute;
+  right: 4px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+
+.lib-search-clear:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.08);
+}
+
+/* 絞り込み中のお気に入り (フォルダをたどらず平らに並べる) */
+.saved-found {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.saved-found-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* どのフォルダのものかを、名前の後ろに小さく添える */
+.saved-found-folder {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: var(--space-2);
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
 .saved-add {
   color: var(--text);
 }
@@ -1015,13 +1098,6 @@ html[data-theme="light"] .result-banner.ng {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
-}
-
-/* テーブル一覧の操作案内 (右クリックにしか無い操作を知らせる) */
-.side-table-hint {
-  margin: 6px 2px 4px;
-  font-size: 11px;
-  color: var(--text-faint);
 }
 
 .side-table-list {

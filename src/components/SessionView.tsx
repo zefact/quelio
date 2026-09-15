@@ -833,12 +833,6 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               />
-              {/* 右クリックにしか無い操作なので、一覧の上に案内を置く */}
-              <p className="side-table-hint">
-                {readOnly
-                  ? "読み取り専用の接続です (ピン留めはできます)"
-                  : "右クリックで ピン留め・作成・名前の変更・削除"}
-              </p>
               <TableList
                 tables={filteredTables}
                 emptyLabel={tables.length === 0 ? "テーブルなし" : "該当なし"}
@@ -873,6 +867,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               runStartedAt={tab.editor.startedAt}
               explainKind={sheet.queryExplain}
               columnTips={tab.columnTips}
+              columnLabels={tab.columnLabels}
               schema={schemaMap}
               autocomplete={settings?.autocompleteEnabled ?? true}
               autocompleteDelayMs={settings?.autocompleteDelayMs ?? 100}

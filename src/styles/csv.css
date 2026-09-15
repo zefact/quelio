@@ -80,6 +80,17 @@ html.macos .csv-tabs {
   transition: transform 0.16s cubic-bezier(0.2, 0, 0, 1);
 }
 
+/*
+ * 比較結果のタブ。
+ *
+ * 枠や背景はファイルのタブと同じにしておき (選んでいないときの見た目を
+ * 揃えるため)、「+」の右へ少し離して置くことだけで別物だと分かるようにする
+ */
+.csv-tab-diff {
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+
 /* 左右のどちら側に出しているかの印 */
 .csv-tab-side {
   padding: 1px 4px;
@@ -1564,7 +1575,7 @@ body.col-resizing {
   flex-direction: column;
 }
 
-/* 左右を1行の中に並べるので、行番号も絶対配置にする (sticky にはしない) */
+/* セルを絶対配置で置くので、行番号もそれに合わせる (sticky にはしない) */
 .csv-diff .csv-num {
   position: absolute;
   top: 0;
@@ -1615,35 +1626,14 @@ body.col-resizing {
   background: rgba(var(--ink), 0.02);
 }
 
-/* 左右のペアを分ける縦線 (溝の真ん中に1本だけ引く) */
-.csv-diff-split {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--border-strong);
-  pointer-events: none;
-}
-
 /*
- * 仕切りの掴める所。
+ * 比較は左右を別々の枠に入れる。
  *
- * 線そのものは .csv-diff-split が細く描くので、
- * こちらは透明なまま当たり判定だけを広く取る
- * (細い線を狙わせると、掴めずに何度もやり直すことになる)
+ * 枠ごとに横へ動かせるようにしたうえで、縦も横も位置を合わせる
+ * (同じ行・同じ列が必ず向かい合う)
  */
-.csv-diff-grip {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 11px;
-  margin-left: -5px;
-  z-index: 3;
-  cursor: col-resize;
-}
-
-.csv-diff-grip:hover {
-  background: rgba(99, 102, 241, 0.2);
+.csv-diff .csv-pane {
+  min-width: 0;
 }
 
 /* ---------- ファイルの落とし込み ---------- */

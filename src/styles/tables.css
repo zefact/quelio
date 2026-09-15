@@ -247,6 +247,46 @@
   text-overflow: ellipsis;
 }
 
+/*
+ * ヘッダを2段 (英語名＋日本語名) で出すとき。
+ *
+ * th は白地・不透明のままにしたいので、中の .th-label だけを縦並びにする
+ */
+.grid th .th-label.two-line {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  vertical-align: middle;
+}
+
+/* 1段目と並び替えの矢印 (矢印は1段目の右に付ける) */
+.grid th .th-line {
+  display: inline-flex;
+  align-items: center;
+}
+
+/*
+ * 2段目の日本語名。
+ *
+ * 1段目より控えめにして、どちらが英語名か一目で分かるようにする
+ * (日本語に大文字化・広い字間は効かないので外す)
+ */
+.grid th .th-sub {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--text-dim);
+}
+
+/* 1段目が日本語のとき (ヘッダ表示「日本語名」)。小さすぎると読めないので少し大きく */
+.grid th .th-ja {
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
 /* 並び替えは右クリックで出すので、押せる見た目 (指カーソル) にはしない */
 .grid th.sortable {
   user-select: none;

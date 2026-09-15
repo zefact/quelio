@@ -1,9 +1,9 @@
 /**
  * CSVの比較結果。
  *
- * 左右を別々にスクロールさせると必ずずれるので、
- * 「1つの行の中に左と右を並べる」形にして、スクロールは1つだけにした。
- * これで同期のずれが起きようがない。
+ * 左右をそれぞれの枠に入れて、真ん中で分ける。
+ * 枠ごとに横へ動かせるが、縦も横も位置は必ず合わせるので、
+ * どちらを動かしても同じ行・同じ列が向かい合ったまま並ぶ。
  *
  * 行数は10万を超えることがあるため、`CsvGrid` と同じく
  * 見えているぶんだけを描く
@@ -12,7 +12,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { csvDiffNext } from "../../api";
 import { useCsvDiffRows } from "../../hooks/useCsvDiffRows";
 import { fitWidth } from "./csvWidth";
-import { dragWidth, splitWidths } from "./diffWidths";
+import { dragWidth } from "./diffWidths";
 import type { CsvDiffOverview, CsvRowStatus } from "../../types";
 
 const ROW_H = 26;
@@ -21,8 +21,12 @@ const NUM_W = 60;
 const OVERSCAN = 8;
 /** 幅を「中身に合わせる」ときに見る行数 (見えているぶんから数える) */
 const FIT_SAMPLE = 200;
-/** 左右のあいだの溝 */
-const GAP = 14;
+/** 左側に取れる幅の割合の下限・上限 (片側が潰れないように) */
+const MIN_RATIO = 0.2;
+const MAX_RATIO = 0.8;
+
+/** どちら側か */
+type Side = "left" | "right";
 
 interface Props {
   overview: CsvDiffOverview;
@@ -34,7 +38,7 @@ interface Props {
 }
 
 /** 行の状態ごとのセルの色 */
-function cellClass(status: CsvRowStatus, side: "left" | "right", changed: boolean) {
+function cellClass(status: CsvRowStatus, side: Side, changed: boolean) {
   if (status === "onlyLeft") return side === "left" ? " diff-removed" : " diff-gap";
   if (status === "onlyRight") return side === "right" ? " diff-added" : " diff-gap";
   return changed ? " diff-changed" : "";
@@ -47,9 +51,13 @@ export function CsvDiffView({
   rightName,
   onClose,
 }: Props) {
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
+  const panesRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [height, setHeight] = useState(600);
+  /** 左側が使う幅の割合 (真ん中の仕切りを掴んで動かす) */
+  const [leftRatio, setLeftRatio] = useState(0.5);
   const [note, setNote] = useState<string | null>(null);
   const rows = useCsvDiffRows(token, overview.total);
 
@@ -57,7 +65,8 @@ export function CsvDiffView({
    * 列の幅。
    *
    * 左右で同じ列を並べるので、幅も左右で共通。
-   * 最初は列名から見当を付け、あとはつまみと仕切りで手で変えられる
+   * 最初は列名から見当を付け、あとは見出しのつまみで変えられる
+   * (真ん中の仕切りは幅ではなく、左右の取り分だけを変える)
    */
   const [widths, setWidths] = useState<number[]>(() =>
     overview.columns.map((c) => fitWidth(c.name, []))
@@ -66,10 +75,8 @@ export function CsvDiffView({
   useEffect(() => {
     setWidths(overview.columns.map((c) => fitWidth(c.name, [])));
   }, [overview.columns]);
-  const side = useMemo(
-    () => widths.reduce((a, b) => a + b, NUM_W),
-    [widths]
-  );
+
+  /** 列の左端 (行番号のぶんだけずらす) */
   const lefts = useMemo(() => {
     const out: number[] = [];
     let x = NUM_W;
@@ -79,16 +86,46 @@ export function CsvDiffView({
     }
     return out;
   }, [widths]);
-  const total = side * 2 + GAP;
+  /** 片側ぶんの幅 */
+  const total = useMemo(() => widths.reduce((a, b) => a + b, NUM_W), [widths]);
 
+  // 見える行数の計算に使う高さ (左右とも同じ高さなので片方で測る)
   useLayoutEffect(() => {
-    const el = wrapRef.current;
+    const el = leftRef.current;
     if (!el) return;
     const ro = new ResizeObserver(() => setHeight(el.clientHeight));
     ro.observe(el);
     setHeight(el.clientHeight);
     return () => ro.disconnect();
   }, []);
+
+  /*
+   * 相手を同じ位置へ動かしている最中か。
+   *
+   * 動かすと相手側でも onScroll が起きるので、
+   * それをそのまま返すと行ったり来たりして止まらなくなる
+   */
+  const syncing = useRef(false);
+
+  const handleScroll = (side: Side) => (e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    // 描く行の範囲は、どちらを動かしたときも同じように追いかける
+    setScrollTop(el.scrollTop);
+    if (syncing.current) return;
+    const other = (side === "left" ? rightRef : leftRef).current;
+    if (!other) return;
+    syncing.current = true;
+    if (Math.abs(other.scrollTop - el.scrollTop) >= 1) {
+      other.scrollTop = el.scrollTop;
+    }
+    if (Math.abs(other.scrollLeft - el.scrollLeft) >= 1) {
+      other.scrollLeft = el.scrollLeft;
+    }
+    // 返ってくるぶんを1フレームだけ聞き流す
+    requestAnimationFrame(() => {
+      syncing.current = false;
+    });
+  };
 
   const first = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
   const visible = Math.ceil(height / ROW_H) + OVERSCAN * 2;
@@ -98,26 +135,26 @@ export function CsvDiffView({
     rows.ensure(first, last);
   }, [rows, first, last]);
 
-  /** その行を画面の真ん中あたりへ持ってくる */
+  /** その行を画面の真ん中あたりへ持ってくる (左右そろえて動かす) */
   const reveal = useCallback((row: number) => {
-    const el = wrapRef.current;
+    const el = leftRef.current;
     if (!el) return;
-    el.scrollTop = Math.max(0, row * ROW_H - el.clientHeight / 2);
+    const top = Math.max(0, row * ROW_H - el.clientHeight / 2);
+    el.scrollTop = top;
+    if (rightRef.current) rightRef.current.scrollTop = top;
   }, []);
 
-  /*
-   * 幅を変えるドラッグ。
-   *
-   * つまみ (1列だけ) と仕切り (全部まとめて) で、掴んだあとの動きは同じ。
-   * 掴んだときの幅を覚えておき、動かすたびにそこからの差で計算し直す
-   */
-  const grab = (e: React.MouseEvent, compute: (start: number[], dx: number) => number[]) => {
+  /** 列の幅を変えるドラッグ (見出しの右端のつまみ) */
+  const grabColumn = (e: React.MouseEvent, c: number) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const start = widths;
     document.body.classList.add("col-resizing");
-    const onMove = (m: MouseEvent) => setWidths(compute(start, m.clientX - startX));
+    const onMove = (m: MouseEvent) =>
+      setWidths(
+        start.map((v, i) => (i === c ? dragWidth(start[c], m.clientX - startX) : v))
+      );
     const onUp = () => {
       document.body.classList.remove("col-resizing");
       window.removeEventListener("mousemove", onMove);
@@ -141,41 +178,31 @@ export function CsvDiffView({
     setWidths((prev) => prev.map((v, i) => (i === c ? w : v)));
   };
 
-  /** 幅を最初の見当に戻す */
-  const resetWidths = () =>
-    setWidths(overview.columns.map((c) => fitWidth(c.name, [])));
-
-  /** 列見出しの右端に置く、幅を変えるつまみ */
-  const grip = (c: number) => (
-    <span
-      className="csv-col-grip"
-      title="ドラッグで幅を変えます (ダブルクリックで中身に合わせます)"
-      onDoubleClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        fitColumn(c);
-      }}
-      onMouseDown={(e) =>
-        grab(e, (start, dx) =>
-          start.map((v, i) => (i === c ? dragWidth(start[c], dx) : v))
-        )
-      }
-    />
-  );
-
-  /** 左右を分ける仕切り (掴むと列の幅がまとめて伸び縮みする) */
-  const splitGrip = (
-    <span
-      className="csv-diff-grip"
-      style={{ left: side + GAP / 2 }}
-      title="ドラッグで列の幅をまとめて変えます (ダブルクリックで元に戻します)"
-      onDoubleClick={(e) => {
-        e.preventDefault();
-        resetWidths();
-      }}
-      onMouseDown={(e) => grab(e, splitWidths)}
-    />
-  );
+  /**
+   * 真ん中の仕切りを掴んで、左右の取り分を変える。
+   *
+   * 変えるのは取り分だけで、列の幅はそのまま
+   * (幅まで変わると、見比べている列が動いてしまう)
+   */
+  const grabSplitter = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const box = panesRef.current;
+    if (!box) return;
+    document.body.classList.add("col-resizing");
+    const onMove = (m: MouseEvent) => {
+      const rect = box.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const r = (m.clientX - rect.left) / rect.width;
+      setLeftRatio(Math.min(MAX_RATIO, Math.max(MIN_RATIO, r)));
+    };
+    const onUp = () => {
+      document.body.classList.remove("col-resizing");
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   const jump = async (backward: boolean) => {
     setNote(null);
@@ -192,47 +219,85 @@ export function CsvDiffView({
   const s = overview.summary;
   const diffCount = s.changed + s.onlyLeft + s.onlyRight;
 
-  const items = [];
-  for (let i = first; i < last; i++) {
-    const d = rows.row(i);
-    const status = d?.status ?? "same";
-    const changed = new Set(d?.changed ?? []);
-    items.push(
-      <div
-        key={i}
-        className={`csv-row diff-${status}`}
-        style={{ top: i * ROW_H, width: total }}
-      >
-        <div className="csv-num" style={{ width: NUM_W }}>
-          {d?.left !== null && d?.left !== undefined ? d.left + 1 : ""}
-        </div>
-        {overview.columns.map((_, c) => (
-          <div
-            key={`l${c}`}
-            className={"csv-cell" + cellClass(status, "left", changed.has(c))}
-            style={{ left: lefts[c], width: widths[c] }}
-            title={d?.leftCells[c]}
-          >
-            {d?.leftCells[c] ?? ""}
+  /** 片側ぶんの表 */
+  const pane = (side: Side) => {
+    const items = [];
+    for (let i = first; i < last; i++) {
+      const d = rows.row(i);
+      const status = d?.status ?? "same";
+      const changed = new Set(d?.changed ?? []);
+      const num = side === "left" ? d?.left : d?.right;
+      const cells = side === "left" ? d?.leftCells : d?.rightCells;
+      items.push(
+        <div
+          key={i}
+          className={`csv-row diff-${status}`}
+          style={{ top: i * ROW_H, width: total }}
+        >
+          <div className="csv-num" style={{ width: NUM_W }}>
+            {num !== null && num !== undefined ? num + 1 : ""}
           </div>
-        ))}
+          {overview.columns.map((_, c) => (
+            <div
+              key={c}
+              className={"csv-cell" + cellClass(status, side, changed.has(c))}
+              style={{ left: lefts[c], width: widths[c] }}
+              title={cells?.[c]}
+            >
+              {cells?.[c] ?? ""}
+            </div>
+          ))}
+        </div>
+      );
+    }
 
-        <div className="csv-num diff-right" style={{ left: side + GAP, width: NUM_W }}>
-          {d?.right !== null && d?.right !== undefined ? d.right + 1 : ""}
-        </div>
-        {overview.columns.map((_, c) => (
-          <div
-            key={`r${c}`}
-            className={"csv-cell" + cellClass(status, "right", changed.has(c))}
-            style={{ left: side + GAP + lefts[c], width: widths[c] }}
-            title={d?.rightCells[c]}
-          >
-            {d?.rightCells[c] ?? ""}
+    return (
+      <div
+        className="csv-pane"
+        // 左側だけ取り分を指定する (右側は残りを埋める)
+        style={side === "left" ? { flex: `0 0 ${(leftRatio * 100).toFixed(2)}%` } : undefined}
+      >
+        <div
+          className="csv-grid"
+          ref={side === "left" ? leftRef : rightRef}
+          onScroll={handleScroll(side)}
+        >
+          <div className="csv-head" style={{ width: total, height: HEAD_H }}>
+            <div className="csv-num head" style={{ width: NUM_W }}>
+              #
+            </div>
+            {overview.columns.map((c, i) => (
+              <div
+                key={i}
+                className="csv-col"
+                style={{ left: lefts[i], width: widths[i] }}
+                title={`${c.name} (${side === "left" ? "左" : "右"})`}
+              >
+                <span className="csv-col-name">{c.name}</span>
+                <span
+                  className="csv-col-grip"
+                  title="ドラッグで幅を変えます (ダブルクリックで中身に合わせます)"
+                  onDoubleClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    fitColumn(i);
+                  }}
+                  onMouseDown={(e) => grabColumn(e, i)}
+                />
+              </div>
+            ))}
           </div>
-        ))}
+
+          <div
+            className="csv-body"
+            style={{ height: overview.total * ROW_H, width: total }}
+          >
+            {items}
+          </div>
+        </div>
       </div>
     );
-  }
+  };
 
   return (
     <div className="csv-diff">
@@ -276,55 +341,15 @@ export function CsvDiffView({
         </div>
       )}
 
-      <div
-        className="csv-grid"
-        ref={wrapRef}
-        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
-      >
-        <div className="csv-head" style={{ width: total, height: HEAD_H }}>
-          <div className="csv-num head" style={{ width: NUM_W }}>
-            #
-          </div>
-          {overview.columns.map((c, i) => (
-            <div
-              key={`lh${i}`}
-              className="csv-col"
-              style={{ left: lefts[i], width: widths[i] }}
-              title={`${c.name} (左)`}
-            >
-              <span className="csv-col-name">{c.name}</span>
-              {grip(i)}
-            </div>
-          ))}
-          <div
-            className="csv-num head diff-right"
-            style={{ left: side + GAP, width: NUM_W }}
-          >
-            #
-          </div>
-          {overview.columns.map((c, i) => (
-            <div
-              key={`rh${i}`}
-              className="csv-col"
-              style={{ left: side + GAP + lefts[i], width: widths[i] }}
-              title={`${c.name} (右)`}
-            >
-              <span className="csv-col-name">{c.name}</span>
-              {grip(i)}
-            </div>
-          ))}
-          <div className="csv-diff-split" style={{ left: side + GAP / 2 }} />
-          {splitGrip}
-        </div>
-
+      <div className="csv-panes split" ref={panesRef}>
+        {pane("left")}
         <div
-          className="csv-body"
-          style={{ height: overview.total * ROW_H, width: total }}
-        >
-          <div className="csv-diff-split" style={{ left: side + GAP / 2 }} />
-          {splitGrip}
-          {items}
-        </div>
+          className="csv-splitter"
+          title="掴んで動かすと幅を変えられます (ダブルクリックで真ん中に戻します)"
+          onMouseDown={grabSplitter}
+          onDoubleClick={() => setLeftRatio(0.5)}
+        />
+        {pane("right")}
       </div>
 
       <div className="csv-status">

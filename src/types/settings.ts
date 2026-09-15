@@ -58,6 +58,13 @@ export type ExportMode = "full" | "schema" | "data";
 /** テーブル構造ビューのコメント表示方法 */
 export type StructureCommentMode = "comment" | "split";
 
+/**
+ * 結果グリッドのヘッダに出す名前。
+ *
+ * name=英語名 (DBのカラム名) / logical=日本語名 (コメントの論理名) / both=両方
+ */
+export type HeaderLabelMode = "name" | "logical" | "both";
+
 /** カンマの位置 (leading=次の行の先頭 / trailing=その行の末尾) */
 export type SqlCommaStyle = "leading" | "trailing";
 
@@ -107,6 +114,8 @@ export interface AppSettings {
   commentDelimiter: string;
   /** テーブル構造ビューのコメント表示 (comment=そのまま / split=論理名＋補足) */
   structureCommentMode: StructureCommentMode;
+  /** SQL結果・データタブのヘッダに出す名前 (英語名 / 日本語名 / 両方) */
+  headerLabelMode: HeaderLabelMode;
   /** SQL結果に行番号を表示するか */
   showRowNumbers: boolean;
   /** SQL実行のタイムアウト (秒)。0で無制限 */

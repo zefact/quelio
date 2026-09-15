@@ -19,9 +19,11 @@ import {
   listColumnTypes,
   previewColumnDdl,
   previewIndexDdl,
+  saveAppSettings,
   setTableComment,
 } from "../api";
 import { buildColumnTips } from "../columnTips";
+import { buildColumnLabels } from "../columnLabels";
 import { quoteIdent, quoteTable } from "../tableSql";
 import { parseComment } from "../comment";
 import type {
@@ -30,6 +32,7 @@ import type {
   ColumnInfo,
   ForeignKeyChange,
   DbType,
+  HeaderLabelMode,
   IndexChange,
   CellValue,
   RowCell,
@@ -280,6 +283,22 @@ export function TableView({
     [detail, delim]
   );
 
+  /** データタブのヘッダに出す日本語名 (論理名だけ) */
+  const columnLabels = useMemo(
+    () => buildColumnLabels(detail?.columns ?? [], delim),
+    [detail, delim]
+  );
+
+  /** ヘッダに出す名前 (設定として保存するので、SQL結果側にも効く) */
+  const headerMode = settings?.headerLabelMode ?? "name";
+  const changeHeaderMode = (mode: HeaderLabelMode) => {
+    if (!settings) return;
+    setSettings({ ...settings, headerLabelMode: mode });
+    saveAppSettings({ ...settings, headerLabelMode: mode }).catch(() => {
+      /* 保存できなくても表示は変わるので、ここでは何も出さない */
+    });
+  };
+
   /** テーブルコメントの論理名 (split時に英字テーブル名の横へ出す) */
   const tableComment =
     detail?.info.find(([label]) => label === "コメント")?.[1] ?? "";
@@ -458,6 +477,9 @@ export function TableView({
             pane={dataPane}
             showRowNumbers={settings?.showRowNumbers ?? true}
             columnTips={columnTips}
+            columnLabels={columnLabels}
+            headerMode={headerMode}
+            onChangeHeaderMode={changeHeaderMode}
             tableColumns={dataColumns}
             canEdit={canEdit}
             editDisabledReason={editDisabledReason}

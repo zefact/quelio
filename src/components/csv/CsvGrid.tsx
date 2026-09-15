@@ -164,6 +164,13 @@ interface Props {
    */
   syncTop?: number;
   syncLeft?: number;
+  /**
+   * 開いた直後に、この表へキー操作を向けるか。
+   *
+   * 触っている側の表にだけ渡す (左右に分けているとき、
+   * 両方が取り合うと後から描いたほうへ行ってしまう)
+   */
+  autoFocus?: boolean;
 }
 
 export function CsvGrid({
@@ -196,6 +203,7 @@ export function CsvGrid({
   onScrollPos,
   syncTop,
   syncLeft,
+  autoFocus,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -289,6 +297,20 @@ export function CsvGrid({
       measured.current = columns;
     }
   }, [columns, rowAt, version, rowCount]);
+
+  /*
+   * 開いた直後にキー操作を受け取れるようにする。
+   *
+   * 印は最初から1行1列目に出ているのに、表に入力が向いていないと
+   * 打った文字がどこにも入らず「効かない」ように見える。
+   * ファイルを開いた・タブを切り替えたときはここから作り直されるので、
+   * その1回だけ向け直す
+   */
+  useEffect(() => {
+    if (autoFocus) wrapRef.current?.focus();
+    // 開いたときの1回だけ (以後はクリックで移る)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 画面の高さを測る (見える行数の計算に使う)
   useLayoutEffect(() => {

@@ -28,13 +28,25 @@ import type {
   SavedSqlStore,
   SqlHistoryEntry,
 } from "../../types";
-import { isInside, resolveDrop, type DragRef, type DropSpot } from "../../savedTree";
+import {
+  isInside,
+  resolveDrop,
+  type DragRef,
+  type DropSpot,
+} from "../../savedTree";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { useDismiss } from "../../hooks/useDismiss";
 import { FolderDialog } from "./FolderDialog";
 import { HistoryList } from "./HistoryList";
+import { LibrarySearch } from "./LibrarySearch";
 import { SaveSqlDialog } from "./SaveSqlDialog";
+import { SavedSearchList } from "./SavedSearchList";
 import { SavedTree } from "./SavedTree";
+import {
+  filterHistory,
+  filterSaved,
+  searchTerms,
+} from "../../sqlLibrarySearch";
 import { CaretIcon } from "../SqlToolIcons";
 
 interface Props {
@@ -59,11 +71,13 @@ export function SqlLibraryMenu({
   const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
     menuPos.x,
     menuPos.y,
-    menuPos.flipY
+    menuPos.flipY,
   );
   const btnRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<"history" | "saved">("history");
+  /** 探している語 (履歴とお気に入りで共通。タブを変えても残す) */
+  const [query, setQuery] = useState("");
   const [histEntries, setHistEntries] = useState<SqlHistoryEntry[]>([]);
   const [store, setStore] = useState<SavedSqlStore>(EMPTY);
   /** 開いているフォルダパス (既定は全て閉じた状態) */
@@ -76,17 +90,32 @@ export function SqlLibraryMenu({
     | null
   >(null);
   /** 保存/編集ダイアログ (editing = null なら新規保存) */
-  const [saveDialog, setSaveDialog] = useState<
-    { editing: SavedSqlEntry | null } | null
-  >(null);
+  const [saveDialog, setSaveDialog] = useState<{
+    editing: SavedSqlEntry | null;
+  } | null>(null);
   /** フォルダのダイアログ (target = null なら新規作成) */
-  const [folderDialog, setFolderDialog] = useState<{ target: string | null } | null>(
-    null
-  );
+  const [folderDialog, setFolderDialog] = useState<{
+    target: string | null;
+  } | null>(null);
   /** 操作に失敗したときの文言 (メニューの上に出す) */
   const [error, setError] = useState<string | null>(null);
 
   const folderPaths = useMemo(() => store.folders, [store]);
+
+  /** 探しているか (お気に入りは、探している間だけ平らな一覧にする) */
+  const searching = searchTerms(query).length > 0;
+
+  /** 絞り込んだ履歴 */
+  const shownHistory = useMemo(
+    () => filterHistory(histEntries, query),
+    [histEntries, query],
+  );
+
+  /** 絞り込んだお気に入り (探していないときは使わない) */
+  const foundSaved = useMemo(
+    () => (searching ? filterSaved(store, query) : []),
+    [store, query, searching],
+  );
 
   /**
    * ダイアログを出している間はメニューを隠す。
@@ -121,6 +150,8 @@ export function SqlLibraryMenu({
       reload();
       setConfirm(null);
       setError(null);
+      // 開くたびに、探していた語は消しておく
+      setQuery("");
       // 開くたびにフォルダは全て閉じた状態から始める
       setOpened(new Set());
       // ボタン位置からfixed配置の座標を決める。
@@ -184,7 +215,7 @@ export function SqlLibraryMenu({
   /** 削除しようとしているフォルダの中身の数 (確認に出す) */
   const folderContents = (path: string) => {
     const folders = store.folders.filter(
-      (f) => f !== path && isInside(f, path)
+      (f) => f !== path && isInside(f, path),
     ).length;
     const items = store.items.filter((e) => isInside(e.folder, path)).length;
     return { folders, items };
@@ -212,26 +243,41 @@ export function SqlLibraryMenu({
           style={menuStyle}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div className="lib-tabs">
-            <button
-              className={mode === "history" ? "active" : ""}
-              onClick={() => setMode("history")}
-            >
-              履歴
-            </button>
-            <button
-              className={mode === "saved" ? "active" : ""}
-              onClick={() => setMode("saved")}
-            >
-              お気に入り
-            </button>
+          {/* 一覧が長くなっても、タブと検索欄は上に留める */}
+          <div className="lib-head">
+            <div className="lib-tabs">
+              <button
+                className={mode === "history" ? "active" : ""}
+                onClick={() => setMode("history")}
+              >
+                履歴
+              </button>
+              <button
+                className={mode === "saved" ? "active" : ""}
+                onClick={() => setMode("saved")}
+              >
+                お気に入り
+              </button>
+            </div>
+            <div className="context-sep" />
+            <LibrarySearch
+              value={query}
+              onChange={setQuery}
+              placeholder={
+                mode === "history"
+                  ? "履歴を探す (SQLの中身)"
+                  : "お気に入りを探す (名前・フォルダ・SQLの中身)"
+              }
+              onEscape={() => setOpen(false)}
+            />
           </div>
-          <div className="context-sep" />
           {error && <div className="lib-error">{error}</div>}
 
           {mode === "history" ? (
             <HistoryList
-              entries={histEntries}
+              entries={shownHistory}
+              total={histEntries.length}
+              query={query}
               onPick={(sql) => {
                 onSelect(sql);
                 setOpen(false);
@@ -259,20 +305,34 @@ export function SqlLibraryMenu({
                 ＋ 新しいフォルダ...
               </button>
               <div className="context-sep" />
-              <SavedTree
-                store={store}
-                opened={opened}
-                onToggleFolder={toggleFolder}
-                onPickItem={(it) => {
-                  onSelect(it.sql);
-                  setOpen(false);
-                }}
-                onEditItem={(it) => openSaveDialog(it)}
-                onDeleteItem={(entry) => setConfirm({ kind: "item", entry })}
-                onRenameFolder={(path) => setFolderDialog({ target: path })}
-                onDeleteFolder={(path) => setConfirm({ kind: "folder", path })}
-                onMove={handleMove}
-              />
+              {searching ? (
+                <SavedSearchList
+                  entries={foundSaved}
+                  onPick={(it) => {
+                    onSelect(it.sql);
+                    setOpen(false);
+                  }}
+                  onEdit={(it) => openSaveDialog(it)}
+                  onDelete={(entry) => setConfirm({ kind: "item", entry })}
+                />
+              ) : (
+                <SavedTree
+                  store={store}
+                  opened={opened}
+                  onToggleFolder={toggleFolder}
+                  onPickItem={(it) => {
+                    onSelect(it.sql);
+                    setOpen(false);
+                  }}
+                  onEditItem={(it) => openSaveDialog(it)}
+                  onDeleteItem={(entry) => setConfirm({ kind: "item", entry })}
+                  onRenameFolder={(path) => setFolderDialog({ target: path })}
+                  onDeleteFolder={(path) =>
+                    setConfirm({ kind: "folder", path })
+                  }
+                  onMove={handleMove}
+                />
+              )}
             </>
           )}
         </div>
@@ -342,7 +402,9 @@ export function SqlLibraryMenu({
             const editing = saveDialog.editing;
             // 新規: エディタのSQL / 編集: 上書き指定時だけ差し替える
             const sql = editing && !overwrite ? editing.sql : currentSql;
-            setStore(await upsertSavedSql(editing?.id ?? null, name, folder, sql));
+            setStore(
+              await upsertSavedSql(editing?.id ?? null, name, folder, sql),
+            );
             setSaveDialog(null);
           }}
         />

@@ -382,6 +382,7 @@ pub async fn export_query_rows(
     order_dir: Option<String>,
     format: String,
     job_id: String,
+    headers: Option<Vec<String>>,
 ) -> Result<CsvExportResult, String> {
     // 先にジョブを登録する。保存先を決める間にキャンセルを押されても取りこぼさない
     let job = jobs.start(&job_id, &session_id);
@@ -405,6 +406,7 @@ pub async fn export_query_rows(
         order_dir,
         &path,
         fmt,
+        headers,
         Some(&job),
     )
     .await;

@@ -762,7 +762,9 @@ export function exportQueryRows(
   jobId: string,
   format: ExportFormat,
   orderBy?: string,
-  orderDir?: string
+  orderDir?: string,
+  /** 見出しに使う名前 (画面で日本語名を出しているとき)。未指定ならカラム名のまま */
+  headers?: string[]
 ): Promise<CsvExportResult> {
   return call("export_query_rows", {
     sessionId,
@@ -772,6 +774,7 @@ export function exportQueryRows(
     format,
     orderBy,
     orderDir,
+    headers: headers ?? null,
   });
 }
 
@@ -801,7 +804,9 @@ export function csvFromQuery(
   name: string,
   jobId: string,
   orderBy?: string,
-  orderDir?: string
+  orderDir?: string,
+  /** 見出しに使う名前 (画面で日本語名を出しているとき)。未指定ならカラム名のまま */
+  headers?: string[]
 ): Promise<CsvFromQuery> {
   return call("csv_from_query", {
     sessionId,
@@ -811,6 +816,7 @@ export function csvFromQuery(
     jobId,
     orderBy: orderBy ?? null,
     orderDir: orderDir ?? null,
+    headers: headers ?? null,
   });
 }
 

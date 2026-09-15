@@ -24,6 +24,15 @@ interface Props {
   onOpenSettings: () => void;
   /** ドラッグでタブの並びを変える */
   onReorder: (from: number, to: number) => void;
+  /**
+   * 比較結果のタブ (比較していなければ null)。
+   *
+   * ファイルのタブとは別物なので、いちばん右に分けて置く。
+   * 並べ替えの対象にもしない (1枚しかないため)
+   */
+  diff: { label: string; title: string; active: boolean } | null;
+  onSelectDiff: () => void;
+  onCloseDiff: () => void;
 }
 
 /**
@@ -61,8 +70,13 @@ export function CsvTabs({
   onOpenDb,
   onOpenSettings,
   onReorder,
+  diff,
+  onSelectDiff,
+  onCloseDiff,
 }: Props) {
   const isBeta = isBetaVersion(useAppVersion());
+  // 比較を出している間は、ファイル側のタブは選ばれていない見た目にする
+  const fileActive = diff?.active ? null : activeId;
   // ドラッグで並べ替える (掴んだタブが、通りかかったタブと入れ替わる)
   const drag = useTabReorder({ onMove: onReorder });
   return (
@@ -88,10 +102,10 @@ export function CsvTabs({
             {...{ [TAB_MARK]: i }}
             className={
               "csv-tab" +
-              (t.docId === activeId ? " active" : "") +
+              (t.docId === fileActive ? " active" : "") +
               // 分割の相方は、触っている側より控えめに印を付ける
-              (t.docId !== activeId && t.docId === rightId ? " side" : "") +
-              (t.docId !== activeId && t.docId === leftId ? " side" : "") +
+              (t.docId !== fileActive && t.docId === rightId ? " side" : "") +
+              (t.docId !== fileActive && t.docId === leftId ? " side" : "") +
               (drag.dragging === i ? " dragging" : "")
             }
             style={drag.styleOf(i)}
@@ -130,6 +144,30 @@ export function CsvTabs({
       <button className="tab-add" title="新しいCSV" onClick={onAdd}>
         +
       </button>
+
+      {/* 比較結果は専用のタブで出す (ファイルのタブと行き来できる) */}
+      {diff && (
+        <div
+          className={"csv-tab csv-tab-diff" + (diff.active ? " active" : "")}
+          title={diff.title}
+          onMouseDown={(e) => {
+            if (e.button !== 0) return;
+            onSelectDiff();
+          }}
+        >
+          <span className="csv-tab-name">{diff.label}</span>
+          <button
+            className="csv-tab-close"
+            title="比較を閉じる"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCloseDiff();
+            }}
+          >
+            <CloseMark />
+          </button>
+        </div>
+      )}
 
       {/* 余った所を掴んでウィンドウを動かせるようにする */}
       <span className="csv-tabs-drag" data-tauri-drag-region />

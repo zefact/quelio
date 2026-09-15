@@ -54,6 +54,41 @@ pub trait RowSink: Send {
     fn finish(self: Box<Self>) -> Result<(), String>;
 }
 
+/// 見出しだけを差し替えて、あとは元の書き出し先へそのまま流す包み。
+///
+/// 画面で「日本語名」を出しているときに、書き出したファイルの見出しも
+/// 画面と同じ名前にするために挟む
+pub struct RenameSink {
+    inner: Box<dyn RowSink>,
+    /// 差し替える見出し
+    names: Vec<String>,
+}
+
+impl RenameSink {
+    pub fn new(inner: Box<dyn RowSink>, names: Vec<String>) -> Self {
+        Self { inner, names }
+    }
+}
+
+impl RowSink for RenameSink {
+    fn header(&mut self, names: &[String]) -> Result<(), String> {
+        // 列数が合わないときは、名前を取り違えるより元のままのほうが安全
+        if self.names.len() == names.len() {
+            self.inner.header(&self.names)
+        } else {
+            self.inner.header(names)
+        }
+    }
+
+    fn row(&mut self, cells: &[Option<CsvCell>]) -> Result<(), String> {
+        self.inner.row(cells)
+    }
+
+    fn finish(self: Box<Self>) -> Result<(), String> {
+        self.inner.finish()
+    }
+}
+
 /// CSVとして書き出す
 pub struct CsvSink<W: std::io::Write> {
     out: W,
@@ -82,5 +117,64 @@ impl<W: std::io::Write + Send> RowSink for CsvSink<W> {
 
     fn finish(mut self: Box<Self>) -> Result<(), String> {
         std::io::Write::flush(&mut self.out).map_err(|e| format!("CSVを書き込めません: {e}"))
+    }
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+
+    /// 受け取った見出しと行を覚えておくだけの書き出し先
+    #[derive(Default)]
+    struct Recorder {
+        header: Vec<String>,
+        rows: usize,
+        slot: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl RowSink for Recorder {
+        fn header(&mut self, names: &[String]) -> Result<(), String> {
+            self.header = names.to_vec();
+            Ok(())
+        }
+        fn row(&mut self, _cells: &[Option<CsvCell>]) -> Result<(), String> {
+            self.rows += 1;
+            Ok(())
+        }
+        fn finish(self: Box<Self>) -> Result<(), String> {
+            *self.slot.lock().map_err(|_| "受け取れません".to_string())? = self.header;
+            Ok(())
+        }
+    }
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// 包んで書き出し、締めたあとの見出しを返す
+    fn run(rename: &[&str], from: &[&str]) -> Vec<String> {
+        let slot: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
+        let rec = Box::new(Recorder {
+            slot: slot.clone(),
+            ..Default::default()
+        });
+        let mut sink: Box<dyn RowSink> = Box::new(RenameSink::new(rec, names(rename)));
+        sink.header(&names(from)).expect("見出しを書けること");
+        sink.row(&[Some(CsvCell::text("1".into()))])
+            .expect("行を書けること");
+        sink.finish().expect("締められること");
+        let got = slot.lock().expect("受け取れること").clone();
+        got
+    }
+
+    #[test]
+    fn 見出しを差し替える() {
+        assert_eq!(run(&["利用者ID", "名前"], &["user_id", "name"]), names(&["利用者ID", "名前"]));
+    }
+
+    #[test]
+    fn 列数が合わなければ元の見出しのまま() {
+        // 取り違えた名前を書くくらいなら、元のカラム名のほうが役に立つ
+        assert_eq!(run(&["利用者ID"], &["user_id", "name"]), names(&["user_id", "name"]));
     }
 }

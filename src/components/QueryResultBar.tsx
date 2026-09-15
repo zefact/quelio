@@ -6,6 +6,8 @@ import { QUERY_PAGE_SIZE } from "../types";
 import type { useCsvExport } from "../hooks/useCsvExport";
 import type { ExportFormat } from "../exportFormat";
 import { isExecResult, statementLabel } from "./queryResult";
+import { HeaderLabelPicker } from "./HeaderLabelPicker";
+import type { HeaderLabelMode } from "../types";
 
 interface Props {
   results: StatementResult[];
@@ -30,6 +32,9 @@ interface Props {
   /** グラフにできるか (表になる結果で、数値の列があるとき) */
   canChart: boolean;
   onOpenChart: () => void;
+  /** ヘッダに出す名前 (英語名 / 日本語名 / 両方) */
+  headerMode: HeaderLabelMode;
+  onChangeHeaderMode: (mode: HeaderLabelMode) => void;
 }
 
 /**
@@ -52,6 +57,8 @@ export function QueryResultBar({
   onPage,
   canChart,
   onOpenChart,
+  headerMode,
+  onChangeHeaderMode,
 }: Props) {
   return (
     <div className="result-bar">
@@ -73,6 +80,11 @@ export function QueryResultBar({
       {/* 画面の左寄りに並ぶボタンなので、説明は左端を起点に右へ伸ばす
           (既定の右端起点だと、説明の左側が画面の外へ出て読めなくなる) */}
       <div className="result-actions">
+        {/* ヘッダに出す名前の切り替え (表になる結果でだけ意味がある) */}
+        {!running && result && !isExecResult(result) && (
+          <HeaderLabelPicker mode={headerMode} onChange={onChangeHeaderMode} />
+        )}
+
         <button
           className="btn-secondary has-tooltip tooltip-wrap tooltip-left"
           data-tooltip={"この結果を棒・折れ線・円グラフで見ます\n(集計クエリの確認用)"}

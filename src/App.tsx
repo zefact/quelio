@@ -56,6 +56,7 @@ import { runScope } from "./runTicket";
 import type { RunTicket } from "./runTicket";
 import type { ParamRequest } from "./paramRequest";
 import { buildSchemaTips } from "./columnTips";
+import { buildSchemaLabels } from "./columnLabels";
 import { buildTableSelect, tableKey } from "./tableSql";
 import {
   dropFilters,
@@ -921,6 +922,7 @@ function App() {
       // カラム説明はDB単位のため作り直す
       columnTips: {},
       columnTipsDb: null,
+      columnLabels: {},
       error: null,
     });
     try {
@@ -951,6 +953,7 @@ function App() {
         // カラム説明も作り直す (次にSQLを実行したときに読み直す)
         columnTips: {},
         columnTipsDb: null,
+        columnLabels: {},
         // 消えたテーブルを選んだままにしない
         ...(stillExists
           ? {}
@@ -977,6 +980,7 @@ function App() {
       error: null,
       columnTips: {},
       columnTipsDb: null,
+      columnLabels: {},
       // 入力補完のカラム一覧も取り直す (テーブル名が同じままでも中身が変わる)
       schemaRev: tab.schemaRev + 1,
     });
@@ -1345,8 +1349,10 @@ function App() {
       schemaCache.current.set(cacheKey, entries);
     }
     const settings = await getAppSettings().catch(() => null);
+    const delim = settings?.commentDelimiter ?? "（";
     updateTab(key, {
-      columnTips: buildSchemaTips(entries, settings?.commentDelimiter ?? "（"),
+      columnTips: buildSchemaTips(entries, delim),
+      columnLabels: buildSchemaLabels(entries, delim),
       columnTipsDb: db,
     });
   };
@@ -1618,6 +1624,7 @@ function App() {
               tableData: emptyTableData(),
               columnTips: {},
               columnTipsDb: null,
+              columnLabels: {},
             }
           : {}),
       });

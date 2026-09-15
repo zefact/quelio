@@ -34,6 +34,8 @@ import type { ExportFormat } from "../exportFormat";
 import { isExecResult, statementLabel } from "./queryResult";
 import { isPlanResult } from "./PlanView";
 import { useWatchedSettings } from "../hooks/useWatchedSettings";
+import { exportNames, headerText, headerWidth } from "../headerLabel";
+import { saveAppSettings } from "../api";
 import { SheetTabs } from "./SheetTabs";
 import type { SchemaMap } from "./sqlCompletion";
 import { DangerousSqlConfirm } from "./DangerousSqlConfirm";
@@ -112,6 +114,8 @@ interface Props {
   explainKind: "explain" | "analyze" | null;
   /** カラム名 → 論理名・補足・型の説明 (ヘッダのツールチップ用) */
   columnTips: Record<string, string>;
+  /** カラム名 → 日本語名 (ヘッダに出す名前用) */
+  columnLabels: Record<string, string>;
   /** 入力補完に使うテーブル・カラム名 */
   schema?: SchemaMap;
   /** 入力補完を使うか (設定) */
@@ -164,6 +168,7 @@ export function QueryPanel({
   runStartedAt,
   explainKind,
   columnTips,
+  columnLabels,
   schema,
   autocomplete,
   autocompleteDelayMs,
@@ -306,6 +311,16 @@ export function QueryPanel({
   /** 行番号列を出すか (設定。設定画面や別ウィンドウでの変更に追従する) */
   const appSettings = useWatchedSettings();
   const showRowNums = appSettings.showRowNumbers;
+  /*
+   * ヘッダに出す名前 (英語名 / 日本語名 / 両方)。
+   * 設定として保存するので、結果ヘッダで切り替えると全タブに効く
+   */
+  const headerMode = appSettings.headerLabelMode;
+  const changeHeaderMode = (mode: typeof headerMode) => {
+    saveAppSettings({ ...appSettings, headerLabelMode: mode }).catch(() => {
+      /* 保存できなくても表示だけは変える必要がないので黙って諦める */
+    });
+  };
 
 
   // 新しい結果が来たら: ソート解除。文の構成が変わった場合のみ最後のタブへ
@@ -484,6 +499,23 @@ export function QueryPanel({
     });
   };
 
+  /*
+   * キャプチャの見出しも画面と同じ名前で出す。
+   *
+   * キャプチャは実行が終わった瞬間に走るので、
+   * 依存を増やして撮り直しにならないよう、参照で今の設定を持っておく
+   */
+  const headerRef = useRef({
+    labels: columnLabels,
+    mode: headerMode,
+    explain: explainKind,
+  });
+  headerRef.current = {
+    labels: columnLabels,
+    mode: headerMode,
+    explain: explainKind,
+  };
+
   // 実行完了後にキャプチャを保存する
   useEffect(() => {
     if (running || !captureReq.current) return;
@@ -491,7 +523,17 @@ export function QueryPanel({
     if (!results?.length) return;
     setCaptureMsg("キャプチャ保存中...");
     setCapturePath(null);
-    captureResults(results)
+    const { labels, mode, explain } = headerRef.current;
+    // 実行計画は英語の列名そのものに意味があるので置き換えない
+    const shots = explain
+      ? results
+      : results.map((st) => {
+          const names = exportNames(st.result.columns, labels, mode);
+          return names
+            ? { ...st, result: { ...st.result, columns: names } }
+            : st;
+        });
+    captureResults(shots)
       .then((paths) => {
         setCaptureMsg(`キャプチャ保存: ${paths.length}件 → ${paths[0] ?? ""}`);
         setCapturePath(paths[0] ?? null);
@@ -554,6 +596,20 @@ export function QueryPanel({
     numericColumns(result.columns, result.rows).length > 0;
 
   /** 表示中の結果タブをファイルへ書き出す */
+  /**
+   * コピー・書き出しの見出し (画面と同じ名前で出す)。
+   *
+   * 実行計画は英語の列名そのものに意味があるので置き換えない。
+   * 置き換えるところが無ければ undefined = 元のまま
+   */
+  const exportHeaders = useMemo(
+    () =>
+      explainKind
+        ? undefined
+        : exportNames(result?.columns ?? [], columnLabels, headerMode),
+    [result, columnLabels, headerMode, explainKind]
+  );
+
   const handleExport = (format: ExportFormat) => {
     if (!active || csv.job || running) return;
     /*
@@ -574,6 +630,7 @@ export function QueryPanel({
       // 進捗・結果はこの結果タブでのみ表示する
       index: activeIdx,
       format,
+      headers: exportHeaders,
     });
   };
 
@@ -634,6 +691,7 @@ export function QueryPanel({
       orderDir: result.orderDir,
       index: activeIdx,
       name,
+      headers: exportHeaders,
     });
   };
 
@@ -674,19 +732,30 @@ export function QueryPanel({
   );
 
   const gridColumns: GridColumn[] = useMemo(() => {
-    const cols: GridColumn[] = (result?.columns ?? []).map((name, i) => ({
-      id: `c${i}`,
-      label: name,
-      width: Math.min(260, Math.max(90, name.length * 10 + 40)),
-      minWidth: 60,
-      align: kindAlign(colKinds[i] ?? "text"),
-      cellClass: kindClass(colKinds[i] ?? "text"),
-      // EXPLAIN結果ならカラムの意味を、通常の結果なら
-      // 定義から読み取った論理名・補足をヘッダのツールチップに出す
-      description: explainKind
-        ? EXPLAIN_COL_DESC[name.toLowerCase()]
-        : columnTips[name.toLowerCase()],
-    }));
+    const cols: GridColumn[] = (result?.columns ?? []).map((name, i) => {
+      // EXPLAIN結果は英語の列名そのものに意味があるので、日本語名は当てない
+      const head = headerText(
+        name,
+        explainKind ? undefined : columnLabels[name.toLowerCase()],
+        headerMode
+      );
+      return {
+        id: `c${i}`,
+        label: head.main,
+        name,
+        subLabel: head.sub,
+        labelJa: head.mainJa,
+        width: headerWidth(head.main, head.sub),
+        minWidth: 60,
+        align: kindAlign(colKinds[i] ?? "text"),
+        cellClass: kindClass(colKinds[i] ?? "text"),
+        // EXPLAIN結果ならカラムの意味を、通常の結果なら
+        // 定義から読み取った論理名・補足をヘッダのツールチップに出す
+        description: explainKind
+          ? EXPLAIN_COL_DESC[name.toLowerCase()]
+          : columnTips[name.toLowerCase()],
+      };
+    });
     if (showRowNums && cols.length > 0) {
       // 表示中の最大行番号に合わせて幅を決める
       const maxNum = (result?.offset ?? 0) + (result?.rows.length ?? 0);
@@ -704,7 +773,7 @@ export function QueryPanel({
       });
     }
     return cols;
-  }, [result, showRowNums, explainKind, columnTips, colKinds]);
+  }, [result, showRowNums, explainKind, columnTips, columnLabels, headerMode, colKinds]);
 
   /**
    * ヘッダのソートメニューでの選択。
@@ -1084,6 +1153,8 @@ export function QueryPanel({
           onPage={onPage}
           canChart={canChart}
           onOpenChart={() => setCharting(true)}
+          headerMode={headerMode}
+          onChangeHeaderMode={changeHeaderMode}
         />
       )}
 
@@ -1098,7 +1169,8 @@ export function QueryPanel({
         onSortSelect={selectSort}
         // 実行・結果タブの切替・シートの切替のたびに列幅を測り直す
         // (シートIDを入れないと、別シートの結果に前の幅と選択が残る)
-        fitKey={`${sheetPane.activeId}:${runStartedAt ?? 0}:${activeIdx}`}
+        // ヘッダの出し方を変えたら、列幅も測り直す (2段になると幅が変わる)
+        fitKey={`${sheetPane.activeId}:${runStartedAt ?? 0}:${activeIdx}:${headerMode}`}
       />
 
       {charting && result && (

@@ -11,6 +11,10 @@ pub struct AppSettings {
     /// テーブル構造ビューのコメント表示 ("comment" = そのまま / "split" = 論理名＋補足)
     #[serde(default = "default_structure_comment_mode")]
     pub structure_comment_mode: String,
+    /// SQL結果・データタブのヘッダに出す名前
+    /// ("name" = 英語名 / "logical" = 日本語名 / "both" = 両方)
+    #[serde(default = "default_header_label_mode")]
+    pub header_label_mode: String,
     /// SQL結果に行番号を表示するか
     #[serde(default = "default_true")]
     pub show_row_numbers: bool,
@@ -135,11 +139,16 @@ fn default_structure_comment_mode() -> String {
     "comment".to_string()
 }
 
+fn default_header_label_mode() -> String {
+    "name".to_string()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             comment_delimiter: default_comment_delimiter(),
             structure_comment_mode: default_structure_comment_mode(),
+            header_label_mode: default_header_label_mode(),
             show_row_numbers: true,
             query_timeout_secs: default_query_timeout_secs(),
             download_dir: String::new(),
@@ -193,6 +202,18 @@ mod tests {
     #[test]
     fn メモリ表示の既定は出さない() {
         assert!(!AppSettings::default().show_memory);
+    }
+
+    #[test]
+    fn ヘッダに出す名前の既定は英語名() {
+        assert_eq!(AppSettings::default().header_label_mode, "name");
+    }
+
+    #[test]
+    fn ヘッダに出す名前が無い古い設定ファイルを読むと英語名になる() {
+        let json = r#"{"commentDelimiter":"（","showRowNumbers":true}"#;
+        let s: AppSettings = serde_json::from_str(json).expect("読めること");
+        assert_eq!(s.header_label_mode, "name");
     }
 
     #[test]
