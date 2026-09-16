@@ -15,6 +15,7 @@ function conn(p: Partial<ConnectionProfile>): ConnectionProfile {
     port: 3306,
     user: "root",
     password: "",
+    aiAccess: "none",
     ...p,
   };
 }

@@ -97,6 +97,8 @@ pub async fn sqlite_tables(
                 },
                 // SQLiteには統計情報が無いため概算行数は出さない
                 row_estimate: None,
+                // SQLiteにはテーブルコメントの仕組みが無い
+                comment: None,
                 partition_by: None,
                 partition_of: None,
             })

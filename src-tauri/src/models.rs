@@ -11,6 +11,62 @@ pub enum DbType {
     Valkey,
 }
 
+/// 接続をAI (MCPクライアント) へ公開する範囲。
+///
+/// 既定は「公開しない」。設定ファイルを手で書き換えられたり、
+/// 将来値が増えたりしても、読めない値は必ず「公開しない」へ倒す
+/// (開ける側へ倒れると、気づかないうちにDBが見えてしまう)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AiAccess {
+    /// AIからは存在ごと見えない
+    #[default]
+    None,
+    /// 参照のみ (更新系のSQLはサーバー側で拒否する)
+    Read,
+    /// 更新も可。ただし読み取り以外は毎回Quelioの画面で人が許可する
+    Write,
+}
+
+impl AiAccess {
+    /// 設定ファイルの文字列から読む (読めない値は「公開しない」)
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "read" => AiAccess::Read,
+            "write" => AiAccess::Write,
+            _ => AiAccess::None,
+        }
+    }
+
+    /// 設定ファイル・画面へ渡す文字列
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AiAccess::None => "none",
+            AiAccess::Read => "read",
+            AiAccess::Write => "write",
+        }
+    }
+
+    /// AIから見えるか
+    pub fn is_exposed(self) -> bool {
+        self != AiAccess::None
+    }
+}
+
+impl Serialize for AiAccess {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for AiAccess {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        // 未知の値でエラーにせず「公開しない」に落とす。
+        // ここでエラーにすると、接続先ファイル全体が読めなくなってしまう
+        let v = serde_json::Value::deserialize(d)?;
+        Ok(v.as_str().map(AiAccess::parse).unwrap_or_default())
+    }
+}
+
 /// SSH踏み台(トンネル)設定
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,6 +143,12 @@ pub struct ConnectionProfile {
     /// 定義の変更 (ALTER・RENAME) の確認を設定で外せなくする
     #[serde(default)]
     pub env: Option<String>,
+    /// この接続をAI (MCPクライアント) へ公開する範囲。
+    ///
+    /// 既定は「公開しない」。AI連携を入れても、
+    /// ここを開けていない接続はAIから一切見えない
+    #[serde(default)]
+    pub ai_access: AiAccess,
     /// ホームの先頭に固定するか (よく使う接続)
     #[serde(default)]
     pub pinned: bool,
@@ -207,6 +269,10 @@ pub struct TableInfo {
     pub table_type: String,
     /// 概算行数 (取得できない場合はNone)
     pub row_estimate: Option<i64>,
+    /// テーブルコメント (無い・扱えないDBはNone)。
+    /// 日本語名 (論理名) の取り出しに使う
+    #[serde(default)]
+    pub comment: Option<String>,
     /// PostgreSQL: このテーブル自身の分け方 (`RANGE (at)` など)。
     /// 分かれていなければ None
     #[serde(default)]

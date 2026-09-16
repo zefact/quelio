@@ -222,7 +222,7 @@ pub async fn mysql_tables(
     schema: &str,
     ctx: &LogCtx<'_>,
 ) -> Result<Vec<TableInfo>, AppError> {
-    let sql = "SELECT TABLE_NAME, TABLE_TYPE, TABLE_ROWS \
+    let sql = "SELECT TABLE_NAME, TABLE_TYPE, TABLE_ROWS, TABLE_COMMENT \
                FROM information_schema.TABLES \
                WHERE TABLE_SCHEMA = ? \
                ORDER BY TABLE_NAME";
@@ -242,6 +242,12 @@ pub async fn mysql_tables(
                     .try_get::<Option<u64>, _>("TABLE_ROWS")
                     .map_err(db_error)?
                     .map(|n| n as i64),
+                comment: row
+                    .try_get::<Option<String>, _>("TABLE_COMMENT")
+                    .ok()
+                    .flatten()
+                    // MySQLはコメントが無いと空文字を返す
+                    .filter(|c| !c.is_empty()),
                 // パーティションはPostgreSQLだけ扱う
                 partition_by: None,
                 partition_of: None,

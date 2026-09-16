@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.9.3"
+version = "0.9.4"
 description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -60,6 +60,30 @@ csv = "1"
 regex = "1"
 encoding_rs = "0.8"
 encoding_rs_io = "0.1"
+# MCPサーバー (AI連携)。公式のRust SDK。
+# local feature は futures が非Sendになり、Tauriのマルチスレッドtokio上で使えないので入れない
+rmcp = { version = "3.3.0", default-features = false, features = [
+    "macros",
+    "server",
+    "schemars",
+    "transport-streamable-http-server",
+    # --mcp-stdio の中継で使う。
+    # stdio でサーバーとして受け、HTTPのクライアントとして流す
+    "transport-io",
+    "client",
+    "transport-streamable-http-client-reqwest",
+    # reqwest の TLS を rustls にする (feature を入れないとTLSの実装が入らない)
+    "reqwest",
+] }
+# MCPのHTTP入口。rmcpが返す tower Service をそのまま載せられる系統 (http 1.x)
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query", "json"] }
+# サーバーの停止。rmcp の CancellationToken と同じものを使う
+tokio-util = "0.7"
+# --mcp-stdio (中継モード) は Tauri を初期化しないので、
+# 設定フォルダを自分で求める必要がある。Tauri が内側で使っているものと同じクレート
+dirs = "6"
+# ツールの入出力のJSON Schema (rmcpが要求するのと同じメジャーを直接指定する)
+schemars = "1"
 # テーブル定義書のExcel出力 (純Rust。Cのライブラリを持ち込まない)
 # constant_memory: 結果の書き出しは行数が読めないので、1行ずつ流して使用メモリを一定に保つ
 rust_xlsxwriter = { version = "0.95", features = ["constant_memory"] }
@@ -68,3 +92,6 @@ rust_xlsxwriter = { version = "0.95", features = ["constant_memory"] }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[dev-dependencies]
+# axum の Router を1リクエストだけ通して、門番の応答 (401/403) を確かめるため
+tower = { version = "0.5", features = ["util"] }

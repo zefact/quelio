@@ -44,28 +44,54 @@ fn has_plaintext_secret(store: &ConnectionStore) -> bool {
     })
 }
 
-/// 保存されている接続先一式を読み込む (パスワードは復号済みで返す)。
-/// 旧形式(プロファイルの配列のみ / 平文パスワード)は自動で移行する。
-pub fn load(app: &AppHandle) -> Result<ConnectionStore, String> {
+/// ファイルを読んで形にするところまで (復号も自動移行もしない)。
+///
+/// `load` と `load_without_secrets` の共通部分。
+/// 読み方を1か所にしておかないと、旧形式の扱いが片方だけ直って食い違う
+fn read_store(app: &AppHandle) -> Result<ConnectionStore, String> {
     let path = store_path(app)?;
     if !path.exists() {
         return Ok(ConnectionStore::default());
     }
     let text =
         fs::read_to_string(&path).map_err(|e| format!("設定ファイルを読み込めません: {e}"))?;
+    parse_store(&text)
+}
 
-    // 旧形式 (配列) → 新形式へ
-    let mut store: ConnectionStore = if text.trim_start().starts_with('[') {
-        let connections: Vec<ConnectionProfile> = serde_json::from_str(&text)
+/// 設定ファイルの中身を形にする (ファイルにも鍵にも触らない)。
+///
+/// ここを分けてあるのは、旧形式の読み替えを試せるようにするため。
+/// 秘匿値は **書いてあるまま** (暗号文のまま) 入る
+fn parse_store(text: &str) -> Result<ConnectionStore, String> {
+    // 旧形式 (プロファイルの配列だけ) → 新形式へ
+    if text.trim_start().starts_with('[') {
+        let connections: Vec<ConnectionProfile> = serde_json::from_str(text)
             .map_err(|e| format!("設定ファイルの形式が不正です: {e}"))?;
-        ConnectionStore {
+        return Ok(ConnectionStore {
             folders: Vec::new(),
             connections,
             ..Default::default()
-        }
-    } else {
-        serde_json::from_str(&text).map_err(|e| format!("設定ファイルの形式が不正です: {e}"))?
-    };
+        });
+    }
+    serde_json::from_str(text).map_err(|e| format!("設定ファイルの形式が不正です: {e}"))
+}
+
+/// 秘匿値を **復号せずに** 読み込む。
+///
+/// 名前・種別・環境といった「秘密でないところ」しか要らない用途 (AI連携の一覧など) 向け。
+///
+/// `load` はマスターキーを取り出す (macOS/Windows ではキーチェーンに触る) うえ、
+/// 平文が残っていれば保存し直しまで行う。
+/// 一覧を作るだけのために、全接続のパスワードを平文でメモリへ載せたくない。
+/// 返ってくる `password` / `passphrase` は暗号文のままなので、繋ぐのには使えない
+pub fn load_without_secrets(app: &AppHandle) -> Result<ConnectionStore, String> {
+    read_store(app)
+}
+
+/// 保存されている接続先一式を読み込む (パスワードは復号済みで返す)。
+/// 旧形式(プロファイルの配列のみ / 平文パスワード)は自動で移行する。
+pub fn load(app: &AppHandle) -> Result<ConnectionStore, String> {
+    let mut store = read_store(app)?;
 
     // 平文が残っていれば暗号化して保存し直す (自動移行)
     let migrate = has_plaintext_secret(&store);
@@ -173,4 +199,63 @@ pub fn save(app: &AppHandle, store: &ConnectionStore) -> Result<(), String> {
         .map_err(|e| format!("設定のシリアライズに失敗: {e}"))?;
     // 直前の内容を .bak に残しつつ、一時ファイル経由で置き換える
     crate::json_store::write_with_backup(&path, &text, "設定ファイル")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 暗号文つきの接続先 (新形式)
+    fn text() -> String {
+        format!(
+            r#"{{"connections":[{{
+                "id":"a","name":"本番参照","dbType":"mysql",
+                "host":"db.example.com","port":3306,"user":"app",
+                "password":"{p}ZW5jcnlwdGVk",
+                "aiAccess":"read",
+                "ssh":{{"enabled":true,"host":"bastion","port":22,"user":"ops",
+                       "keyPath":"/home/me/.ssh/id_ed25519",
+                       "passphrase":"{p}cGFzcw=="}}
+            }}]}}"#,
+            p = crypto::ENC_PREFIX
+        )
+    }
+
+    #[test]
+    fn 読むだけでは復号しない() {
+        // 鍵に触らないことの裏付け: 暗号文がそのまま残っていれば、復号は走っていない
+        // (キーチェーンの無い環境でもこの関数が通ることも同時に確かめている)
+        let store = parse_store(&text()).expect("読めること");
+        let c = &store.connections[0];
+        assert!(c.password.starts_with(crypto::ENC_PREFIX), "{}", c.password);
+        let pp = c.ssh.as_ref().and_then(|s| s.passphrase.as_deref()).unwrap();
+        assert!(pp.starts_with(crypto::ENC_PREFIX), "{pp}");
+    }
+
+    #[test]
+    fn 秘密でないところはそのまま読める() {
+        let store = parse_store(&text()).expect("読めること");
+        let c = &store.connections[0];
+        assert_eq!(c.name, "本番参照");
+        assert_eq!(c.ai_access, crate::models::AiAccess::Read);
+    }
+
+    #[test]
+    fn 旧形式_配列だけ_も読める() {
+        let old = r#"[{"id":"a","name":"古い","dbType":"sqlite","host":"","port":0,"user":""}]"#;
+        let store = parse_store(old).expect("読めること");
+        assert_eq!(store.connections.len(), 1);
+        assert_eq!(store.connections[0].name, "古い");
+        assert!(store.folders.is_empty());
+    }
+
+    #[test]
+    fn ai連携の指定が無ければ公開しないになる() {
+        let text = r#"{"connections":[{"id":"a","name":"x","dbType":"mysql","host":"h","port":3306,"user":"u"}]}"#;
+        let store = parse_store(text).expect("読めること");
+        assert_eq!(
+            store.connections[0].ai_access,
+            crate::models::AiAccess::None
+        );
+    }
 }

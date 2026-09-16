@@ -32,6 +32,26 @@ export function tlsUnverified(mode: SslMode | undefined): boolean {
   return mode === "" || mode === undefined || mode === "disable" || mode === "require";
 }
 
+/**
+ * この接続をAI (MCPクライアント) へ公開する範囲。
+ *
+ * none = AIからは存在ごと見えない (既定) /
+ * read = 参照のみ /
+ * write = 更新も可。ただし読み取り以外は毎回Quelioの画面で許可する
+ */
+export type AiAccess = "none" | "read" | "write";
+
+/** 公開レベルの表示名と説明 (画面の並び順もこのとおり) */
+export const AI_ACCESS: [AiAccess, string, string][] = [
+  ["none", "公開しない", "AIからは、この接続があること自体が見えません"],
+  ["read", "読み取りのみ", "参照だけ。更新系のSQLはQuelioが拒否します"],
+  [
+    "write",
+    "更新も許可",
+    "更新系のSQLは、実行のたびにQuelioの画面で許可を求めます",
+  ],
+];
+
 /** 接続先の環境。色の既定と、本番だけの安全側の扱いに使う */
 export type ConnectionEnv = "prod" | "staging" | "dev";
 
@@ -85,6 +105,15 @@ export interface ConnectionProfile {
   color?: string;
   /** 環境 (未設定なら区別しない) */
   env?: ConnectionEnv;
+  /**
+   * AIへ公開する範囲。
+   *
+   * 省略可能にしない。省略できると、画面のどこかで持ち回りを忘れたときに
+   * 保存で "none" へ戻ってしまい、「設定したのに消えた」になる
+   * (保存ファイルに無い場合の補完は Rust 側が行うので、
+   *  ここへ来る値には必ず入っている)
+   */
+  aiAccess: AiAccess;
   /** ホームの先頭に固定する (よく使う接続) */
   pinned?: boolean;
   /** 最後に接続した時刻 (ISO8601。一度も繋いでいなければ未設定) */
@@ -155,6 +184,8 @@ export function emptyProfile(): ConnectionProfile {
     database: "",
     tls: false,
     ssh: emptySsh(),
+    // 新しい接続はAIへ公開しない (開けるのは利用者が選んだときだけ)
+    aiAccess: "none",
   };
 }
 

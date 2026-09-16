@@ -566,6 +566,28 @@
               <td class="c"><span class="mark n">—</span></td>
               <td class="c"><span class="mark n">—</span></td>
             </tr>
+            <tr class="grp"><td colspan="5">AI連携（MCPサーバー）</td></tr>
+            <tr>
+              <td>AIクライアントからのスキーマ参照<span class="note">テーブル・カラムの一覧と定義、日本語名（コメントの論理名）、名前での検索</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span><span class="note">第1弾はSQLを書くDBのみ</span></td>
+            </tr>
+            <tr>
+              <td>AIからのSQL実行（参照）<span class="note">1文のみ・既定200行／最大1000行。トランザクションとセッション設定は常に拒否</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
+            <tr>
+              <td>AIからのSQL実行（更新）<span class="note">実行のたびにQuelioの画面で許可を求めます。「本番」環境の接続では許可できません</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">許可制</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">許可制</span></td>
+              <td class="c"><span class="mark p">△</span><span class="note">許可制</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -744,6 +766,14 @@
             <tr>
               <td>日時のタイムゾーン</td>
               <td>接続のタイムゾーンをアプリを動かしている端末に合わせます。<span class="note">TIMESTAMP列やテーブルの作成・更新日時は、mysql コマンドや psql と同じ時刻で表示されます。PostgreSQL の timestamptz には時差（+09:00 など）を添えます。</span></td>
+            </tr>
+            <tr>
+              <td>AI連携で対応するクライアント</td>
+              <td><b>Claude Code</b>（HTTP）／<b>Claude Desktop</b>（Quelio自身を中継役として起動）／<b>HTTP対応のクライアント全般</b>（Cursor など。URLと <span class="mono">Authorization</span> ヘッダを書ける形式）。<span class="note">設定 &gt; AI連携 に、ポートとトークンを埋め込んだ設定文が出ます。コピーして貼るだけで、書き換えは要りません。</span></td>
+            </tr>
+            <tr>
+              <td>AIに渡らないもの</td>
+              <td>接続先のホスト名・ポート・利用者名・<b>パスワード</b>・SSHの設定（鍵のパス・パスフレーズ）は、AIへ渡しません。AIが知るのは<b>接続名・DBの種別・環境ラベル・公開レベル</b>だけです。AIクライアントの設定ファイルにもDBの情報は書きません（書くのはQuelioのURLとトークンのみ）。<span class="note">待受は 127.0.0.1 のみ・トークン必須・Quelioを起動している間だけ。既定ではどの接続も公開しません。AIが実行したSQLはすべてSQLコンソールに <span class="mono">[AI]</span> 付きで残ります。</span></td>
             </tr>
             <tr>
               <td>対応OS・言語</td>

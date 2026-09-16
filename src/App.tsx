@@ -13,8 +13,11 @@ import {
   disconnectSession,
   getAppSettings,
   getSqlParams,
+  getTxnState,
   listConnections,
   listTables,
+  mcpApprovalRespond,
+  mcpPendingApprovals,
   openConsole,
   openCsvWindow,
   openDiff,
@@ -28,10 +31,10 @@ import {
   testConnection,
   trustSshHost,
   updateLayout,
-  getTxnState,
 } from "./api";
 import { listen } from "@tauri-apps/api/event";
 import { AboutDialog } from "./components/AboutDialog";
+import { AiApprovalDialog } from "./components/AiApprovalDialog";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { ConnectionPicker } from "./components/ConnectionPicker";
 import { QuickOpen } from "./components/QuickOpen";
@@ -44,11 +47,7 @@ import { SettingsModal } from "./components/SettingsModal";
 import { SqlParamModal } from "./components/SqlParamModal";
 import { DangerousSqlConfirm } from "./components/DangerousSqlConfirm";
 import { UpdateBanner } from "./components/UpdateBanner";
-import {
-  extractParams,
-  guessParamColumn,
-  isNumericType,
-} from "./sqlParams";
+import { extractParams, guessParamColumn, isNumericType } from "./sqlParams";
 import type { ParamKind, ParamValue } from "./sqlParams";
 import { createReqSeq } from "./reqSeq";
 import { handoffRun } from "./paramRequest";
@@ -56,13 +55,11 @@ import { runScope } from "./runTicket";
 import type { RunTicket } from "./runTicket";
 import type { ParamRequest } from "./paramRequest";
 import { buildSchemaTips } from "./columnTips";
+import * as aiApproval from "./aiApproval";
+import type { AiApproval } from "./aiApproval";
 import { buildSchemaLabels } from "./columnLabels";
 import { buildTableSelect, tableKey } from "./tableSql";
-import {
-  dropFilters,
-  recallFilter,
-  rememberFilter,
-} from "./tableFilterStore";
+import { dropFilters, recallFilter, rememberFilter } from "./tableFilterStore";
 import type {
   ConnectionProfile,
   ConnectionStore,
@@ -90,10 +87,7 @@ import {
 } from "./types";
 import { emitAppEvent, SAVE_SQL_EVENT } from "./appEvents";
 import { tabsReducer } from "./tabsReducer";
-import {
-  TabActionsProvider,
-  useStableActions,
-} from "./components/tabActions";
+import { TabActionsProvider, useStableActions } from "./components/tabActions";
 import { parseUnknownHost, stripHostMark } from "./sshTrust";
 import {
   loadWorkspace,
@@ -300,7 +294,7 @@ function App() {
   const handleLayout = async (
     folders: FolderInfo[],
     order: LayoutEntry[],
-    rootOrder?: string[]
+    rootOrder?: string[],
   ) => {
     setStore((s) => {
       const byId = new Map(s.connections.map((c) => [c.id, c]));
@@ -356,7 +350,7 @@ function App() {
         setWinError(
           "前回の書きかけSQLを読めませんでした。" +
             "書きかけのSQLを失わないよう、この起動では保存しません " +
-            "(設定フォルダの workspace.json を消すと次回から保存します)"
+            "(設定フォルダの workspace.json を消すと次回から保存します)",
         );
         return;
       }
@@ -369,7 +363,7 @@ function App() {
         setWinError(
           "前回の書きかけSQLが壊れていました。" +
             "書きかけのSQLを失わないよう、この起動では保存しません " +
-            "(設定フォルダの workspace.json を消すと次回から保存します)"
+            "(設定フォルダの workspace.json を消すと次回から保存します)",
         );
         return;
       }
@@ -516,6 +510,67 @@ function App() {
     };
   }, []);
 
+  /*
+   * AIからの「更新してよいか」。
+   *
+   * イベントで受けるが、ウィンドウを開き直した直後などは取りこぼしうるので、
+   * 最初に一度 mcp_pending_approvals で取り直す。
+   * 出すのは1件ずつ (まとめて出すと、どれに答えたのか分からなくなる)
+   */
+  const [approvals, setApprovals] = useState<AiApproval[]>([]);
+  useEffect(() => {
+    const un = listen<AiApproval>("mcp-approval", (e) =>
+      setApprovals((q) => aiApproval.add(q, e.payload)),
+    );
+    mcpPendingApprovals()
+      .then((list) => setApprovals((q) => aiApproval.merge(q, list)))
+      .catch(() => {
+        /* 取り直せなくても、以降のイベントは受けられる */
+      });
+    return () => {
+      un.then((f) => f()).catch(() => {});
+    };
+  }, []);
+
+  /*
+   * 残り時間を1秒ずつ減らす。
+   *
+   * 実際に拒否へ倒すのはRust側の時計 (こちらが止まっていても通らない)。
+   * ここは「押せないダイアログを出したままにしない」ためだけ
+   */
+  useEffect(() => {
+    if (approvals.length === 0) return;
+    const id = window.setInterval(
+      () => setApprovals((q) => aiApproval.tick(q)),
+      1000,
+    );
+    return () => window.clearInterval(id);
+  }, [approvals.length]);
+
+  /*
+   * 時間切れになったものを引っ込める。
+   *
+   * 減らすところ (setApprovals の更新関数) では判定しない。
+   * 更新関数は React が2回呼ぶことがあり (開発時のStrictMode)、
+   * その中で知らせると同じ通知が二重に出る
+   */
+  useEffect(() => {
+    const done = aiApproval.expired(approvals);
+    if (done.length === 0) return;
+    setWinError("AIからの実行要求を、時間切れで拒否しました");
+    setApprovals((q) =>
+      done.reduce((acc, d) => aiApproval.remove(acc, d.requestId), q),
+    );
+  }, [approvals]);
+
+  /** 許可・拒否を返す (返せなくても、こちらの行列からは外す) */
+  const answerApproval = (requestId: string, allow: boolean) => {
+    setApprovals((q) => aiApproval.remove(q, requestId));
+    mcpApprovalRespond(requestId, allow).catch((e) =>
+      setWinError(`AIへ返せませんでした: ${e}`),
+    );
+  };
+
   /** SQLエディタまわりの状態だけを部分更新する */
   const patchEditor = (key: string, patch: Partial<TabEditorState>) =>
     dispatch({ type: "patchEditor", key, patch });
@@ -548,7 +603,7 @@ function App() {
   const patchSheetOf = (
     key: string,
     sheetId: string,
-    patch: Partial<QuerySheet>
+    patch: Partial<QuerySheet>,
   ) => dispatch({ type: "patchSheet", key, sheetId, patch });
 
   /**
@@ -557,7 +612,7 @@ function App() {
    */
   const updateSheets = (
     key: string,
-    fn: (e: TabEditorState) => Partial<TabEditorState> | null
+    fn: (e: TabEditorState) => Partial<TabEditorState> | null,
   ) => dispatch({ type: "editSheets", key, edit: fn });
 
   /** シートを切り替える (中身はシートが持っているので、開く先を変えるだけ) */
@@ -565,7 +620,7 @@ function App() {
     updateSheets(key, (e) =>
       e.activeSheet === id || !e.sheets.some((s) => s.id === id)
         ? null
-        : { activeSheet: id }
+        : { activeSheet: id },
     );
   };
 
@@ -775,7 +830,7 @@ function App() {
       setStore(list);
       // すでに同じファイルの接続先があれば、それを使う (毎回増やさない)
       const found = list.connections.find(
-        (c) => c.dbType === "sqlite" && c.database === path
+        (c) => c.dbType === "sqlite" && c.database === path,
       );
       const profile =
         found ??
@@ -989,7 +1044,7 @@ function App() {
         key,
         tab.selectedDb,
         table.schema,
-        table.name
+        table.name,
       );
       updateTab(key, { tableDetail: detail, loadingDetail: false });
     } catch (e) {
@@ -1084,7 +1139,7 @@ function App() {
     where: string,
     offset: number,
     orderBy?: string,
-    orderDir?: string
+    orderDir?: string,
   ) => {
     const tab = tabOf(key);
     if (!tab?.selectedDb) return;
@@ -1110,7 +1165,7 @@ function App() {
     sql: string,
     offset: number,
     orderBy?: string,
-    orderDir?: string
+    orderDir?: string,
   ) => {
     const tab = tabOf(key);
     if (!tab?.selectedDb) return;
@@ -1124,7 +1179,7 @@ function App() {
         sql,
         offset,
         orderBy,
-        orderDir
+        orderDir,
       );
       // 後から投げたぶんが先に表示されているなら、この結果はもう古い
       if (!isLatestReq(scope, seq)) return;
@@ -1159,7 +1214,7 @@ function App() {
     offset: number | "keep",
     order?: { by: string | null; dir: "asc" | "desc" },
     /** 絞り込み条件の差し替え (画面の状態が反映される前に使う) */
-    whereOverride?: string
+    whereOverride?: string,
   ) => {
     const tab = tabOf(key);
     const table = currentTable(key);
@@ -1173,7 +1228,7 @@ function App() {
       whereOverride ?? tab.tableData.where,
       offset === "keep" ? (cur?.offset ?? 0) : offset,
       by,
-      dir
+      dir,
     );
   };
 
@@ -1190,7 +1245,7 @@ function App() {
     offset = 0,
     sqlOverride?: string,
     transaction = false,
-    explain?: "explain" | "analyze"
+    explain?: "explain" | "analyze",
   ) => {
     const key = ticket.key;
     const tab = tabOf(key);
@@ -1217,7 +1272,7 @@ function App() {
       {
         saved: getSqlParams,
         inferKind: (p) => inferParamKind(key, ticket.db, sql, p),
-      }
+      },
     );
     if (step.kind === "stale") return;
     if (step.kind === "params") {
@@ -1237,7 +1292,7 @@ function App() {
     key: string,
     db: string | null,
     sql: string,
-    name: string
+    name: string,
   ): Promise<ParamKind> => {
     if (!db) return "auto";
     const col = guessParamColumn(sql, name);
@@ -1252,7 +1307,7 @@ function App() {
     const types = entries.flatMap((e) =>
       e.detail.columns
         .filter((c) => c.name.toLowerCase() === lc)
-        .map((c) => c.colType)
+        .map((c) => c.colType),
     );
     if (types.length === 0) return "auto";
     return types.every(isNumericType) ? "number" : "string";
@@ -1276,7 +1331,7 @@ function App() {
       req.sql,
       req.transaction,
       req.explain,
-      values
+      values,
     );
   };
 
@@ -1293,7 +1348,7 @@ function App() {
     transaction: boolean,
     explain?: "explain" | "analyze",
     /** :name に入れる値 (埋め込みはバックエンドで行う) */
-    params?: Record<string, ParamValue>
+    params?: Record<string, ParamValue>,
   ) => {
     const key = ticket.key;
     const tab = tabOf(key);
@@ -1317,7 +1372,7 @@ function App() {
         undefined,
         transaction,
         explain,
-        params
+        params,
       );
       patchEditor(key, { running: false });
       patchSheetOf(key, ticket.sheet, {
@@ -1368,7 +1423,7 @@ function App() {
     index: number,
     offset: number,
     orderBy: string | undefined,
-    orderDir: string | undefined
+    orderDir: string | undefined,
   ) => {
     const tab = tabOf(key);
     if (!tab) return;
@@ -1385,7 +1440,7 @@ function App() {
         stmt.sql,
         offset,
         orderBy,
-        orderDir
+        orderDir,
       );
       // 後から投げたぶんが先に表示されているなら、この結果はもう古い
       if (!isLatestReq(scope, seq)) return;
@@ -1403,7 +1458,7 @@ function App() {
           (shown && activeSheetOf(shown.editor).queryResults) ??
           []
         ).map((st, i) =>
-          i === index ? { sql: stmt.sql, result: fresh.result } : st
+          i === index ? { sql: stmt.sql, result: fresh.result } : st,
         ),
       });
     } catch (e) {
@@ -1416,14 +1471,13 @@ function App() {
   /** 結果タブ単位のページ送り (現在のソートを維持) */
   const handlePageQuery = (key: string, index: number, offset: number) => {
     const shown = tabOf(key);
-    const stmt =
-      shown && activeSheetOf(shown.editor).queryResults?.[index];
+    const stmt = shown && activeSheetOf(shown.editor).queryResults?.[index];
     return rerunStatement(
       key,
       index,
       offset,
       stmt?.result.orderBy,
-      stmt?.result.orderDir
+      stmt?.result.orderDir,
     );
   };
 
@@ -1432,7 +1486,7 @@ function App() {
     key: string,
     index: number,
     orderBy: string | null,
-    orderDir: "asc" | "desc"
+    orderDir: "asc" | "desc",
   ) => {
     return rerunStatement(key, index, 0, orderBy ?? undefined, orderDir);
   };
@@ -1468,7 +1522,7 @@ function App() {
       run: () =>
         void openEr(
           activeTab.connected ? activeKeyNow : undefined,
-          activeTab.connected ? (activeTab.selectedDb ?? undefined) : undefined
+          activeTab.connected ? (activeTab.selectedDb ?? undefined) : undefined,
         ).catch((e) => setWinError(`ER図を開けませんでした: ${e}`)),
     },
     {
@@ -1482,7 +1536,7 @@ function App() {
         const db = activeTab.selectedDb;
         if (!db) return;
         void openSchema(activeKeyNow, db, activeTab.profile.name).catch((e) =>
-          setWinError(`スキーマを開けませんでした: ${e}`)
+          setWinError(`スキーマを開けませんでした: ${e}`),
         );
       },
     },
@@ -1492,7 +1546,7 @@ function App() {
       keywords: "diff schema compare alter",
       run: () =>
         void openDiff().catch((e) =>
-          setWinError(`スキーマ差分を開けませんでした: ${e}`)
+          setWinError(`スキーマ差分を開けませんでした: ${e}`),
         ),
     },
     {
@@ -1501,7 +1555,7 @@ function App() {
       keywords: "csv tsv editor compare diff 比較 編集",
       run: () =>
         void openCsvWindow().catch((e) =>
-          setWinError(`CSVエディタを開けませんでした: ${e}`)
+          setWinError(`CSVエディタを開けませんでした: ${e}`),
         ),
     },
     {
@@ -1510,7 +1564,7 @@ function App() {
       keywords: "console log history",
       run: () =>
         void openConsole().catch((e) =>
-          setWinError(`コンソールを開けませんでした: ${e}`)
+          setWinError(`コンソールを開けませんでした: ${e}`),
         ),
     },
     {
@@ -1567,17 +1621,18 @@ function App() {
           activeKeyNow,
           cur?.selectedDb ?? "",
           cur?.selectedTable ?? "",
-          where
+          where,
         );
       },
-      onApplyWhere: (where) => reloadTableData(activeKeyNow, 0, undefined, where),
+      onApplyWhere: (where) =>
+        reloadTableData(activeKeyNow, 0, undefined, where),
       onReload: () => reloadTableData(activeKeyNow, "keep"),
       onPage: (offset) => reloadTableData(activeKeyNow, offset),
       onSort: (by, dir) => reloadTableData(activeKeyNow, 0, { by, dir }),
     }),
     // 中の関数は tabsRef 経由で最新を見るので、依存はこの2つでよい
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeKeyNow, activeTab.tableData]
+    [activeKeyNow, activeTab.tableData],
   );
 
   const sheetPane: SheetPane = useMemo(
@@ -1593,7 +1648,7 @@ function App() {
     }),
     // 同上 (シートの操作も最新のタブに対して行う)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeKeyNow, activeTab.editor.sheets, activeTab.editor.activeSheet]
+    [activeKeyNow, activeTab.editor.sheets, activeTab.editor.activeSheet],
   );
 
   /*
@@ -1673,24 +1728,26 @@ function App() {
         onAdd={addTab}
         onOpenConsole={() =>
           openConsole().catch((e) =>
-            setWinError(`コンソールを開けませんでした: ${e}`)
+            setWinError(`コンソールを開けませんでした: ${e}`),
           )
         }
         onOpenDiff={() =>
           openDiff().catch((e) =>
-            setWinError(`スキーマ差分を開けませんでした: ${e}`)
+            setWinError(`スキーマ差分を開けませんでした: ${e}`),
           )
         }
         onOpenCsv={() =>
           openCsvWindow().catch((e) =>
-            setWinError(`CSVエディタを開けませんでした: ${e}`)
+            setWinError(`CSVエディタを開けませんでした: ${e}`),
           )
         }
         onOpenEr={() =>
           // ER図は単独で開ける。接続中なら、その接続とDBを最初から選んでおく
           openEr(
             activeTab.connected ? activeTab.key : undefined,
-            activeTab.connected ? (activeTab.selectedDb ?? undefined) : undefined
+            activeTab.connected
+              ? (activeTab.selectedDb ?? undefined)
+              : undefined,
           ).catch((e) => setWinError(`ER図を開けませんでした: ${e}`))
         }
         onOpenSettings={() => setShowSettings(true)}
@@ -1712,6 +1769,20 @@ function App() {
       <UpdateBanner />
 
       {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
+
+      {/* AIからの更新要求。出すのは先頭の1件だけ */}
+      {aiApproval.current(approvals) && (
+        <AiApprovalDialog
+          key={aiApproval.current(approvals)!.requestId}
+          item={aiApproval.current(approvals)!}
+          onDeny={() =>
+            answerApproval(aiApproval.current(approvals)!.requestId, false)
+          }
+          onAllow={() =>
+            answerApproval(aiApproval.current(approvals)!.requestId, true)
+          }
+        />
+      )}
 
       {quickOpen && (
         <QuickOpen
@@ -1794,7 +1865,7 @@ function App() {
             await trustSshHost(
               sshTrust.host,
               sshTrust.port,
-              sshTrust.fingerprint
+              sshTrust.fingerprint,
             );
             const req = sshTrust;
             setSshTrust(null);
@@ -1826,9 +1897,9 @@ function App() {
       )}
 
       {/*
-        * データタブの条件に危ないSQLが混ざっていたときの確認。
-        * トランザクションは使わない経路なので transaction={false} で出す
-        */}
+       * データタブの条件に危ないSQLが混ざっていたときの確認。
+       * トランザクションは使わない経路なので transaction={false} で出す
+       */}
       {dataDanger && (
         <DangerousSqlConfirm
           statements={dataDanger.stmts}
@@ -1879,8 +1950,7 @@ function App() {
             onKvOutput={(results, execError) =>
               patchKv(activeTab.key, { results, execError })
             }
-            onKvBrowse={(browse) => patchKv(activeTab.key, { browse })
-            }
+            onKvBrowse={(browse) => patchKv(activeTab.key, { browse })}
           />
         ) : activeTab.connected ? (
           <TabActionsProvider value={tabActions}>

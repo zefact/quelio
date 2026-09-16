@@ -53,6 +53,14 @@ pub struct AppSettings {
     /// SQLエディタの「整形」ボタンの書式
     #[serde(default)]
     pub sql_format: SqlFormatSettings,
+    /// AI連携 (MCPサーバー) を動かすか。
+    ///
+    /// 既定は動かさない。入れても、公開する設定にした接続だけが見える
+    #[serde(default)]
+    pub mcp_enabled: bool,
+    /// AI連携の待受ポート (127.0.0.1 のみ)
+    #[serde(default = "default_mcp_port")]
+    pub mcp_port: u16,
 }
 
 /// SQLの整形の書き方。
@@ -143,6 +151,12 @@ fn default_header_label_mode() -> String {
     "name".to_string()
 }
 
+/// AI連携の既定ポート。
+/// 他のアプリと重なりにくい、登録の無い範囲から選んである
+fn default_mcp_port() -> u16 {
+    41777
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -158,6 +172,8 @@ impl Default for AppSettings {
             restore_sheets: false,
             show_memory: false,
             sql_format: SqlFormatSettings::default(),
+            mcp_enabled: false,
+            mcp_port: default_mcp_port(),
         }
     }
 }
@@ -189,6 +205,9 @@ pub fn load(app: &AppHandle) -> Result<AppSettings, String> {
 }
 
 pub fn save(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+    // AI連携のポートは、待受を開くときにも見ているが、保存の時点でも弾く。
+    // 片方だけの確認は、将来どちらかが外れたときに静かに穴になる
+    crate::mcp::check_port(settings.mcp_port)?;
     let path = settings_path(app)?;
     let text = serde_json::to_string_pretty(settings)
         .map_err(|e| format!("設定のシリアライズに失敗: {e}"))?;
@@ -202,6 +221,21 @@ mod tests {
     #[test]
     fn メモリ表示の既定は出さない() {
         assert!(!AppSettings::default().show_memory);
+    }
+
+    #[test]
+    fn ai連携の既定は動かさない() {
+        let s = AppSettings::default();
+        assert!(!s.mcp_enabled);
+        assert_eq!(s.mcp_port, 41777);
+    }
+
+    #[test]
+    fn ai連携の項目が無い古い設定ファイルを読むと動かさないになる() {
+        let json = r#"{"commentDelimiter":"（","showRowNumbers":true}"#;
+        let s: AppSettings = serde_json::from_str(json).expect("読めること");
+        assert!(!s.mcp_enabled);
+        assert_eq!(s.mcp_port, 41777);
     }
 
     #[test]

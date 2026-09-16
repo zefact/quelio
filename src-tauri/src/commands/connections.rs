@@ -26,6 +26,8 @@ pub fn save_connection(
     app: AppHandle,
     mut profile: ConnectionProfile,
 ) -> Result<ConnectionProfile, String> {
+    // 本番の接続はAIからの更新を許可できない (画面でも止めているが、ここでも見る)
+    validate_ai_access(profile.env.as_deref(), profile.ai_access)?;
     // 画面が伏せたまま返してきた秘匿値は、保存済みの値で補う
     storage::restore_secrets(&app, &mut profile)?;
     let mut store = storage::load(&app)?;
@@ -54,6 +56,21 @@ pub fn save_connection(
         ssh.passphrase = None;
     }
     Ok(profile)
+}
+
+/// 本番環境の接続に、AIからの更新を許可していないか確かめる。
+///
+/// 画面でも選べないようにしてあるが、保存の入口でも見る。
+/// 片方だけの確認は、将来どちらかが外れたときに静かに穴になる
+/// (実行時にも `mcp::session::effective_access` で見ている)
+pub fn validate_ai_access(
+    env: Option<&str>,
+    access: crate::models::AiAccess,
+) -> Result<(), String> {
+    if env == Some("prod") && access == crate::models::AiAccess::Write {
+        return Err("本番環境の接続はAIからの更新を許可できません".to_string());
+    }
+    Ok(())
 }
 
 /// 接続プロファイルを削除
@@ -257,4 +274,28 @@ pub fn default_ssh_key_dir(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub async fn create_sample_database(app: AppHandle) -> Result<String, String> {
     crate::sample_db::ensure(&app).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::AiAccess;
+
+    #[test]
+    fn 本番の接続に更新は許可できない() {
+        assert!(validate_ai_access(Some("prod"), AiAccess::Write).is_err());
+    }
+
+    #[test]
+    fn 本番でも読み取りのみなら許可できる() {
+        assert!(validate_ai_access(Some("prod"), AiAccess::Read).is_ok());
+        assert!(validate_ai_access(Some("prod"), AiAccess::None).is_ok());
+    }
+
+    #[test]
+    fn 本番以外は更新も許可できる() {
+        for env in [Some("staging"), Some("dev"), None] {
+            assert!(validate_ai_access(env, AiAccess::Write).is_ok(), "{env:?}");
+        }
+    }
 }

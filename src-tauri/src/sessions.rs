@@ -267,14 +267,29 @@ pub struct Sessions(pub Mutex<HashMap<String, Arc<Mutex<Session>>>>);
 async fn get_session(
     sessions: &Sessions,
     session_id: &str,
-) -> Result<Arc<Mutex<Session>>, String> {
+) -> Result<Arc<Mutex<Session>>, AppError> {
+    /*
+     * 種別つきで返す。
+     *
+     * 「接続が開いていない」は後始末の分かれ道になる
+     * (AI連携は、これを見て1度だけ張り直す)。
+     * 文言で見分けていると、文言を直した瞬間に判定が静かに外れる
+     */
     sessions
         .0
         .lock()
         .await
         .get(session_id)
         .cloned()
-        .ok_or_else(|| "接続されていません。再接続してください".to_string())
+        .ok_or_else(AppError::no_session)
+}
+
+/// その接続が開いているか。
+///
+/// AI連携が「張り直すべきか」を決めるのに使う。
+/// エラーの文言を読み解くのではなく、状態そのものを見る
+pub async fn has_session(sessions: &Sessions, session_id: &str) -> bool {
+    sessions.0.lock().await.contains_key(session_id)
 }
 
 /// 中止対象のDBの種類を返す (未接続ならNone)。

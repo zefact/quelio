@@ -21,6 +21,10 @@ use crate::sessions::{self, CancelRegistry, Sessions};
 use crate::tools::{self, JobStatus, Jobs, StartedJob, ToolSettings, ToolStatus};
 use crate::{db, storage};
 
+/// AI連携 (MCPサーバー) の操作
+mod ai;
+pub use ai::*;
+
 /// 接続先の管理と、接続そのもの。
 mod connections;
 pub use connections::*;

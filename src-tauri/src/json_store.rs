@@ -67,6 +67,7 @@ pub const CONFIG_FILES: &[(&str, &str)] = &[
     ("saved_sql.json", "お気に入りのSQL"),
     ("sql_history.json", "SQLの実行履歴"),
     ("sql_params.json", "SQLパラメータの保存値"),
+    ("mcp_token.json", "AI連携のトークン"),
 ];
 
 /// 設定ファイルが読める形かどうかを1件ずつ確かめる。

@@ -470,7 +470,8 @@ pub async fn pg_tables(
                          THEN pg_get_partkeydef(c.oid) ELSE NULL END AS partition_by, \
                     CASE WHEN c.relispartition \
                          THEN pg_get_expr(c.relpartbound, c.oid) ELSE NULL END AS partbound, \
-                    pn.nspname AS parent_schema, p.relname AS parent_table \
+                    pn.nspname AS parent_schema, p.relname AS parent_table, \
+                    obj_description(c.oid, 'pg_class') AS comment \
              FROM pg_class c \
              JOIN pg_namespace n ON n.oid = c.relnamespace \
              LEFT JOIN pg_inherits i ON i.inhrelid = c.oid \
@@ -495,6 +496,11 @@ pub async fn pg_tables(
                 table_type: row.try_get("table_type").map_err(db_error)?,
                 // ANALYZE未実行のテーブルは -1 が入る
                 row_estimate: (estimate >= 0).then_some(estimate),
+                comment: row
+                    .try_get::<Option<String>, _>("comment")
+                    .ok()
+                    .flatten()
+                    .filter(|c| !c.is_empty()),
                 partition_by: row.try_get("partition_by").ok().flatten(),
                 partition_of: pg_partition_parent(row),
             })

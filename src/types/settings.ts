@@ -1,3 +1,5 @@
+import type { DangerousStatement } from "./query";
+
 /**
  * アプリ全体の設定と、時間のかかる処理の状態。
  * CSVの取り込み設定・外部ツール・バックアップもここ
@@ -135,6 +137,40 @@ export interface AppSettings {
   showMemory: boolean;
   /** SQLエディタの「整形」ボタンの書式 */
   sqlFormat: SqlFormatSettings;
+  /** AI連携 (MCPサーバー) を動かすか (既定は動かさない) */
+  mcpEnabled: boolean;
+  /** AI連携の待受ポート (127.0.0.1 のみ) */
+  mcpPort: number;
+}
+
+/**
+ * AI連携 (MCPサーバー) の状態。
+ *
+ * enabled は設定の値、running は実際に待ち受けているか。
+ * ポートが他のアプリと重なっていると「有効なのに動いていない」になる
+ */
+export interface McpStatus {
+  enabled: boolean;
+  running: boolean;
+  /** 待受ポート (止まっているときは設定値) */
+  port: number;
+  /** 起動できなかった理由 (動いていれば null) */
+  error: string | null;
+}
+
+/**
+ * AIが実行しようとしている更新SQL (Quelioで許可を求めるもの)。
+ *
+ * 画面側の待ち行列の型は `aiApproval.ts` にあり、これはその1件ぶん
+ */
+export interface McpPendingApproval {
+  requestId: string;
+  connection: string;
+  env: string | null;
+  database: string;
+  sql: string;
+  dangerous: DangerousStatement[];
+  remainingSecs: number;
 }
 
 /** 設定のバックアップ/復元の取り込み結果 */

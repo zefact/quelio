@@ -7,7 +7,8 @@
 use super::*;
 
 /// 取り返しのつかない可能性があるSQL (実行前に確認を出す対象)
-#[derive(Debug, Clone, serde::Serialize)]
+// PartialEq / Eq は、判定の結果を比べて試せるようにするため
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DangerousStatement {
     /// 種類の説明 (画面にそのまま出す)

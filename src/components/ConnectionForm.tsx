@@ -11,6 +11,7 @@ import type {
 } from "../types";
 import {
   DEFAULT_PORTS,
+  AI_ACCESS,
   ENVS,
   SSL_MODES,
   emptyProxy,
@@ -103,14 +104,13 @@ export function ConnectionForm({
   const sslMode: SslMode = profile.sslMode ?? "";
 
   /** 証明書ファイルを選ぶ (キャンセル時は何もしない) */
-  const pickCert = async (
-    title: string,
-    apply: (path: string) => void
-  ) => {
+  const pickCert = async (title: string, apply: (path: string) => void) => {
     const selected = await open({
       multiple: false,
       title,
-      filters: [{ name: "証明書・鍵 (PEM)", extensions: ["pem", "crt", "cer", "key"] }],
+      filters: [
+        { name: "証明書・鍵 (PEM)", extensions: ["pem", "crt", "cer", "key"] },
+      ],
     }).catch(() => null);
     if (typeof selected === "string") apply(selected);
   };
@@ -119,7 +119,7 @@ export function ConnectionForm({
   const certField = (
     label: string,
     value: string | undefined,
-    apply: (path: string) => void
+    apply: (path: string) => void,
   ) => (
     <label className="span2">
       <span className="field-label">{label}</span>
@@ -135,7 +135,13 @@ export function ConnectionForm({
           title={`${label}を選択`}
           onClick={() => pickCert(`${label}を選択`, apply)}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden
+          >
             <path
               d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
               stroke="currentColor"
@@ -159,7 +165,11 @@ export function ConnectionForm({
             {(
               [
                 ["mysql", "MySQL", "MySQL / MariaDB"],
-                ["postgresql", "PostgreSQL", "PostgreSQL (Amazon Aurora等の互換も)"],
+                [
+                  "postgresql",
+                  "PostgreSQL",
+                  "PostgreSQL (Amazon Aurora等の互換も)",
+                ],
                 ["sqlite", "SQLite", "SQLite のデータベースファイル"],
                 ["valkey", "Valkey", "Valkey / Redis 互換 (ElastiCache等)"],
               ] as [DbType, string, string][]
@@ -224,7 +234,13 @@ export function ConnectionForm({
                     }
                   }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden
+                  >
                     <path
                       d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
                       stroke="currentColor"
@@ -239,150 +255,152 @@ export function ConnectionForm({
           )}
           {!isSqlite && (
             <>
-          <label className="grow">
-            <span className="field-label">ホスト</span>
-            <input
-              className="mono"
-              value={profile.host}
-              onChange={(e) => set({ host: e.target.value })}
-              placeholder="localhost"
-            />
-          </label>
-          <label className="w-port">
-            <span className="field-label">ポート</span>
-            <input
-              className="mono"
-              type="number"
-              value={profile.port}
-              onChange={(e) => set({ port: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            <span className="field-label">
-              {profile.dbType === "valkey" ? (
-                <>
-                  DB番号 (0-15) <em>任意</em>
-                </>
-              ) : (
-                <>
-                  データベース名 <em>任意</em>
-                </>
-              )}
-            </span>
-            <input
-              className="mono"
-              value={profile.database ?? ""}
-              placeholder={profile.dbType === "valkey" ? "0" : undefined}
-              onChange={(e) => set({ database: e.target.value })}
-            />
-          </label>
-          <label>
-            <span className="field-label">
-              {profile.dbType === "valkey" ? (
-                <>
-                  ユーザー <em>任意 (ACL)</em>
-                </>
-              ) : (
-                "ユーザー"
-              )}
-            </span>
-            <input
-              className="mono"
-              value={profile.user}
-              onChange={(e) => set({ user: e.target.value })}
-            />
-          </label>
-          <label className="span2">
-            <span className="field-label">パスワード</span>
-            <input
-              type="password"
-              value={profile.passwordLocked ? "" : profile.password}
-              // 保存済みのものは中身を持ってこないので、そうと分かるようにする
-              placeholder={
-                profile.passwordSaved && !profile.passwordLocked
-                  ? "保存済み (変えるときだけ入力)"
-                  : ""
-              }
-              onChange={(e) => setSecret({ password: e.target.value })}
-            />
-          </label>
-          {profile.passwordLocked && (
-            <div className="span2 locked-secret">
-              保存されたパスワード (SSHのパスフレーズを含む) を復号できませんでした。
-              入力し直して保存してください。
-              (OSのキーチェーンが使えないなどで、暗号化に使う鍵が変わった可能性があります)
-            </div>
-          )}
-          {hasSslMode && (
-            <>
-              {/*
-                * SelectMenu はボタンで作った独自の部品なので、
-                * <label> では包まない
-                * (包むと、項目を押したクリックがラベル経由で
-                *  ボタンへ送り直され、閉じた直後にまた開いてしまう)
-                */}
-              <div className="form-field span2">
-                <span className="field-label">TLS (通信の暗号化)</span>
-                {/* ネイティブの<select>はドロップダウンがOS描画になり、
-                    アプリのテーマと合わないので共通のSelectMenuを使う */}
-                <SelectMenu
-                  className="select-field"
-                  value={sslMode}
-                  options={SSL_MODES.map(([value, label]) => ({
-                    value,
-                    label,
-                  }))}
-                  onChange={(v) => set({ sslMode: v as SslMode })}
-                />
-                {/* 「検証しない」を選んでいることに気づけるようにする */}
-                {tlsUnverified(sslMode) && (
-                  <span className="field-note warn">
-                    サーバー証明書を検証しません。通信の相手が本物かを確かめないため、
-                    途中で差し替えられても気づけません。
-                    {viaTunnel(profile)
-                      ? " (この接続はSSH / SSM経由なので、経路そのものは守られます)"
-                      : " 社内・クラウドのDBへ直接つなぐ場合は「必須 + CA証明書とホスト名を検証」を選んでください"}
-                  </span>
-                )}
-              </div>
-              {sslMode !== "" && sslMode !== "disable" && (
-                <>
-                  {(sslMode === "verify-ca" || sslMode === "verify-full") &&
-                    certField("CA証明書", profile.caCertPath, (caCertPath) =>
-                      set({ caCertPath })
-                    )}
-                  {certField(
-                    "クライアント証明書",
-                    profile.clientCertPath,
-                    (clientCertPath) => set({ clientCertPath })
-                  )}
-                  {certField(
-                    "クライアント秘密鍵",
-                    profile.clientKeyPath,
-                    (clientKeyPath) => set({ clientKeyPath })
-                  )}
-                </>
-              )}
-            </>
-          )}
-          {profile.dbType === "valkey" && (
-            <div className="span2 tls-row">
-              <span className="field-label">TLS (in-transit暗号化)</span>
-              <label className="switch">
+              <label className="grow">
+                <span className="field-label">ホスト</span>
                 <input
-                  type="checkbox"
-                  checked={profile.tls ?? false}
-                  onChange={(e) => set({ tls: e.target.checked })}
+                  className="mono"
+                  value={profile.host}
+                  onChange={(e) => set({ host: e.target.value })}
+                  placeholder="localhost"
                 />
-                <span className="track" aria-hidden />
-                <span className="switch-label">
-                  {profile.tls
-                    ? "TLSで接続する (AWS ElastiCache等で必要)"
-                    : "TLSで接続しない"}
-                </span>
               </label>
-            </div>
-          )}
+              <label className="w-port">
+                <span className="field-label">ポート</span>
+                <input
+                  className="mono"
+                  type="number"
+                  value={profile.port}
+                  onChange={(e) => set({ port: Number(e.target.value) })}
+                />
+              </label>
+              <label>
+                <span className="field-label">
+                  {profile.dbType === "valkey" ? (
+                    <>
+                      DB番号 (0-15) <em>任意</em>
+                    </>
+                  ) : (
+                    <>
+                      データベース名 <em>任意</em>
+                    </>
+                  )}
+                </span>
+                <input
+                  className="mono"
+                  value={profile.database ?? ""}
+                  placeholder={profile.dbType === "valkey" ? "0" : undefined}
+                  onChange={(e) => set({ database: e.target.value })}
+                />
+              </label>
+              <label>
+                <span className="field-label">
+                  {profile.dbType === "valkey" ? (
+                    <>
+                      ユーザー <em>任意 (ACL)</em>
+                    </>
+                  ) : (
+                    "ユーザー"
+                  )}
+                </span>
+                <input
+                  className="mono"
+                  value={profile.user}
+                  onChange={(e) => set({ user: e.target.value })}
+                />
+              </label>
+              <label className="span2">
+                <span className="field-label">パスワード</span>
+                <input
+                  type="password"
+                  value={profile.passwordLocked ? "" : profile.password}
+                  // 保存済みのものは中身を持ってこないので、そうと分かるようにする
+                  placeholder={
+                    profile.passwordSaved && !profile.passwordLocked
+                      ? "保存済み (変えるときだけ入力)"
+                      : ""
+                  }
+                  onChange={(e) => setSecret({ password: e.target.value })}
+                />
+              </label>
+              {profile.passwordLocked && (
+                <div className="span2 locked-secret">
+                  保存されたパスワード (SSHのパスフレーズを含む)
+                  を復号できませんでした。 入力し直して保存してください。
+                  (OSのキーチェーンが使えないなどで、暗号化に使う鍵が変わった可能性があります)
+                </div>
+              )}
+              {hasSslMode && (
+                <>
+                  {/*
+                   * SelectMenu はボタンで作った独自の部品なので、
+                   * <label> では包まない
+                   * (包むと、項目を押したクリックがラベル経由で
+                   *  ボタンへ送り直され、閉じた直後にまた開いてしまう)
+                   */}
+                  <div className="form-field span2">
+                    <span className="field-label">TLS (通信の暗号化)</span>
+                    {/* ネイティブの<select>はドロップダウンがOS描画になり、
+                    アプリのテーマと合わないので共通のSelectMenuを使う */}
+                    <SelectMenu
+                      className="select-field"
+                      value={sslMode}
+                      options={SSL_MODES.map(([value, label]) => ({
+                        value,
+                        label,
+                      }))}
+                      onChange={(v) => set({ sslMode: v as SslMode })}
+                    />
+                    {/* 「検証しない」を選んでいることに気づけるようにする */}
+                    {tlsUnverified(sslMode) && (
+                      <span className="field-note warn">
+                        サーバー証明書を検証しません。通信の相手が本物かを確かめないため、
+                        途中で差し替えられても気づけません。
+                        {viaTunnel(profile)
+                          ? " (この接続はSSH / SSM経由なので、経路そのものは守られます)"
+                          : " 社内・クラウドのDBへ直接つなぐ場合は「必須 + CA証明書とホスト名を検証」を選んでください"}
+                      </span>
+                    )}
+                  </div>
+                  {sslMode !== "" && sslMode !== "disable" && (
+                    <>
+                      {(sslMode === "verify-ca" || sslMode === "verify-full") &&
+                        certField(
+                          "CA証明書",
+                          profile.caCertPath,
+                          (caCertPath) => set({ caCertPath }),
+                        )}
+                      {certField(
+                        "クライアント証明書",
+                        profile.clientCertPath,
+                        (clientCertPath) => set({ clientCertPath }),
+                      )}
+                      {certField(
+                        "クライアント秘密鍵",
+                        profile.clientKeyPath,
+                        (clientKeyPath) => set({ clientKeyPath }),
+                      )}
+                    </>
+                  )}
+                </>
+              )}
+              {profile.dbType === "valkey" && (
+                <div className="span2 tls-row">
+                  <span className="field-label">TLS (in-transit暗号化)</span>
+                  <label className="switch">
+                    <input
+                      type="checkbox"
+                      checked={profile.tls ?? false}
+                      onChange={(e) => set({ tls: e.target.checked })}
+                    />
+                    <span className="track" aria-hidden />
+                    <span className="switch-label">
+                      {profile.tls
+                        ? "TLSで接続する (AWS ElastiCache等で必要)"
+                        : "TLSで接続しない"}
+                    </span>
+                  </label>
+                </div>
+              )}
             </>
           )}
           <div className="span2 tls-row">
@@ -400,9 +418,22 @@ export function ConnectionForm({
                   <button
                     key={e}
                     className={"segment" + (profile.env === e ? " active" : "")}
-                    onClick={() => set({ env: e as ConnectionEnv })}
+                    onClick={() =>
+                      set({
+                        env: e as ConnectionEnv,
+                        // 本番へ変えたら、AIへの更新許可はその場で下げる
+                        // (選べない状態のまま残ると、保存で弾かれて理由が分かりにくい)
+                        ...(e === "prod" && profile.aiAccess === "write"
+                          ? { aiAccess: "read" as const }
+                          : {}),
+                      })
+                    }
                   >
-                    <span className="env-dot" style={{ background: color }} aria-hidden />
+                    <span
+                      className="env-dot"
+                      style={{ background: color }}
+                      aria-hidden
+                    />
                     {label}
                   </button>
                 ))}
@@ -430,113 +461,155 @@ export function ConnectionForm({
               </span>
             </label>
           </div>
+          <div className="span2 tls-row">
+            <span className="field-label">AIへ公開</span>
+            <div className="env-pick">
+              <div className="segmented">
+                {AI_ACCESS.map(([value, label, desc]) => {
+                  // 本番の接続は、AIからの更新を許可できない
+                  const blocked = value === "write" && profile.env === "prod";
+                  return (
+                    <button
+                      key={value}
+                      className={
+                        "segment" +
+                        (profile.aiAccess === value ? " active" : "")
+                      }
+                      disabled={blocked}
+                      title={
+                        blocked
+                          ? "本番環境ではAIからの更新を許可できません"
+                          : desc
+                      }
+                      onClick={() => set({ aiAccess: value })}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="field-note">
+                {profile.aiAccess === "write"
+                  ? "更新系のSQLは実行のたびにQuelioで許可を求めます。許可しなければ実行されません"
+                  : profile.aiAccess === "read"
+                    ? "AI連携を有効にしているとき、この接続を参照できます (更新はできません)"
+                    : "AIからは、この接続があること自体が見えません"}
+              </span>
+            </div>
+          </div>
         </div>
       </section>
 
       {!isSqlite && (
-      <section className={"card" + (route === "none" ? " collapsed" : "")}>
-        <div className="card-head">
-          <h2>接続経路</h2>
-          <SelectMenu
-            value={route}
-            options={ROUTES.map(([value, label]) => ({ value, label }))}
-            onChange={(v) => onChange(applyRoute(profile, v as ConnectRoute))}
+        <section className={"card" + (route === "none" ? " collapsed" : "")}>
+          <div className="card-head">
+            <h2>接続経路</h2>
+            <SelectMenu
+              value={route}
+              options={ROUTES.map(([value, label]) => ({ value, label }))}
+              onChange={(v) => onChange(applyRoute(profile, v as ConnectRoute))}
+            />
+          </div>
+
+          <ConnectionProxyFields
+            route={route}
+            proxy={proxy}
+            onChange={setProxy}
           />
-        </div>
 
-        <ConnectionProxyFields
-          route={route}
-          proxy={proxy}
-          onChange={setProxy}
-        />
-
-        {route === "ssh" && (
-          <div className="form-grid">
-            <label className="grow">
-              <span className="field-label">SSHホスト</span>
-              <input
-                className="mono"
-                value={ssh.host}
-                onChange={(e) => setSsh({ host: e.target.value })}
-                placeholder="bastion.example.com"
-              />
-            </label>
-            <label className="w-port">
-              <span className="field-label">ポート</span>
-              <input
-                className="mono"
-                type="number"
-                value={ssh.port}
-                onChange={(e) => setSsh({ port: Number(e.target.value) })}
-              />
-            </label>
-            <label>
-              <span className="field-label">SSHユーザー</span>
-              <input
-                className="mono"
-                value={ssh.user}
-                onChange={(e) => setSsh({ user: e.target.value })}
-              />
-            </label>
-            <label>
-              <span className="field-label">秘密鍵ファイル</span>
-              <span className="key-path-row">
+          {route === "ssh" && (
+            <div className="form-grid">
+              <label className="grow">
+                <span className="field-label">SSHホスト</span>
                 <input
                   className="mono"
-                  value={ssh.keyPath}
-                  onChange={(e) => setSsh({ keyPath: e.target.value })}
-                  placeholder="~/.ssh/id_ed25519"
+                  value={ssh.host}
+                  onChange={(e) => setSsh({ host: e.target.value })}
+                  placeholder="bastion.example.com"
                 />
-                <button
-                  type="button"
-                  className="browse-btn"
-                  title="秘密鍵ファイルを選ぶ"
-                  onClick={async () => {
-                    // ~/.ssh は不可視フォルダのため、絶対パスに解決して
-                    // 初期フォルダに指定する (無ければホームディレクトリ)。
-                    // ダイアログはフォルダの中を直接開くので、隠しフォルダでも
-                    // 中の鍵ファイルはそのまま選択できる
-                    const dir = await defaultSshKeyDir().catch(() => null);
-                    const selected = await open({
-                      multiple: false,
-                      defaultPath: dir ?? undefined,
-                      title: "秘密鍵ファイルを選択",
-                    }).catch(() => null);
-                    if (typeof selected === "string") {
-                      setSsh({ keyPath: selected });
-                    }
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <path
-                      d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
-                      stroke="currentColor"
-                      strokeWidth="1.8"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  参照
-                </button>
-              </span>
-            </label>
-            <label className="span2">
-              <span className="field-label">
-                パスフレーズ <em>任意</em>
-              </span>
-              <input
-                type="password"
-                value={profile.passwordLocked ? "" : (ssh.passphrase ?? "")}
-                placeholder={
-                  profile.passphraseSaved && !profile.passwordLocked
-                    ? "保存済み (変えるときだけ入力)"
-                    : ""
-                }
-                onChange={(e) => setSshSecret({ passphrase: e.target.value })}
-              />
-            </label>
-          </div>
-        )}
-      </section>
+              </label>
+              <label className="w-port">
+                <span className="field-label">ポート</span>
+                <input
+                  className="mono"
+                  type="number"
+                  value={ssh.port}
+                  onChange={(e) => setSsh({ port: Number(e.target.value) })}
+                />
+              </label>
+              <label>
+                <span className="field-label">SSHユーザー</span>
+                <input
+                  className="mono"
+                  value={ssh.user}
+                  onChange={(e) => setSsh({ user: e.target.value })}
+                />
+              </label>
+              <label>
+                <span className="field-label">秘密鍵ファイル</span>
+                <span className="key-path-row">
+                  <input
+                    className="mono"
+                    value={ssh.keyPath}
+                    onChange={(e) => setSsh({ keyPath: e.target.value })}
+                    placeholder="~/.ssh/id_ed25519"
+                  />
+                  <button
+                    type="button"
+                    className="browse-btn"
+                    title="秘密鍵ファイルを選ぶ"
+                    onClick={async () => {
+                      // ~/.ssh は不可視フォルダのため、絶対パスに解決して
+                      // 初期フォルダに指定する (無ければホームディレクトリ)。
+                      // ダイアログはフォルダの中を直接開くので、隠しフォルダでも
+                      // 中の鍵ファイルはそのまま選択できる
+                      const dir = await defaultSshKeyDir().catch(() => null);
+                      const selected = await open({
+                        multiple: false,
+                        defaultPath: dir ?? undefined,
+                        title: "秘密鍵ファイルを選択",
+                      }).catch(() => null);
+                      if (typeof selected === "string") {
+                        setSsh({ keyPath: selected });
+                      }
+                    }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      aria-hidden
+                    >
+                      <path
+                        d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                    参照
+                  </button>
+                </span>
+              </label>
+              <label className="span2">
+                <span className="field-label">
+                  パスフレーズ <em>任意</em>
+                </span>
+                <input
+                  type="password"
+                  value={profile.passwordLocked ? "" : (ssh.passphrase ?? "")}
+                  placeholder={
+                    profile.passphraseSaved && !profile.passwordLocked
+                      ? "保存済み (変えるときだけ入力)"
+                      : ""
+                  }
+                  onChange={(e) => setSshSecret({ passphrase: e.target.value })}
+                />
+              </label>
+            </div>
+          )}
+        </section>
       )}
 
       <div className="form-actions">
@@ -591,8 +664,8 @@ export function ConnectionForm({
           }}
         >
           ホスト・ユーザー・パスワード・SSHの設定がまとめて消えます。
-          取り消しはできません。
-          (設定 &gt; バックアップ で書き出しておくと復元できます)
+          取り消しはできません。 (設定 &gt; バックアップ
+          で書き出しておくと復元できます)
         </ConfirmDialog>
       )}
     </div>

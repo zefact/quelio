@@ -32,6 +32,8 @@ mod json_store;
 mod known_hosts;
 mod localtz;
 mod kv;
+/// AI連携 (MCPサーバー)
+mod mcp;
 mod models;
 mod outfile;
 mod pinned;
@@ -120,6 +122,14 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
     Menu::with_items(app, &[&app_menu, &edit, &view, &window])
 }
 
+/// `--mcp-stdio` で起動されたときの入口。
+///
+/// Tauri を一切初期化しない (ウィンドウ・プラグイン・メニューを通らない)。
+/// stdin/stdout の MCP を、起動中のアプリへ中継するだけ
+pub fn run_mcp_stdio() {
+    mcp::bridge::run();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -163,6 +173,29 @@ pub fn run() {
                 _app.state::<query_log::QueryLog>()
                     .set_app(_app.handle().clone());
             }
+            // AI連携: 設定で有効になっていれば待受を始める。
+            // 失敗しても起動は止めない (設定画面に理由を出す)
+            {
+                let handle = _app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = mcp::apply(&handle).await;
+                });
+            }
+            /*
+             * AI用セッションの見回り。
+             *
+             * 下のキープアライブは全セッションを生かし続けるので、
+             * AIが開いたものは別に見て、使われなくなったら切る
+             */
+            {
+                let handle = _app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(mcp::SWEEP_INTERVAL).await;
+                        mcp::sweep_idle(&handle).await;
+                    }
+                });
+            }
             // キープアライブ: 120秒ごとに全セッションへpingを送り、
             // サーバーやファイアウォールのアイドル切断を防ぐ
             {
@@ -179,6 +212,9 @@ pub fn run() {
             }
             Ok(())
         })
+        .manage(mcp::McpServer::default())
+        .manage(mcp::AiSessions::default())
+        .manage(mcp::Approvals::default())
         .manage(sessions::Sessions::default())
         .manage(sessions::CancelRegistry::default())
         .manage(query_log::QueryLog::default())
@@ -187,6 +223,14 @@ pub fn run() {
         .manage(csv_doc::CsvDocuments::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_connections,
+            commands::mcp_status,
+            commands::mcp_apply,
+            commands::mcp_token,
+            commands::mcp_regenerate_token,
+            commands::mcp_endpoint,
+            commands::mcp_pending_approvals,
+            commands::mcp_approval_respond,
+            commands::mcp_exe_path,
             commands::trust_ssh_host,
             commands::save_connection,
             commands::delete_connection,

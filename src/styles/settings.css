@@ -2238,3 +2238,195 @@
 .config-file-err {
   color: var(--danger);
 }
+
+/* ---------- AI連携 (MCPサーバー) ---------- */
+
+/*
+ * 入力欄とボタンが横に並ぶ行。
+ * エンドポイントやトークンは長いので、入力欄だけを伸ばす
+ */
+.mcp-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+.mcp-field input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ポートは短いので伸ばさない */
+.mcp-field input.mcp-port {
+  flex: 0 0 120px;
+}
+
+/* 待受中 / 停止 / エラー の印 */
+.mcp-state {
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.mcp-state.on {
+  background: rgba(52, 211, 153, 0.18);
+  color: var(--text);
+}
+
+.mcp-state.off {
+  background: rgba(var(--ink), 0.08);
+  color: var(--text-dim);
+}
+
+.mcp-state.ng {
+  background: rgba(248, 113, 113, 0.18);
+  color: var(--text);
+}
+
+/* 公開する接続の一覧 (設定 > AI連携) */
+.mcp-conn-count {
+  padding: 4px 2px 8px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.mcp-conn-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 2px;
+  border-bottom: 1px solid rgba(var(--ink), 0.06);
+}
+
+.mcp-conn-name {
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 環境ラベル (本番かどうかが一目で分かるように) */
+.mcp-conn-env {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  color: #1a1a1a;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+/* ---------- AIからの更新の許可 ---------- */
+
+.ai-approval {
+  width: min(680px, 92vw);
+}
+
+/* 残り時間 (見出しの右) */
+.ai-approval-left {
+  margin-left: auto;
+  padding-right: var(--space-3);
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.ai-approval-target {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+.ai-approval-conn {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ai-approval-db {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.env-badge {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  color: #1a1a1a;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.ai-approval-sql-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: var(--space-2);
+}
+
+/*
+ * 実行されるSQLは省略せずに全部出す。
+ * 長ければスクロールさせる (「…」で切ると、何が実行されるか分からない)
+ */
+.ai-approval-sql {
+  max-height: 220px;
+  margin: var(--space-2) 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(var(--ink), 0.04);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ---------- AIクライアントへ貼る設定文 ---------- */
+
+.mcp-snippet {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  min-width: 0;
+}
+
+/*
+ * 設定文はそのまま貼れることが大事なので、折り返して全部見せる
+ * (横スクロールに隠すと、続きがあることに気づかない)
+ */
+.mcp-snippet-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(var(--ink), 0.04);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 止まっている間の注意 */
+.mcp-snippet-warn {
+  margin: 0 0 var(--space-3);
+  padding: 7px 11px;
+  border-radius: var(--radius-md);
+  background: rgba(251, 191, 36, 0.16);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.6;
+}

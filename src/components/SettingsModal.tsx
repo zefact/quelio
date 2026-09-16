@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useModal } from "../hooks/useModal";
 import type { Notify, NotifyLevel } from "../notify";
 import { getVersion } from "@tauri-apps/api/app";
+import { SettingsAi } from "./SettingsAi";
 import { SettingsBackup } from "./SettingsBackup";
 import { SettingsEditor } from "./SettingsEditor";
 import { SettingsGeneral } from "./SettingsGeneral";
@@ -107,6 +108,8 @@ export function SettingsModal({ onClose, onImported }: Props) {
               <SettingsEditor notify={notify} />
             ) : page === "tools" ? (
               <SettingsTools notify={notify} />
+            ) : page === "ai" ? (
+              <SettingsAi notify={notify} />
             ) : page === "update" ? (
               <SettingsUpdate />
             ) : (

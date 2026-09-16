@@ -1113,6 +1113,11 @@
           <p>踏み台サーバー経由の接続をビルトインで対応（鍵認証・パスフレーズ可）。踏み台へのSSHを禁じている環境向けに、AWS Systems Manager のポート転送と Cloud SQL Auth Proxy にも対応します。TLSは検証レベルと証明書を接続ごとに指定できます。証明書を検証しない設定のときは画面に注意を出し、mysqldump / pg_dump にも同じTLS設定を引き継ぎます。</p>
         </div>
         <div class="feature">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="12" r="2.2"/><circle cx="18.5" cy="6.5" r="2.2"/><circle cx="18.5" cy="17.5" r="2.2"/><path d="M7.6 11l8.8-3.6M7.6 13l8.8 3.6" stroke-width="1.6"/></svg></div>
+          <h3>AI連携 (MCPサーバー)</h3>
+          <p>Quelio自身がMCPサーバーになり、お使いのAIクライアント (Claude Code / Claude Desktop / Cursor など) からQuelio経由でDBを参照できます。<b>AI側に接続情報・パスワード・SSHの設定は渡しません</b>。AIが知るのは接続名だけです。待受は同じPCの中 (127.0.0.1) のみ・トークン必須で、公開するかどうかは接続ごとに選べます (既定は公開しない)。更新系のSQLは実行のたびに画面で許可を求め、AIが流したSQLはすべてSQLコンソールに残ります。</p>
+        </div>
+        <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.7-7 8.5-4.1-.8-7-4.3-7-8.5V6z"/><path d="m9 12 2 2 4-4" stroke-width="1.6"/></svg></div>
           <h3>読み取り専用の接続</h3>
           <p>接続ごとに読み取り専用を指定。更新系SQL・DDL・行編集をアプリとサーバーの両方で拒否し、タブに R/O バッジを表示します。</p>

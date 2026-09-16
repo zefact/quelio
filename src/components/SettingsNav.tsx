@@ -5,6 +5,7 @@ export type SettingsPage =
   | "general"
   | "editor"
   | "tools"
+  | "ai"
   | "update"
   | "backup";
 
@@ -104,6 +105,23 @@ function UpdateIcon() {
   );
 }
 
+/** AI連携 (つながりを表す点と線) */
+function AiIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="5.5" cy="12" r="2.2" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="18.5" cy="6.5" r="2.2" stroke="currentColor" strokeWidth="1.7" />
+      <circle cx="18.5" cy="17.5" r="2.2" stroke="currentColor" strokeWidth="1.7" />
+      <path
+        d="M7.6 11l8.8-3.6M7.6 13l8.8 3.6"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 interface NavItem {
   page: SettingsPage;
   label: string;
@@ -117,6 +135,7 @@ const GROUPS: { title?: string; items: NavItem[] }[] = [
       { page: "general", label: "一般", icon: GearIcon },
       { page: "editor", label: "エディタ", icon: EditorIcon },
       { page: "tools", label: "外部ツール", icon: ToolIcon },
+      { page: "ai", label: "AI連携", icon: AiIcon },
       { page: "update", label: "アップデート", icon: UpdateIcon },
     ],
   },

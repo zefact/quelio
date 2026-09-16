@@ -151,6 +151,27 @@ pub async fn list_charsets(
 }
 
 /// スキーマの一覧 (PostgreSQLのみ)
+/// つながっているサーバーのデータベース一覧を返す (取り直さず、繋いだときの内容)。
+///
+/// 画面は接続時に受け取った一覧を持っているので、これまでは要らなかった。
+/// AI連携は画面を持たないため、セッションから聞ける口をここに置く。
+/// SQLiteはファイル1つなので、常に空を返す
+pub async fn list_databases(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+) -> Result<Vec<String>, String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    ensure_alive(session, qlog).await?;
+    if matches!(session.conn, DbConn::Sqlite(_)) {
+        return Ok(Vec::new());
+    }
+    let label = conn_label(&session.profile);
+    refresh_databases(session, qlog, &label).await
+}
+
 pub async fn list_schemas(
     sessions: &Sessions,
     qlog: &QueryLog,

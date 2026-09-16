@@ -14,6 +14,12 @@
 
 use std::fmt;
 
+/// 接続が開いていないときの文言。
+///
+/// 画面にそのまま出る文言なので、**変えない**。
+/// 判定は種別 (`ErrKind::NoSession`) で行う
+pub const NO_SESSION_MSG: &str = "接続されていません。再接続してください";
+
 /// タイムアウトのメッセージに必ず入る文言。
 ///
 /// 種類を持たない (文字列のままの) エラーを見分けるのにも使うので、
@@ -35,6 +41,8 @@ pub enum ErrKind {
     Timeout,
     /// COMMIT / ROLLBACK を送ったが、そもそも開いていなかった
     NoTxn,
+    /// その session_id の接続が開いていない (閉じられた・まだ張っていない)
+    NoSession,
     /// それ以外 (表示するだけ)
     Other,
 }
@@ -80,6 +88,15 @@ impl AppError {
 
     pub fn is_no_txn(&self) -> bool {
         self.kind == ErrKind::NoTxn
+    }
+
+    /// その接続が開いていないときのエラー
+    pub fn no_session() -> Self {
+        Self::new(ErrKind::NoSession, NO_SESSION_MSG)
+    }
+
+    pub fn is_no_session(&self) -> bool {
+        self.kind == ErrKind::NoSession
     }
 }
 
@@ -129,6 +146,15 @@ mod tests {
         let e: AppError = "接続できません".into();
         assert_eq!(e.kind, ErrKind::Other);
         assert!(!e.is_timeout());
+    }
+
+    #[test]
+    fn 接続が無いエラーは種別で見分けられる() {
+        let e = AppError::no_session();
+        assert!(e.is_no_session());
+        assert!(!e.is_timeout());
+        // 文言は画面にそのまま出るので変えない
+        assert_eq!(e.message, NO_SESSION_MSG);
     }
 
     #[test]

@@ -10,32 +10,36 @@ import type {
   ConnectionProfile,
   ConnectionStore,
   CsvCellPatch,
+  CsvColumnFilter,
   CsvDiffOptions,
   CsvDiffOverview,
   CsvDiffPage,
   CsvExportResult,
+  CsvFilterValues,
   CsvFindOptions,
   CsvFindResult,
-  CsvColumnFilter,
-  CsvFilterValues,
-  CsvSort,
-  CsvReplaceOne,
   CsvFixedLayout,
   CsvFixedSpec,
   CsvFormatPatch,
   CsvFromQuery,
   CsvInfo,
-  CsvMatch,
-  CsvPage,
-  CsvOptions,
-  CsvPreview,
   CsvLayoutNode,
-  CsvSummary,
+  CsvMatch,
+  CsvOptions,
+  CsvPage,
   CsvPasteResult,
-  CsvRect,
   CsvPos,
+  CsvPreview,
+  CsvRect,
+  CsvReplaceOne,
+  CsvSort,
+  CsvSummary,
   DangerousStatement,
+  DbGrant,
+  DbPrivilegeChoices,
   DbType,
+  DbUserChange,
+  DbUsersInfo,
   ErDiagramData,
   ExportedLog,
   ExportMode,
@@ -59,13 +63,11 @@ import type {
   KvSearchResult,
   LayoutEntry,
   LogFormat,
+  McpPendingApproval,
+  McpStatus,
   NewTableSpec,
   ObjectSearchResult,
   ProcessAction,
-  DbGrant,
-  DbPrivilegeChoices,
-  DbUserChange,
-  DbUsersInfo,
   ProcessInfo,
   QueryLogEntry,
   RoutineInfo,
@@ -80,10 +82,10 @@ import type {
   StartedJob,
   TableDetail,
   TableInfo,
-  TestResult,
   TestDataColumn,
   TestDataResult,
   TestDataSpec,
+  TestResult,
   ToolSettings,
   ToolStatus,
   TxnStatus,
@@ -102,7 +104,7 @@ export function listConnections(): Promise<ConnectionStore> {
 export function trustSshHost(
   host: string,
   port: number,
-  fingerprint: string
+  fingerprint: string,
 ): Promise<void> {
   return call("trust_ssh_host", { host, port, fingerprint });
 }
@@ -118,13 +120,13 @@ export function deleteFolder(id: string): Promise<void> {
 export function updateLayout(
   folders: FolderInfo[],
   order: LayoutEntry[],
-  rootOrder?: string[]
+  rootOrder?: string[],
 ): Promise<void> {
   return call("update_layout", { folders, order, rootOrder });
 }
 
 export function saveConnection(
-  profile: ConnectionProfile
+  profile: ConnectionProfile,
 ): Promise<ConnectionProfile> {
   return call("save_connection", { profile });
 }
@@ -134,21 +136,21 @@ export function deleteConnection(id: string): Promise<void> {
 }
 
 export function testConnection(
-  profile: ConnectionProfile
+  profile: ConnectionProfile,
 ): Promise<TestResult> {
   return call("test_connection", { profile });
 }
 
 export function connectSession(
   sessionId: string,
-  profile: ConnectionProfile
+  profile: ConnectionProfile,
 ): Promise<ConnectInfo> {
   return call("connect_session", { sessionId, profile });
 }
 
 export function listTables(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<TableInfo[]> {
   return call("list_tables", { sessionId, database });
 }
@@ -157,7 +159,7 @@ export function tableDetail(
   sessionId: string,
   database: string,
   schema: string | undefined,
-  table: string
+  table: string,
 ): Promise<TableDetail> {
   return call("table_detail", { sessionId, database, schema, table });
 }
@@ -170,7 +172,7 @@ export function previewSql(
   sessionId: string,
   sql: string,
   dbType: DbType,
-  params: Record<string, ParamValue>
+  params: Record<string, ParamValue>,
 ): Promise<string> {
   return call("preview_sql", { sessionId, sql, dbType, params });
 }
@@ -185,7 +187,7 @@ export function previewCreateDatabase(
   dbType: DbType,
   name: string,
   encoding?: string,
-  collation?: string
+  collation?: string,
 ): Promise<string> {
   return call("preview_create_database", {
     dbType,
@@ -198,7 +200,7 @@ export function previewCreateDatabase(
 /** 実行せずに、スキーマを作るSQLを返す (確認ダイアログに出す) */
 export function previewCreateSchema(
   dbType: DbType,
-  name: string
+  name: string,
 ): Promise<string> {
   return call("preview_create_schema", { dbType, name });
 }
@@ -209,9 +211,54 @@ export function previewCreateSchema(
  */
 export function exportPlanCsv(
   columns: string[],
-  rows: (string | null)[][]
+  rows: (string | null)[][],
 ): Promise<CsvExportResult> {
   return call("export_plan_csv", { columns, rows });
+}
+
+// ---------- AI連携 (MCPサーバー) ----------
+
+/** AI連携の今の状態 (有効か・待ち受けているか・失敗の理由) */
+export function mcpStatus(): Promise<McpStatus> {
+  return call("mcp_status");
+}
+
+/** 設定に合わせて待受を張り直す (有効なら起動・無効なら停止)。状態を返す */
+export function mcpApply(): Promise<McpStatus> {
+  return call("mcp_apply");
+}
+
+/** 発行済みのトークンを返す (無ければ作る) */
+export function mcpToken(): Promise<string> {
+  return call("mcp_token");
+}
+
+/** トークンを作り直す (古いトークンは即座に使えなくなる) */
+export function mcpRegenerateToken(): Promise<string> {
+  return call("mcp_regenerate_token");
+}
+
+/** AIクライアントの設定に書くエンドポイント */
+export function mcpEndpoint(): Promise<string> {
+  return call("mcp_endpoint");
+}
+
+/** このアプリの実行ファイルの絶対パス (Claude Desktop の設定に書く) */
+export function mcpExePath(): Promise<string> {
+  return call("mcp_exe_path");
+}
+
+/** 待っている「更新の許可」の一覧 (画面を開き直したときの取り直し用) */
+export function mcpPendingApprovals(): Promise<McpPendingApproval[]> {
+  return call("mcp_pending_approvals");
+}
+
+/** 「更新の許可」に答える (許可 / 拒否) */
+export function mcpApprovalRespond(
+  requestId: string,
+  allow: boolean,
+): Promise<void> {
+  return call("mcp_approval_respond", { requestId, allow });
 }
 
 /** 消してはいけないデータベースの名前 (画面で削除ボタンを出さないため) */
@@ -243,7 +290,7 @@ export function runQuery(
   transaction?: boolean,
   explain?: "explain" | "analyze",
   /** SQL中の :name / @name に入れる値 (埋め込みはバックエンドで行う) */
-  params?: Record<string, ParamValue>
+  params?: Record<string, ParamValue>,
 ): Promise<RunOutput> {
   return call("run_query", {
     sessionId,
@@ -262,7 +309,7 @@ export function runQuery(
 export function createTable(
   sessionId: string,
   database: string | undefined,
-  table: NewTableSpec
+  table: NewTableSpec,
 ): Promise<string[]> {
   return call("create_table", { sessionId, database, table });
 }
@@ -271,7 +318,7 @@ export function createTable(
 export function previewCreateTable(
   sessionId: string,
   database: string | undefined,
-  table: NewTableSpec
+  table: NewTableSpec,
 ): Promise<string> {
   return call("preview_create_table", { sessionId, database, table });
 }
@@ -282,7 +329,7 @@ export function renameTable(
   database: string | undefined,
   schema: string | undefined,
   table: string,
-  newName: string
+  newName: string,
 ): Promise<string[]> {
   return call("rename_table", {
     sessionId,
@@ -299,7 +346,7 @@ export function dropTable(
   database: string | undefined,
   schema: string | undefined,
   table: string,
-  tableType: string
+  tableType: string,
 ): Promise<string[]> {
   return call("drop_table", {
     sessionId,
@@ -316,7 +363,7 @@ export function setTableComment(
   database: string | undefined,
   schema: string | undefined,
   table: string,
-  comment: string
+  comment: string,
 ): Promise<string[]> {
   return call("set_table_comment", {
     sessionId,
@@ -334,7 +381,7 @@ export function fetchCell(
   schema: string | undefined,
   table: string,
   column: string,
-  key: RowCell[]
+  key: RowCell[],
 ): Promise<CellValue> {
   return call("fetch_cell", {
     sessionId,
@@ -352,7 +399,7 @@ export function applyForeignKeyDdl(
   database: string | undefined,
   schema: string | undefined,
   table: string,
-  change: ForeignKeyChange
+  change: ForeignKeyChange,
 ): Promise<string[]> {
   return call("apply_foreign_key_ddl", {
     sessionId,
@@ -366,7 +413,7 @@ export function applyForeignKeyDdl(
 /** 関数・プロシージャ・トリガの定義を取得する */
 export function listRoutines(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<RoutineInfo[]> {
   return call("list_routines", { sessionId, database });
 }
@@ -374,7 +421,7 @@ export function listRoutines(
 /** 預けたCSVファイルの先頭だけ読んで、列と数行を返す */
 export function previewCsv(
   path: string,
-  options: CsvOptions
+  options: CsvOptions,
 ): Promise<CsvPreview> {
   return call("preview_csv", { path, options });
 }
@@ -395,7 +442,7 @@ export function importCsv(
   mapping: [number, string][],
   mode: ImportMode,
   emptyAsNull: boolean,
-  jobId: string
+  jobId: string,
 ): Promise<ImportResult> {
   return call("import_csv", {
     sessionId,
@@ -421,7 +468,7 @@ export function planTestData(
   sessionId: string,
   database: string | undefined,
   schema: string | undefined,
-  table: string
+  table: string,
 ): Promise<TestDataColumn[]> {
   return call("plan_test_data", { sessionId, database, schema, table });
 }
@@ -442,7 +489,7 @@ export function generateTestData(
   rows: number,
   nullRate: number,
   columns: TestDataSpec[],
-  jobId: string
+  jobId: string,
 ): Promise<TestDataResult> {
   return call("generate_test_data", {
     sessionId,
@@ -467,11 +514,10 @@ export function generateTestData(
 export function searchObjects(
   sessionId: string,
   database: string | undefined,
-  keyword: string
+  keyword: string,
 ): Promise<ObjectSearchResult> {
   return call("search_objects", { sessionId, database, keyword });
 }
-
 
 // ---------- Valkey: 一括削除と値検索 ----------
 
@@ -484,7 +530,7 @@ export function kvCountKeys(
   sessionId: string,
   database: string,
   pattern: string,
-  jobId: string
+  jobId: string,
 ): Promise<KvCountResult> {
   return call("kv_count_keys", { sessionId, database, pattern, jobId });
 }
@@ -499,7 +545,7 @@ export function kvDeleteKeys(
   database: string,
   pattern: string,
   confirmedAll: boolean,
-  jobId: string
+  jobId: string,
 ): Promise<KvDeleteResult> {
   return call("kv_delete_keys", {
     sessionId,
@@ -516,7 +562,7 @@ export function kvSearch(
   database: string,
   pattern: string,
   options: KvSearchOptions,
-  jobId: string
+  jobId: string,
 ): Promise<KvSearchResult> {
   return call("kv_search", {
     sessionId,
@@ -534,7 +580,7 @@ export function createDatabase(
   sessionId: string,
   name: string,
   encoding?: string,
-  collation?: string
+  collation?: string,
 ): Promise<string[]> {
   return call("create_database", { sessionId, name, encoding, collation });
 }
@@ -542,7 +588,7 @@ export function createDatabase(
 /** データベースを消す (削除後の一覧を返す) */
 export function dropDatabase(
   sessionId: string,
-  name: string
+  name: string,
 ): Promise<string[]> {
   return call("drop_database", { sessionId, name });
 }
@@ -550,7 +596,7 @@ export function dropDatabase(
 /** スキーマの一覧を取得する (PostgreSQLのみ) */
 export function listSchemas(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<string[]> {
   return call("list_schemas", { sessionId, database });
 }
@@ -566,7 +612,7 @@ export function changeSchema(
   database: string,
   name: string,
   drop: boolean,
-  cascade: boolean
+  cascade: boolean,
 ): Promise<string[]> {
   return call("change_schema", { sessionId, database, name, drop, cascade });
 }
@@ -579,7 +625,7 @@ export function changeSchema(
 export function listProcesses(
   sessionId: string,
   database: string,
-  log: boolean
+  log: boolean,
 ): Promise<ProcessInfo[]> {
   return call("list_processes", { sessionId, database, log });
 }
@@ -587,7 +633,7 @@ export function listProcesses(
 /** DBのユーザー (PostgreSQLではロール) の一覧を返す */
 export function listDbUsers(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<DbUsersInfo> {
   return call("list_db_users", { sessionId, database });
 }
@@ -596,7 +642,7 @@ export function listDbUsers(
 export function dbUserGrants(
   sessionId: string,
   database: string,
-  key: string
+  key: string,
 ): Promise<DbGrant[]> {
   return call("db_user_grants", { sessionId, database, key });
 }
@@ -606,7 +652,7 @@ export function killProcess(
   sessionId: string,
   database: string,
   target: number,
-  action: ProcessAction
+  action: ProcessAction,
 ): Promise<void> {
   return call("kill_process", { sessionId, database, target, action });
 }
@@ -616,7 +662,7 @@ export function killProcess(
 export function countQueryRows(
   sessionId: string,
   database: string | null,
-  sql: string
+  sql: string,
 ): Promise<number> {
   return call("count_query_rows", { sessionId, database, sql });
 }
@@ -625,7 +671,7 @@ export function countTableRows(
   sessionId: string,
   database: string | undefined,
   schema: string | undefined,
-  table: string
+  table: string,
 ): Promise<number> {
   return call("count_table_rows", { sessionId, database, schema, table });
 }
@@ -640,7 +686,7 @@ export function tableDdl(
   sessionId: string,
   database: string | undefined,
   schema: string | undefined,
-  table: string
+  table: string,
 ): Promise<string> {
   return call("table_ddl", { sessionId, database, schema, table });
 }
@@ -651,7 +697,7 @@ export function applyRowChange(
   database: string | undefined,
   schema: string | undefined,
   table: string,
-  change: RowChange
+  change: RowChange,
 ): Promise<string> {
   return call("apply_row_change", {
     sessionId,
@@ -665,7 +711,7 @@ export function applyRowChange(
 /** SQLエディタの補完に使うテーブル・カラムの一覧を返す */
 export function schemaColumns(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<SchemaTable[]> {
   return call("schema_columns", { sessionId, database });
 }
@@ -673,7 +719,7 @@ export function schemaColumns(
 /** カラムに使える型の一覧を返す (PostgreSQLはユーザー定義型も含む) */
 export function listColumnTypes(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<string[]> {
   return call("list_column_types", { sessionId, database });
 }
@@ -681,7 +727,7 @@ export function listColumnTypes(
 /** 使える照合順序の一覧を返す (MySQL / PostgreSQLのみ。他は空配列) */
 export function listCollations(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<string[]> {
   return call("list_collations", { sessionId, database });
 }
@@ -692,7 +738,7 @@ export function applyIndexDdl(
   database: string | undefined,
   schema: string | undefined,
   table: string,
-  change: IndexChange
+  change: IndexChange,
 ): Promise<string[]> {
   return call("apply_index_ddl", {
     sessionId,
@@ -708,7 +754,7 @@ export function previewColumnDdl(
   sessionId: string,
   schema: string | undefined,
   table: string,
-  change: ColumnChange
+  change: ColumnChange,
 ): Promise<string[]> {
   return call("preview_column_ddl", { sessionId, schema, table, change });
 }
@@ -722,7 +768,7 @@ export function previewIndexDdl(
   sessionId: string,
   schema: string | undefined,
   table: string,
-  change: IndexChange
+  change: IndexChange,
 ): Promise<string[]> {
   return call("preview_index_ddl", { sessionId, schema, table, change });
 }
@@ -733,7 +779,7 @@ export function applyColumnDdl(
   database: string | undefined,
   schema: string | undefined,
   table: string,
-  change: ColumnChange
+  change: ColumnChange,
 ): Promise<string[]> {
   return call("apply_column_ddl", {
     sessionId,
@@ -746,7 +792,7 @@ export function applyColumnDdl(
 
 export function exportSchemaCsv(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<string[]> {
   return call("export_schema_csv", { sessionId, database });
 }
@@ -764,7 +810,7 @@ export function exportQueryRows(
   orderBy?: string,
   orderDir?: string,
   /** 見出しに使う名前 (画面で日本語名を出しているとき)。未指定ならカラム名のまま */
-  headers?: string[]
+  headers?: string[],
 ): Promise<CsvExportResult> {
   return call("export_query_rows", {
     sessionId,
@@ -806,7 +852,7 @@ export function csvFromQuery(
   orderBy?: string,
   orderDir?: string,
   /** 見出しに使う名前 (画面で日本語名を出しているとき)。未指定ならカラム名のまま */
-  headers?: string[]
+  headers?: string[],
 ): Promise<CsvFromQuery> {
   return call("csv_from_query", {
     sessionId,
@@ -823,7 +869,7 @@ export function csvFromQuery(
 export function csvFromRows(
   name: string,
   columns: string[],
-  rows: (string | null)[][]
+  rows: (string | null)[][],
 ): Promise<CsvInfo> {
   return call("csv_from_rows", { name, columns, rows });
 }
@@ -832,7 +878,7 @@ export function csvFromRows(
 export function csvOpenFixed(
   path: string,
   spec: CsvFixedSpec,
-  encoding?: string
+  encoding?: string,
 ): Promise<CsvInfo> {
   return call("csv_open_fixed", { path, spec, encoding: encoding ?? null });
 }
@@ -845,7 +891,7 @@ export function csvOpenFixed(
  */
 export function csvSetFixed(
   docId: string,
-  spec: CsvFixedSpec | null
+  spec: CsvFixedSpec | null,
 ): Promise<CsvInfo> {
   return call("csv_set_fixed", { docId, spec });
 }
@@ -858,7 +904,7 @@ export function csvSetFixed(
 export function csvSetEdge(
   docId: string,
   trailer: boolean,
-  cells: string[]
+  cells: string[],
 ): Promise<CsvInfo> {
   return call("csv_set_edge", { docId, trailer, cells });
 }
@@ -871,7 +917,7 @@ export function csvLayouts(): Promise<CsvLayoutNode[]> {
 /** 桁の並びに名前を付けて残す */
 export function csvSaveLayout(
   name: string,
-  layout: CsvFixedLayout
+  layout: CsvFixedLayout,
 ): Promise<CsvLayoutNode[]> {
   return call("csv_save_layout", { name, layout });
 }
@@ -883,7 +929,7 @@ export function csvDeleteLayout(name: string): Promise<CsvLayoutNode[]> {
 
 /** 並べ替えやフォルダ分けの結果を、そのまま入れ替えて残す */
 export function csvSaveLayoutTree(
-  nodes: CsvLayoutNode[]
+  nodes: CsvLayoutNode[],
 ): Promise<CsvLayoutNode[]> {
   return call("csv_save_layout_tree", { nodes });
 }
@@ -902,7 +948,7 @@ export function csvInfo(docId: string): Promise<CsvInfo> {
 export function csvPage(
   docId: string,
   offset: number,
-  limit: number
+  limit: number,
 ): Promise<CsvPage> {
   return call("csv_page", { docId, offset, limit });
 }
@@ -910,7 +956,7 @@ export function csvPage(
 /** セルを書き換える (まとめて渡すと1回の取り消しで戻る) */
 export function csvSetCells(
   docId: string,
-  cells: CsvCellPatch[]
+  cells: CsvCellPatch[],
 ): Promise<CsvInfo> {
   return call("csv_set_cells", { docId, cells });
 }
@@ -919,7 +965,7 @@ export function csvSetCells(
 export function csvInsertRows(
   docId: string,
   at: number,
-  count: number
+  count: number,
 ): Promise<CsvInfo> {
   return call("csv_insert_rows", { docId, at, count });
 }
@@ -928,7 +974,7 @@ export function csvInsertRows(
 export function csvDeleteRows(
   docId: string,
   at: number,
-  count: number
+  count: number,
 ): Promise<CsvInfo> {
   return call("csv_delete_rows", { docId, at, count });
 }
@@ -938,7 +984,7 @@ export function csvInsertCol(
   docId: string,
   at: number,
   name: string,
-  count = 1
+  count = 1,
 ): Promise<CsvInfo> {
   return call("csv_insert_col", { docId, at, name, count });
 }
@@ -947,7 +993,7 @@ export function csvInsertCol(
 export function csvDeleteCol(
   docId: string,
   at: number,
-  count = 1
+  count = 1,
 ): Promise<CsvInfo> {
   return call("csv_delete_col", { docId, at, count });
 }
@@ -956,7 +1002,7 @@ export function csvDeleteCol(
 export function csvRenameCol(
   docId: string,
   at: number,
-  name: string
+  name: string,
 ): Promise<CsvInfo> {
   return call("csv_rename_col", { docId, at, name });
 }
@@ -972,7 +1018,7 @@ export function csvFind(
   query: string,
   options: CsvFindOptions,
   from: CsvMatch | null,
-  backward: boolean
+  backward: boolean,
 ): Promise<CsvFindResult> {
   return call("csv_find", { docId, query, options, from, backward });
 }
@@ -982,7 +1028,7 @@ export function csvReplaceAll(
   docId: string,
   query: string,
   replacement: string,
-  options: CsvFindOptions
+  options: CsvFindOptions,
 ): Promise<CsvInfo> {
   return call("csv_replace_all", { docId, query, replacement, options });
 }
@@ -997,7 +1043,7 @@ export function csvReplaceOne(
   query: string,
   replacement: string,
   options: CsvFindOptions,
-  at: CsvMatch
+  at: CsvMatch,
 ): Promise<CsvReplaceOne> {
   return call("csv_replace_one", { docId, query, replacement, options, at });
 }
@@ -1009,7 +1055,7 @@ export function csvReplaceOne(
  */
 export function csvSetFilters(
   docId: string,
-  filters: CsvColumnFilter[]
+  filters: CsvColumnFilter[],
 ): Promise<CsvInfo> {
   return call("csv_set_filters", { docId, filters });
 }
@@ -1021,7 +1067,7 @@ export function csvSetFilters(
  */
 export function csvSetSort(
   docId: string,
-  sort: CsvSort | null
+  sort: CsvSort | null,
 ): Promise<CsvInfo> {
   return call("csv_set_sort", { docId, sort });
 }
@@ -1029,7 +1075,7 @@ export function csvSetSort(
 /** その列に入っている値の一覧 (他の列の絞り込みを掛けたあとで数える) */
 export function csvFilterValues(
   docId: string,
-  col: number
+  col: number,
 ): Promise<CsvFilterValues> {
   return call("csv_filter_values", { docId, col });
 }
@@ -1052,7 +1098,7 @@ export function csvSetHeader(docId: string, on: boolean): Promise<CsvInfo> {
 /** 保存する形 (文字コード・BOM・改行・区切り・引用符) を変える */
 export function csvSetFormat(
   docId: string,
-  patch: CsvFormatPatch
+  patch: CsvFormatPatch,
 ): Promise<CsvInfo> {
   return call("csv_set_format", { docId, ...patch });
 }
@@ -1079,7 +1125,7 @@ export function csvExportXlsx(docId: string, path: string): Promise<null> {
  */
 export function csvSummary(
   docId: string,
-  rects: CsvRect[]
+  rects: CsvRect[],
 ): Promise<CsvSummary> {
   return call("csv_summary", { docId, rects });
 }
@@ -1102,7 +1148,7 @@ export function csvPaste(
   docId: string,
   row: number,
   col: number,
-  text: string
+  text: string,
 ): Promise<CsvPasteResult> {
   return call("csv_paste", { docId, row, col, text });
 }
@@ -1117,7 +1163,7 @@ export function csvEdge(
   row: number,
   col: number,
   dRow: number,
-  dCol: number
+  dCol: number,
 ): Promise<CsvPos> {
   return call("csv_edge", { docId, row, col, dRow, dCol });
 }
@@ -1136,7 +1182,7 @@ export function csvDirtyNames(): Promise<string[]> {
 export function csvCompare(
   leftId: string,
   rightId: string,
-  options: CsvDiffOptions
+  options: CsvDiffOptions,
 ): Promise<CsvDiffOverview> {
   return call("csv_compare", { leftId, rightId, options });
 }
@@ -1144,7 +1190,7 @@ export function csvCompare(
 /** 突き合わせに使えそうな列を推測する */
 export function csvGuessKey(
   leftId: string,
-  rightId: string
+  rightId: string,
 ): Promise<string[]> {
   return call("csv_guess_key", { leftId, rightId });
 }
@@ -1152,7 +1198,7 @@ export function csvGuessKey(
 /** 直近の比較結果から、見えている範囲だけを取る */
 export function csvDiffPage(
   offset: number,
-  limit: number
+  limit: number,
 ): Promise<CsvDiffPage> {
   return call("csv_diff_page", { offset, limit });
 }
@@ -1160,7 +1206,7 @@ export function csvDiffPage(
 /** 次 (前) の差分がある行を探す。無ければ null */
 export function csvDiffNext(
   from: number,
-  backward: boolean
+  backward: boolean,
 ): Promise<number | null> {
   return call("csv_diff_next", { from, backward });
 }
@@ -1225,7 +1271,7 @@ export function dbPrivileges(sessionId: string): Promise<DbPrivilegeChoices> {
 /** 実行せずに、変更で流すことになるSQLを返す (確認の画面に出す) */
 export function previewDbUserChange(
   sessionId: string,
-  change: DbUserChange
+  change: DbUserChange,
 ): Promise<string[]> {
   return call("preview_db_user_change", { sessionId, change });
 }
@@ -1234,7 +1280,7 @@ export function previewDbUserChange(
 export function applyDbUserChange(
   sessionId: string,
   database: string,
-  change: DbUserChange
+  change: DbUserChange,
 ): Promise<void> {
   return call("apply_db_user_change", { sessionId, database, change });
 }
@@ -1247,7 +1293,7 @@ export function defaultSshKeyDir(): Promise<string> {
 /** 実行結果キャプチャ(PNG)をDownloadsに保存し、保存先パスを返す */
 export function saveCapture(
   fileName: string,
-  dataBase64: string
+  dataBase64: string,
 ): Promise<string> {
   return call("save_capture", { fileName, dataBase64 });
 }
@@ -1268,7 +1314,7 @@ export function listSessions(): Promise<SessionSummary[]> {
 
 export function schemaSnapshot(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<SchemaEntry[]> {
   return call("schema_snapshot", { sessionId, database });
 }
@@ -1305,23 +1351,20 @@ export function openMainWindow(): Promise<void> {
 export function openSchema(
   sessionId: string,
   database: string,
-  name?: string
+  name?: string,
 ): Promise<void> {
   return call("open_schema", { sessionId, database, name: name ?? null });
 }
 
 /** ER図ウィンドウを開く */
-export function openEr(
-  sessionId?: string,
-  database?: string
-): Promise<void> {
+export function openEr(sessionId?: string, database?: string): Promise<void> {
   return call("open_er", { sessionId, database });
 }
 
 /** ER図用: スキーマと外部キーをまとめて取得する */
 export function schemaWithForeignKeys(
   sessionId: string,
-  database: string
+  database: string,
 ): Promise<{ entries: SchemaEntry[]; foreignKeys: FkInfo[] }> {
   return call("schema_with_foreign_keys", { sessionId, database });
 }
@@ -1354,7 +1397,7 @@ export function exportSchemaXlsx(
   sessionId: string,
   database: string,
   connection: string,
-  tables?: string[]
+  tables?: string[],
 ): Promise<string> {
   return call("export_schema_xlsx", {
     sessionId,
@@ -1372,7 +1415,7 @@ export function createSampleDatabase(): Promise<string> {
 /** ピン留めしているテーブルの一覧 (接続・DBごと) */
 export function listPinnedTables(
   profileId: string,
-  database: string
+  database: string,
 ): Promise<string[]> {
   return call("list_pinned_tables", { profileId, database });
 }
@@ -1382,7 +1425,7 @@ export function setPinnedTable(
   profileId: string,
   database: string,
   table: string,
-  pinned: boolean
+  pinned: boolean,
 ): Promise<string[]> {
   return call("set_pinned_table", { profileId, database, table, pinned });
 }
@@ -1411,7 +1454,7 @@ export function openConsole(): Promise<void> {
 export function checkDangerousSql(
   sessionId: string,
   sql: string,
-  dbType: DbType
+  dbType: DbType,
 ): Promise<DangerousStatement[]> {
   return call("check_dangerous_sql", { sessionId, sql, dbType });
 }
@@ -1426,7 +1469,7 @@ export function checkDangerousFilled(
   sessionId: string,
   sql: string,
   dbType: DbType,
-  params: Record<string, ParamValue>
+  params: Record<string, ParamValue>,
 ): Promise<DangerousStatement[]> {
   return call("check_dangerous_filled", { sessionId, sql, dbType, params });
 }
@@ -1446,7 +1489,7 @@ export function clearQueryLog(): Promise<void> {
  */
 export function exportQueryLog(
   filter: string,
-  format: LogFormat
+  format: LogFormat,
 ): Promise<ExportedLog> {
   return call("export_query_log", { filter, format });
 }
@@ -1469,7 +1512,7 @@ export function startExport(
   sessionId: string,
   database: string,
   tables: ExportTable[],
-  mode: ExportMode
+  mode: ExportMode,
 ): Promise<StartedJob> {
   return call("start_export", { sessionId, database, tables, mode });
 }
@@ -1477,7 +1520,7 @@ export function startExport(
 export function startImport(
   sessionId: string,
   database: string,
-  filePath: string
+  filePath: string,
 ): Promise<StartedJob> {
   return call("start_import", { sessionId, database, filePath });
 }
@@ -1498,7 +1541,7 @@ export function cancelSchemaLoad(sessionId: string): Promise<void> {
 export function splitSqlStatements(
   sessionId: string,
   sql: string,
-  dbType: DbType
+  dbType: DbType,
 ): Promise<string[]> {
   return call("split_sql_statements", { sessionId, sql, dbType });
 }
@@ -1528,7 +1571,7 @@ export function kvScan(
   sessionId: string,
   database: string,
   pattern: string,
-  cursor: string
+  cursor: string,
 ): Promise<KvScanResult> {
   return call("kv_scan", { sessionId, database, pattern, cursor });
 }
@@ -1537,7 +1580,7 @@ export function kvScan(
 export function kvKeyDetail(
   sessionId: string,
   database: string,
-  key: string
+  key: string,
 ): Promise<KvKeyDetail> {
   return call("kv_key_detail", { sessionId, database, key });
 }
@@ -1546,7 +1589,7 @@ export function kvKeyDetail(
 export function kvApply(
   sessionId: string,
   database: string,
-  change: KvChange
+  change: KvChange,
 ): Promise<void> {
   return call("kv_apply", { sessionId, database, change });
 }
@@ -1556,7 +1599,7 @@ export function kvExec(
   sessionId: string,
   database: string,
   commands: string[],
-  confirmed = false
+  confirmed = false,
 ): Promise<KvRunOutput> {
   return call("kv_exec", { sessionId, database, commands, confirmed });
 }
@@ -1581,7 +1624,7 @@ export function createTempUpload(fileName: string): Promise<string> {
 /** 一時ファイルへチャンクを追記する */
 export function appendTempUpload(
   path: string,
-  dataBase64: string
+  dataBase64: string,
 ): Promise<void> {
   return call("append_temp_upload", { path, dataBase64 });
 }
@@ -1628,7 +1671,7 @@ export function clearSqlHistory(): Promise<SqlHistoryEntry[]> {
 
 /** 保存済みのSQLパラメータ値を取得する (パラメータ名 → 直近の値と埋め込み方) */
 export function getSqlParams(
-  scope: string
+  scope: string,
 ): Promise<Record<string, { value: string; kind: string }>> {
   return call("get_sql_params", { scope });
 }
@@ -1636,7 +1679,7 @@ export function getSqlParams(
 /** SQLパラメータ値を保存する (接続ごと。同名は上書き) */
 export function saveSqlParams(
   scope: string,
-  entries: Record<string, { value: string; kind: string }>
+  entries: Record<string, { value: string; kind: string }>,
 ): Promise<void> {
   return call("save_sql_params", { scope, entries });
 }
@@ -1651,7 +1694,7 @@ export function upsertSavedSql(
   id: string | null,
   name: string,
   folder: string,
-  sql: string
+  sql: string,
 ): Promise<SavedSqlStore> {
   return call("upsert_saved_sql", { id, name, folder, sql });
 }
@@ -1669,7 +1712,7 @@ export function createSavedFolder(path: string): Promise<SavedSqlStore> {
 /** フォルダの名前を変える (中身のパスも付け替わる) */
 export function renameSavedFolder(
   path: string,
-  name: string
+  name: string,
 ): Promise<SavedSqlStore> {
   return call("rename_saved_folder", { path, name });
 }
@@ -1689,7 +1732,7 @@ export function deleteSavedFolder(path: string): Promise<SavedSqlStore> {
 export function moveSavedNode(
   node: string,
   parent: string,
-  before: string | null
+  before: string | null,
 ): Promise<SavedSqlStore> {
   return call("move_saved_node", { node, parent, before });
 }
