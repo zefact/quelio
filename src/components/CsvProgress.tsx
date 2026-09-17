@@ -31,12 +31,15 @@ const TICK_MS = 300;
 const PHASE_LABEL: Record<Exclude<JobPhase, "working">, string> = {
   committing: "確定中",
   rollingBack: "取り消し中",
+  scanning: "ファイルを確認しています",
 };
 
 const PHASE_TIP: Record<Exclude<JobPhase, "working">, string> = {
   committing: "サーバーが変更を確定しています。件数が多いと時間がかかります。",
   rollingBack:
     "サーバーが変更を巻き戻しています。件数が多いと取り込みより長くかかることがあります。",
+  scanning:
+    "取り込む前に、列の数が揃っているかをファイル全体で確かめています。まだ何も書き込んでいません。",
 };
 
 /**

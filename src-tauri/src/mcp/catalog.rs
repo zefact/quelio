@@ -201,7 +201,7 @@ fn some_if_filled(s: String) -> Option<String> {
 }
 
 /// `schema.table` を分ける (点が無ければスキーマ指定なし)
-fn split_qualified(table: &str) -> (Option<String>, String) {
+pub(super) fn split_qualified(table: &str) -> (Option<String>, String) {
     match table.split_once('.') {
         Some((s, t)) if !s.is_empty() && !t.is_empty() => {
             (Some(s.to_string()), t.to_string())

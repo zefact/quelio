@@ -31,6 +31,12 @@ pub fn save_connection(
     // 画面が伏せたまま返してきた秘匿値は、保存済みの値で補う
     storage::restore_secrets(&app, &mut profile)?;
     let mut store = storage::load(&app)?;
+    // 保存前の姿を控えておく (AIへ見える一覧が変わったかを見るため)
+    let before = store
+        .connections
+        .iter()
+        .find(|c| c.id == profile.id)
+        .cloned();
 
     if profile.id.is_empty() {
         profile.id = uuid::Uuid::new_v4().to_string();
@@ -42,6 +48,10 @@ pub fn save_connection(
     }
 
     storage::save(&app, &store)?;
+    // 公開のしかたが変わったなら、繋がっているAIクライアントへ知らせる
+    if ai_list_changed(before.as_ref(), Some(&profile)) {
+        notify_ai_list_changed(&app);
+    }
     // 保存したものを返すときも、パスワードは伏せる
     profile.password = String::new();
     profile.password_saved = !store
@@ -73,12 +83,86 @@ pub fn validate_ai_access(
     Ok(())
 }
 
+/// AIへ見えている姿 (見えていなければ None)。
+///
+/// 公開レベルだけでなく名前も見る。名前はリソースのURIに入るので、
+/// 変わったらクライアントが持っている一覧は古くなる
+pub(crate) fn ai_visible(c: &ConnectionProfile) -> Option<AiView> {
+    // Valkey は公開の対象外 (`mcp::session::find_by_name` と同じ判断)
+    if !c.ai_access.is_exposed() || c.db_type == crate::models::DbType::Valkey {
+        return None;
+    }
+    Some(AiView {
+        name: c.name.clone(),
+        access: c.ai_access,
+        db_type: c.db_type,
+        // SQLiteはファイルのパスではなく、URIに出る固定の名前で比べる
+        database: if c.db_type == crate::models::DbType::Sqlite {
+            crate::mcp::SQLITE_DB.to_string()
+        } else {
+            c.database.clone().unwrap_or_default().trim().to_string()
+        },
+    })
+}
+
+/// AIへ見えている姿。
+///
+/// これが変われば、クライアントが持っている一覧は古い。
+/// 名前と公開レベルだけでなく、**既定データベースと種別**も入れる:
+/// Resources の並びは `quelio://<接続名>/<DB名>/schema` の形で、
+/// 既定DBを変えるとURIが変わり、外すと一覧から消えるため
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AiView {
+    name: String,
+    access: crate::models::AiAccess,
+    db_type: crate::models::DbType,
+    /// 既定データベース (無ければ空。SQLiteは `main` にそろえる)
+    database: String,
+}
+
+/// AIへ見える一覧が変わったか
+fn ai_list_changed(
+    before: Option<&ConnectionProfile>,
+    after: Option<&ConnectionProfile>,
+) -> bool {
+    before.and_then(ai_visible) != after.and_then(ai_visible)
+}
+
+/// AIへ見えている接続の一覧 (並びは問わないので名前順にそろえる)。
+///
+/// 1件ずつの比較ができない取り込み (`backup`) で、
+/// 前後の姿を見比べるために使う
+pub(crate) fn ai_visible_list(store: &ConnectionStore) -> Vec<AiView> {
+    let mut list: Vec<AiView> = store.connections.iter().filter_map(ai_visible).collect();
+    list.sort_by(|a, b| {
+        (&a.name, a.access.as_str(), &a.database)
+            .cmp(&(&b.name, b.access.as_str(), &b.database))
+    });
+    list
+}
+
+/// 繋がっているAIクライアントへ「一覧が変わった」と送る。
+///
+/// 送れなくても保存は成功させる (知らせるのは補助であり、
+/// クライアントは次に一覧を取った時点で新しい姿を見る)
+pub(crate) fn notify_ai_list_changed(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        crate::mcp::notify_resources_changed(&app).await;
+    });
+}
+
 /// 接続プロファイルを削除
 #[tauri::command]
 pub fn delete_connection(app: AppHandle, id: String) -> Result<(), String> {
     let mut store = storage::load(&app)?;
+    let before = store.connections.iter().find(|c| c.id == id).cloned();
     store.connections.retain(|c| c.id != id);
-    storage::save(&app, &store)
+    storage::save(&app, &store)?;
+    if ai_list_changed(before.as_ref(), None) {
+        notify_ai_list_changed(&app);
+    }
+    Ok(())
 }
 
 /// フォルダを作成して返す
@@ -297,5 +381,110 @@ mod tests {
         for env in [Some("staging"), Some("dev"), None] {
             assert!(validate_ai_access(env, AiAccess::Write).is_ok(), "{env:?}");
         }
+    }
+
+    fn profile(name: &str, access: AiAccess) -> ConnectionProfile {
+        ConnectionProfile {
+            id: "1".to_string(),
+            name: name.to_string(),
+            db_type: crate::models::DbType::Mysql,
+            host: "db.example.com".to_string(),
+            port: 3306,
+            user: "app".to_string(),
+            password: String::new(),
+            database: None,
+            tls: false,
+            ssl_mode: None,
+            ca_cert_path: None,
+            client_cert_path: None,
+            client_key_path: None,
+            read_only: false,
+            ssh: None,
+            proxy: None,
+            folder_id: None,
+            color: None,
+            env: Some("dev".to_string()),
+            ai_access: access,
+            pinned: false,
+            last_used_at: None,
+            password_locked: false,
+            password_saved: false,
+            passphrase_saved: false,
+        }
+    }
+
+    #[test]
+    fn 公開をやめれば一覧は変わる() {
+        let before = profile("開発DB", AiAccess::Read);
+        let after = profile("開発DB", AiAccess::None);
+        assert!(ai_list_changed(Some(&before), Some(&after)));
+        assert!(ai_list_changed(Some(&after), Some(&before)));
+    }
+
+    #[test]
+    fn 読み取りと更新の入れ替えも一覧は変わる() {
+        let read = profile("開発DB", AiAccess::Read);
+        let write = profile("開発DB", AiAccess::Write);
+        assert!(ai_list_changed(Some(&read), Some(&write)));
+    }
+
+    #[test]
+    fn 名前が変わればuriが変わるので一覧も変わる() {
+        let before = profile("開発DB", AiAccess::Read);
+        let after = profile("検証DB", AiAccess::Read);
+        assert!(ai_list_changed(Some(&before), Some(&after)));
+    }
+
+    #[test]
+    fn 公開していない接続の変更は知らせない() {
+        let before = profile("開発DB", AiAccess::None);
+        let after = profile("検証DB", AiAccess::None);
+        assert!(!ai_list_changed(Some(&before), Some(&after)));
+        // 消しても、見えていなかったのだから一覧は変わらない
+        assert!(!ai_list_changed(Some(&before), None));
+    }
+
+    #[test]
+    fn 公開中の接続を消せば一覧は変わる() {
+        let before = profile("開発DB", AiAccess::Read);
+        assert!(ai_list_changed(Some(&before), None));
+    }
+
+    #[test]
+    fn 公開していても他の項目だけの変更では知らせない() {
+        let mut before = profile("開発DB", AiAccess::Read);
+        before.host = "a".to_string();
+        let mut after = profile("開発DB", AiAccess::Read);
+        after.host = "b".to_string();
+        assert!(!ai_list_changed(Some(&before), Some(&after)));
+    }
+
+    #[test]
+    fn 既定データベースを変えれば一覧は変わる() {
+        // Resources のURIに入るので、変わると持っている一覧が古くなる
+        let mut before = profile("開発DB", AiAccess::Read);
+        before.database = Some("shop".to_string());
+        let mut after = profile("開発DB", AiAccess::Read);
+        after.database = Some("shop2".to_string());
+        assert!(ai_list_changed(Some(&before), Some(&after)));
+
+        // 既定DBを外すと一覧から消えるので、これも知らせる
+        let mut cleared = profile("開発DB", AiAccess::Read);
+        cleared.database = None;
+        assert!(ai_list_changed(Some(&before), Some(&cleared)));
+
+        // 同じなら知らせない
+        let mut same = profile("開発DB", AiAccess::Read);
+        same.database = Some("shop".to_string());
+        assert!(!ai_list_changed(Some(&before), Some(&same)));
+    }
+
+    #[test]
+    fn valkeyは公開対象外なので知らせない() {
+        let mut before = profile("KV", AiAccess::Read);
+        before.db_type = crate::models::DbType::Valkey;
+        let mut after = profile("KV", AiAccess::Write);
+        after.db_type = crate::models::DbType::Valkey;
+        assert!(!ai_list_changed(Some(&before), Some(&after)));
     }
 }

@@ -139,6 +139,42 @@ pub struct AiTableDetail {
     pub foreign_keys: Vec<AiForeignKey>,
 }
 
+/// 列の値1つとその件数
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiColumnValue {
+    pub value: String,
+    pub count: i64,
+}
+
+/// `column_values` が返すもの
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiColumnValues {
+    pub column: String,
+    /// 件数の多い順。NULL はここに入れない
+    pub values: Vec<AiColumnValue>,
+    /// NULL の件数。
+    ///
+    /// 上限で打ち切って、なおかつ NULL が上位に出てこなかったときは null
+    /// (0件と言い切れないため)
+    pub null_count: Option<i64>,
+    /// 上限に達して打ち切ったか (ほかにも値がある)
+    pub truncated: bool,
+    /// 確かめられた種類の数 (打ち切った場合はこれ以上ある)
+    pub distinct_at_least: usize,
+}
+
+/// `open_in_editor` が返すもの
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiOpenedSheet {
+    /// 置いたシートの名前 (利用者に伝えるため)
+    pub sheet: String,
+    /// 置けたか (実行はしていない)
+    pub opened: bool,
+}
+
 /// `search_schema` の当たり1件
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -161,13 +197,30 @@ pub struct AiSearchResult {
     pub truncated: bool,
 }
 
+/// 結果の列 (名前と型)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AiResultColumn {
+    pub name: String,
+    /// ドライバが返す型名 (DBごとの呼び方のまま)。
+    ///
+    /// 取れない経路では null。空文字で返すと
+    /// 「型名が空のもの」と読まれかねないので、無いことを無いと示す
+    #[serde(rename = "type")]
+    pub data_type: Option<String>,
+}
+
 /// `run_query` / `explain` が返すもの
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct AiRows {
-    pub columns: Vec<String>,
-    /// セル値 (NULLは null)
-    pub rows: Vec<Vec<Option<String>>>,
+    pub columns: Vec<AiResultColumn>,
+    /// セル値 (NULLは null)。`format` が json のときだけ入る
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rows: Option<Vec<Vec<Option<String>>>>,
+    /// Markdown / CSV にしたときの本文 (json のときは null)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     /// 返した行数
     pub row_count: usize,
     /// 上限で打ち切ったか (続きがある)
@@ -322,8 +375,12 @@ mod tests {
                 truncated: false,
             }),
             serde_json::to_string(&AiRows {
-                columns: vec!["n".into()],
-                rows: vec![vec![Some("1".into())]],
+                columns: vec![AiResultColumn {
+                    name: "n".into(),
+                    data_type: Some("INTEGER".into()),
+                }],
+                rows: Some(vec![vec![Some("1".into())]]),
+                text: None,
                 row_count: 1,
                 truncated: false,
                 rows_affected: None,

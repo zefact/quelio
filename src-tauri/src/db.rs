@@ -500,3 +500,242 @@ pub fn format_db_error(e: sqlx::Error) -> String {
         _ => format!("エラー: {e}"),
     }
 }
+
+/// MySQLのエラー番号 (MySQL以外の接続では None)。
+///
+/// 文言を見るのではなく番号で判断する。
+/// エラーメッセージはサーバーの言語設定で変わるうえ、
+/// 文字列マッチを増やすと後から読めなくなる
+pub fn mysql_errno(e: &sqlx::Error) -> Option<u16> {
+    let sqlx::Error::Database(db) = e else {
+        return None;
+    };
+    db.try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>()
+        .map(|m| m.number())
+}
+
+/// 取り込みが失敗した理由の大まかな分類。
+///
+/// DBごとに番号も文言も違うので、見分けるのはここだけにまとめる
+/// (呼び出し側に文字列マッチをばらまかない)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DbFailure {
+    /// 値をその列の型として読めない (日付列に文字列など)
+    BadValue {
+        /// エラー文から読めた列名 (読めなければ None。推定より優先する)
+        column: Option<String>,
+        /// バッチの中の何行目か (1始まり。MySQLの `at row N`)
+        row: Option<usize>,
+    },
+    /// 主キー・ユニークキーの重複
+    Duplicate,
+    /// NOT NULL 違反 (列名がエラー文から読めれば添える)
+    NotNull { column: Option<String> },
+    /// 上のどれでもない
+    Other,
+}
+
+/// エラーの種類を見分ける
+pub fn classify_failure(e: &sqlx::Error) -> DbFailure {
+    let sqlx::Error::Database(db) = e else {
+        return DbFailure::Other;
+    };
+    let msg = db.message();
+    if let Some(no) = mysql_errno(e) {
+        return match no {
+            1062 => DbFailure::Duplicate,
+            // 1048: Column 'x' cannot be null / 1364: 既定値が無い
+            1048 | 1364 => DbFailure::NotNull {
+                column: for_column(msg).or_else(|| not_null_column(msg)),
+            },
+            /*
+             * 3988: 照合順序の変換ができない。
+             * 日付列へ日付でない文字列 (非ASCII) を渡すと、
+             * MySQLが内部で latin1 を経由するためこの形で出る
+             * 1292: Incorrect date/datetime/time value
+             * 1366: Incorrect integer/decimal value
+             * 1265: Data truncated for column
+             */
+            3988 | 1292 | 1366 | 1265 => DbFailure::BadValue {
+                // 3988 (照合順序) は列名を含まない。そのときは推定に任せる
+                column: for_column(msg),
+                row: at_row(msg),
+            },
+            _ => DbFailure::Other,
+        };
+    }
+    match db.code().as_deref() {
+        // PostgreSQL (SQLSTATE)
+        Some("23505") => DbFailure::Duplicate,
+        /*
+         * 21000: ON CONFLICT DO UPDATE が同じ行を2回更新した。
+         * 「1つの文の中に同じキーの行が2つある」ことなので、重複として扱う
+         */
+        Some("21000") => DbFailure::Duplicate,
+        Some("23502") => DbFailure::NotNull {
+            column: pg_column(e).or_else(|| not_null_column(msg)),
+        },
+        // 日時の書式・文字列から数値への変換・桁あふれ
+        Some("22007") | Some("22008") | Some("22018") | Some("22P02") | Some("22003") => {
+            DbFailure::BadValue {
+                column: pg_column(e),
+                // PostgreSQLは何行目かを返さない
+                row: None,
+            }
+        }
+        // SQLiteは結果コードなので当たらない。文言で見る
+        _ => sqlite_failure(msg),
+    }
+}
+
+/// SQLiteの制約違反を文言から見分ける。
+///
+/// SQLiteの `code()` は結果コードの数値で、SQLSTATEとは体系が違う。
+/// 型は緩いので「値が読めない」はほぼ起きない
+fn sqlite_failure(msg: &str) -> DbFailure {
+    if msg.contains("UNIQUE constraint failed") || msg.contains("PRIMARY KEY constraint failed")
+    {
+        return DbFailure::Duplicate;
+    }
+    if msg.contains("NOT NULL constraint failed") {
+        return DbFailure::NotNull {
+            column: not_null_column(msg),
+        };
+    }
+    DbFailure::Other
+}
+
+/// PostgreSQLが教えてくれる列名 (`c` フィールド)
+fn pg_column(e: &sqlx::Error) -> Option<String> {
+    let sqlx::Error::Database(db) = e else {
+        return None;
+    };
+    db.try_downcast_ref::<sqlx::postgres::PgDatabaseError>()?
+        .column()
+        .map(|c| c.to_string())
+}
+
+/// MySQLの `for column 'x'` から列名を取り出す。
+///
+/// 値はそのまま文中に埋められるので、値の中に `for column '…'` が
+/// 入っていることがある。後ろから探して、DBが付けた方を拾う
+fn for_column(msg: &str) -> Option<String> {
+    let at = msg.rfind("for column ")?;
+    quoted_name(&msg[at..])
+}
+
+/// MySQLの `at row N` から、まとめて送った中の何行目かを取り出す (1始まり)
+fn at_row(msg: &str) -> Option<usize> {
+    let at = msg.rfind("at row ")?;
+    let rest = &msg[at + "at row ".len()..];
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok().filter(|n| *n > 0)
+}
+
+/// NOT NULL 違反のエラー文から列名を取り出す (読めなければ None)
+fn not_null_column(msg: &str) -> Option<String> {
+    // SQLite: NOT NULL constraint failed: t.col
+    if let Some(at) = msg.find("NOT NULL constraint failed:") {
+        let rest = msg[at..].split(':').nth(1)?.trim();
+        let name = rest.rsplit('.').next()?.trim();
+        return (!name.is_empty()).then(|| name.to_string());
+    }
+    // MySQL: Column 'x' cannot be null / PostgreSQL: null value in column "x" of ...
+    quoted_name(msg)
+}
+
+/// 最初の引用符で囲まれた名前を取り出す (`'x'` / `"x"` / `` `x` ``)
+fn quoted_name(msg: &str) -> Option<String> {
+    let (at, quote) = msg
+        .char_indices()
+        .find(|(_, c)| matches!(c, '\'' | '"' | '`'))?;
+    let rest = &msg[at + quote.len_utf8()..];
+    let end = rest.find(quote)?;
+    let name = &rest[..end];
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn 引用符の中の名前を取り出す() {
+        assert_eq!(
+            quoted_name("Column 'memo' cannot be null").as_deref(),
+            Some("memo")
+        );
+        assert_eq!(
+            quoted_name("null value in column \"memo\" of relation \"t\"").as_deref(),
+            Some("memo")
+        );
+        assert_eq!(quoted_name("no quotes here"), None);
+        // 空の引用符は名前として扱わない
+        assert_eq!(quoted_name("Column '' cannot be null"), None);
+    }
+
+    #[test]
+    fn sqliteのnot_null違反から列名を取り出す() {
+        assert_eq!(
+            not_null_column("NOT NULL constraint failed: t_slip.memo").as_deref(),
+            Some("memo")
+        );
+        // スキーマ付きでも末尾を取る
+        assert_eq!(
+            not_null_column("NOT NULL constraint failed: main.t.memo").as_deref(),
+            Some("memo")
+        );
+    }
+
+    #[test]
+    fn sqliteの制約違反を見分ける() {
+        assert_eq!(
+            sqlite_failure("UNIQUE constraint failed: t.id"),
+            DbFailure::Duplicate
+        );
+        assert_eq!(
+            sqlite_failure("NOT NULL constraint failed: t.memo"),
+            DbFailure::NotNull {
+                column: Some("memo".to_string())
+            }
+        );
+        // 分からないものを勝手に決めつけない
+        assert_eq!(sqlite_failure("disk I/O error"), DbFailure::Other);
+    }
+
+    #[test]
+    fn mysqlのエラー文から列名を取り出す() {
+        let msg = "Incorrect date value: 'あいう' for column 'created_at' at row 3";
+        assert_eq!(for_column(msg).as_deref(), Some("created_at"));
+        // 列名を言わないエラー (3988など) は推定に任せる
+        assert_eq!(
+            for_column("Conversion from collation utf8mb4_0900_ai_ci into latin1"),
+            None
+        );
+        // 値の中に 'for column ' があっても、後ろの引用符を見る
+        assert_eq!(
+            for_column("Incorrect value: 'x' for column `memo` at row 1").as_deref(),
+            Some("memo")
+        );
+        // 値そのものが `for column 'y'` を含んでいても、DBが付けた方を拾う
+        assert_eq!(
+            for_column(
+                "Incorrect date value: 'for column ''y''' for column 'x' at row 2"
+            )
+            .as_deref(),
+            Some("x")
+        );
+    }
+
+    #[test]
+    fn mysqlのエラー文から行位置を取り出す() {
+        assert_eq!(
+            at_row("Incorrect date value: 'あ' for column 'd' at row 3"),
+            Some(3)
+        );
+        assert_eq!(at_row("Incorrect date value: 'あ'"), None);
+        // 0行目は無い (1始まり)
+        assert_eq!(at_row("... at row 0"), None);
+        assert_eq!(at_row("... at row x"), None);
+    }
+}

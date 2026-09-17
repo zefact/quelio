@@ -54,6 +54,8 @@ pub fn import_connections(app: &AppHandle, path: &str) -> Result<ImportResult, S
         serde_json::from_str(&text).map_err(|e| format!("接続一覧のJSON形式が不正です: {e}"))?;
 
     let mut store = storage::load(app)?;
+    // 取り込みでAIへの公開が変わることがある (前後の姿を見比べる)
+    let before = crate::commands::ai_visible_list(&store);
     let mut added = 0;
     let mut updated = 0;
 
@@ -89,6 +91,10 @@ pub fn import_connections(app: &AppHandle, path: &str) -> Result<ImportResult, S
     }
 
     storage::save(app, &store)?;
+    // 保存や削除と同じく、見える一覧が変わったらクライアントへ知らせる
+    if crate::commands::ai_visible_list(&store) != before {
+        crate::commands::notify_ai_list_changed(app);
+    }
     Ok(ImportResult { added, updated })
 }
 

@@ -21,8 +21,9 @@ use crate::query::{Analyzed, DangerousStatement, Dialect};
 
 use super::approval::{self, Decision, APPROVAL_TIMEOUT};
 use super::catalog::database_of;
+use super::rows::{self, RowFormat};
 use super::session::Opened;
-use super::views::AiRows;
+use super::views::{AiResultColumn, AiRows};
 
 /// 返す行数の既定
 pub const DEFAULT_MAX_ROWS: usize = 200;
@@ -118,6 +119,7 @@ pub async fn run(
     database: Option<String>,
     sql: &str,
     max_rows: Option<usize>,
+    format: RowFormat,
 ) -> Result<AiRows, String> {
     let dialect = dialect_of(app, opened).await?;
     let kind = classify_sql(dialect, sql)?;
@@ -132,7 +134,7 @@ pub async fn run(
         ask_and_wait(app, opened, &db, sql, dangerous, APPROVAL_TIMEOUT).await?;
     }
 
-    execute(app, opened, &db, sql, clamp_max_rows(max_rows), None).await
+    execute(app, opened, &db, sql, clamp_max_rows(max_rows), None, format).await
 }
 
 /// 実行計画を返す。
@@ -157,6 +159,8 @@ pub async fn explain(
         sql,
         DEFAULT_MAX_ROWS,
         Some("explain".to_string()),
+        // 実行計画は表そのものを読むので、行の形のまま返す
+        RowFormat::Json,
     )
     .await
 }
@@ -209,6 +213,7 @@ async fn ask_and_wait(
 }
 
 /// 既存の実行経路へ渡す (ここまで来たものだけが実行される)
+#[allow(clippy::too_many_arguments)]
 async fn execute(
     app: &AppHandle,
     opened: &Opened,
@@ -216,6 +221,7 @@ async fn execute(
     sql: &str,
     limit: usize,
     explain: Option<String>,
+    format: RowFormat,
 ) -> Result<AiRows, String> {
     let sessions = app.state::<crate::sessions::Sessions>();
     let qlog = app.state::<crate::query_log::QueryLog>();
@@ -251,18 +257,48 @@ async fn execute(
         .into_iter()
         .next()
         .ok_or("結果がありません")?;
-    Ok(to_ai_rows(first.result, limit))
+    Ok(to_ai_rows(first.result, limit, format))
 }
 
 /// 画面用の結果を、上限で切ってAI向けの形にする
-fn to_ai_rows(result: crate::models::QueryResult, limit: usize) -> AiRows {
+fn to_ai_rows(result: crate::models::QueryResult, limit: usize, format: RowFormat) -> AiRows {
     // 画面は1000行ずつ持っている。そこからさらに上限で切る
     let truncated = result.has_more || result.rows.len() > limit;
     let rows: Vec<Vec<Option<String>>> = result.rows.into_iter().take(limit).collect();
+    let row_count = rows.len();
+    let columns: Vec<AiResultColumn> = result
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(i, name)| AiResultColumn {
+            name: name.clone(),
+            // 型が取れないDB・経路では null にする (空文字と混ぜない)
+            data_type: result
+                .column_types
+                .get(i)
+                .filter(|t| !t.is_empty())
+                .cloned(),
+        })
+        .collect();
+
+    // Markdown / CSV は本文1つにまとめる。行の配列は返さない (二重になるため)
+    let (rows, text) = match format {
+        RowFormat::Json => (Some(rows), None),
+        RowFormat::Markdown => {
+            let t = rows::to_markdown(&result.columns, &rows);
+            (None, Some(t))
+        }
+        RowFormat::Csv => {
+            let t = rows::to_csv(&result.columns, &rows);
+            (None, Some(t))
+        }
+    };
+
     AiRows {
-        columns: result.columns,
-        row_count: rows.len(),
+        columns,
         rows,
+        text,
+        row_count,
         truncated,
         // 更新系は行が返らない。何行に効いたかだけを返す
         rows_affected: result.rows_affected,
@@ -386,6 +422,7 @@ mod tests {
     fn result(rows: usize, has_more: bool) -> crate::models::QueryResult {
         crate::models::QueryResult {
             columns: vec!["n".to_string()],
+            column_types: vec!["INTEGER".to_string()],
             rows: (0..rows).map(|i| vec![Some(i.to_string())]).collect(),
             clipped: Vec::new(),
             offset: 0,
@@ -400,15 +437,15 @@ mod tests {
 
     #[test]
     fn 上限を超えたら切って打ち切りの印を立てる() {
-        let got = to_ai_rows(result(201, false), 200);
+        let got = to_ai_rows(result(201, false), 200, RowFormat::Json);
         assert_eq!(got.row_count, 200);
-        assert_eq!(got.rows.len(), 200);
+        assert_eq!(got.rows.expect("行がある").len(), 200);
         assert!(got.truncated);
     }
 
     #[test]
     fn 上限に収まれば打ち切らない() {
-        let got = to_ai_rows(result(5, false), 200);
+        let got = to_ai_rows(result(5, false), 200, RowFormat::Json);
         assert_eq!(got.row_count, 5);
         assert!(!got.truncated);
     }
@@ -416,8 +453,49 @@ mod tests {
     #[test]
     fn 続きがあるときは行数に収まっていても印を立てる() {
         // 画面のページング側で続きが残っている場合
-        let got = to_ai_rows(result(200, true), 200);
+        let got = to_ai_rows(result(200, true), 200, RowFormat::Json);
         assert!(got.truncated);
+    }
+
+    #[test]
+    fn 列に型が付く() {
+        let got = to_ai_rows(result(1, false), 200, RowFormat::Json);
+        assert_eq!(got.columns[0].name, "n");
+        assert_eq!(got.columns[0].data_type.as_deref(), Some("INTEGER"));
+    }
+
+    #[test]
+    fn 型が取れなければnullにする() {
+        let mut r = result(1, false);
+        r.column_types = Vec::new();
+        let got = to_ai_rows(r, 200, RowFormat::Json);
+        assert_eq!(got.columns[0].data_type, None);
+
+        // 空文字で来た場合も「無い」として扱う
+        let mut r = result(1, false);
+        r.column_types = vec![String::new()];
+        let got = to_ai_rows(r, 200, RowFormat::Json);
+        assert_eq!(got.columns[0].data_type, None);
+    }
+
+    #[test]
+    fn markdownとcsvは本文で返す() {
+        // 行の配列と本文の両方を返すと、同じ中身が二重になる
+        for f in [RowFormat::Markdown, RowFormat::Csv] {
+            let got = to_ai_rows(result(2, false), 200, f);
+            assert!(got.rows.is_none(), "{f:?}");
+            let text = got.text.expect("本文がある");
+            assert!(text.contains('n'), "{f:?}: {text}");
+            // 行数と打ち切りの印は形によらず同じ
+            assert_eq!(got.row_count, 2, "{f:?}");
+        }
+    }
+
+    #[test]
+    fn jsonのときは本文を返さない() {
+        let got = to_ai_rows(result(2, false), 200, RowFormat::Json);
+        assert!(got.text.is_none());
+        assert!(got.rows.is_some());
     }
 
     // ---------- 実物のDB (SQLite) を1本だけ通す ----------
@@ -533,10 +611,19 @@ mod tests {
         let rows = to_ai_rows(
             out.statements.into_iter().next().expect("結果があること").result,
             200,
+            RowFormat::Json,
         );
-        assert_eq!(rows.columns, vec!["id".to_string(), "name".to_string()]);
+        assert_eq!(
+            rows.columns.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+            vec!["id".to_string(), "name".to_string()]
+        );
+        // 型はドライバが返す名前 (SQLiteは INTEGER / TEXT)
+        assert!(rows.columns[0].data_type.is_some(), "{:?}", rows.columns);
         assert_eq!(rows.row_count, 2);
-        assert_eq!(rows.rows[0][1], Some("山田".to_string()));
+        assert_eq!(
+            rows.rows.as_ref().expect("行がある")[0][1],
+            Some("山田".to_string())
+        );
         assert!(!rows.truncated);
 
         // 判定を通さずに更新を投げても、接続が読み取り専用なので通らない

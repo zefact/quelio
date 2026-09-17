@@ -59,7 +59,12 @@ export interface StatementResult {
  * 件数だけを見せていると、COMMIT / ROLLBACK の間は数字が止まったまま
  * 「取り込み中」と出続けてしまう
  */
-export type JobPhase = "working" | "committing" | "rollingBack";
+export type JobPhase =
+  | "working"
+  | "committing"
+  | "rollingBack"
+  /** 取り込む前の下見 (ファイル全体を読み流して形を確かめている) */
+  | "scanning";
 
 /** 時間のかかる処理の進捗 */
 export interface JobProgress {

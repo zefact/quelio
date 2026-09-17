@@ -13,11 +13,14 @@ import {
   blockBrowserShortcuts,
   blockSave,
   blockSelectAll,
+  blockStrayFileDrop,
 } from "./blockShortcuts";
 
 initTheme();
 blockBrowserShortcuts();
 blockSelectAll();
+// 置き場所の外に落とされたファイルで画面が覆われないようにする
+blockStrayFileDrop();
 
 // macOSではタイトルバーをアプリに統合(Overlay)するため、
 // 信号機ボタンぶんの余白をCSSで確保できるようクラスを付ける

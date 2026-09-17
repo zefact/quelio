@@ -364,6 +364,11 @@ pub struct TableDetail {
 #[serde(rename_all = "camelCase")]
 pub struct QueryResult {
     pub columns: Vec<String>,
+    /// 列の型名 (`columns` と同じ並び)。
+    ///
+    /// 画面では使っていないが、AI連携では「この列は日付か文字列か」で
+    /// 次に書くSQLが変わるので返している
+    pub column_types: Vec<String>,
     /// セル値 (Noneは NULL)
     pub rows: Vec<Vec<Option<String>>>,
     /// 長すぎて切り詰めたセルの位置。
@@ -371,7 +376,6 @@ pub struct QueryResult {
     /// 値そのものにも「… (全N文字)」を付けたままにしてあるが、
     /// 画面側がその文言を読み戻して判定すると、文言を変えただけで壊れる。
     /// 位置と長さはここから取る
-    #[serde(default)]
     pub clipped: Vec<crate::query::ClippedCell>,
     /// このページの先頭行のオフセット
     pub offset: usize,

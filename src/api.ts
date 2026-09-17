@@ -78,6 +78,7 @@ import type {
   SchemaEntry,
   SchemaTable,
   SessionSummary,
+  ShapeReport,
   SqlHistoryEntry,
   StartedJob,
   TableDetail,
@@ -424,6 +425,22 @@ export function previewCsv(
   options: CsvOptions,
 ): Promise<CsvPreview> {
   return call("preview_csv", { path, options });
+}
+
+/**
+ * 取り込む前に、ファイル全体の列数を確かめる。
+ *
+ * プレビューは先頭だけなので、途中の行で列がずれていても分からない。
+ * 押した直後にここを通して、行番号つきで知らせる
+ *
+ * @param jobId 進捗の取得・中止に使うID
+ */
+export function scanCsvShape(
+  path: string,
+  options: CsvOptions,
+  jobId: string,
+): Promise<ShapeReport> {
+  return call("scan_csv_shape", { path, options, jobId });
 }
 
 /**

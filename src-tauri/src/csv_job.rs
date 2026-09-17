@@ -23,6 +23,8 @@ pub enum JobPhase {
     Committing,
     /// 取り消し中 (ROLLBACK)
     RollingBack,
+    /// 取り込む前の下見 (ファイルを読み流して形を確かめている)
+    Scanning,
 }
 
 impl JobPhase {
@@ -31,6 +33,7 @@ impl JobPhase {
             JobPhase::Working => 0,
             JobPhase::Committing => 1,
             JobPhase::RollingBack => 2,
+            JobPhase::Scanning => 3,
         }
     }
 
@@ -38,6 +41,7 @@ impl JobPhase {
         match v {
             1 => JobPhase::Committing,
             2 => JobPhase::RollingBack,
+            3 => JobPhase::Scanning,
             _ => JobPhase::Working,
         }
     }

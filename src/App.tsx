@@ -57,6 +57,8 @@ import type { ParamRequest } from "./paramRequest";
 import { buildSchemaTips } from "./columnTips";
 import * as aiApproval from "./aiApproval";
 import type { AiApproval } from "./aiApproval";
+import * as aiOpenSql from "./aiOpenSql";
+import type { OpenSqlEvent } from "./aiOpenSql";
 import { buildSchemaLabels } from "./columnLabels";
 import { buildTableSelect, tableKey } from "./tableSql";
 import { dropFilters, recallFilter, rememberFilter } from "./tableFilterStore";
@@ -958,6 +960,142 @@ function App() {
       updateTab(key, { error: String(e), busy: null });
     }
   };
+
+  /*
+   * AIが書いたSQLを、エディタのシートへ置く (`open_in_editor`)。
+   *
+   * 実行はしない。人が読んで手直ししてから実行ボタンを押す流れにする。
+   * イベントが来た時点ではその接続のタブが開いていないことがあるので、
+   * 置けるようになるまで aiOpenSql に預けておく
+   */
+  const [openSqlQueue, setOpenSqlQueue] = useState<aiOpenSql.Queued[]>([]);
+  useEffect(() => {
+    const un = listen<OpenSqlEvent>("mcp-open-sql", (e) =>
+      setOpenSqlQueue((q) => aiOpenSql.add(q, e.payload, Date.now())),
+    );
+    return () => {
+      un.then((f) => f()).catch(() => {});
+    };
+  }, []);
+
+  /** 置けなかったときの知らせ (理由は接続失敗か時間切れの2つだけ) */
+  const OPEN_SQL_FAILED = "AIからのSQLを置けませんでした: 接続に失敗しました";
+
+  /**
+   * 預かっているSQLを、シートへ置く。
+   *
+   * 書きかけを消さないよう新しいシートに入れるが、
+   * 上限まで開いているときは今のシートの末尾へ足す (捨てない)。
+   *
+   * AIがDBを指定してきたら、そのDBへ切り替えてから置く。
+   * 選択中のDBが違うまま実行すると、別のDBへSQLが流れてしまう
+   */
+  const placeAiSql = (key: string, req: OpenSqlEvent) => {
+    const tab = tabOf(key);
+    const wanted = req.database;
+    // 切り替えられるのは、そのタブで選べるDBだけ
+    const canSwitch =
+      !!wanted && !!tab && tab.selectedDb !== wanted && tab.databases.includes(wanted);
+    const already = !!wanted && tab?.selectedDb === wanted;
+    if (canSwitch) {
+      // 画面からDBを選んだときと同じ経路を通す
+      void loadTables(key, wanted);
+    }
+    const sql = aiOpenSql.withDatabaseNote(
+      req.sql,
+      wanted,
+      canSwitch || already,
+    );
+
+    updateSheets(key, (e) => {
+      const active = activeSheetOf(e);
+      if (e.sheets.length >= MAX_SHEETS) {
+        const merged =
+          active.sql.trim() === "" ? sql : `${active.sql.trimEnd()}\n\n${sql}`;
+        return {
+          sheets: e.sheets.map((sh) =>
+            sh.id === active.id ? { ...sh, sql: merged } : sh,
+          ),
+        };
+      }
+      const fresh = {
+        ...emptySheet(newSheetId()),
+        sql,
+        title: req.title,
+        // 実行設定 (トランザクション等) は今のシートの設定を引き継ぐ
+        editorOpts: { ...active.editorOpts },
+      };
+      return { sheets: [...e.sheets, fresh], activeSheet: fresh.id };
+    });
+    updateTab(key, { view: "query" });
+    setActiveKey(key);
+  };
+
+  /*
+   * 置けるものを置き、まだ繋いでいない接続はここで開く。
+   *
+   * 繋ぐのは普段と同じ経路 (`requestConnect`) にする。
+   * 本番の接続なら確認ダイアログが出るし、パスワードの復号もSSHも
+   * 利用者側の手順のままになる
+   */
+  useEffect(() => {
+    if (openSqlQueue.length === 0) return;
+    /*
+     * 本番の確認・SSHホスト鍵の確認で止まっている間も「接続の手続き中」。
+     * ここを見ないと、確認を出したまま「繋がらなかった」と判断してしまう
+     */
+    const refs = tabs.map((t) => ({
+      key: t.key,
+      profileId: t.profile.id,
+      connected: t.connected,
+      running: t.editor.running,
+      connecting:
+        t.busy === "connect" ||
+        prodConfirm?.key === t.key ||
+        sshTrust?.key === t.key,
+    }));
+    const { ready, rest, dropped } = aiOpenSql.drain(
+      openSqlQueue,
+      refs,
+      Date.now(),
+    );
+    ready.forEach(({ key, req }) => placeAiSql(key, req));
+    // 黙って捨てると、AIには「置いた」と返っているので誰も気づけない
+    if (dropped.length > 0) setWinError(OPEN_SQL_FAILED);
+
+    let next = rest;
+    let changed = ready.length > 0 || dropped.length > 0;
+    for (const id of aiOpenSql.needsConnect(rest, refs)) {
+      const profile = store.connections.find((c) => c.id === id);
+      if (!profile) {
+        // 消された接続。待っていても置けないので捨てる
+        next = aiOpenSql.forget(next, id);
+        setWinError(OPEN_SQL_FAILED);
+        changed = true;
+        continue;
+      }
+      // 試したことを要求に控える (失敗したら次の判定で捨てられる)
+      next = aiOpenSql.markTried(next, id);
+      changed = true;
+      // 同じ接続のタブが手つかずで残っていれば、それを使う
+      const idle = tabs.find(
+        (t) => t.profile.id === id && !t.connected && t.busy !== "connect",
+      );
+      const key = idle?.key ?? newTabKey();
+      if (!idle) {
+        dispatch({
+          type: "add",
+          tab: { ...emptyTab(key), profile: structuredClone(profile) },
+        });
+      }
+      setActiveKey(key);
+      void requestConnect(key, profile);
+    }
+    // 変わったときだけ書き戻す (同じ行列を入れ直すと効果が回り続ける)
+    if (changed) setOpenSqlQueue(next);
+    // placeAiSql / requestConnect は毎回作り直されるため依存に入れない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs, openSqlQueue, store, prodConfirm, sshTrust]);
 
   // ---------- 接続済みタブの操作 ----------
 

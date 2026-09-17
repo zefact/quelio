@@ -87,3 +87,66 @@ export function blockSelectAll(): void {
     { capture: true }
   );
 }
+
+/**
+ * 置き場所ではないところに落とされたファイルを、黙って受け流す。
+ *
+ * メインウィンドウはOSの落とし込みをTauriに任せず、WebViewで受けている
+ * (CSV取り込みがファイルの中身を読むため。`dragDropEnabled: false`)。
+ * そのため、置き場所の外に落とすとWebViewの既定の動きが働き、
+ * **落としたファイルをそのまま開いて** 画面がその中身で覆われてしまう。
+ *
+ * 見分けるのは「ファイルの落とし込みで、まだどこも受け取っていないもの」だけ。
+ * - 文字の落とし込み (SQLエディタ・入力欄) は邪魔しない
+ * - 置き場所 (CSV取り込み・データ転送) は自分で preventDefault するので、
+ *   ここへ来る時点で受け取り済みになっている
+ *
+ * ほかの抑止と違って capture では登録しない。
+ * 先に走ると、置き場所より前に落とし込みを取り上げてしまう
+ */
+/** ファイルを受け取る場所の印 (CSV取り込み・データ転送の置き場所) */
+const FILE_DROP_TARGET = "[data-file-drop]";
+
+export function blockStrayFileDrop(): void {
+  const swallow = (e: DragEvent) => {
+    const types = e.dataTransfer ? Array.from(e.dataTransfer.types) : undefined;
+    const el = e.target instanceof Element ? e.target : null;
+    const inside = !!el?.closest(FILE_DROP_TARGET);
+    if (!isStrayFileDrop(e.defaultPrevented, types, inside)) return;
+    /*
+     * 「ここには置けない」とカーソルに出す。
+     *
+     * dragenter でも伝える。WebKitは落とし込みを受けるかどうかを
+     * 入った時点でも見ているため、dragover だけでは
+     * 「置ける」カーソル (macOSの緑の＋) が残ることがある
+     */
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "none";
+    /*
+     * 既定の動きを止める。
+     * 止めないとWebViewが落とし込みを受け取り、
+     * ファイルを開いて画面がその中身で覆われてしまう
+     */
+    e.preventDefault();
+  };
+  // 入った時点・移動中・落とした時点の3つで同じ判断をする
+  for (const name of ["dragenter", "dragover", "drop"] as const) {
+    window.addEventListener(name, swallow);
+  }
+}
+
+/**
+ * ファイルの落とし込みで、どこも受け取らないものか。
+ *
+ * `types` に "Files" が入っているかどうかで見分ける
+ * (中身を読まずに種類だけ見られる)
+ */
+export function isStrayFileDrop(
+  defaultPrevented: boolean,
+  types: readonly string[] | undefined,
+  /** 受け取る場所の中か (`[data-file-drop]` の内側) */
+  insideDropTarget: boolean
+): boolean {
+  // 受け取る場所は自分で扱う。ここで横取りしない
+  if (defaultPrevented || insideDropTarget) return false;
+  return !!types?.includes("Files");
+}

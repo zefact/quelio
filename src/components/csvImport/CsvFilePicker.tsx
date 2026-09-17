@@ -118,6 +118,8 @@ export function CsvFilePicker({
         (file ? " has-file" : "") +
         (busy ? " busy" : "")
       }
+      // ファイルを受け取る場所の印 (画面全体の落とし込み止めが避けて通る)
+      data-file-drop=""
       role="button"
       tabIndex={busy ? -1 : 0}
       onClick={pick}

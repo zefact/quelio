@@ -221,6 +221,35 @@ export interface CsvPreview {
   totalRows: number | null;
 }
 
+/** 列数が見出しと違う行1件 */
+export interface ShapeMismatch {
+  /** ファイル上の行番号 (エディタで見た番号) */
+  lineNo: number;
+  /** その行の列数 */
+  width: number;
+}
+
+/**
+ * 取り込む前にファイル全体を読み流して調べた「形」。
+ *
+ * プレビューは先頭20行しか見ないので、途中で列がずれている行は見つからない
+ */
+export interface ShapeReport {
+  /** 見出し (または1行目) の列数 */
+  headerWidth: number;
+  /** 列数が違う行 (先頭の何件かだけ) */
+  mismatches: ShapeMismatch[];
+  /** 列数が違う行の総数 */
+  mismatchCount: number;
+  /** 数えたデータ行数 */
+  rows: number;
+  /** 上限に達して途中で打ち切ったか */
+  truncated: boolean;
+  /** 中止されたか (調べ切っていない) */
+  cancelled: boolean;
+  elapsedMs: number;
+}
+
 /** 取り込みの結果 */
 export interface ImportResult {
   rows: number;

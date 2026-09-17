@@ -334,6 +334,7 @@ pub fn run() {
             commands::change_schema,
             commands::list_processes,
             commands::preview_csv,
+            commands::scan_csv_shape,
             commands::import_csv,
             commands::plan_test_data,
             commands::generate_test_data,

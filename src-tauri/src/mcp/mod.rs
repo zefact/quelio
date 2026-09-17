@@ -16,10 +16,15 @@ mod auth;
 /// `--mcp-stdio` の中継 (stdio ⇄ HTTP)
 pub mod bridge;
 mod catalog;
+mod editor;
 mod endpoint;
+mod prompts;
 mod query;
+mod resources;
+mod rows;
 mod server;
 mod session;
+mod values;
 mod views;
 
 use std::sync::Mutex;
@@ -35,7 +40,82 @@ use rmcp::transport::streamable_http_server::{
 
 pub use approval::{respond as approval_respond, Approvals, PendingView, APPROVAL_TIMEOUT};
 pub use auth::{load_or_create as token, regenerate as regenerate_token, TOKEN_FILE};
+pub use resources::SQLITE_DB;
 pub use session::{sweep_idle, AiSessions, SWEEP_INTERVAL};
+
+/// 繋がっているAIクライアント (一覧が変わったことを知らせる相手)。
+///
+/// 「どんな接続を公開しているか」は利用者がいつでも変えられる。
+/// 変わったことを伝えないと、クライアントは最初に取った一覧のまま話し続ける。
+///
+/// `Peer` は複製をそのまま持つ (弱参照にしない)。
+/// `Peer` は送信側のハンドルで、持っていても相手のセッションの寿命は延びない。
+/// 切れると送信路が閉じるので、`prune` で落とせる
+#[derive(Default)]
+pub struct Peers {
+    list: Mutex<Vec<rmcp::service::Peer<rmcp::service::RoleServer>>>,
+}
+
+/// 生きているかどうかだけを見る (掃除の判断を型から切り離して試せるように)
+trait Alive {
+    fn alive(&self) -> bool;
+}
+
+impl Alive for rmcp::service::Peer<rmcp::service::RoleServer> {
+    fn alive(&self) -> bool {
+        !self.is_transport_closed()
+    }
+}
+
+/// 切れた相手を落とす
+fn prune<T: Alive>(list: &mut Vec<T>) {
+    list.retain(Alive::alive);
+}
+
+impl Peers {
+    /// 繋がってきた相手を覚える (ついでに切れた相手を落とす)
+    fn add(&self, peer: rmcp::service::Peer<rmcp::service::RoleServer>) {
+        if let Ok(mut list) = self.list.lock() {
+            prune(&mut list);
+            list.push(peer);
+        }
+    }
+
+    /// 今つながっている相手を返す
+    fn alive(&self) -> Vec<rmcp::service::Peer<rmcp::service::RoleServer>> {
+        let Ok(mut list) = self.list.lock() else {
+            return Vec::new();
+        };
+        prune(&mut list);
+        list.clone()
+    }
+
+    /// 全部忘れる (待受を止めたとき。セッションごと切れている)
+    fn clear(&self) {
+        if let Ok(mut list) = self.list.lock() {
+            list.clear();
+        }
+    }
+}
+
+/// 繋がってきたクライアントを覚える (`ServerHandler` の初期化完了から呼ぶ)
+pub(crate) fn remember_peer(
+    app: &AppHandle,
+    peer: rmcp::service::Peer<rmcp::service::RoleServer>,
+) {
+    app.state::<McpServer>().peers.add(peer);
+}
+
+/// 「公開している接続の一覧が変わった」ことを知らせる。
+///
+/// ツールの並びは変わらないので `tools/list_changed` は送らない。
+/// 変わるのは接続の一覧 = Resources の一覧の方
+pub async fn notify_resources_changed(app: &AppHandle) {
+    for peer in app.state::<McpServer>().peers.alive() {
+        // 送れない相手は次の掃除で落ちる。ここでは止まらない
+        let _ = peer.notify_resource_list_changed().await;
+    }
+}
 
 /// 待っている許可の一覧 (画面が取りこぼしたときに取り直す)
 pub fn pending_approvals(app: &AppHandle) -> Vec<PendingView> {
@@ -162,6 +242,8 @@ pub struct McpStatus {
 #[derive(Default)]
 pub struct McpServer {
     running: Mutex<Option<Listening>>,
+    /// 繋がっているクライアント (一覧の変更を知らせる相手)
+    peers: Peers,
     /// 直近の起動が失敗した理由。次に起動できたら消す
     error: Mutex<Option<String>>,
     /*
@@ -296,6 +378,8 @@ pub async fn stop(app: &AppHandle) {
     endpoint::clear(app);
 
     let state = app.state::<McpServer>();
+    // 待受が閉じればセッションごと切れるので、覚えている相手も捨てる
+    state.peers.clear();
     let prev = state.running.lock().ok().and_then(|mut r| r.take());
     if let Some(listening) = prev {
         if let Err(message) = close(listening).await {
@@ -331,6 +415,30 @@ pub fn endpoint(port: u16) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 掃除の判断だけを試すための当て馬
+    struct Fake(bool);
+
+    impl Alive for Fake {
+        fn alive(&self) -> bool {
+            self.0
+        }
+    }
+
+    #[test]
+    fn 切れた相手だけ落とす() {
+        let mut list = vec![Fake(true), Fake(false), Fake(true)];
+        prune(&mut list);
+        assert_eq!(list.len(), 2);
+        assert!(list.iter().all(|f| f.0));
+    }
+
+    #[test]
+    fn 全部切れていれば空になる() {
+        let mut list = vec![Fake(false), Fake(false)];
+        prune(&mut list);
+        assert!(list.is_empty());
+    }
 
     #[test]
     fn エンドポイントは手元だけを指す() {

@@ -71,6 +71,22 @@ pub fn find_by_name<'a>(
     store: &'a ConnectionStore,
     name: &str,
 ) -> Result<&'a ConnectionProfile, String> {
+    let c = find_exposed_by_name(store, name)?;
+    if c.password_locked {
+        return Err(LOCKED.to_string());
+    }
+    Ok(c)
+}
+
+/// 名前を引くところまで (パスワードの状態は見ない)。
+///
+/// DBに触らない道 (`open_in_editor`) はここを使う。
+/// 触らないのに「鍵が要る」と返すと、
+/// **その名前の接続があること自体** を教えてしまう
+pub fn find_exposed_by_name<'a>(
+    store: &'a ConnectionStore,
+    name: &str,
+) -> Result<&'a ConnectionProfile, String> {
     let hits: Vec<&ConnectionProfile> = store
         .connections
         .iter()
@@ -86,9 +102,6 @@ pub fn find_by_name<'a>(
     // 公開していない / Valkey は「見つからない」と同じ返し方にする
     if !c.ai_access.is_exposed() || c.db_type == DbType::Valkey {
         return Err(NOT_EXPOSED.to_string());
-    }
-    if c.password_locked {
-        return Err(LOCKED.to_string());
     }
     Ok(c)
 }
@@ -468,6 +481,26 @@ mod tests {
         assert_eq!(
             find_by_name(&store(vec![p]), "鍵が変わった").expect_err("断ること"),
             LOCKED
+        );
+    }
+
+    #[test]
+    fn 名前解決だけならパスワードの状態を見ない() {
+        // DBに触らない道 (`open_in_editor`) は、鍵が要る接続でも通す。
+        // 断ると「その名前の接続がある」ことを教えてしまう
+        let mut p = profile("鍵が変わった", AiAccess::Read, DbType::Mysql);
+        p.password_locked = true;
+        let store = store(vec![p]);
+        assert_eq!(
+            find_exposed_by_name(&store, "鍵が変わった")
+                .expect("通ること")
+                .name,
+            "鍵が変わった"
+        );
+        // 公開していないものは、こちらでも同じように断る
+        assert_eq!(
+            find_exposed_by_name(&store, "知らない名前").expect_err("断ること"),
+            NOT_EXPOSED
         );
     }
 

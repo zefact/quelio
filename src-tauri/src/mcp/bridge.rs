@@ -10,19 +10,25 @@
 //!   混ざるとクライアント側の解析が壊れる。知らせごとは stderr へ
 //! - ツールの定義をここに持たない。一覧も呼び出しもアプリ側へ丸ごと転送する
 //!   (アプリ側でツールが増えたら、そのまま見えるようにするため)
+//! - **上流が名乗るものは、全部転送できる状態にしておく**。
+//!   名乗りはそのまま伝えるので、転送を忘れると
+//!   「名乗るのに応えない」= クライアントは空だと思い込む
 //! - 認証を緩めない。トークンはアプリと同じファイルから読み、必ず付けて送る
 
 use std::borrow::Cow;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, ErrorData as McpError, InitializeResult,
-    ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerInfo,
+    CallToolRequestParams, CallToolResponse, ErrorData as McpError, GetPromptRequestParams,
+    GetPromptResponse, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
+    ReadResourceRequestParams, ReadResourceResponse, ServerInfo,
 };
-use rmcp::service::{Peer, RequestContext, RoleClient, RoleServer};
+use rmcp::service::{NotificationContext, Peer, RequestContext, RoleClient, RoleServer};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{stdio, StreamableHttpClientTransport};
-use rmcp::{ServerHandler, ServiceExt};
+use rmcp::{ClientHandler, ServerHandler, ServiceExt};
 
 use super::endpoint;
 
@@ -56,7 +62,11 @@ struct Bridge {
 }
 
 impl ServerHandler for Bridge {
-    /// 自分の名乗りは、アプリ側の名乗りをそのまま使う
+    /// 自分の名乗りは、アプリ側の名乗りをそのまま使う。
+    ///
+    /// `list_changed` の印もそのまま伝わる。
+    /// **上流が名乗る口は、下からの要求をすべて転送できるようにしておくこと**
+    /// (名乗るのに応えないと、クライアントは空だと思い込む)
     fn get_info(&self) -> ServerInfo {
         let Some(up) = self.upstream.peer_info() else {
             return ServerInfo::default();
@@ -109,6 +119,114 @@ impl ServerHandler for Bridge {
             .call_tool_once(request)
             .await
             .map_err(|e| McpError::internal_error(e.to_string(), None))
+    }
+
+    async fn list_resources(
+        &self,
+        request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        self.upstream
+            .list_resources(request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))
+    }
+
+    async fn list_resource_templates(
+        &self,
+        request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, McpError> {
+        self.upstream
+            .list_resource_templates(request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, McpError> {
+        /*
+         * `call_tool` と同じ理由で `_once` 版を使う。
+         * 「入力が要る」という返しを、中継が代わりに進めて飲み込まない。
+         * URIが正しいかどうかも判断しない (断るのはアプリ側の仕事)
+         */
+        self.upstream
+            .read_resource_once(request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))
+    }
+
+    async fn list_prompts(
+        &self,
+        request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, McpError> {
+        self.upstream
+            .list_prompts(request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResponse, McpError> {
+        // 名前が正しいかどうかも判断しない (断るのはアプリ側の仕事)
+        self.upstream
+            .get_prompt_once(request)
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))
+    }
+}
+
+/**
+ * 上流 (アプリ) からの知らせを、下流 (クライアント) へ流す役。
+ *
+ * 公開する接続を変えると、アプリは
+ * `notifications/resources/list_changed` を送ってくる。
+ * 受け手を置かないとここで捨てられ、クライアントは最初に取った一覧のまま話し続ける。
+ *
+ * 中継を張るのは上流に繋いだ後なので、下流の相手は後から入れる
+ */
+#[derive(Debug, Default)]
+struct UpstreamEvents {
+    downstream: Arc<Mutex<Option<Peer<RoleServer>>>>,
+}
+
+impl UpstreamEvents {
+    /// 今の下流の相手 (まだ繋がっていなければ None)
+    fn downstream(&self) -> Option<Peer<RoleServer>> {
+        self.downstream.lock().ok()?.clone()
+    }
+}
+
+impl ClientHandler for UpstreamEvents {
+    async fn on_resource_list_changed(&self, _context: NotificationContext<RoleClient>) {
+        if let Some(peer) = self.downstream() {
+            // 送れなくても構わない (下流が閉じかけているだけ)
+            let _ = peer.notify_resource_list_changed().await;
+        }
+    }
+
+    /*
+     * ツールとプロンプトの一覧の変更も流す。
+     * 今のアプリは送らないが、送るようになったときに
+     * 中継を直さなくても済むようにしておく
+     */
+    async fn on_tool_list_changed(&self, _context: NotificationContext<RoleClient>) {
+        if let Some(peer) = self.downstream() {
+            let _ = peer.notify_tool_list_changed().await;
+        }
+    }
+
+    async fn on_prompt_list_changed(&self, _context: NotificationContext<RoleClient>) {
+        if let Some(peer) = self.downstream() {
+            let _ = peer.notify_prompt_list_changed().await;
+        }
     }
 }
 
@@ -181,12 +299,13 @@ async fn connect_upstream(
     url: String,
     token: String,
     timeout: Duration,
-) -> Result<rmcp::service::RunningService<RoleClient, ()>, String> {
+    events: UpstreamEvents,
+) -> Result<rmcp::service::RunningService<RoleClient, UpstreamEvents>, String> {
     // auth_header は「Bearer を付けない生のトークン」を受ける決まり
     let transport = StreamableHttpClientTransport::from_config(
         StreamableHttpClientTransportConfig::with_uri(url).auth_header(token),
     );
-    match tokio::time::timeout(timeout, ().serve(transport)).await {
+    match tokio::time::timeout(timeout, events.serve(transport)).await {
         Ok(Ok(up)) => Ok(up),
         // 繋ぎに行けたが断られた (止まっている・トークンが違う)
         Ok(Err(e)) => Err(format!("{NOT_RUNNING} ({e})")),
@@ -204,7 +323,10 @@ async fn relay(timeout: Duration) -> Result<(), String> {
         return Err(format!("{NOT_RUNNING} (トークンが読めません)"));
     };
 
-    let upstream = connect_upstream(ep.url(), token, timeout).await?;
+    // 上流からの知らせを下流へ流す役。下流の相手は中継を張ってから入れる
+    let events = UpstreamEvents::default();
+    let downstream = events.downstream.clone();
+    let upstream = connect_upstream(ep.url(), token, timeout, events).await?;
 
     // stdin/stdout でクライアントの相手をする。受けたものは上へ流す
     let bridge = Bridge {
@@ -214,6 +336,13 @@ async fn relay(timeout: Duration) -> Result<(), String> {
         .serve(stdio())
         .await
         .map_err(|e| format!("中継を開始できません ({e})"))?;
+    /*
+     * ここで初めて下流の相手が決まる。
+     * これより前に来た知らせは捨てている (初期化の途中で流す先が無い)
+     */
+    if let Ok(mut slot) = downstream.lock() {
+        *slot = Some(serving.peer().clone());
+    }
 
     // クライアントが stdin を閉じたら戻ってくる
     let _ = serving.waiting().await;
@@ -272,6 +401,7 @@ mod tests {
             super::super::endpoint(port),
             "とーくん".to_string(),
             Duration::from_millis(200),
+            UpstreamEvents::default(),
         )
         .await
         .expect_err("諦めること");
@@ -295,11 +425,22 @@ mod tests {
             super::super::endpoint(port),
             "とーくん".to_string(),
             Duration::from_secs(5),
+            UpstreamEvents::default(),
         )
         .await
         .expect_err("諦めること");
         // 応答が無いのではなく、繋げない
         assert!(err.starts_with(NOT_RUNNING), "{err}");
+    }
+
+    #[test]
+    fn 下流が決まる前は流す先が無い() {
+        /*
+         * 上流に繋いだ直後は、まだクライアントの相手が決まっていない。
+         * その間に来た知らせは流す先が無いので捨てる (初期化の途中)
+         */
+        let events = UpstreamEvents::default();
+        assert!(events.downstream().is_none());
     }
 
     #[test]

@@ -17,6 +17,31 @@ pub async fn preview_csv(
     .map_err(|e| format!("読み取りに失敗しました: {e}"))?
 }
 
+/**
+ * 取り込む前に、ファイル全体の「形」を確かめる。
+ *
+ * プレビューは先頭20行しか見ないので、途中の行で列がずれていても分からない。
+ * 押した直後にここを通しておけば、行番号を出して確認できる
+ */
+#[tauri::command]
+pub async fn scan_csv_shape(
+    jobs: State<'_, CsvJobs>,
+    path: String,
+    options: crate::csv_import::CsvOptions,
+    job_id: String,
+) -> Result<crate::csv_import::ShapeReport, String> {
+    let job = jobs.start(&job_id, "");
+    // 大きいファイルでは待たされるので、画面を止めないよう別スレッドで行う
+    let held = job.clone();
+    let joined = tauri::async_runtime::spawn_blocking(move || {
+        crate::csv_import::scan_shape(std::path::Path::new(&path), &options, Some(held.as_ref()))
+    })
+    .await;
+    // 途中で落ちた場合も登録を外す (残ると進捗が動かないまま居座る)
+    jobs.finish(&job_id, &job);
+    joined.map_err(|e| format!("読み取りに失敗しました: {e}"))?
+}
+
 /// CSVをテーブルへ取り込む
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]

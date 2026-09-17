@@ -225,7 +225,7 @@ pub async fn request(app: &AppHandle, req: Request, timeout: Duration) -> Decisi
 ///
 /// フォーカスは奪わない。作業中に前面へ出てくると、
 /// そのとき打っていたキーがダイアログに入ってしまう
-fn notify_user(app: &AppHandle) {
+pub(super) fn notify_user(app: &AppHandle) {
     use tauri::UserAttentionType;
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.request_user_attention(Some(UserAttentionType::Informational));

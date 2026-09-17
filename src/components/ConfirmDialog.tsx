@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { useModal } from "../hooks/useModal";
 
 interface Props {
@@ -10,6 +10,15 @@ interface Props {
   children: ReactNode;
   /** 実行ボタンのラベル */
   confirmLabel?: string;
+  /** 取り消しボタンのラベル (既定は「キャンセル」) */
+  cancelLabel?: string;
+  /**
+   * 開いたときにフォーカスを置く先。
+   *
+   * 既定は枠 (どのボタンにも当てない)。
+   * 「取り消す」を押しやすくしたいときに `"cancel"` を渡す
+   */
+  defaultFocus?: "box" | "cancel";
   /**
    * 実行する。失敗したら例外を投げること (メッセージをこのダイアログに出す)。
    * 成功したら呼び出し側で閉じる
@@ -27,6 +36,8 @@ export function ConfirmDialog({
   target,
   children,
   confirmLabel = "削除する",
+  cancelLabel = "キャンセル",
+  defaultFocus = "box",
   onConfirm,
   onCancel,
 }: Props) {
@@ -34,6 +45,13 @@ export function ConfirmDialog({
   const [error, setError] = useState<string | null>(null);
   // Escで閉じる・初期フォーカスは共通の作法にそろえる
   const boxRef = useModal(onCancel, !busy);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  // 開いたときに1度だけ (useModal が枠へ当てた後に取り直す)
+  useEffect(() => {
+    if (defaultFocus === "cancel") cancelRef.current?.focus();
+    // 開いた直後だけ。あとから変えない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const run = async () => {
     setBusy(true);
@@ -86,8 +104,13 @@ export function ConfirmDialog({
 
         <div className="modal-actions column-modal-actions">
           <span className="toolbar-spacer" />
-          <button className="btn-secondary" onClick={onCancel} disabled={busy}>
-            キャンセル
+          <button
+            className="btn-secondary"
+            onClick={onCancel}
+            disabled={busy}
+            ref={cancelRef}
+          >
+            {cancelLabel}
           </button>
           <button className="btn-danger" disabled={busy} onClick={run}>
             {busy ? (

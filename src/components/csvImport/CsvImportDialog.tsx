@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cancelCsvExport, importCsv, previewCsv, tableDetail } from "../../api";
+import {
+  cancelCsvExport,
+  importCsv,
+  previewCsv,
+  scanCsvShape,
+  tableDetail,
+} from "../../api";
 import { csvImportStore, patchCsvImportForm } from "../../csvImportStore";
 import { useKeyedStore } from "../../hooks/useKeyedStore";
 import { useModal } from "../../hooks/useModal";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { CsvProgress } from "../CsvProgress";
 import { CsvFilePicker } from "./CsvFilePicker";
 import { CsvMapping } from "./CsvMapping";
 import { CsvSettings } from "./CsvSettings";
 import { autoMap, checkMapping } from "./mapping";
-import type { ColumnInfo, CsvPreview, DbType } from "../../types";
+import { hasMismatch, shapeWarningText } from "./shapeWarning";
+import type { ColumnInfo, CsvPreview, DbType, ShapeReport } from "../../types";
 
 /** 進捗の取得・中止に使うIDを作る */
 function newJobId(): string {
@@ -175,8 +183,55 @@ export function CsvImportDialog({
   const canRun =
     !!file && !!sized && sized.length > 0 && !!columns && !loading && !busy;
 
-  const run = async () => {
+  /**
+   * 列がずれている行が見つかったときの確認待ち。
+   *
+   * 押した時点の内容を覚えておき、「続ける」でそのまま取り込む
+   */
+  const [shapeWarn, setShapeWarn] = useState<ShapeReport | null>(null);
+
+  /**
+   * 「取り込む」を押したときの入口。
+   *
+   * 先にファイル全体の列数を確かめる。プレビューは先頭20行しか見ていないので、
+   * 途中で列がずれている行 (値のカンマや改行がクォートされていない行) は
+   * ここでしか気づけない
+   */
+  const start = async () => {
     if (!canRun || blocked || imported || !file) return;
+    const scan = { id: newJobId(), startedAt: Date.now() };
+    csvImportStore.patch(sessionId, {
+      job: scan,
+      cancelling: false,
+      error: null,
+      result: null,
+    });
+    let report: ShapeReport;
+    try {
+      report = await scanCsvShape(file.path, options, scan.id);
+    } catch (e) {
+      setError(String(e));
+      csvImportStore.patch(sessionId, { job: null, cancelling: false });
+      return;
+    } finally {
+      // 下見の進捗はここで畳む (確認ダイアログの裏に残さない)
+      csvImportStore.patch(sessionId, { job: null, cancelling: false });
+    }
+    if (report.cancelled) {
+      csvImportStore.patch(sessionId, {
+        result: "取り込みを中止しました (何も取り込んでいません)",
+      });
+      return;
+    }
+    if (hasMismatch(report)) {
+      setShapeWarn(report);
+      return;
+    }
+    await run();
+  };
+
+  const run = async () => {
+    if (!file) return;
     const pairs: [number, string][] = [];
     mapping.forEach((m, i) => {
       if (m !== null) pairs.push([i, m]);
@@ -387,7 +442,7 @@ export function CsvImportDialog({
                     ? "同じ内容を続けて入れないよう、いったん止めています (ファイルか設定を変えると押せます)"
                     : undefined
                 }
-                onClick={run}
+                onClick={start}
               >
                 取り込む
               </button>
@@ -395,6 +450,24 @@ export function CsvImportDialog({
           )}
         </div>
       </div>
+
+      {shapeWarn && (
+        <ConfirmDialog
+          title="列の数が揃っていない行があります"
+          target={schema ? `${schema}.${table}` : table}
+          confirmLabel="続ける"
+          cancelLabel="取り消す"
+          // 取り込みを続けるより、いったん止める方を選びやすくする
+          defaultFocus="cancel"
+          onConfirm={async () => {
+            setShapeWarn(null);
+            await run();
+          }}
+          onCancel={() => setShapeWarn(null)}
+        >
+          {shapeWarningText(shapeWarn)}
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

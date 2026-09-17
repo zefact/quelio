@@ -145,6 +145,8 @@ impl Dialect {
 /// 1ページぶんの読み取り結果 (行と、切り詰めたセルの位置)
 struct Page {
     columns: Vec<String>,
+    /// 列の型名 (columns と同じ並び)
+    column_types: Vec<String>,
     rows: Vec<Vec<Option<String>>>,
     clipped: Vec<ClippedCell>,
     has_more: bool,
@@ -160,12 +162,19 @@ where
     S: Stream<Item = Result<R, sqlx::Error>> + Unpin,
 {
     let mut columns: Vec<String> = Vec::new();
+    let mut column_types: Vec<String> = Vec::new();
     let mut rows: Vec<Vec<Option<String>>> = Vec::new();
     let mut clipped: Vec<ClippedCell> = Vec::new();
     let mut has_more = false;
     while let Some(row) = stream.try_next().await.map_err(db_error)? {
         if columns.is_empty() {
             columns = row.columns().iter().map(|c| c.name().to_string()).collect();
+            // 型はドライバが返す名前をそのまま使う (DBごとの呼び方で構わない)
+            column_types = row
+                .columns()
+                .iter()
+                .map(|c| c.type_info().name().to_string())
+                .collect();
         }
         if rows.len() >= limit {
             // 次のページがあることが分かれば十分なので、ここで読み取りをやめる
@@ -194,6 +203,7 @@ where
     }
     Ok(Page {
         columns,
+        column_types,
         rows,
         clipped,
         has_more,
@@ -346,6 +356,7 @@ macro_rules! run_impl {
 
             Ok(QueryResult {
                 columns: page.columns,
+                column_types: page.column_types,
                 rows: page.rows,
                 clipped: page.clipped,
                 offset: $plan.offset,
@@ -375,6 +386,7 @@ macro_rules! run_impl {
                 .map_err(db_error)?;
             Ok(QueryResult {
                 columns: Vec::new(),
+                column_types: Vec::new(),
                 rows: Vec::new(),
                 clipped: Vec::new(),
                 offset: 0,

@@ -60,6 +60,7 @@ import type {
   SavedSqlStore,
   SchemaEntry,
   SchemaTable,
+  ShapeReport,
   SessionSummary,
   SqlHistoryEntry,
   StartedJob,
@@ -243,6 +244,7 @@ export interface CommandResults {
   save_sql_params: void;
   save_tool_settings: void;
   save_workspace: void;
+  scan_csv_shape: ShapeReport;
   schema_columns: SchemaTable[];
   schema_snapshot: SchemaEntry[];
   schema_with_foreign_keys: { entries: SchemaEntry[]; foreignKeys: FkInfo[] };
@@ -436,6 +438,7 @@ export const COMMAND_NAMES = [
   "save_text_file",
   "save_tool_settings",
   "save_workspace",
+  "scan_csv_shape",
   "schema_columns",
   "schema_snapshot",
   "schema_with_foreign_keys",
