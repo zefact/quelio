@@ -22,6 +22,13 @@ import { applyRoute, ROUTES, routeOf } from "../connectRoute";
 import { viaTunnel } from "../tlsWarning";
 import type { ConnectRoute } from "../connectRoute";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ProdNote } from "./ProdBadge";
+import {
+  envFieldNote,
+  PROD_SAVE_NOTE,
+  prodWritable,
+  READ_ONLY_SUGGEST,
+} from "../connectionEnvHint";
 import { ConnectionProxyFields } from "./ConnectionProxyFields";
 import { SelectMenu } from "./SelectMenu";
 
@@ -55,6 +62,14 @@ export function ConnectionForm({
   const route = routeOf(profile);
   /** 削除の確認を出しているか (接続先は消すと元に戻せない) */
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** 本番を更新できる状態のまま保存しようとしているか (保存の確認を出す) */
+  const [confirmSave, setConfirmSave] = useState(false);
+  /**
+   * 本番なのに更新できる状態か。
+   *
+   * 読み取り専用をすすめる案内と、保存のときの一文に使う
+   */
+  const prodWrite = prodWritable(profile.env, profile.readOnly);
 
   const set = (patch: Partial<ConnectionProfile>) =>
     onChange({ ...profile, ...patch });
@@ -438,11 +453,22 @@ export function ConnectionForm({
                   </button>
                 ))}
               </div>
-              <span className="field-note">
-                {profile.env === "prod"
-                  ? "接続するときに確認を出し、定義の変更 (ALTER・RENAME) の確認は設定で外せなくなります"
-                  : "タブ・画面下の帯・接続一覧の色が環境に合わせて変わります (色を選ぶとそちらが優先)"}
-              </span>
+              <span className="field-note">{envFieldNote(profile.env)}</span>
+              {/*
+               * 本番に変えた直後に、読み取り専用にする道を1つ見せる。
+               * 強制はしない (本番でも更新が要る運用はある)
+               */}
+              {prodWrite && (
+                <span className="field-note warn env-suggest">
+                  {READ_ONLY_SUGGEST}
+                  <button
+                    className="btn-secondary btn-inline"
+                    onClick={() => set({ readOnly: true })}
+                  >
+                    読み取り専用にする
+                  </button>
+                </span>
+              )}
             </div>
           </div>
           <div className="span2 tls-row">
@@ -641,7 +667,8 @@ export function ConnectionForm({
         </button>
         <button
           className="btn-secondary"
-          onClick={onSave}
+          // 本番を更新できる状態で保存するときだけ、一度確認を挟む
+          onClick={() => (prodWrite ? setConfirmSave(true) : onSave())}
           disabled={saving || connecting}
         >
           {saving ? "保存中..." : "保存"}
@@ -652,6 +679,22 @@ export function ConnectionForm({
           </button>
         )}
       </div>
+
+      {confirmSave && (
+        <ConfirmDialog
+          title="この設定で保存します"
+          target={profile.name || `${profile.host}:${profile.port}`}
+          confirmLabel="保存する"
+          onCancel={() => setConfirmSave(false)}
+          onConfirm={() => {
+            setConfirmSave(false);
+            onSave();
+          }}
+        >
+          <ProdNote>{PROD_SAVE_NOTE}</ProdNote>
+          読み取り専用にしておくと、更新系の操作をすべて拒否します。
+        </ConfirmDialog>
+      )}
 
       {confirmDelete && (
         <ConfirmDialog

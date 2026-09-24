@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatSql, toLeadingCommas } from "./sqlFormat";
+import { formatSql } from "./sqlFormat";
 import { defaultSqlFormat } from "./types";
 import type { SqlFormatSettings } from "./types";
 
@@ -181,16 +181,37 @@ describe("整形の設定", () => {
   });
 });
 
-describe("toLeadingCommas", () => {
-  it("行末のカンマを次の行の先頭へ移す", () => {
-    expect(toLeadingCommas("  a,\n  b,\n  c")).toBe("  a\n  , b\n  , c");
+describe("コメントを含むSQLの整形", () => {
+  /*
+   * コメントに挟まれたカンマは、整形器が単独の行に出す。
+   * そのカンマを次の列へ移したあと、空行が残っていた
+   */
+  it("コメントの次の行が空かない", () => {
+    const out = formatSql(
+      ["select a", "  , b", "  -- , c", "  -- , d", "", "  , e", "from t"].join(
+        "\n"
+      ),
+      "mysql"
+    );
+    expect(out).toContain(
+      ["  , b", "  -- , c", "  -- , d", "  , e"].join("\n")
+    );
+    expect(out).not.toMatch(/\n\s*\n/);
   });
 
-  it("空行はまたいで移す", () => {
-    expect(toLeadingCommas("  a,\n\n  b")).toBe("  a\n\n  , b");
+  it("コメント行にカンマを付けない (付くとSQLが壊れる)", () => {
+    const out = formatSql("select a, /* 略 */ b, c from t", "mysql");
+    for (const line of out.split("\n")) {
+      expect(line.trim(), out).not.toMatch(/^,\s*(--|#|\/\*)/);
+    }
   });
 
-  it("次の行が無ければそのまま", () => {
-    expect(toLeadingCommas("  a,")).toBe("  a,");
+  it("副問い合わせを閉じた行のONも次の行へ出す", () => {
+    const out = formatSql(
+      "select * from a inner join (select x from u group by x) tod on tod.x = a.x",
+      "mysql",
+      opts({ onClause: "newline" })
+    );
+    expect(out).toContain(["  ) tod", "  ON", "    tod.x = a.x"].join("\n"));
   });
 });

@@ -182,6 +182,56 @@ pub(super) fn mysql_cell_full(row: &MySqlRow, i: usize) -> Option<CsvCell> {
     mysql_cell_max(row, i, usize::MAX)
 }
 
+/// MySQLの日付の型か (ゼロの日付を見分ける対象)。
+///
+/// TIME は入れない。`00:00:00` はれっきとした時刻で、
+/// バイナリの並びも日付とは違う
+fn is_mysql_date_type(name: &str) -> bool {
+    matches!(name, "DATE" | "DATETIME" | "TIMESTAMP" | "NEWDATE")
+}
+
+/**
+ * MySQLの「日付になっていない日付」か。
+ *
+ * MySQLは `0000-00-00` や `2024-05-00` のような、暦に無い日付を受け付ける。
+ * 古いテーブルでは「日付が入っていない」印としてよく使われているが、
+ * 日付の型には直せないので、そのままでは「読めない値」になってしまう。
+ *
+ * 受け取り方で並びが違うので、両方を見る:
+ * - プリペアドで受けた場合 (バイナリ) は「中身の長さ + 年(2バイト) + 月 + 日」。
+ *   すべて0のときは長さ0だけで届くが、0を混ぜた値を長さつきで送るサーバーもある
+ * - 文をそのまま流して受けた場合 (テキスト) は `0000-00-00` の文字列で届く
+ */
+fn is_zero_date(raw: &[u8]) -> bool {
+    // テキスト: 数字は0しか出てこない (区切りと小数点だけが混じる)
+    if !raw.is_empty()
+        && raw.contains(&b'0')
+        && raw
+            .iter()
+            .all(|c| matches!(c, b'0' | b'-' | b':' | b' ' | b'.'))
+    {
+        return true;
+    }
+    // バイナリ: 長さの印が先頭に付く (長さの印は上の文字と重ならない)
+    match raw {
+        [] | [0] => true,
+        [_, y0, y1, month, day, ..] => {
+            u16::from_le_bytes([*y0, *y1]) == 0 || *month == 0 || *day == 0
+        }
+        _ => false,
+    }
+}
+
+/// 生のまま読んで、ゼロの日付かどうかを確かめる。
+///
+/// 日付の型では `&[u8]` を受け付けてもらえないので、型の検査を通さずに読む
+fn mysql_zero_date(row: &MySqlRow, i: usize) -> bool {
+    row.try_get_unchecked::<Option<&[u8]>, _>(i)
+        .ok()
+        .flatten()
+        .is_some_and(is_zero_date)
+}
+
 /// MySQLの型の名前から、まず試す型を決める
 fn pick_mysql(name: &str) -> Pick {
     match name {
@@ -217,7 +267,17 @@ fn mysql_cell_max(row: &MySqlRow, i: usize, max: usize) -> Option<CsvCell> {
             if raw.is_null() {
                 return None;
             }
-            pick_mysql(raw.type_info().name())
+            let ty = raw.type_info();
+            /*
+             * 暦に無い日付 (`0000-00-00` など) は NULL として扱う。
+             * 日付の型には直せず、そのままでは「読めない値」になってしまう。
+             * NULLにしておけば画面は空欄、CSV・Excelへの書き出しも空になる
+             * (JDBCの `zeroDateTimeBehavior=convertToNull` と同じ考え方)
+             */
+            if is_mysql_date_type(ty.name()) && mysql_zero_date(row, i) {
+                return None;
+            }
+            pick_mysql(ty.name())
         }
         Err(_) => Pick::Unknown,
     };
@@ -395,5 +455,58 @@ fn sqlite_cell_max(row: &SqliteRow, i: usize, max: usize) -> Option<CsvCell> {
             .ok()
             .flatten()
             .map(|s| cell_of(s, max, false)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn 日付の型だけを対象にする() {
+        assert!(is_mysql_date_type("DATE"));
+        assert!(is_mysql_date_type("DATETIME"));
+        assert!(is_mysql_date_type("TIMESTAMP"));
+        // TIME の 00:00:00 はれっきとした時刻 (並びも日付とは違う)
+        assert!(!is_mysql_date_type("TIME"));
+        assert!(!is_mysql_date_type("VARCHAR"));
+        assert!(!is_mysql_date_type("YEAR"));
+    }
+
+    /// バイナリの日付 (中身の長さ + 年2バイト + 月 + 日)
+    fn bin_date(year: u16, month: u8, day: u8) -> Vec<u8> {
+        let y = year.to_le_bytes();
+        vec![4, y[0], y[1], month, day]
+    }
+
+    #[test]
+    fn バイナリのゼロの日付を見分ける() {
+        // すべて0のときは長さ0だけで届く
+        assert!(is_zero_date(&[0]));
+        assert!(is_zero_date(&[]));
+        // 0を混ぜた値を長さつきで送ってくる場合もある
+        assert!(is_zero_date(&bin_date(0, 0, 0)));
+        assert!(is_zero_date(&bin_date(2024, 5, 0)));
+        assert!(is_zero_date(&bin_date(2024, 0, 1)));
+        // ふつうの日付は対象にしない
+        assert!(!is_zero_date(&bin_date(2024, 1, 2)));
+        assert!(!is_zero_date(&bin_date(1, 1, 1)));
+        // 時刻つき (長さ7)
+        let mut dt = bin_date(2024, 1, 2);
+        dt[0] = 7;
+        dt.extend_from_slice(&[12, 34, 56]);
+        assert!(!is_zero_date(&dt));
+    }
+
+    #[test]
+    fn テキストのゼロの日付を見分ける() {
+        assert!(is_zero_date(b"0000-00-00"));
+        assert!(is_zero_date(b"0000-00-00 00:00:00"));
+        assert!(is_zero_date(b"0000-00-00 00:00:00.000000"));
+        // ふつうの日付は対象にしない
+        assert!(!is_zero_date(b"2024-01-02"));
+        assert!(!is_zero_date(b"2024-01-02 03:04:05"));
+        assert!(!is_zero_date(b"0001-01-01"));
+        assert!(!is_zero_date(b"1000-10-10"));
     }
 }

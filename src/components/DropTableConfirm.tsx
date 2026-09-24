@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useModal } from "../hooks/useModal";
 import { dropTable } from "../api";
 import type { TableInfo } from "../types";
+import { ProdBadge } from "./ProdBadge";
 
 interface Props {
   sessionId: string;
@@ -11,6 +12,8 @@ interface Props {
   onClose: () => void;
   /** 1件でも消せたときに呼ばれる (一覧の再読み込み用) */
   onDropped: () => void;
+  /** 本番の接続か (見出しにバッジを出すだけ。確認そのものは元からある) */
+  prod?: boolean;
 }
 
 /** ビューかどうか (見出しの言葉を変えるだけ) */
@@ -36,6 +39,7 @@ export function DropTableConfirm({
   tables,
   onClose,
   onDropped,
+  prod = false,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +101,8 @@ export function DropTableConfirm({
                 {fullName(tables[0])}
               </span>
             )}
+            {/* 本番の接続なら、見出しでそれと分かるようにする */}
+            {prod && <ProdBadge />}
           </span>
           <button
             className="modal-close"

@@ -21,8 +21,8 @@ pub async fn check_dangerous_sql(
         // セッションが見つからない・実行中で読めない場合は、
         // 危険なSQLを見落とさない側 (文を多めに割る側) に倒す
         .unwrap_or_else(|| crate::dialect::fail_closed(db_type));
-    let prod = is_prod(&sessions, &session_id).await;
-    Ok(judge_dangerous(&app, d, &sql, prod))
+    let env = env_for_confirm(&sessions, &session_id).await;
+    Ok(judge_dangerous(&app, d, &sql, env))
 }
 
 /// SQLを文単位に分けて返す (「カーソルのある文だけ実行」に使う)。
@@ -42,20 +42,71 @@ pub async fn split_sql_statements(
     Ok(query::split_statements(d, &sql))
 }
 
-/// 「本番」に設定された接続か
-async fn is_prod(sessions: &State<'_, Sessions>, session_id: &str) -> bool {
-    sessions::session_env(sessions, session_id).await.as_deref() == Some("prod")
+/// 本番の更新を、確認なしで呼ばれたときに返す説明。
+///
+/// 画面は確認を出したうえで `confirmed` を付けて呼び直す。
+/// ここに来るのは、画面の作りが変わって確認が外れたときだけ
+pub const PROD_CONFIRM_REQUIRED: &str = concat!(
+    "本番環境の接続です。実行前の確認を経ていないため実行しませんでした。\n",
+    "画面を開き直して、確認のうえもう一度お試しください。"
+);
+
+/// 画面の確認を経ているか確かめる (本番と状態不明のときだけ求める)。
+///
+/// 確認を出すかどうかを画面側の判定だけに任せると、
+/// 画面の作りを変えたときに黙って外れてしまう。
+/// CSV取り込みとデータタブの更新が、実行の入口でこれを通る
+pub fn confirm_passed(
+    env: query::ConfirmEnv,
+    confirmed: Option<bool>,
+) -> Result<(), String> {
+    if env.confirms_updates() && !confirmed.unwrap_or(false) {
+        return Err(PROD_CONFIRM_REQUIRED.to_string());
+    }
+    Ok(())
+}
+
+/// セッションの見出しから、確認をどこまで出すかを決める。
+///
+/// - 読み取り専用で繋いでいるときは本番扱いにしない。更新は実行時に断られるので、
+///   先に「本番の更新です」と確認を出すと、確認してから断られることになる
+/// - セッションが読めないときは `Unknown` (本番の可能性があるため確認する)。
+///   開発の接続に余分な確認が出るより、本番で確認が出ない方が害が大きい
+///
+/// 危険なSQL (DROP・WHERE無しのUPDATE) の判定は、環境と関係なく今までどおり行う
+pub fn confirm_env(meta: Option<&sessions::SessionMeta>) -> query::ConfirmEnv {
+    let Some(meta) = meta else {
+        return query::ConfirmEnv::Unknown;
+    };
+    if meta.read_only {
+        return query::ConfirmEnv::NotProd;
+    }
+    if meta.env.as_deref() == Some("prod") {
+        query::ConfirmEnv::Prod
+    } else {
+        query::ConfirmEnv::NotProd
+    }
+}
+
+/// 確認をどこまで出すかを、セッションの見出しから決める。
+/// 見出しはセッション本体のロックを取らずに読めるので、実行中でも判定できる
+pub async fn env_for_confirm(
+    sessions: &State<'_, Sessions>,
+    session_id: &str,
+) -> query::ConfirmEnv {
+    confirm_env(sessions::session_meta(sessions, session_id).await.as_ref())
 }
 
 /// 確認が要るSQLを拾う (設定で外した種類は落とす)
-/// `prod` は「本番」の接続かどうか (本番では設定に関わらず確認する)
+/// `env` は確認をどこまで出すか (本番では設定に関わらず確認する)
 fn judge_dangerous(
     app: &AppHandle,
     d: crate::query::Dialect,
     sql: &str,
-    prod: bool,
+    env: query::ConfirmEnv,
 ) -> Vec<query::DangerousStatement> {
-    let mut found = query::dangerous_statements(d, sql);
+    let prod = env.confirms_updates();
+    let mut found = query::statements_to_confirm(d, sql, env);
     /*
      * 定義の変更 (ALTER / RENAME) の確認は設定で外せる。
      * ただし本番の接続では外せない (外したことを忘れて流すのが一番怖い)。
@@ -96,13 +147,13 @@ pub async fn check_dangerous_filled(
     let d = sessions::session_dialect(&sessions, &session_id)
         .await
         .unwrap_or_else(|| crate::dialect::fail_closed(db_type));
-    let prod = is_prod(&sessions, &session_id).await;
+    let env = env_for_confirm(&sessions, &session_id).await;
     // 埋め込む前から対象なら、そちらで確認済み
-    if !judge_dangerous(&app, d, &sql, prod).is_empty() {
+    if !judge_dangerous(&app, d, &sql, env).is_empty() {
         return Ok(Vec::new());
     }
     let filled = query::substitute_params(d, &sql, &params);
-    Ok(judge_dangerous(&app, d, &filled, prod))
+    Ok(judge_dangerous(&app, d, &filled, env))
 }
 
 /// 任意のSQLを実行する
@@ -474,4 +525,70 @@ pub async fn cancel_csv_export(
     // 止められなくても印は立っているので、失敗しても構わない
     let _ = sessions::cancel_query(&cancel, &qlog, &session_id).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sessions::SessionMeta;
+
+    fn meta(env: Option<&str>, read_only: bool) -> SessionMeta {
+        SessionMeta {
+            env: env.map(str::to_string),
+            read_only,
+            db_type: crate::models::DbType::Mysql,
+        }
+    }
+
+    #[test]
+    fn 本番で更新できる接続だけ本番扱いにする() {
+        assert_eq!(
+            confirm_env(Some(&meta(Some("prod"), false))),
+            query::ConfirmEnv::Prod
+        );
+    }
+
+    /// 読み取り専用なら更新は実行時に断られる。
+    /// 先に確認を出すと「確認 → できません」の二度手間になる
+    #[test]
+    fn 読み取り専用の本番は確認を増やさない() {
+        assert_eq!(
+            confirm_env(Some(&meta(Some("prod"), true))),
+            query::ConfirmEnv::NotProd
+        );
+    }
+
+    #[test]
+    fn 本番以外と未設定は今までどおり() {
+        for env in [Some("dev"), Some("staging"), None] {
+            assert_eq!(
+                confirm_env(Some(&meta(env, false))),
+                query::ConfirmEnv::NotProd,
+                "{env:?}"
+            );
+        }
+    }
+
+    /// セッションが読めないときは確認する側に倒す
+    /// (開発の接続に余分な確認が出るより、本番で確認が出ない方が害が大きい)
+    /// 本番の更新は、画面の確認を経ていなければ入口で断る
+    #[test]
+    fn 確認を経ていない本番の更新は断る() {
+        assert!(confirm_passed(query::ConfirmEnv::Prod, None).is_err());
+        assert!(confirm_passed(query::ConfirmEnv::Prod, Some(false)).is_err());
+        // 状態が読めないときも同じ扱いにする
+        assert!(confirm_passed(query::ConfirmEnv::Unknown, None).is_err());
+    }
+
+    #[test]
+    fn 確認を経た本番と本番以外は通す() {
+        assert!(confirm_passed(query::ConfirmEnv::Prod, Some(true)).is_ok());
+        assert!(confirm_passed(query::ConfirmEnv::NotProd, None).is_ok());
+    }
+
+    #[test]
+    fn 状態が読めないときは確認する側に倒す() {
+        assert_eq!(confirm_env(None), query::ConfirmEnv::Unknown);
+        assert!(confirm_env(None).confirms_updates());
+    }
 }

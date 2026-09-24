@@ -12,6 +12,7 @@ import type {
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ConnectionForm } from "./ConnectionForm";
 import { routeChip } from "../connectRoute";
+import { envListLabel } from "../connectionEnvHint";
 import { PickerHome } from "./PickerHome";
 import { useDismiss } from "../hooks/useDismiss";
 
@@ -507,7 +508,13 @@ export function ConnectionPicker({
           {dbBadgeLabel(c.dbType)}
         </span>
         <span className="connection-info">
-          <span className="connection-name">{c.name || "(無名)"}</span>
+          <span className="connection-name">
+            {c.name || "(無名)"}
+            {/* 未設定のままでは本番を本番として扱えないので、一覧でも示す */}
+            {!c.env && (
+              <span className="home-card-env unset">{envListLabel(c.env)}</span>
+            )}
+          </span>
           <span className="connection-host">
             {/* SQLiteはホスト:ポートを持たないのでファイルパスを出す */}
             {c.dbType === "sqlite" ? (

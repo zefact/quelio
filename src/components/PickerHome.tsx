@@ -10,6 +10,7 @@ import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
 import { CsvIcon } from "./CsvIcon";
 import { ErIcon } from "./ErIcon";
 import { envColor, envLabel } from "../types";
+import { envListLabel } from "../connectionEnvHint";
 import {
   pinnedConnections,
   recentConnections,
@@ -73,7 +74,7 @@ function Card({
         <span className="home-card-body">
           <span className="home-card-name">
             {conn.name || `${conn.host}:${conn.port}`}
-            {conn.env && (
+            {conn.env ? (
               <span
                 className="home-card-env"
                 style={{
@@ -82,6 +83,11 @@ function Card({
                 }}
               >
                 {envLabel(conn.env)}
+              </span>
+            ) : (
+              /* 未設定のままだと本番を本番として扱えないので、そうと分かるようにする */
+              <span className="home-card-env unset">
+                {envListLabel(conn.env)}
               </span>
             )}
           </span>

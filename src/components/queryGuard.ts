@@ -50,20 +50,38 @@ export type GuardStep =
   /** そのまま実行する */
   | { kind: "run" };
 
+/** 判定できなかったとき、本番で出す説明 */
+export const CHECK_FAILED_KIND =
+  "判定できませんでした。本番環境のため確認します";
+
 /**
  * 危険判定の結果から、次の段階を決める。
  *
  * `found` が null なのは「判定そのものができなかった」とき。
- * このときは実行を止めない。判定はあくまで気づきを与えるためのもので、
- * バックエンドと話せないだけで手が止まると、かえって使えなくなるため
- * (この方針の是非は別途の議論。ここでは今の動きをそのまま置いている)
+ * 本番以外では実行を止めない。判定はあくまで気づきを与えるためのもので、
+ * バックエンドと話せないだけで手が止まると、かえって使えなくなるため。
+ *
+ * ただし本番では逆に倒す。調べられなかったことを理由に一度止める方が、
+ * 何が流れるか分からないまま本番で走らせるより害が小さい
  */
 export function afterDangerCheck(
-  found: DangerousStatement[] | null
+  found: DangerousStatement[] | null,
+  /** 本番の接続か (判定できなかったときの扱いが変わる) */
+  prod = false,
+  /** 判定できなかったときに確認へ出すSQL (全文) */
+  sql = ""
 ): GuardStep {
-  return found && found.length > 0
-    ? { kind: "confirm", stmts: found }
-    : { kind: "run" };
+  if (found && found.length > 0) return { kind: "confirm", stmts: found };
+  if (found === null && prod) {
+    return {
+      kind: "confirm",
+      // 本番の扱い (見出し・バッジ・初期フォーカス) を確認ダイアログに伝える
+      stmts: [
+        { definitionChange: false, kind: CHECK_FAILED_KIND, sql, prodUpdate: true },
+      ],
+    };
+  }
+  return { kind: "run" };
 }
 
 /** 確認画面に出す「どこへ何を実行するのか」 */

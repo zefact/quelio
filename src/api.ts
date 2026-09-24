@@ -460,6 +460,8 @@ export function importCsv(
   mode: ImportMode,
   emptyAsNull: boolean,
   jobId: string,
+  /** 画面で本番の確認を経たか (本番ではこれが無いと取り込まない) */
+  confirmed: boolean,
 ): Promise<ImportResult> {
   return call("import_csv", {
     sessionId,
@@ -472,6 +474,7 @@ export function importCsv(
     mode,
     emptyAsNull,
     jobId,
+    confirmed,
   });
 }
 
@@ -715,6 +718,8 @@ export function applyRowChange(
   schema: string | undefined,
   table: string,
   change: RowChange,
+  /** 画面で本番の確認を経たか (本番ではこれが無いと変更しない) */
+  confirmed: boolean,
 ): Promise<string> {
   return call("apply_row_change", {
     sessionId,
@@ -722,6 +727,7 @@ export function applyRowChange(
     schema,
     table,
     change,
+    confirmed,
   });
 }
 
@@ -1625,8 +1631,11 @@ export function kvExec(
  * 実行前に確認したいValkeyコマンド (FLUSHALL・CONFIG SET等) を1つ返す。
  * 無ければnull
  */
-export function checkKvDestructive(commands: string[]): Promise<string[]> {
-  return call("check_kv_destructive", { commands });
+export function checkKvDestructive(
+  sessionId: string,
+  commands: string[],
+): Promise<string[]> {
+  return call("check_kv_destructive", { sessionId, commands });
 }
 
 export function cancelJob(jobId: string): Promise<void> {

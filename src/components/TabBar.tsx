@@ -1,8 +1,11 @@
+import type { CSSProperties } from "react";
 import { emitAppEvent, FIND_EVENT } from "../appEvents";
 import { CloseMark } from "./CloseMark";
 import { isBetaVersion, useAppVersion } from "../hooks/useAppVersion";
 import { dotStyle, profileColor } from "../colors";
 import type { WorkTab } from "../types";
+import { envColor } from "../types";
+import { tabEnvMark } from "../envBand";
 import { AppMenu } from "./AppMenu";
 import { DbIcon } from "./DbIcon";
 import { ErIcon } from "./ErIcon";
@@ -60,16 +63,25 @@ export function TabBar({
       </div>
 
       <div className="tabbar-tabs">
-        {tabs.map((t, i) => (
+        {tabs.map((t, i) => {
+          /* 本番の接続は、そのタブを見ただけで分かるようにする (非アクティブでも) */
+          const envMark = tabEnvMark(t.profile.env, t.connected);
+          return (
           <div
             key={t.key}
             {...{ [TAB_MARK]: i }}
             className={
               "tab" +
               (activeKey === t.key ? " active" : "") +
-              (drag.dragging === i ? " dragging" : "")
+              (drag.dragging === i ? " dragging" : "") +
+              (envMark ? " has-env" : "")
             }
-            style={drag.styleOf(i)}
+            style={
+              {
+                ...drag.styleOf(i),
+                ...(envMark ? { "--env-color": envColor(envMark.env) } : {}),
+              } as CSSProperties
+            }
             title="クリックで切替 / ドラッグで並べ替え"
             onClick={() => onActivate(t.key)}
             onMouseDown={(e) => drag.start(i, e)}
@@ -88,6 +100,11 @@ export function TabBar({
             <span className="tab-label">
               {t.connected ? t.profile.name || "(無名)" : "新しい接続"}
             </span>
+            {envMark && (
+              <span className="tab-env" title="本番環境の接続です">
+                {envMark.label}
+              </span>
+            )}
             {t.connected && t.profile.readOnly && (
               <span
                 className="ro-badge"
@@ -107,7 +124,8 @@ export function TabBar({
               <CloseMark />
             </button>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       <button className="tab-add" title="新しいタブ" onClick={onAdd}>

@@ -996,16 +996,65 @@ pub fn destructive_command(args: &[String]) -> Option<String> {
         .map(|_| format!("{name} {sub}"))
 }
 
+/// 2語で1つのコマンドになるもの (CLIENT KILL・CONFIG GET など) か。
+/// 2語目がサブコマンドなら大文字にそろえてよい、の判断に使う
+fn has_subcommand(name: &str) -> bool {
+    let name = name.to_uppercase();
+    READ_ONLY_SUBCOMMANDS.iter().any(|(n, _)| *n == name)
+        || DESTRUCTIVE_SUBCOMMANDS.iter().any(|(n, _)| *n == name)
+}
+
+/// 確認画面に出す表示名 (CLIENT KILL のようにサブコマンドまで含めて示す)。
+///
+/// 大文字にするのはコマンド名と、2語で1組のコマンドのサブコマンドだけ。
+/// Valkeyのキーは大文字小文字を区別するので、`SET mykey` の `mykey` を
+/// 大文字にすると、利用者に別のキーを見せてしまう
+fn shown_command(args: &[String]) -> String {
+    let Some(name) = args.first() else {
+        return String::new();
+    };
+    let head = name.to_uppercase();
+    match args.get(1) {
+        None => head,
+        Some(second) if has_subcommand(&head) => format!("{head} {}", second.to_uppercase()),
+        // キーや値は書かれたとおりに見せる
+        Some(second) => format!("{head} {second}"),
+    }
+}
+
+/// 本番環境で、実行前に確認したいコマンドか。
+///
+/// 読み取り専用の一覧に無いものは値を変える可能性があるので、
+/// 本番では書き込み系すべてを確認の対象にする (読み取りは止めない)。
+/// SQL側で「本番の更新はすべて確認する」としたのと同じ考え方
+pub fn needs_prod_confirm(prod: bool, args: &[String]) -> bool {
+    if !prod {
+        return false;
+    }
+    let Some(name) = args.first() else {
+        return false;
+    };
+    // SELECT はこのコンソールでは実行せず、DBの切り替えを案内する
+    if name.eq_ignore_ascii_case("SELECT") {
+        return false;
+    }
+    !is_read_only_command(args)
+}
+
 /// 取り消せない操作か (重いだけのものと文言を分けるために使う)
 fn is_irreversible(shown: &str) -> bool {
     !HEAVY_COMMANDS.contains(&shown)
 }
 
-/// 確認が要るコマンドを全て返す (1つ確認したら他も素通り、とならないように)
-pub fn find_destructive(commands: &[String]) -> Vec<String> {
+/// 確認が要るコマンドを全て返す (1つ確認したら他も素通り、とならないように)。
+/// `prod` のときは、書き込み系のコマンドもすべて含める
+pub fn find_destructive(commands: &[String], prod: bool) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for line in commands {
-        if let Some(c) = destructive_command(&split_args(line)) {
+        let args = split_args(line);
+        let found = destructive_command(&args)
+            .or_else(|| needs_prod_confirm(prod, &args).then(|| shown_command(&args)));
+        if let Some(c) = found {
             if !out.contains(&c) {
                 out.push(c);
             }
@@ -1363,6 +1412,8 @@ pub async fn exec(
     commands: &[String],
     read_only: bool,
     confirmed: bool,
+    // 本番の接続か (書き込み系すべてを確認の対象にする)
+    prod: bool,
 ) -> Result<KvRunOutput, String> {
     let mut statements = Vec::new();
     for (i, line) in commands.iter().enumerate() {
@@ -1386,16 +1437,18 @@ pub async fn exec(
             return Ok(out);
         }
         if read_only && !is_read_only_command(&args) {
-            // CLIENT KILL のようにサブコマンドまで含めて示す
-            let shown = args
-                .iter()
-                .take(2)
-                .map(|a| a.to_uppercase())
-                .collect::<Vec<_>>()
-                .join(" ");
+            let shown = shown_command(&args);
             let mut out = err_at(format!(
                 "この接続は読み取り専用です。{shown} は値を変える可能性があるため実行できません"
             ));
+            out.statements = statements;
+            return Ok(out);
+        }
+        // 実行しないもの (DBの切り替えは画面から) は、確認より先に案内する
+        if upper == "SELECT" {
+            let mut out = err_at(
+                "SELECT はツールバーのDB選択から切り替えてください".to_string(),
+            );
             out.statements = statements;
             return Ok(out);
         }
@@ -1411,13 +1464,15 @@ pub async fn exec(
                 out.statements = statements;
                 return Ok(out);
             }
-        }
-        if upper == "SELECT" {
-            let mut out = err_at(
-                "SELECT はツールバーのDB選択から切り替えてください".to_string(),
-            );
-            out.statements = statements;
-            return Ok(out);
+            // 本番では、書き込み系のコマンドすべてを確認の対象にする
+            if needs_prod_confirm(prod, &args) {
+                let mut out = err_at(format!(
+                    "本番環境の Valkey へ書き込みます ({})。実行前の確認が必要です",
+                    shown_command(&args)
+                ));
+                out.statements = statements;
+                return Ok(out);
+            }
         }
 
         let mut cmd = redis::cmd(name);
@@ -1648,5 +1703,65 @@ mod tests {
         for line in ["GET k", "SET k v", "DEL a b c", ""] {
             assert_eq!(mask_secrets(line), line);
         }
+    }
+
+    fn args(line: &str) -> Vec<String> {
+        split_args(line)
+    }
+
+    /*
+     * 本番のValkeyでは、危険なコマンドでなくても書き込みは確認を経る。
+     * SQL側で「本番の更新はすべて確認する」としたのと同じ考え方
+     */
+    #[test]
+    fn 本番では書き込み系のコマンドを確認する() {
+        for line in ["SET k v", "DEL k", "EXPIRE k 10", "HSET h f v", "RENAME a b"] {
+            assert!(needs_prod_confirm(true, &args(line)), "{line}");
+        }
+    }
+
+    #[test]
+    fn 本番でも読み取りは止めない() {
+        for line in ["GET k", "MGET a b", "TTL k", "SCAN 0", "INFO"] {
+            assert!(!needs_prod_confirm(true, &args(line)), "{line}");
+        }
+    }
+
+    /// SELECT はこのコンソールでは実行せず、DBの切り替えを案内する。
+    /// 本番でも「書き込みます」の確認を出さない
+    #[test]
+    fn 本番でもselectは確認の対象にしない() {
+        assert!(!needs_prod_confirm(true, &args("SELECT 1")));
+        assert!(find_destructive(&["SELECT 1".to_string()], true).is_empty());
+    }
+
+    #[test]
+    fn 表示名はキーの大文字小文字を変えない() {
+        assert_eq!(shown_command(&args("SET myKey v")), "SET myKey");
+        assert_eq!(shown_command(&args("del myKey")), "DEL myKey");
+        // 2語で1組のコマンドは、サブコマンドも大文字にそろえる
+        assert_eq!(shown_command(&args("config set x 1")), "CONFIG SET");
+        assert_eq!(shown_command(&args("info")), "INFO");
+    }
+
+    #[test]
+    fn 本番以外では書き込みを確認の対象にしない() {
+        assert!(!needs_prod_confirm(false, &args("SET k v")));
+        // 危険なコマンドは環境に関わらず今までどおり確認する
+        assert_eq!(
+            find_destructive(&["FLUSHALL".to_string()], false),
+            vec!["FLUSHALL".to_string()]
+        );
+        assert!(find_destructive(&["SET k v".to_string()], false).is_empty());
+    }
+
+    #[test]
+    fn 本番の一覧には書き込みも並ぶ() {
+        let got = find_destructive(
+            &["GET a".to_string(), "SET k v".to_string(), "CONFIG SET x 1".to_string()],
+            true,
+        );
+        // キーは書かれたとおりに見せる (Valkeyは大文字小文字を区別する)
+        assert_eq!(got, vec!["SET k".to_string(), "CONFIG SET".to_string()]);
     }
 }

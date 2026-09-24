@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useModal } from "../hooks/useModal";
 import { applyColumnDdl, previewColumnDdl } from "../api";
 import type { ColumnChange, ColumnInfo } from "../types";
+import { ProdBadge } from "./ProdBadge";
 
 interface Props {
   sessionId: string;
@@ -14,6 +15,8 @@ interface Props {
   onApplied: () => void;
   /** 生成したSQLをSQLエディタへ送る */
   onSendToEditor: (sql: string) => void;
+  /** 本番の接続か (見出しにバッジを出すだけ。確認そのものは元からある) */
+  prod?: boolean;
 }
 
 /**
@@ -29,6 +32,7 @@ export function DropColumnConfirm({
   onClose,
   onApplied,
   onSendToEditor,
+  prod = false,
 }: Props) {
   const change: ColumnChange = { kind: "drop", name: column.name };
   const [sql, setSql] = useState<string[] | null>(null);
@@ -78,6 +82,8 @@ export function DropColumnConfirm({
             <span className="column-modal-target mono">
               {table}.{column.name}
             </span>
+            {/* 本番の接続なら、見出しでそれと分かるようにする */}
+            {prod && <ProdBadge />}
           </span>
           <button className="modal-close" onClick={onClose} title="閉じる">
             ×

@@ -36,6 +36,7 @@ import { listen } from "@tauri-apps/api/event";
 import { AboutDialog } from "./components/AboutDialog";
 import { AiApprovalDialog } from "./components/AiApprovalDialog";
 import { ConfirmDialog } from "./components/ConfirmDialog";
+import { afterDangerCheck } from "./components/queryGuard";
 import { ConnectionPicker } from "./components/ConnectionPicker";
 import { QuickOpen } from "./components/QuickOpen";
 import type { QuickAction } from "./quickActions";
@@ -1285,14 +1286,17 @@ function App() {
     const run = () => runTableData(key, sql, offset, orderBy, orderDir);
     // 条件が空なら、SQLはこちらで組み立てたSELECTだけなので確かめる必要がない
     if (where.trim() === "") return run();
+    /** 調べられなかったときは null (扱いは afterDangerCheck が決める) */
+    let stmts: DangerousStatement[] | null = null;
     try {
-      const stmts = await checkDangerousSql(key, sql, tab.profile.dbType);
-      if (stmts.length > 0) {
-        setDataDanger({ key, stmts, go: run });
-        return;
-      }
+      stmts = await checkDangerousSql(key, sql, tab.profile.dbType);
     } catch {
-      /* 判定できないときは通常どおり実行する (エディタ側と同じ扱い) */
+      /* 判定できなかった。本番では確認する側に倒す (エディタ側と同じ扱い) */
+    }
+    const step = afterDangerCheck(stmts, tab.profile.env === "prod", sql);
+    if (step.kind === "confirm") {
+      setDataDanger({ key, stmts: step.stmts, go: run });
+      return;
     }
     return run();
   };

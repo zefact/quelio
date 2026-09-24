@@ -819,3 +819,170 @@ fn ユーザーと権限の操作も確認の対象にする() {
     let got = dangerous_statements(d, "DROP TABLE t");
     assert!(got[0].kind.contains("テーブルやデータベース"));
 }
+
+/// 本番の確認は「データが変わるか」だけで決める。
+/// 危険な書き方かどうかは見ない (WHERE付きのUPDATEでも止める)
+#[test]
+fn 本番では更新系の文すべてを確認の対象にする() {
+    let d = Dialect::of(DbType::Mysql);
+    let prod = ConfirmEnv::Prod;
+    for sql in [
+        "UPDATE t SET a = 1 WHERE id = 1",
+        "DELETE FROM t WHERE id = 1",
+        "INSERT INTO t (a) VALUES (1)",
+        "REPLACE INTO t (a) VALUES (1)",
+        "CREATE TABLE t (id INT)",
+        "SELECT * FROM t FOR UPDATE",
+    ] {
+        assert!(needs_update_confirm(prod, &Analyzed::new(d, sql)), "{sql}");
+    }
+}
+
+#[test]
+fn 本番でも読み取りは止めない() {
+    let d = Dialect::of(DbType::Mysql);
+    let prod = ConfirmEnv::Prod;
+    for sql in [
+        "SELECT * FROM t WHERE id = 1",
+        "EXPLAIN SELECT * FROM t",
+        "SHOW TABLES",
+        "DESCRIBE t",
+        // トランザクションの区切りとセッションの設定は、データを変えない
+        "BEGIN",
+        "COMMIT",
+        "ROLLBACK",
+        "SAVEPOINT s1",
+        "SET autocommit = 0",
+        "USE d",
+    ] {
+        assert!(!needs_update_confirm(prod, &Analyzed::new(d, sql)), "{sql}");
+    }
+}
+
+#[test]
+fn 本番以外では更新の確認を増やさない() {
+    let d = Dialect::of(DbType::Mysql);
+    let sql = "UPDATE t SET a = 1 WHERE id = 1";
+    let env = ConfirmEnv::NotProd;
+    assert!(!needs_update_confirm(env, &Analyzed::new(d, sql)));
+    assert!(statements_to_confirm(d, sql, env).is_empty());
+}
+
+/// 接続の状態が読めないときは、確認する側に倒す
+/// (出せなかった確認より、余分な確認の方が害が小さい)
+#[test]
+fn 状態が読めないときは本番と同じように確認する() {
+    let d = Dialect::of(DbType::Mysql);
+    let env = ConfirmEnv::Unknown;
+    assert!(needs_update_confirm(
+        env,
+        &Analyzed::new(d, "UPDATE t SET a = 1 WHERE id = 1")
+    ));
+    // 読み取りは止めない
+    assert!(!needs_update_confirm(env, &Analyzed::new(d, "SELECT 1")));
+    let got = statements_to_confirm(d, "UPDATE t SET a = 1 WHERE id = 1", env);
+    assert_eq!(got.len(), 1);
+    assert!(got[0].kind.contains("確かめられませんでした"));
+}
+
+/// SET・START は語が同じでも中身が別物になる。
+/// セッションの設定とトランザクションの開始だけを確認の対象から外す
+#[test]
+fn 本番ではサーバーを変えるsetとstartを確認する() {
+    let d = Dialect::of(DbType::Mysql);
+    let prod = ConfirmEnv::Prod;
+    for sql in [
+        "SET PASSWORD FOR 'app'@'%' = 'x'",
+        "SET GLOBAL max_connections = 1",
+        "SET PERSIST max_connections = 1",
+        "SET @@GLOBAL.max_connections = 1",
+        "SET @@PERSIST.max_connections = 1",
+        "SET @@PERSIST_ONLY.max_connections = 1",
+        "START REPLICA",
+        "START SLAVE",
+    ] {
+        assert!(needs_update_confirm(prod, &Analyzed::new(d, sql)), "{sql}");
+    }
+    for sql in [
+        "SET NAMES utf8mb4",
+        "SET @@SESSION.sql_mode = ''",
+        "SET @@sql_mode = ''",
+        "SET autocommit = 0",
+        "SET SESSION sql_mode = ''",
+        "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+        "SET @x = 1",
+        "SET sql_mode = ''",
+        "SET time_zone = '+09:00'",
+        "START TRANSACTION",
+        // 空白の数で判定が変わらないこと
+        "START  TRANSACTION",
+    ] {
+        assert!(!needs_update_confirm(prod, &Analyzed::new(d, sql)), "{sql}");
+    }
+}
+
+#[test]
+fn 本番の更新は確認の一覧に本番と分かる形で入る() {
+    let d = Dialect::of(DbType::Mysql);
+    let got = statements_to_confirm(d, "UPDATE t SET a = 1 WHERE id = 1", ConfirmEnv::Prod);
+    assert_eq!(got.len(), 1);
+    assert!(got[0].prod_update);
+    assert!(got[0].kind.contains("本番環境"));
+    // 設定で省ける種類には入れない
+    assert!(!got[0].definition_change);
+}
+
+/// 危険なSQLは、本番でも今までどおりの文言で出す
+/// (「本番だから」で説明が薄くならないように)
+#[test]
+fn 本番でも危険なSQLの文言は変わらない() {
+    let d = Dialect::of(DbType::Mysql);
+    let got = statements_to_confirm(d, "DROP TABLE t", ConfirmEnv::Prod);
+    assert_eq!(got.len(), 1);
+    assert!(got[0].kind.contains("テーブルやデータベース"));
+    // 本番の更新としても拾っているので、見出しを変える手がかりは残る
+    assert!(got[0].prod_update);
+}
+
+#[test]
+fn 本番では文ごとに確認の対象を数える() {
+    let d = Dialect::of(DbType::Mysql);
+    let sql = "SELECT 1; UPDATE t SET a = 1 WHERE id = 1; INSERT INTO t (a) VALUES (2)";
+    let got = statements_to_confirm(d, sql, ConfirmEnv::Prod);
+    assert_eq!(got.len(), 2);
+    assert!(got.iter().all(|s| s.prod_update));
+}
+
+/// 括弧で囲んだ問い合わせも参照として扱う。
+/// `(SELECT …) UNION (SELECT …)` は先頭が "(" になるため、
+/// 以前は読み取り専用の接続で断られ、本番では更新として確認が出ていた
+#[test]
+fn 括弧で囲んだselectも読み取りとして扱う() {
+    let d = Dialect::of(DbType::Mysql);
+    for sql in [
+        "(SELECT 1) UNION (SELECT 2)",
+        "( SELECT 1 ) UNION ALL ( SELECT 2 )",
+        "((SELECT 1) UNION (SELECT 2)) ORDER BY 1",
+        "(/* 略 */ SELECT 1) UNION (SELECT 2)",
+    ] {
+        assert!(is_read_only(d, sql), "{sql}");
+        assert!(
+            !needs_update_confirm(ConfirmEnv::Prod, &Analyzed::new(d, sql)),
+            "{sql}"
+        );
+        assert!(statements_to_confirm(d, sql, ConfirmEnv::Prod).is_empty(), "{sql}");
+    }
+}
+
+/// L1 の裏側: 括弧を読み飛ばしても、中身が更新なら更新として扱う
+#[test]
+fn 括弧で囲んでも更新は更新として扱う() {
+    let d = Dialect::of(DbType::Mysql);
+    let sql = "(INSERT INTO t VALUES (1))";
+    assert!(!is_read_only(d, sql));
+    assert!(needs_update_confirm(
+        ConfirmEnv::Prod,
+        &Analyzed::new(d, sql)
+    ));
+    assert_eq!(statements_to_confirm(d, sql, ConfirmEnv::Prod).len(), 1);
+}

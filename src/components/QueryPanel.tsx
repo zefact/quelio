@@ -104,6 +104,13 @@ interface Props {
   database?: string;
   /** 接続先の表示名 (実行前の確認ダイアログに出す) */
   dbType: DbType;
+  /**
+   * 本番の接続か。
+   *
+   * 危険判定ができなかったときに確認を出すかの分かれ道に使う
+   * (実行そのものの守りは Rust 側の判定にある)
+   */
+  prod?: boolean;
   sql: string;
   results: StatementResult[] | null;
   error: string | null;
@@ -161,6 +168,7 @@ export function QueryPanel({
   sessionId,
   database,
   dbType,
+  prod = false,
   sql,
   results,
   error,
@@ -390,6 +398,7 @@ export function QueryPanel({
         : undefined,
       exec,
       confirm: (stmts, run) => setDanger({ stmts, run }),
+      prod,
     });
 
   /**

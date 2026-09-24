@@ -99,8 +99,11 @@ pub async fn kv_exec(
         qlog.add(&label, database, &kv::mask_secrets(c));
     }
     let read_only = session.profile.read_only;
+    // 本番では書き込み系すべてを確認の対象にする
+    // (読み取り専用なら、そもそも書き込みは上で断られる)
+    let prod = session.profile.env.as_deref() == Some("prod") && !read_only;
     match &mut session.conn {
-        DbConn::Kv(c) => kv::exec(c, &commands, read_only, confirmed).await,
+        DbConn::Kv(c) => kv::exec(c, &commands, read_only, confirmed, prod).await,
         _ => Err("Valkey接続ではありません".into()),
     }
 }

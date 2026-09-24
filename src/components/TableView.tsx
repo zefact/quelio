@@ -58,6 +58,13 @@ interface Props {
   dbType: DbType;
   /** 読み取り専用の接続か (変更操作をすべて出さない) */
   readOnly?: boolean;
+  /**
+   * 本番の接続か (データタブの更新に確認を挟む)。
+   *
+   * 見せ方の判断はタブが持っている接続情報で足りる。
+   * 本番かどうかの判定そのものは Rust 側 (`confirm_env`) に寄せてある
+   */
+  prod?: boolean;
   /** 定義を取得し直す (DDL実行後) */
   onReloadDetail: () => void;
   /** 生成したSQLをSQLエディタへ送る */
@@ -128,8 +135,13 @@ export function TableView({
   detail,
   loadingDetail,
   dataPane,
+  prod = false,
 }: Props) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  /** 確認に出すテーブル名 (スキーマがあれば付ける) */
+  const fullTableName = table.schema
+    ? `${table.schema}.${table.name}`
+    : table.name;
   /** 削除の確認中カラム (削除は取り返しがつかないので確認を出す) */
   const [dropping, setDropping] = useState<ColumnInfo | null>(null);
   /** 型・照合順序の選択肢 (接続とDBが変わったら取り直す) */
@@ -203,17 +215,21 @@ export function TableView({
   );
 
   /** データ1行の追加・更新・削除を実行し、一覧を取得し直す */
-  const applyRow = useCallback(async (change: RowChange) => {
-    const t = target.current;
-    await applyRowChange(
-      t.sessionId,
-      t.database,
-      t.table.schema,
-      t.table.name,
-      change
-    );
-    t.dataPane.onReload();
-  }, []);
+  const applyRow = useCallback(
+    async (change: RowChange, confirmed: boolean) => {
+      const t = target.current;
+      await applyRowChange(
+        t.sessionId,
+        t.database,
+        t.table.schema,
+        t.table.name,
+        change,
+        confirmed
+      );
+      t.dataPane.onReload();
+    },
+    []
+  );
 
   /** カラム名をDBの書き方でクォートする (INSERT文のコピー用) */
   const quoteName = useCallback(
@@ -486,6 +502,8 @@ export function TableView({
             insertTable={quoteTable(dbType, table)}
             quoteName={quoteName}
             dbType={dbType}
+            prod={prod}
+            tableLabel={fullTableName}
             onApplyRow={applyRow}
             onFetchCell={fetchFullCell}
           />
@@ -506,6 +524,7 @@ export function TableView({
 
       {dropping && (
         <DropColumnConfirm
+          prod={prod}
           sessionId={sessionId}
           database={database}
           schema={table.schema}

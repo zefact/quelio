@@ -93,6 +93,12 @@
   text-overflow: ellipsis;
 }
 
+/* 一覧の行に出す「環境未設定」 (名前の右に小さく添える) */
+.connection-name .home-card-env {
+  margin-left: var(--space-2);
+  vertical-align: middle;
+}
+
 .connection-host {
   display: flex;
   align-items: center;
@@ -621,6 +627,13 @@
   font-size: 10px;
   font-weight: 700;
   line-height: 15px;
+}
+
+/* 環境が未設定の接続。色は増やさず、薄いグレーで示すだけ */
+.home-card-env.unset {
+  color: var(--text-faint);
+  border-color: var(--border);
+  font-weight: 600;
 }
 
 .home-card-sub {

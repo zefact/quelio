@@ -52,11 +52,19 @@ pub async fn kv_exec(
     sessions::kv_exec(&state, &qlog, &session_id, &database, commands, confirmed).await
 }
 
-/// 実行前に確認したいValkeyコマンド (FLUSHALL・CONFIG SET等) を1つ返す。
-/// 実際の実行はせず、画面の確認ダイアログ用に使う
+/// 実行前に確認したいValkeyコマンド (FLUSHALL・CONFIG SET等) を返す。
+/// 実際の実行はせず、画面の確認ダイアログ用に使う。
+///
+/// 本番の接続では、書き込み系のコマンドもすべて含める
+/// (どこまで確認するかは実行時のガードと同じ基準にする)
 #[tauri::command]
-pub fn check_kv_destructive(commands: Vec<String>) -> Result<Vec<String>, String> {
-    Ok(crate::kv::find_destructive(&commands))
+pub async fn check_kv_destructive(
+    state: State<'_, Sessions>,
+    session_id: String,
+    commands: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let prod = env_for_confirm(&state, &session_id).await.confirms_updates();
+    Ok(crate::kv::find_destructive(&commands, prod))
 }
 
 /// Valkey: パターンに一致するキーを数える (消す前の確認用)

@@ -34,6 +34,7 @@ import type {
   WorkTab,
 } from "../types";
 import { activeSheetOf, envColor } from "../types";
+import { EnvBand } from "./EnvBand";
 import { StatusBar } from "./StatusBar";
 import type { LastRun } from "./StatusBar";
 import { useTxnState } from "../hooks/useTxnState";
@@ -706,6 +707,9 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
         </button>
       </div>
 
+      {/* 本番 (とステージング) は、作業中ずっと分かるように帯を出す */}
+      <EnvBand env={profile.env} connection={profile.name} />
+
       {tab.error && (
         <div className="result-banner ng session-error">
           <span className="dot" aria-hidden />
@@ -860,6 +864,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               sessionId={tab.key}
               database={selectedDb ?? undefined}
               dbType={profile.dbType}
+              prod={profile.env === "prod"}
               sql={sheet.sql}
               results={sheet.queryResults}
               error={sheet.queryError}
@@ -888,6 +893,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               database={selectedDb ?? undefined}
               dbType={profile.dbType}
               readOnly={profile.readOnly ?? false}
+              prod={profile.env === "prod"}
               onReloadDetail={onReloadDetail}
               onSendToEditor={onSendToEditor}
               view={tab.tableTab}
@@ -1036,6 +1042,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
 
       {csvTarget && selectedDb && (
         <CsvImportDialog
+          prod={profile.env === "prod"}
           sessionId={tab.key}
           database={selectedDb}
           schema={csvTarget.schema ?? undefined}
@@ -1301,6 +1308,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
 
       {dropping && (
         <DropTableConfirm
+          prod={profile.env === "prod"}
           sessionId={tab.key}
           database={selectedDb ?? undefined}
           tables={dropping}

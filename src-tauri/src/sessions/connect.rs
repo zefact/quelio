@@ -555,14 +555,14 @@ pub async fn connect(
      */
     let old = {
         let mut map = sessions.0.lock().await;
-        let old = map.insert(session_id.clone(), Arc::new(Mutex::new(session)));
+        let old = map.insert(session_id.clone(), SessionSlot::new(session));
         if old.is_some() {
             jobs.cancel_session(&session_id);
         }
         old
     };
     if let Some(old) = old {
-        close_session_arc(old, qlog).await;
+        close_session_arc(old.session, qlog).await;
     }
 
     Ok(ConnectInfo {
@@ -821,7 +821,13 @@ pub(super) async fn ensure_alive(session: &mut Session, qlog: &QueryLog) -> Resu
 /// そのたびに延ばしてしまうため、放っておくとロックが解放されない
 pub async fn keepalive_all(sessions: &Sessions, qlog: &QueryLog) {
     // マップのロックはArcの複製だけで即解放し、pingはセッション個別に行う
-    let list: Vec<Arc<Mutex<Session>>> = sessions.0.lock().await.values().cloned().collect();
+    let list: Vec<Arc<Mutex<Session>>> = sessions
+        .0
+        .lock()
+        .await
+        .values()
+        .map(|slot| slot.session.clone())
+        .collect();
     for arc in list {
         // 使用中 (クエリ実行中など) のセッションはスキップ (使われている = 生きている)
         let Ok(mut session) = arc.try_lock() else {

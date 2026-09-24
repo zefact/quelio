@@ -16,6 +16,8 @@ import { CsvMapping } from "./CsvMapping";
 import { CsvSettings } from "./CsvSettings";
 import { autoMap, checkMapping } from "./mapping";
 import { hasMismatch, shapeWarningText } from "./shapeWarning";
+import { ProdNote } from "../ProdBadge";
+import { csvImportText } from "../../prodConfirm";
 import type { ColumnInfo, CsvPreview, DbType, ShapeReport } from "../../types";
 
 /** 進捗の取得・中止に使うIDを作る */
@@ -31,6 +33,13 @@ interface Props {
   table: string;
   /** 列の見方がDBごとに違うので受け取る (自動採番の判定など) */
   dbType: DbType;
+  /**
+   * 本番の接続か (本番では取り込む前に必ず確認する)。
+   *
+   * 取り込みの入口でも確認済みかを見ている (`confirm_passed`) ので、
+   * ここは確認を出す側の見せ方だけ
+   */
+  prod?: boolean;
   onClose: () => void;
   /** 取り込みが終わったあと一覧を更新する */
   onImported: () => void;
@@ -49,6 +58,7 @@ export function CsvImportDialog({
   schema,
   table,
   dbType,
+  prod = false,
   onClose,
   onImported,
 }: Props) {
@@ -184,8 +194,9 @@ export function CsvImportDialog({
     !!file && !!sized && sized.length > 0 && !!columns && !loading && !busy;
 
   /**
-   * 列がずれている行が見つかったときの確認待ち。
+   * 取り込む前の確認待ち (下見の結果をそのまま持つ)。
    *
+   * 列がずれている行が見つかったとき、または本番の接続のとき。
    * 押した時点の内容を覚えておき、「続ける」でそのまま取り込む
    */
   const [shapeWarn, setShapeWarn] = useState<ShapeReport | null>(null);
@@ -223,14 +234,16 @@ export function CsvImportDialog({
       });
       return;
     }
-    if (hasMismatch(report)) {
+    // 本番では、列ずれが無くても取り込む前に一度止める
+    if (prod || hasMismatch(report)) {
       setShapeWarn(report);
       return;
     }
-    await run();
+    await run(false);
   };
 
-  const run = async () => {
+  /** 取り込みを実行する (`confirmed` は本番の確認を経たか) */
+  const run = async (confirmed: boolean) => {
     if (!file) return;
     const pairs: [number, string][] = [];
     mapping.forEach((m, i) => {
@@ -254,7 +267,8 @@ export function CsvImportDialog({
         pairs,
         mode,
         emptyAsNull,
-        started.id
+        started.id,
+        confirmed
       );
       if (r.cancelled) {
         csvImportStore.patch(sessionId, {
@@ -453,7 +467,11 @@ export function CsvImportDialog({
 
       {shapeWarn && (
         <ConfirmDialog
-          title="列の数が揃っていない行があります"
+          title={
+            hasMismatch(shapeWarn)
+              ? "列の数が揃っていない行があります"
+              : "本番環境のデータを変更します"
+          }
           target={schema ? `${schema}.${table}` : table}
           confirmLabel="続ける"
           cancelLabel="取り消す"
@@ -461,11 +479,20 @@ export function CsvImportDialog({
           defaultFocus="cancel"
           onConfirm={async () => {
             setShapeWarn(null);
-            await run();
+            await run(true);
           }}
           onCancel={() => setShapeWarn(null)}
         >
-          {shapeWarningText(shapeWarn)}
+          {prod && (
+            <ProdNote>
+              {csvImportText(
+                schema ? `${schema}.${table}` : table,
+                shapeWarn.rows,
+                shapeWarn.truncated
+              )}
+            </ProdNote>
+          )}
+          {hasMismatch(shapeWarn) && shapeWarningText(shapeWarn)}
         </ConfirmDialog>
       )}
     </div>

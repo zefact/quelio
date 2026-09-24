@@ -14,6 +14,9 @@ import { WhereBuilder } from "./WhereBuilder";
 import { clipIndex, clippedRowKeys } from "../cellValue";
 import { columnKinds, kindAlign, kindClass } from "../cellKind";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ProdNote } from "./ProdBadge";
+import { rowChangeText } from "../prodConfirm";
+import type { RowChangeKind } from "../prodConfirm";
 import { CellText } from "./CellText";
 import {
   GridColumn,
@@ -54,11 +57,26 @@ interface Props {
   quoteName?: (name: string) => string;
   /** 接続の種類 (INSERT文の書き方と、条件を作るときの引用の要否に使う) */
   dbType: DbType;
-  /** 1行分の変更を実行する。失敗したら例外を投げること */
-  onApplyRow: (change: RowChange) => Promise<void>;
+  /** 本番の接続か (更新の確定前に確認を挟む) */
+  prod?: boolean;
+  /** 確認に出すテーブル名 (スキーマがあれば付けた形) */
+  tableLabel?: string;
+  /**
+   * 1行分の変更を実行する。失敗したら例外を投げること。
+   * `confirmed` は本番の確認を経たか (本番では入口で確かめられる)
+   */
+  onApplyRow: (change: RowChange, confirmed: boolean) => Promise<void>;
   /** 切り詰められたセルの全文を読み直す (主キーで行を特定する) */
   onFetchCell?: (column: string, key: RowCell[]) => Promise<CellValue>;
 }
+
+/**
+ * 1回の確定で送るもの。
+ *
+ * 本番では画面の確認を経たかどうかもバックエンドに渡す
+ * (画面の作りを変えたときに確認が黙って外れないよう、入口でも見ている)
+ */
+type RowApply = { change: RowChange; confirmed: boolean };
 
 /** 追加行に使う行キー */
 const NEW_ROW = "__quelio_new_row__";
@@ -114,6 +132,8 @@ function TableDataViewInner({
   insertTable,
   quoteName,
   dbType,
+  prod = false,
+  tableLabel = "",
   onApplyRow,
   onFetchCell,
 }: Props) {
@@ -134,9 +154,16 @@ function TableDataViewInner({
     setError: setEditError,
     run,
     runOrThrow,
-  } = useAsyncApply<RowChange>(onApplyRow);
+  } = useAsyncApply<RowApply>((p) => onApplyRow(p.change, p.confirmed));
   /** 削除の確認中の行 (データ内の位置) */
   const [deleting, setDeleting] = useState<number | null>(null);
+  /**
+   * 本番で確定を押したあとの確認待ち。
+   *
+   * セルごとではなく「確定1回につき1回」出す。
+   * 1セルずつ確認を出すと、内容を読まずに押す操作になってしまう
+   */
+  const [confirmRow, setConfirmRow] = useState<RowChangeKind | null>(null);
   /**
    * 条件を組み立てる画面。
    * openのときだけ出し、列ヘッダから開いたときはその列を選んでおく
@@ -331,13 +358,28 @@ function TableDataViewInner({
     return editing.draft.some((v, i) => toValue(v) !== before[i]);
   })();
 
-  /** 入力内容をそのままDBへ反映する */
+  /**
+   * 確定を押したときの入口。
+   *
+   * 本番では、ここで一度止めて確認を出す
+   * (取り消せない更新を、画面を見たままの勢いで流さないように)
+   */
   const commit = async () => {
     if (!editing || !data || busy) return;
     if (!changed) {
       cancel();
       return;
     }
+    if (prod) {
+      setConfirmRow(editing.row === "new" ? "insert" : "update");
+      return;
+    }
+    await applyEdit(false);
+  };
+
+  /** 入力内容をそのままDBへ反映する (`confirmed` は本番の確認を経たか) */
+  const applyEdit = async (confirmed: boolean) => {
+    if (!editing || !data || busy) return;
     if (editing.row === "new") {
       const values: RowCell[] = dataColumns
         // 空欄のカラムは送らず、DBの既定 (DEFAULT / 自動採番) に任せる
@@ -345,7 +387,9 @@ function TableDataViewInner({
         .filter((c) => c.text !== "")
         .map((c) => ({ column: c.column, value: toValue(c.text) }));
       // 失敗したら直せるよう、行は編集状態のまま残す
-      if (await run({ kind: "insert", values })) setEditing(null);
+      if (await run({ change: { kind: "insert", values }, confirmed })) {
+        setEditing(null);
+      }
       return;
     }
     const before = data.rows[editing.row];
@@ -360,10 +404,15 @@ function TableDataViewInner({
     const set: RowCell[] = dataColumns
       .map((column, i) => ({ column, value: toValue(editing.draft[i]) }))
       .filter((c, i) => c.value !== before[i]);
-    if (await run({ kind: "update", key, set })) setEditing(null);
+    if (await run({ change: { kind: "update", key, set }, confirmed })) {
+      setEditing(null);
+    }
   };
 
-  /** 行を削除する (確認ダイアログから呼ばれる。失敗したら例外を投げる) */
+  /**
+   * 行を削除する (確認ダイアログから呼ばれる。失敗したら例外を投げる)。
+   * ダイアログを通っているので、本番の確認は経ている
+   */
   const deleteRow = async (row: number) => {
     if (!data?.rows[row]) return;
     const key: RowCell[] = pkColumns.map((column) => ({
@@ -371,7 +420,7 @@ function TableDataViewInner({
       value: data.rows[row][dataColumns.indexOf(column)],
     }));
     // 失敗した理由は確認ダイアログ側が出すので、投げ直す
-    await runOrThrow({ kind: "delete", key });
+    await runOrThrow({ change: { kind: "delete", key }, confirmed: true });
     setDeleting(null);
   };
 
@@ -785,10 +834,33 @@ function TableDataViewInner({
         <ConfirmDialog
           title="1行を削除します"
           target={deleteLabel}
+          cancelLabel={prod ? "取り消す" : undefined}
+          defaultFocus={prod ? "cancel" : "box"}
           onCancel={() => setDeleting(null)}
           onConfirm={() => deleteRow(deleting)}
         >
+          {prod && <ProdNote>{rowChangeText("delete", tableLabel)}</ProdNote>}
           この行のデータは失われます。取り消しはできません。
+        </ConfirmDialog>
+      )}
+
+      {/* 本番での確定 (追加・書き換え) の確認 */}
+      {confirmRow && (
+        <ConfirmDialog
+          title="本番環境のデータを変更します"
+          target={tableLabel}
+          confirmLabel="実行する"
+          cancelLabel="取り消す"
+          // 実行より取り消しを選びやすくする
+          defaultFocus="cancel"
+          onCancel={() => setConfirmRow(null)}
+          onConfirm={async () => {
+            setConfirmRow(null);
+            await applyEdit(true);
+          }}
+        >
+          <ProdNote>{rowChangeText(confirmRow, tableLabel)}</ProdNote>
+          取り消しはできません (このテーブルへ直接反映されます)。
         </ConfirmDialog>
       )}
     </div>

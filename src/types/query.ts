@@ -98,6 +98,11 @@ export interface DangerousStatement {
   kind: string;
   /** 対象のSQL (長い場合は先頭のみ) */
   sql: string;
+  /**
+   * 本番環境で、データを変える文として拾ったか。
+   * 確認ダイアログの見出しとバッジをこれで切り替える
+   */
+  prodUpdate?: boolean;
 }
 
 /** SQL実行履歴の1件 */

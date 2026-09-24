@@ -18,6 +18,9 @@ pub struct DangerousStatement {
     /// 定義を変えるだけで、データが消えるわけではない種類か
     /// (ALTER / RENAME)。設定で確認を省ける対象になる
     pub definition_change: bool,
+    /// 本番環境で、データを変える文として拾ったか。
+    /// 確認ダイアログの見出しを「本番環境で更新を実行します」に変えるのに使う
+    pub prod_update: bool,
 }
 
 /// 文字列リテラルとコメントを空白に置き換える。
@@ -262,10 +265,141 @@ fn starts_with_word(body: &str, word: &str) -> bool {
     head == word || head.starts_with(&format!("{word} ")) || head.starts_with(&format!("{word}\t"))
 }
 
+/// 確認をどこまで出すか。接続の環境と読み取り専用かどうかから決まる
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConfirmEnv {
+    /// 本番ではない: 危険なSQLだけ確認する (今までどおり)
+    #[default]
+    NotProd,
+    /// 本番: データが変わる文はすべて確認する
+    Prod,
+    /// 接続の状態が読めない: 本番の可能性があるので Prod と同じ扱いにする。
+    /// 出せなかった確認より、余分な確認の方が害が小さい
+    Unknown,
+}
+
+impl ConfirmEnv {
+    /// データを変える文をすべて確認する段階か
+    pub fn confirms_updates(self) -> bool {
+        !matches!(self, ConfirmEnv::NotProd)
+    }
+
+    /// 更新として拾ったときに出す説明
+    fn update_kind(self, head: &str) -> Option<String> {
+        match self {
+            ConfirmEnv::NotProd => None,
+            ConfirmEnv::Prod => Some(format!("{head} (本番環境への更新)")),
+            ConfirmEnv::Unknown => Some(format!(
+                "{head} (接続の状態を確かめられませんでした。本番環境の可能性があるため確認します)"
+            )),
+        }
+    }
+}
+
+/// トランザクションの区切りか、セッションの設定か。
+///
+/// データも定義も変えないので、本番でも確認を挟まない。
+/// ここで止めると、BEGIN や SET を書くたびにダイアログが出て、
+/// 肝心の UPDATE の確認まで「いつも出るもの」として流されてしまう。
+///
+/// ただし `SET` と `START` は、語が同じでも中身が別物になる
+/// (`SET GLOBAL …` はサーバー全体の設定を変え、`START REPLICA` は複製を動かす)。
+/// 何を変えない書き方かを並べ、それ以外は更新として扱う
+fn changes_nothing(a: &Analyzed) -> bool {
+    let body = a.body();
+    match a.head() {
+        "BEGIN" | "COMMIT" | "ROLLBACK" | "SAVEPOINT" | "RELEASE" | "END" | "USE" | "LOCK"
+        | "UNLOCK" => true,
+        // トランザクションの開始だけ。START REPLICA / START SLAVE は対象外。
+        // 空白の数で結果が変わらないよう、txn_effect と同じ見方にそろえる
+        "START" => {
+            let flat = body.split_whitespace().collect::<Vec<_>>().join(" ");
+            contains_phrase(&flat, "TRANSACTION")
+        }
+        "SET" => is_session_set(body),
+        _ => false,
+    }
+}
+
+/// そのセッションの読み書きの作法を変えるだけの `SET` か。
+///
+/// 変数への代入 (`SET @x = 1`) と、接続ごとの設定を並べる。
+/// `SET PASSWORD` / `SET GLOBAL …` / `SET PERSIST …` はここに入らないので、
+/// 本番では確認の対象になる
+fn is_session_set(body: &str) -> bool {
+    let rest = body.trim_start().trim_start_matches("SET").trim_start();
+    /*
+     * 変数への代入。
+     *
+     * ユーザー変数 (`SET @x = 1`) と、範囲を書かない・セッションに限る形だけを
+     * 外す。範囲を `@@GLOBAL` / `@@PERSIST` / `@@PERSIST_ONLY` で書いたものは
+     * サーバー全体 (と再起動後) に効くので、本番では確認の対象にする
+     */
+    if rest.starts_with('@') {
+        let upper = rest.to_ascii_uppercase();
+        let Some(scope) = upper.strip_prefix("@@") else {
+            // ユーザー変数 (@x)
+            return true;
+        };
+        let name: String = scope
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        return !matches!(name.as_str(), "GLOBAL" | "PERSIST" | "PERSIST_ONLY");
+    }
+    const SESSION_SETTINGS: [&str; 8] = [
+        "AUTOCOMMIT",
+        "TRANSACTION",
+        "SESSION",
+        "LOCAL",
+        "NAMES",
+        "SEARCH_PATH",
+        "SQL_MODE",
+        "TIME_ZONE",
+    ];
+    let word: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect::<String>()
+        .to_ascii_uppercase();
+    SESSION_SETTINGS.contains(&word.as_str())
+}
+
+/// 実行前に一段止めたい文かどうか (本番・状態不明のとき)。
+///
+/// 本番では「危険なSQL」でなくても、データが変わる文はすべて確認する。
+/// `UPDATE … WHERE id = 1` は本来なら安全な書き方だが、
+/// つなぎ先が本番だと気づかないまま流すのがいちばん多い事故なので、
+/// 一度手を止めてもらう。
+///
+/// 読み取り (SELECT・EXPLAIN・定義の参照) は止めない
+pub fn needs_update_confirm(env: ConfirmEnv, a: &Analyzed) -> bool {
+    if !env.confirms_updates() {
+        return false;
+    }
+    if a.is_read_only() {
+        return false;
+    }
+    !changes_nothing(a)
+}
+
 /// 実行前に確認したいSQLを抜き出す。
 /// 消えると戻せないもの (DROP/TRUNCATE) と、
 /// 対象を絞っていない一括更新・一括削除 (WHERE の無い UPDATE/DELETE) が対象
 pub fn dangerous_statements(d: Dialect, sql: &str) -> Vec<DangerousStatement> {
+    statements_to_confirm(d, sql, ConfirmEnv::NotProd)
+}
+
+/// 実行前に確認したいSQLを抜き出す (環境も見る)。
+///
+/// 本番 (と状態が読めないとき) は、危険なSQLに加えて
+/// データが変わる文すべてを確認の対象にする。
+/// 文の分割は一度で済ませたいので、どちらの判定もここでまとめて行う
+pub fn statements_to_confirm(
+    d: Dialect,
+    sql: &str,
+    env: ConfirmEnv,
+) -> Vec<DangerousStatement> {
     let mut found = Vec::new();
     let split = split_sql(d, sql);
     // どこまでが1文か分からないと、危険なSQLも見落としうる。
@@ -276,6 +410,7 @@ pub fn dangerous_statements(d: Dialect, sql: &str) -> Vec<DangerousStatement> {
                 .to_string(),
             sql: reason.clone(),
             definition_change: false,
+            prod_update: false,
         });
     }
     for stmt in split.stmts {
@@ -314,6 +449,12 @@ pub fn dangerous_statements(d: Dialect, sql: &str) -> Vec<DangerousStatement> {
             }
             _ => None,
         };
+        // 本番では、危険な書き方でなくてもデータが変わる文は確認する
+        let prod_update = needs_update_confirm(env, &a);
+        let kind = kind.map(str::to_string).or_else(|| {
+            // 危険なSQLではないが、更新として拾うもの
+            prod_update.then(|| env.update_kind(head)).flatten()
+        });
         if let Some(kind) = kind {
             // 長い文はそのまま出すと読めないので先頭だけにする
             let one_line = stmt.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -324,9 +465,10 @@ pub fn dangerous_statements(d: Dialect, sql: &str) -> Vec<DangerousStatement> {
                 one_line
             };
             found.push(DangerousStatement {
-                kind: kind.to_string(),
+                kind,
                 sql,
                 definition_change: matches!(head, "ALTER" | "RENAME" | "GRANT" | "REVOKE"),
+                prod_update,
             });
         }
     }

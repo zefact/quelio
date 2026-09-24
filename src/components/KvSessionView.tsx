@@ -21,6 +21,9 @@ import type {
   WorkTab,
 } from "../types";
 import { activeSheetOf, envColor } from "../types";
+import { EnvBand } from "./EnvBand";
+import { ProdNote } from "./ProdBadge";
+import { afterKvCheck } from "../kvGuard";
 import { KvCommandEditor } from "./KvCommandEditor";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { KvValueGrid } from "./KvValueGrid";
@@ -159,6 +162,11 @@ export function KvSessionView({
   const lastKeyError = useRef<string | null>(null);
   /** 読み取り専用の接続では、キーの作成・変更・削除を出さない */
   const readOnly = tab.profile.readOnly ?? false;
+  /**
+   * 本番の接続か (確認の文言を変えるのに使う)。
+   * どこまで確認するかの判定そのものは Rust 側にある
+   */
+  const prod = tab.profile.env === "prod";
   /** 削除の確認中のキー */
   const [deleting, setDeleting] = useState<string | null>(null);
   /** 新規キーの入力 (nullなら作成していない) */
@@ -378,12 +386,16 @@ export function KvSessionView({
       .map((l) => l.trim())
       .filter((l) => l.length > 0 && !l.startsWith("#"));
     if (lines.length === 0) return;
-    // 破壊的コマンドは確認してから実行する。
-    // 判定はバックエンドに任せる (実行時のガードと同じ基準にするため)
+    /*
+     * 破壊的コマンドは確認してから実行する。
+     * 判定はバックエンドに任せる (実行時のガードと同じ基準にするため)。
+     * 聞けなかったときは null にして、本番だけ確認する側に倒す
+     */
     if (!confirmed) {
-      const danger = await checkKvDestructive(lines).catch(() => []);
-      if (danger.length > 0) {
-        setConfirmCmd(danger);
+      const danger = await checkKvDestructive(tab.key, lines).catch(() => null);
+      const step = afterKvCheck(danger, prod);
+      if (step.kind === "confirm") {
+        setConfirmCmd(step.commands);
         return;
       }
     }
@@ -468,6 +480,9 @@ export function KvSessionView({
           コンソール
         </button>
       </div>
+
+      {/* 本番 (とステージング) は、作業中ずっと分かるように帯を出す */}
+      <EnvBand env={profile.env} connection={profile.name} />
 
       {/* 本体 */}
       <div className="session-body">
@@ -954,7 +969,9 @@ export function KvSessionView({
       {/* 破壊的コマンドの確認ダイアログ */}
       {confirmCmd && (
         <ConfirmDialog
-          title="このコマンドを実行します"
+          title={
+            prod ? "本番環境の Valkey へ書き込みます" : "このコマンドを実行します"
+          }
           confirmLabel="実行する"
           onCancel={() => setConfirmCmd(null)}
           onConfirm={() => {
@@ -962,6 +979,7 @@ export function KvSessionView({
             runCommands(true);
           }}
         >
+          {prod && <ProdNote>本番環境のデータを変更します。</ProdNote>}
           データの削除や高負荷につながる可能性があります。
           <ul className="column-warn-list">
             {confirmCmd.map((c) => (

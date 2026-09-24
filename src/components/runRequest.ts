@@ -72,6 +72,13 @@ export interface RunSteps {
   exec: (run: PendingRun) => void;
   /** 確認を出す */
   confirm: (stmts: DangerousStatement[], run: PendingRun) => void;
+  /**
+   * 本番の接続か。
+   *
+   * 危険判定ができなかったときの分かれ道に使う
+   * (本番では調べられなかったことを理由に確認する)
+   */
+  prod?: boolean;
 }
 
 /**
@@ -97,9 +104,12 @@ export async function startRun(gate: RunGate, steps: RunSteps): Promise<void> {
     try {
       found = await steps.check(run.sql);
     } catch {
-      /* 判定できないときも実行は止めない (現行の方針) */
+      /*
+       * 判定できなかった。本番では確認を挟み、それ以外は止めない
+       * (どちらに倒すかは afterDangerCheck が決める)
+       */
     }
-    const step = afterDangerCheck(found);
+    const step = afterDangerCheck(found, steps.prod ?? false, run.sql);
     if (step.kind === "confirm") steps.confirm(step.stmts, run);
     else steps.exec(run);
   } finally {

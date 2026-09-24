@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { afterConfirm, afterDangerCheck, confirmTarget } from "./queryGuard";
+import {
+  afterConfirm,
+  afterDangerCheck,
+  CHECK_FAILED_KIND,
+  confirmTarget,
+} from "./queryGuard";
 import type { PendingRun } from "./queryGuard";
 import type { DangerousStatement } from "../types/query";
 
@@ -36,10 +41,31 @@ describe("afterDangerCheck", () => {
     expect(afterDangerCheck([])).toEqual({ kind: "run" });
   });
 
-  it("判定できなかったときも実行は止めない (今の方針)", () => {
-    // バックエンドと話せなかった場合。ここを変えると挙動が変わるので、
-    // 方針を変えるときはこのテストごと直すことになる
+  it("判定できなかったとき、本番以外では実行を止めない", () => {
+    // バックエンドと話せなかった場合。止めると、判定できないだけで
+    // 何も実行できなくなってしまう
     expect(afterDangerCheck(null)).toEqual({ kind: "run" });
+    expect(afterDangerCheck(null, false, "UPDATE t SET a = 1")).toEqual({
+      kind: "run",
+    });
+  });
+
+  /*
+   * 本番だけは逆に倒す。何が流れるか分からないまま本番で走らせるより、
+   * 調べられなかったことを理由に一度止める方が害が小さい
+   */
+  it("判定できなかったとき、本番では確認を出す", () => {
+    const sql = "UPDATE users SET name = 'x'";
+    expect(afterDangerCheck(null, true, sql)).toEqual({
+      kind: "confirm",
+      stmts: [
+        { definitionChange: false, kind: CHECK_FAILED_KIND, sql, prodUpdate: true },
+      ],
+    });
+  });
+
+  it("本番でも、判定できていれば確認を増やさない", () => {
+    expect(afterDangerCheck([], true, "SELECT 1")).toEqual({ kind: "run" });
   });
 });
 

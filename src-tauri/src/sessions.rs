@@ -255,12 +255,58 @@ pub struct Session {
     last_used: std::time::Instant,
 }
 
+/// 接続中ずっと変わらない、セッションの見出し情報。
+///
+/// 「本番か」「読み取り専用か」は、確認を出すかどうかの判定に使う。
+/// この判定はSQLを実行している最中にも読む必要がある
+/// (画面がタブを開いた直後や、件数を数えている裏で次の文を流すとき)。
+/// Session のロックの内側だけに置くと、そういう場面で読めず
+/// 「本番ではない」＝確認なしに倒れてしまうため、ロックの外に写しを持つ。
+///
+/// 接続をやり直すとセッションごと作り直されるので、写しが古くなることはない
+#[derive(Clone, Debug)]
+pub struct SessionMeta {
+    /// 接続先の環境 ("prod" / "staging" / "dev"。未設定なら None)
+    pub env: Option<String>,
+    /// 読み取り専用で繋いだか
+    pub read_only: bool,
+    /// 接続先のDBの種類
+    pub db_type: DbType,
+}
+
+impl SessionMeta {
+    fn of(profile: &ConnectionProfile) -> Self {
+        Self {
+            env: profile.env.clone(),
+            read_only: profile.read_only,
+            db_type: profile.db_type,
+        }
+    }
+}
+
+/// セッション1つ (本体と、ロックを取らずに読める見出し)
+pub struct SessionSlot {
+    pub session: Arc<Mutex<Session>>,
+    pub meta: SessionMeta,
+}
+
+impl SessionSlot {
+    /// 接続できたセッションから作る
+    pub fn new(session: Session) -> Self {
+        let meta = SessionMeta::of(&session.profile);
+        Self {
+            session: Arc::new(Mutex::new(session)),
+            meta,
+        }
+    }
+}
+
 /// セッションID(タブ単位) → Session のマップ (Tauriのmanaged state)
 /// 同じプロファイルでも別タブなら別セッションになる。
 /// セッションごとに独立したロック (Arc<Mutex<Session>>) を持つため、
 /// あるタブでSQLを実行中でも他のタブは並行して接続・実行できる
 #[derive(Default)]
-pub struct Sessions(pub Mutex<HashMap<String, Arc<Mutex<Session>>>>);
+pub struct Sessions(pub Mutex<HashMap<String, SessionSlot>>);
 
 /// セッションを取り出す。マップ全体のロックは取り出し後すぐ解放されるため、
 /// 個別セッションのロック待ちが他セッションの操作を妨げない
@@ -280,7 +326,7 @@ async fn get_session(
         .lock()
         .await
         .get(session_id)
-        .cloned()
+        .map(|slot| slot.session.clone())
         .ok_or_else(AppError::no_session)
 }
 
@@ -301,7 +347,7 @@ pub fn cancel_target_db(cancel: &CancelRegistry, session_id: &str) -> Option<DbT
 /// セッションが実際に使っている方言を返す (未接続ならNone)。
 /// 危険なSQLの判定など、接続を使わない処理から参照するためのもの
 pub async fn session_dialect(sessions: &Sessions, session_id: &str) -> Option<query::Dialect> {
-    let arc = sessions.0.lock().await.get(session_id).cloned()?;
+    let arc = sessions.0.lock().await.get(session_id).map(|s| s.session.clone())?;
     // クエリ実行中はセッションのロックが長時間掴まれたままになる。
     // 方言を1つ読むためだけに待つと画面が止まるので、取れなければ諦める
     // (呼び出し側が安全側の方言で判定し直す)
@@ -324,17 +370,16 @@ pub async fn session_sql_style(
     })
 }
 
-/// セッションの環境ラベル ("prod" 等。未接続・未設定ならNone)。
+/// セッションの見出し (環境・読み取り専用・DBの種類)。未接続なら None。
 ///
-/// 実行中は方言と同じくロックが取れないので諦める。
-/// 実行中に別のSQLを流し始めることはできないため、
-/// 確認の判定でこれが読めない場面は実際には起きない
-pub async fn session_env(sessions: &Sessions, session_id: &str) -> Option<String> {
-    let arc = sessions.0.lock().await.get(session_id).cloned()?;
-    // ロックガードを式の途中で持ったままにしない (arc より長生きしてしまう)
-    let env = arc.try_lock().ok().and_then(|s| s.profile.env.clone());
-    env
+/// セッション本体のロックは取らないので、SQLの実行中でも読める。
+/// 確認を出すかどうかの判定はここから決める
+/// (以前は本体のロックを `try_lock` していたため、実行中は読めず、
+///  本番の確認が出ないことがあった)
+pub async fn session_meta(sessions: &Sessions, session_id: &str) -> Option<SessionMeta> {
+    sessions.0.lock().await.get(session_id).map(|s| s.meta.clone())
 }
+
 
 /// 読み取り専用の接続で変更しようとしたときの案内
 pub const READ_ONLY_MSG: &str = concat!(
@@ -979,9 +1024,11 @@ pub async fn session_db_type(
     sessions: &Sessions,
     session_id: &str,
 ) -> Result<DbType, String> {
-    let arc = get_session(sessions, session_id).await?;
-    let guard = arc.lock().await;
-    Ok(guard.profile.db_type)
+    // 見出しから読むので、実行中のセッションでもロックを待たない
+    match session_meta(sessions, session_id).await {
+        Some(meta) => Ok(meta.db_type),
+        None => Err(AppError::no_session().into()),
+    }
 }
 
 /// DDL (カラム変更など) を順に実行する。
@@ -1533,7 +1580,7 @@ pub async fn list_sessions(sessions: &Sessions) -> Vec<SessionSummary> {
         .lock()
         .await
         .iter()
-        .map(|(id, arc)| (id.clone(), arc.clone()))
+        .map(|(id, slot)| (id.clone(), slot.session.clone()))
         .collect();
     let mut list = Vec::with_capacity(entries.len());
     for (id, arc) in entries {
@@ -1710,7 +1757,7 @@ pub async fn disconnect(
      */
     jobs.cancel_session(session_id);
 
-    let removed = sessions.0.lock().await.remove(session_id);
+    let removed = sessions.0.lock().await.remove(session_id).map(|s| s.session);
     // 1回目とマップから外す間に始まったジョブを取りこぼさない
     // (これ以降に始まるものは、セッションが見つからず動き出せない)
     jobs.cancel_session(session_id);
@@ -1740,7 +1787,7 @@ pub async fn disconnect(
 /// テストから状態を作るための入口 (本番コードからは使わない)
 #[cfg(test)]
 async fn set_txn_for_test(sessions: &Sessions, session_id: &str, txn: TxnState) {
-    let arc = sessions.0.lock().await.get(session_id).cloned().unwrap();
+    let arc = sessions.0.lock().await.get(session_id).map(|s| s.session.clone()).unwrap();
     arc.lock().await.txn = txn;
 }
 
@@ -1748,7 +1795,7 @@ async fn set_txn_for_test(sessions: &Sessions, session_id: &str, txn: TxnState) 
 /// 次の操作の後始末に頼らず、その場で確かめるために使う
 #[cfg(test)]
 async fn txn_for_test(sessions: &Sessions, session_id: &str) -> TxnState {
-    let arc = sessions.0.lock().await.get(session_id).cloned().unwrap();
+    let arc = sessions.0.lock().await.get(session_id).map(|s| s.session.clone()).unwrap();
     let txn = arc.lock().await.txn;
     txn
 }
@@ -1790,12 +1837,17 @@ mod tests {
     }
 
     async fn sqlite_session(name: &str) -> TestSession {
+        sqlite_session_with(name, "").await
+    }
+
+    /// 接続先の設定を足して繋ぐ (`extra` は profile のJSONに差し込む断片)
+    async fn sqlite_session_with(name: &str, extra: &str) -> TestSession {
         let path = std::env::temp_dir()
             .join(format!("quelio_txn_{name}_{}.db", std::process::id()));
         cleanup_db(&path);
         std::fs::File::create(&path).unwrap();
         let profile: ConnectionProfile = serde_json::from_str(&format!(
-            r#"{{"name":"t","dbType":"sqlite","host":"","port":0,"user":"","database":{}}}"#,
+            r#"{{"name":"t","dbType":"sqlite","host":"","port":0,"user":"","database":{}{extra}}}"#,
             serde_json::to_string(&path.to_string_lossy()).unwrap()
         ))
         .unwrap();
@@ -1812,6 +1864,60 @@ mod tests {
             cancel,
             path,
         }
+    }
+
+    /*
+     * 見出し (環境・読み取り専用) は、セッション本体のロックを持っている間も
+     * 読めなければならない。読めないと確認を出すかの判定が
+     * 「本番ではない」に倒れ、本番の更新が確認なしで通ってしまう。
+     * 以前は本体を try_lock していたため、定義の取得やCSV出力の裏では
+     * ほぼ読めなかった
+     */
+    #[tokio::test]
+    async fn 見出しは実行中でも読める() {
+        let TestSession { sessions, path, .. } = sqlite_session("meta").await;
+        // 「環境=本番・読み取り専用ではない」に書き換えてから、本体を掴んだままにする
+        {
+            let mut map = sessions.0.lock().await;
+            let slot = map.get_mut("s1").unwrap();
+            slot.meta.env = Some("prod".to_string());
+        }
+        let arc = sessions
+            .0
+            .lock()
+            .await
+            .get("s1")
+            .map(|s| s.session.clone())
+            .unwrap();
+        let held = arc.lock().await;
+
+        let meta = session_meta(&sessions, "s1").await.unwrap();
+        assert_eq!(meta.env.as_deref(), Some("prod"));
+        assert!(!meta.read_only);
+        // DBの種類も見出しから読むので、実行中でも待たされない
+        assert_eq!(session_db_type(&sessions, "s1").await.unwrap(), DbType::Sqlite);
+
+        drop(held);
+        cleanup_db(&path);
+    }
+
+    /// 見出しは接続したときの設定から作られる。
+    /// 写し取るところを取り違えていないか、繋いでそのまま確かめる
+    #[tokio::test]
+    async fn 見出しは接続した設定から作られる() {
+        let TestSession { sessions, path, .. } =
+            sqlite_session_with("meta_profile", r#","env":"prod","readOnly":true"#).await;
+        let meta = session_meta(&sessions, "s1").await.unwrap();
+        assert_eq!(meta.env.as_deref(), Some("prod"));
+        assert!(meta.read_only);
+        assert_eq!(meta.db_type, DbType::Sqlite);
+        cleanup_db(&path);
+    }
+
+    #[tokio::test]
+    async fn 無いセッションの見出しは読めない() {
+        let sessions = Sessions::default();
+        assert!(session_meta(&sessions, "none").await.is_none());
     }
 
     /// 本体とWAL・共有メモリのファイルをまとめて消す

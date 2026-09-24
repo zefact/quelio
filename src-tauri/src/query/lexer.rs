@@ -394,11 +394,21 @@ fn strip_leading_comments(mut s: &str) -> &str {
     }
 }
 
-/// SQLの先頭キーワード (コメントを除いた最初の単語) を大文字で返す
+/// SQLの先頭キーワード (コメントと囲みの括弧を除いた最初の単語) を大文字で返す。
+///
+/// `(SELECT …) UNION (SELECT …)` のように括弧で囲んで書くこともできる。
+/// 括弧を含めたまま見ると先頭が "(SELECT" になり、
+/// 参照だけのSQLが「読み取りではない」と判定されてしまう
+/// (読み取り専用の接続で断られ、本番では更新として確認が出ていた)
 pub(super) fn head_keyword(sql: &str) -> String {
-    strip_leading_comments(sql)
-        .split_whitespace()
+    let mut s = strip_leading_comments(sql);
+    // 括弧の後ろにまたコメントが来ることもあるので、動かなくなるまで繰り返す
+    while let Some(rest) = s.strip_prefix('(') {
+        s = strip_leading_comments(rest);
+    }
+    s.split_whitespace()
         .next()
         .unwrap_or("")
+        .trim_start_matches('(')
         .to_ascii_uppercase()
 }

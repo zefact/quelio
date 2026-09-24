@@ -129,6 +129,7 @@ pub async fn fetch_cell(
 
 /// データを1行だけ追加・更新・削除し、実行したSQLを返す
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn apply_row_change(
     state: State<'_, Sessions>,
     qlog: State<'_, QueryLog>,
@@ -137,7 +138,11 @@ pub async fn apply_row_change(
     schema: Option<String>,
     table: String,
     change: crate::dml::RowChange,
+    // 画面で本番の確認を経たか (本番では確認なしでは変更しない)
+    confirmed: Option<bool>,
 ) -> Result<String, String> {
+    // 確認を出すかどうかを画面側の判定だけに任せない (CSV取り込みと同じ扱い)
+    confirm_passed(env_for_confirm(&state, &session_id).await, confirmed)?;
     sessions::apply_row_change(
         &state,
         &qlog,

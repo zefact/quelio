@@ -5,6 +5,12 @@ import {
 } from "./sqlFnEscape";
 import type { DbType, SqlFormatSettings } from "./types";
 import { defaultSqlFormat } from "./types";
+import { toLeadingCommas } from "./sqlLeadingComma";
+import { toOnNewline } from "./sqlOnClause";
+
+/* 以前ここにあった2つの並べ替えは、コメントの扱いが増えたので別ファイルに分けた */
+export { toLeadingCommas } from "./sqlLeadingComma";
+export { toOnNewline } from "./sqlOnClause";
 
 /**
  * SQLの整形。
@@ -19,64 +25,6 @@ function language(dbType: DbType): "mysql" | "postgresql" | "sqlite" {
   if (dbType === "mysql") return "mysql";
   if (dbType === "sqlite") return "sqlite";
   return "postgresql";
-}
-
-/**
- * 行末のカンマを次行の先頭に移す (カンマ先頭スタイル)。
- * 例: "  company_cd,"  →  "  company_cd" / "  , company_kbn"
- */
-export function toLeadingCommas(sql: string): string {
-  const lines = sql.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trimEnd().endsWith(",")) {
-      // カンマを移す先 = 次の非空行
-      let j = i + 1;
-      while (j < lines.length && lines[j].trim() === "") j++;
-      if (j < lines.length) {
-        lines[i] = lines[i].trimEnd().slice(0, -1);
-        lines[j] = lines[j].replace(/^(\s*)/, "$1, ");
-      }
-    }
-  }
-  return lines.join("\n");
-}
-
-/**
- * JOIN の ON を次の行へ出し、条件を一段下げる。
- *
- * 例:
- *   INNER JOIN m_shop b ON a.user_id = b.user_id
- * →
- *   INNER JOIN m_shop b
- *   ON
- *     a.user_id = b.user_id
- *
- * 続く AND / OR の行も同じ結合条件なので、まとめて一段下げる
- * (元の行の空白はそのまま残すので、幅をそろえる字下げでも列が崩れない)
- */
-const JOIN_ON = /^(\s*)(.*\bJOIN\b.*?)\s+\b(ON)\b\s+(.+)$/i;
-const COND_CONT = /^(\s*)(AND|OR)\b/i;
-
-export function toOnNewline(sql: string, unit: string): string {
-  const src = sql.split("\n");
-  const out: string[] = [];
-  for (let i = 0; i < src.length; i++) {
-    const m = JOIN_ON.exec(src[i]);
-    if (!m) {
-      out.push(src[i]);
-      continue;
-    }
-    const [, indent, head, on, cond] = m;
-    out.push(indent + head, indent + on, indent + unit + cond);
-    // 同じ深さで続く AND / OR は、この ON の条件の続き
-    while (i + 1 < src.length) {
-      const next = COND_CONT.exec(src[i + 1]);
-      if (!next || next[1] !== indent) break;
-      out.push(unit + src[i + 1]);
-      i++;
-    }
-  }
-  return out.join("\n");
 }
 
 /** 字下げ1段ぶんの文字 */

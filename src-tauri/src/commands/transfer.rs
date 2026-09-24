@@ -60,7 +60,11 @@ pub async fn import_csv(
     mode: crate::csv_import::ImportMode,
     empty_as_null: bool,
     job_id: String,
+    // 画面で本番の確認を経たか (本番では確認なしでは取り込まない)
+    confirmed: Option<bool>,
 ) -> Result<crate::csv_import::ImportResult, String> {
+    // 本番 (と、接続の状態が読めないとき) は、画面で確認を経ていなければ取り込まない
+    confirm_passed(env_for_confirm(&state, &session_id).await, confirmed)?;
     let p = std::path::PathBuf::from(&path);
     let job = jobs.start(&job_id, &session_id);
     let res = sessions::import_csv(
