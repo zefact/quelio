@@ -3,6 +3,7 @@ import { kvCountKeys, kvDeleteKeys } from "../../api";
 import { JobProgress } from "../JobProgress";
 import { newJobId } from "./jobId";
 import type { KvCountResult } from "../../types";
+import { imeBusy } from "../../ime";
 
 interface Props {
   sessionId: string;
@@ -137,7 +138,7 @@ export function KvDeletePanel({
           placeholder="パターン (例: cache:*)"
           onChange={(e) => setPattern(e.target.value)}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
+            if (imeBusy(e)) return;
             if (e.key === "Enter") void count();
           }}
         />

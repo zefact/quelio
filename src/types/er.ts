@@ -88,6 +88,11 @@ export interface ErPageData {
   columnColors?: Record<string, string>;
   /** 注釈枠 */
   frames?: ErFrame[];
+  /**
+   * 最後に見ていた表示位置と拡大率。
+   * タブを切り替えたり開き直したりしたとき、ここへ戻す (無ければ全体を収める)
+   */
+  view?: { x: number; y: number; scale: number };
 }
 
 /** 保存されるER図データ (1ファイル = 複数ページ) */

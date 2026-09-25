@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useModal } from "../../hooks/useModal";
 import type { DbUser, DbUserChange } from "../../types";
 import { blockedReason, userRef } from "./dbUserView";
+import { imeBusy } from "../../ime";
 
 interface Props {
   user: DbUser;
@@ -204,7 +205,7 @@ function TextPrompt({
             spellCheck={false}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.nativeEvent.isComposing) go();
+              if (e.key === "Enter" && !imeBusy(e)) go();
             }}
           />
           {note && <span className="field-note">{note}</span>}

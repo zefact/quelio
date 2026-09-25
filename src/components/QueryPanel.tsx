@@ -928,6 +928,8 @@ export function QueryPanel({
            * 切り替えた直後の ⌘Z で前のシートの内容が入ってしまう
            */
           key={`${sessionId}:${sheetPane.activeId}`}
+          // 画面を切り替えて戻ったとき、スクロール位置とカーソルを戻す
+          memoKey={`${sessionId}:${sheetPane.activeId}`}
           ref={editorRef}
           value={sql}
           dbType={dbType}
@@ -1168,6 +1170,12 @@ export function QueryPanel({
       )}
 
       <QueryResultView
+        /*
+         * 接続タブ・シート・結果タブごとに表を作り直す。
+         * 使い回すと、前に見ていた結果のスクロール位置のまま別の結果が出てしまい、
+         * 戻ってきたときにも元の位置へ戻せない (作り直せば控えから戻る)
+         */
+        key={`${sessionId}:${sheetPane.activeId}:${activeIdx}`}
         result={result}
         error={actionError ?? error}
         columns={gridColumns}

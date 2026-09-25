@@ -1,4 +1,5 @@
 import { ErModal } from "./ErModal";
+import { imeBusy } from "../ime";
 
 /** 削除の確認 (何を消すかは呼び出し側が決める) */
 export interface ErConfirm {
@@ -86,7 +87,7 @@ export function ErDialogs({
             onChange={(e) => onChangeName(e.target.value)}
             onKeyDown={(e) => {
               // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-              if (e.nativeEvent.isComposing) return;
+              if (imeBusy(e)) return;
               if (e.key === "Enter") onCommitName();
               else if (e.key === "Escape") onCloseName();
             }}

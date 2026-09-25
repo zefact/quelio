@@ -24,6 +24,7 @@ import { useAppSettings } from "../hooks/useAppSettings";
 import { SettingRow } from "./SettingRow";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { writeClipboard } from "../gridCopy";
+import { imeBusy } from "../ime";
 
 interface Props {
   notify: Notify;
@@ -222,7 +223,7 @@ export function SettingsAi({ notify }: Props) {
               value={portDraft ?? String(app.mcpPort)}
               onChange={(e) => setPortDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing) return;
+                if (imeBusy(e)) return;
                 if (e.key === "Enter") void applyPort();
               }}
             />

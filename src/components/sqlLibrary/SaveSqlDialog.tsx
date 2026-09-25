@@ -20,6 +20,7 @@ import {
   newFolderPath,
 } from "../../savedSqlForm";
 import { FolderPicker } from "./FolderPicker";
+import { imeBusy } from "../../ime";
 
 interface Props {
   /** 編集する項目 (新規保存なら null) */
@@ -137,7 +138,7 @@ export function SaveSqlDialog({
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
                 // 変換中のEnterは拾わない (確定の操作のため)
-                if (e.nativeEvent.isComposing) return;
+                if (imeBusy(e)) return;
                 if (e.key === "Enter") void submit();
               }}
             />
@@ -174,7 +175,7 @@ export function SaveSqlDialog({
               spellCheck={false}
               onChange={(e) => setSql(e.target.value)}
               onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing) return;
+                if (imeBusy(e)) return;
                 // 欄の中のEnterは改行。保存は ⌘/Ctrl+Enter
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                   e.preventDefault();

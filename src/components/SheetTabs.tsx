@@ -6,6 +6,7 @@ import { SheetTabMenu } from "./SheetTabMenu";
 import { autoTitle } from "./sheetTitle";
 import { FormatIcon, FunctionsIcon } from "./SqlToolIcons";
 import { MOD, SHIFT } from "../keyLabel";
+import { imeBusy } from "../ime";
 
 interface Props {
   /** 表に出していないシートも含めた一覧 (表示中は activeId で示す) */
@@ -93,7 +94,7 @@ export function SheetTabs({
                 setEditing(null);
               }}
               onKeyDown={(e) => {
-                if (e.nativeEvent.isComposing) return;
+                if (imeBusy(e)) return;
                 if (e.key === "Enter") {
                   onRename(s.id, editing.value.trim());
                   setEditing(null);

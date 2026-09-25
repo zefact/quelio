@@ -43,6 +43,8 @@ export interface ErPageSnapshot {
   /** カラムごとの文字色 (キーは colKey) */
   columnColors: Record<string, string>;
   frames: ErFrame[];
+  /** 表示位置と拡大率 */
+  view?: { x: number; y: number; scale: number };
 }
 
 interface Options {
@@ -54,6 +56,8 @@ interface Options {
   onNotice: (message: string | null) => void;
   /** ページを切り替えたので全体が入るように表示し直す */
   onFit: () => void;
+  /** ページを切り替えたので、そのページで最後に見ていた表示へ戻す */
+  onView: (view: { x: number; y: number; scale: number }) => void;
 }
 
 /** 空ページの内容 */
@@ -80,6 +84,7 @@ function toPageData(id: string, name: string, s: ErPageSnapshot): ErPageData {
     edgeStyles: s.edgeStyles,
     columnColors: s.columnColors,
     frames: s.frames,
+    view: s.view,
   };
 }
 
@@ -95,6 +100,7 @@ export function useErPersistence({
   apply,
   onNotice,
   onFit,
+  onView,
 }: Options) {
   /** 開いている図の名前 (未保存はnull) */
   const [diagName, setDiagName] = useState<string | null>(null);
@@ -113,8 +119,8 @@ export function useErPersistence({
   const pagesDataRef = useRef<Map<string, ErPageData>>(new Map());
 
   // 毎描画で最新のコールバックを差し替える (依存に入れて登録し直さない)
-  const cb = useRef({ snapshot, apply, onNotice, onFit });
-  cb.current = { snapshot, apply, onNotice, onFit };
+  const cb = useRef({ snapshot, apply, onNotice, onFit, onView });
+  cb.current = { snapshot, apply, onNotice, onFit, onView };
 
   const refreshDiagList = () => {
     listErDiagrams()
@@ -184,7 +190,8 @@ export function useErPersistence({
   /**
    * 表示するページを差し替える。
    *
-   * @param fit 全体が入るように表示し直すか (タブ追加のときは今の倍率のまま)
+   * @param fit 表示し直すか (タブ追加のときは今の倍率のまま)。
+   *   そのページで最後に見ていた表示があればそこへ戻し、無ければ全体を収める
    */
   const goToPage = (
     target: ErPageData,
@@ -193,7 +200,10 @@ export function useErPersistence({
     setPageId(target.id);
     pageIdRef.current = target.id;
     cb.current.apply(target);
-    if (opts.fit) cb.current.onFit();
+    if (opts.fit) {
+      if (target.view) cb.current.onView(target.view);
+      else cb.current.onFit();
+    }
     if (opts.save) saveFile();
   };
 

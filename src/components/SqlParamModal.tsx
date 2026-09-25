@@ -7,6 +7,7 @@ import {
 import { checkDangerousFilled, previewSql } from "../api";
 import type { DangerousStatement, DbType } from "../types";
 import { SelectMenu } from "./SelectMenu";
+import { imeBusy } from "../ime";
 
 interface Props {
   /** パラメータ名 (SQL中の出現順) */
@@ -101,7 +102,7 @@ export function SqlParamModal({
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-          if (e.nativeEvent.isComposing) return;
+          if (imeBusy(e)) return;
           if (e.key === "Escape") onCancel();
           if (e.key === "Enter") {
             e.preventDefault();

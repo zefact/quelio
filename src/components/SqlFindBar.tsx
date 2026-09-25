@@ -11,6 +11,7 @@ import {
   type FindOptions,
 } from "../sqlFind";
 import type { SqlEditorHandle } from "./SqlEditor";
+import { imeBusy } from "../ime";
 
 interface Props {
   /** エディタ本体 (本文を読み、選び、書き換える) */
@@ -202,7 +203,7 @@ export function SqlFindBar({ editor, sql, initialQuery, onClose }: Props) {
   /** 検索欄・置換欄で共通のキー操作 */
   const onKeyDown = (e: React.KeyboardEvent, inReplace: boolean) => {
     // 日本語入力の変換中は、確定・取り消しの操作なので拾わない
-    if (e.nativeEvent.isComposing) return;
+    if (imeBusy(e)) return;
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();

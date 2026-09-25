@@ -99,6 +99,9 @@ import {
 } from "../er/geometry";
 
 
+/** 表示を動かし終えてから保存するまでの待ち時間 (ミリ秒) */
+const VIEW_SAVE_DELAY_MS = 1500;
+
 /** ER図ウィンドウ (DB全体のテーブルとリレーションを描画・PNG出力) */
 export function ErWindow() {
   const params = new URLSearchParams(window.location.search);
@@ -131,6 +134,7 @@ export function ErWindow() {
     toWorld,
     zoomBy,
     fitTo,
+    restoreView,
     startPan,
     panBy,
     useWheel,
@@ -312,15 +316,49 @@ export function ErWindow() {
       edgeStyles,
       columnColors,
       frames,
+      view: viewRef.current,
     }),
     apply: applyPageData,
     onNotice: setNotice,
     onFit: () => setFitTick((t) => t + 1),
+    onView: restoreView,
   });
   const { persist, diagName, diagList, pages, pageId } = store;
 
+  /*
+   * 動かした表示 (位置・拡大率) も保存しておく。
+   * 閉じて開き直したときや、別の図から戻ったときにその位置へ戻すため。
+   * 動かすたびに書くと多すぎるので、止まってから少し待って書く
+   */
+  const viewSaveTimer = useRef(0);
+  const flushViewSave = () => {
+    if (!viewSaveTimer.current) return;
+    window.clearTimeout(viewSaveTimer.current);
+    viewSaveTimer.current = 0;
+    persist();
+  };
+  useEffect(() => {
+    if (!diagName) return;
+    window.clearTimeout(viewSaveTimer.current);
+    viewSaveTimer.current = window.setTimeout(() => {
+      viewSaveTimer.current = 0;
+      persist();
+    }, VIEW_SAVE_DELAY_MS);
+    // 表示が変わったときだけ予約し直す (persist は毎回作り直される)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, diagName]);
+  // 閉じるときに、待っている保存を済ませる
+  useEffect(() => {
+    const onHide = () => flushViewSave();
+    window.addEventListener("pagehide", onHide);
+    return () => window.removeEventListener("pagehide", onHide);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** 保存済みの図を開く (前の読み込みエラーと通知は消してから) */
   const openDiagram = (name: string) => {
+    // 今の図の表示位置を書き終えてから切り替える
+    flushViewSave();
     setError(null);
     store.openDiagram(name);
   };
@@ -1837,6 +1875,7 @@ export function ErWindow() {
         onRestore={() => setTransfer("restore")}
         onOpenDiagram={openDiagram}
         onNewDiagram={() => {
+          flushViewSave();
           store.clearDiagram();
           setNotice("新しい図です。「リバース」でDBから読み込んでください");
         }}

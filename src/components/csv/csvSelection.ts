@@ -128,6 +128,27 @@ export function frameBox(
 }
 
 /**
+ * 四角を、今ある行・列の中に切り詰める (はみ出したぶんを落とす)。
+ *
+ * 末尾の行を消したあとも選んだ範囲が消した行を指したままだと、
+ * その枠が表の外まで伸びて、何も無い所までスクロールできてしまう。
+ * 全部がはみ出していれば null
+ */
+export function clipRange(
+  r: CsvRange,
+  rowCount: number,
+  colCount: number
+): CsvRange | null {
+  if (r.top >= rowCount || r.left >= colCount) return null;
+  return {
+    top: r.top,
+    left: r.left,
+    bottom: Math.min(r.bottom, rowCount - 1),
+    right: Math.min(r.right, colCount - 1),
+  };
+}
+
+/**
  * 外からカーソルを動かされたとき、選んでいた範囲をどうするか。
  *
  * 何もしないと、伸ばしていた先 (`head`) だけが取り残されて、

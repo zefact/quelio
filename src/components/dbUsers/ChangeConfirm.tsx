@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { applyDbUserChange, previewDbUserChange } from "../../api";
 import { useModal } from "../../hooks/useModal";
 import type { DbUserChange } from "../../types";
+import { imeBusy } from "../../ime";
 
 interface Props {
   sessionId: string;
@@ -130,7 +131,7 @@ export function ChangeConfirm({
               spellCheck={false}
               onChange={(e) => setTyped(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.nativeEvent.isComposing) void run();
+                if (e.key === "Enter" && !imeBusy(e)) void run();
               }}
             />
           </label>

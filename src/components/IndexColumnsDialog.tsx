@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useModal } from "../hooks/useModal";
 import type { ColumnInfo } from "../types";
+import { imeBusy } from "../ime";
 
 interface Props {
   /** テーブルの全カラム */
@@ -67,7 +68,7 @@ export function IndexColumnsDialog({
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-          if (e.nativeEvent.isComposing) return;
+          if (imeBusy(e)) return;
           if (e.key === "Enter" && picked.length > 0) onDecide(picked);
         }}
         tabIndex={-1}

@@ -18,6 +18,7 @@ import {
   ScopeIcon,
   UpIcon,
 } from "./CsvFindIcons";
+import { imeBusy } from "../../ime";
 
 interface Props {
   docId: string;
@@ -175,7 +176,7 @@ export function CsvFind({
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.nativeEvent.isComposing) return;
+    if (imeBusy(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       void find(e.shiftKey);

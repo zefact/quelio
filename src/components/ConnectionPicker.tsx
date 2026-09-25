@@ -15,6 +15,7 @@ import { routeChip } from "../connectRoute";
 import { envListLabel } from "../connectionEnvHint";
 import { PickerHome } from "./PickerHome";
 import { useDismiss } from "../hooks/useDismiss";
+import { imeBusy } from "../ime";
 
 interface Props {
   tab: WorkTab;
@@ -581,7 +582,7 @@ export function ConnectionPicker({
               onBlur={commitRename}
               onKeyDown={(e) => {
                 // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                if (e.nativeEvent.isComposing) return;
+                if (imeBusy(e)) return;
                 if (e.key === "Enter") commitRename();
                 if (e.key === "Escape") setRenamingId(null);
               }}

@@ -4,6 +4,7 @@ import type { AiApproval } from "../aiApproval";
 import { envColor, envLabel } from "../types";
 import type { ConnectionEnv } from "../types";
 import { writeClipboard } from "../gridCopy";
+import { imeBusy } from "../ime";
 
 interface Props {
   item: AiApproval;
@@ -41,7 +42,7 @@ export function AiApprovalDialog({ item, onDeny, onAllow }: Props) {
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           // 日本語入力の変換中のキーは拾わない
-          if (e.nativeEvent.isComposing) return;
+          if (imeBusy(e)) return;
           // Enterで「許可」に流れないよう、ここで止める
           if (e.key === "Enter") e.preventDefault();
         }}

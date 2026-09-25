@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { imeBusy } from "../ime";
 
 /** 閉じるきっかけの調整 */
 export type DismissOptions = {
@@ -76,7 +77,7 @@ export function useDismiss(
     const onOther = () => cb.current();
     const onKey = (e: KeyboardEvent) => {
       // 変換中のEscapeや、他で処理済みのEscapeは拾わない
-      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (e.key !== "Escape" || e.defaultPrevented || imeBusy(e)) return;
       e.preventDefault();
       cb.current();
     };

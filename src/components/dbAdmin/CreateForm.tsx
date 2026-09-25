@@ -4,6 +4,7 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { SelectMenu } from "../SelectMenu";
 import type { CharsetInfo, DbType } from "../../types";
 import type { AdminKind } from "./DbAdminDialog";
+import { imeBusy } from "../../ime";
 
 interface Props {
   sessionId: string;
@@ -157,7 +158,7 @@ export function CreateForm({
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
             // 日本語入力の変換確定のEnterで確認を開かない
-            if (e.nativeEvent.isComposing) return;
+            if (imeBusy(e)) return;
             if (e.key === "Enter") void ask();
           }}
         />

@@ -33,6 +33,7 @@ import { PaneHead, SidePane } from "./SidePane";
 import { StatusBar } from "./StatusBar";
 import { SqlLibraryMenu } from "./sqlLibrary/SqlLibraryMenu";
 import { KvBulkDialog } from "./kvBulk/KvBulkDialog";
+import { imeBusy } from "../ime";
 
 interface Props {
   tab: WorkTab;
@@ -290,7 +291,7 @@ export function KvSessionView({
     const onKey = (e: KeyboardEvent) => {
       // 確認ダイアログなど手前の画面が処理済みなら何もしない。
       // 日本語入力の変換を取り消したときのEscも拾わない
-      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (e.key !== "Escape" || e.defaultPrevented || imeBusy(e)) return;
       // 確認ダイアログが出ている間は、裏の編集内容を消さない
       if (document.querySelector(".modal-overlay")) return;
       e.preventDefault();
@@ -559,7 +560,7 @@ export function KvSessionView({
             onChange={(e) => setPattern(e.target.value)}
             onKeyDown={(e) => {
               // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-              if (e.nativeEvent.isComposing) return;
+              if (imeBusy(e)) return;
               // 走査中は受け付けない (連打すると読み出し位置がずれる)
               if (e.key === "Enter" && !scanning) scan(true);
             }}
@@ -574,7 +575,7 @@ export function KvSessionView({
                 onChange={(e) => setNewKey({ ...newKey, key: e.target.value })}
                 onKeyDown={(e) => {
                   // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                  if (e.nativeEvent.isComposing) return;
+                  if (imeBusy(e)) return;
                   if (e.key === "Escape") {
                     e.preventDefault();
                     setNewKey(null);
@@ -610,7 +611,7 @@ export function KvSessionView({
                 onChange={(e) => setNewKey({ ...newKey, value: e.target.value })}
                 onKeyDown={(e) => {
                   // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                  if (e.nativeEvent.isComposing) return;
+                  if (imeBusy(e)) return;
                   if (e.key === "Enter") {
                     e.preventDefault();
                     void commitCreate();
@@ -805,7 +806,7 @@ export function KvSessionView({
                     onChange={(e) => setKeyDraft(e.target.value)}
                     onKeyDown={(e) => {
                       // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                      if (e.nativeEvent.isComposing) return;
+                      if (imeBusy(e)) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
                         void commitRename();
@@ -866,7 +867,7 @@ export function KvSessionView({
                         onChange={(e) => setTtlDraft(e.target.value)}
                         onKeyDown={(e) => {
                           // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                          if (e.nativeEvent.isComposing) return;
+                          if (imeBusy(e)) return;
                           if (e.key === "Enter") {
                             e.preventDefault();
                             void commitTtl();

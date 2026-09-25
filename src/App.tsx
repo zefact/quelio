@@ -63,6 +63,11 @@ import type { OpenSqlEvent } from "./aiOpenSql";
 import { buildSchemaLabels } from "./columnLabels";
 import { buildTableSelect, tableKey } from "./tableSql";
 import { dropFilters, recallFilter, rememberFilter } from "./tableFilterStore";
+import {
+  dropTableViews,
+  stashTableView,
+  takeTableView,
+} from "./tableViewCache";
 import type {
   ConnectionProfile,
   ConnectionStore,
@@ -99,6 +104,7 @@ import {
   toSaved,
   toTab,
 } from "./workspace";
+import { imeBusy } from "./ime";
 
 let tabSeq = 1;
 function newTabKey(): string {
@@ -458,7 +464,7 @@ function App() {
       // (日本語入力の変換中でも出てしまうので、ここは先に止める)
       if (mod && !e.altKey && !e.shiftKey && key === "s") e.preventDefault();
       // 変換中のキーはアプリの操作としては扱わない
-      if (e.isComposing) return;
+      if (imeBusy(e)) return;
       // ⌘/ は開閉のトグルなので、出ている間も受け取る
       if (mod && e.key === "/" && showShortcuts) {
         e.preventDefault();
@@ -786,8 +792,9 @@ function App() {
   /** タブを閉じる。最後の1枚を閉じたら新しい空タブを作る */
   const closeTab = async (key: string) => {
     const tab = tabOf(key);
-    // 覚えていた絞り込み条件も、このタブのぶんは片付ける
+    // 覚えていた絞り込み条件・見たテーブルの控えも、このタブのぶんは片付ける
     dropFilters(key);
+    dropTableViews(key);
     /*
      * 待っている実行要求を捨てる。
      * 準備の途中でタブを閉じた場合に、閉じたタブの入力画面が
@@ -1108,6 +1115,8 @@ function App() {
       updateTab(key, { selectedDb: database, error: null });
       return;
     }
+    // DBを選び直したら、見たテーブルの控えは捨てる (次に開いたとき取り直す)
+    dropTableViews(key);
     updateTab(key, {
       selectedDb: database,
       loadingTables: true,
@@ -1132,6 +1141,8 @@ function App() {
    * 選択中のテーブルや表示中の内容は、一覧に残っている限り維持する
    */
   const reloadTables = async (key: string) => {
+    // 一覧を読み直すときは、見たテーブルの控えも捨てる (定義が変わっていることがある)
+    dropTableViews(key);
     const tab = tabOf(key);
     if (!tab?.selectedDb || tab.profile.dbType === "valkey") return;
     // テーブルが増減している = 定義が変わっているので、控えは捨てる
@@ -1178,6 +1189,7 @@ function App() {
       // 入力補完のカラム一覧も取り直す (テーブル名が同じままでも中身が変わる)
       schemaRev: tab.schemaRev + 1,
     });
+    const seq = startReq(`${key}:detail`);
     try {
       const detail = await tableDetail(
         key,
@@ -1185,17 +1197,69 @@ function App() {
         table.schema,
         table.name,
       );
+      if (!isLatestReq(`${key}:detail`, seq)) return;
       updateTab(key, { tableDetail: detail, loadingDetail: false });
     } catch (e) {
+      if (!isLatestReq(`${key}:detail`, seq)) return;
       updateTab(key, { loadingDetail: false, error: String(e) });
     }
   };
 
-  /** テーブル選択 → 構造を読み込む (データタブを開いていればデータも取得する) */
+  /**
+   * テーブル選択 → 構造を読み込む (データタブを開いていればデータも取得する)。
+   *
+   * 一度見たテーブルは取り直さない。表示中のテーブルを選び直したときはそのまま戻し、
+   * 別のテーブルへ移るときは今の内容を控えに預けて、戻ってきたら控えから出す
+   * (ページ・並べ替え・絞り込み・スクロール位置も元のまま)。
+   * 最新にしたいときは、テーブル画面の「再読み込み」で取り直す
+   */
   const handleSelectTable = async (key: string, t: TableInfo) => {
     // 常に最新のタブを見る (作った直後のタブは state にまだ載っていない)
     const tab = tabOf(key);
     if (!tab?.selectedDb) return;
+    const db = tab.selectedDb;
+    const next = tableKey(t);
+
+    // 表示中のテーブルを選び直しただけ (SQLエディタから戻ってきたときなど)
+    if (tab.selectedTable === next && (tab.tableDetail || tab.loadingDetail)) {
+      updateTab(key, { view: "structure", error: null });
+      if (
+        tab.tableTab === "data" &&
+        !tab.tableData.data &&
+        !tab.tableData.loading
+      ) {
+        loadTableData(key, t, tab.tableData.where, 0);
+      }
+      return;
+    }
+
+    // 今のテーブルの内容を控えに預ける (取得中の定義は預けない)
+    if (tab.selectedTable && tab.tableDetail && !tab.loadingDetail) {
+      stashTableView(key, db, tab.selectedTable, {
+        detail: tab.tableDetail,
+        data: tab.tableData,
+      });
+    }
+    // 前のテーブルの取得が後から届いても、こちらに出さない
+    startReq(`${key}:data`);
+    const detailSeq = startReq(`${key}:detail`);
+
+    const cached = takeTableView(key, db, next);
+    if (cached) {
+      updateTab(key, {
+        selectedTable: next,
+        tableDetail: cached.detail,
+        loadingDetail: false,
+        tableData: cached.data,
+        view: "structure",
+        error: null,
+      });
+      // データタブを開いているのにデータを持っていなければ取る
+      if (tab.tableTab === "data" && !cached.data.data) {
+        loadTableData(key, t, cached.data.where, 0);
+      }
+      return;
+    }
     /*
      * データは対象テーブルが変わるため破棄する。
      * 絞り込み条件だけは、そのテーブルに前へ入れたものを戻す
@@ -1214,9 +1278,12 @@ function App() {
       loadTableData(key, t, where, 0);
     }
     try {
-      const detail = await tableDetail(key, tab.selectedDb, t.schema, t.name);
+      const detail = await tableDetail(key, db, t.schema, t.name);
+      // 待っているあいだに別のテーブルへ移っていたら出さない
+      if (!isLatestReq(`${key}:detail`, detailSeq)) return;
       updateTab(key, { tableDetail: detail, loadingDetail: false });
     } catch (e) {
+      if (!isLatestReq(`${key}:detail`, detailSeq)) return;
       updateTab(key, { loadingDetail: false, error: String(e) });
     }
   };
@@ -1333,7 +1400,12 @@ function App() {
         });
         return;
       }
-      patchData(key, { data: first.result, loading: false, error: null });
+      patchData(key, {
+        data: first.result,
+        loading: false,
+        error: null,
+        fetchedAt: Date.now(),
+      });
     } catch (e) {
       if (!isLatestReq(scope, seq)) return;
       patchData(key, { loading: false, error: String(e) });
@@ -1810,6 +1882,7 @@ function App() {
        */
       const gone =
         activeTab.selectedDb !== null && !list.includes(activeTab.selectedDb);
+      if (gone) dropTableViews(activeTab.key);
       updateTab(activeTab.key, {
         databases: list,
         ...(gone

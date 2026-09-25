@@ -84,6 +84,8 @@ function QueryResultViewInner({
           clippedRowKeys={clippedRowKeys}
           // まず200行だけ描き、スクロールに合わせて継ぎ足す
           maxRenderRows={200}
+          // 画面を切り替えて戻ったとき、同じ結果ならスクロール位置を戻す
+          memoKey={result}
         />
       )}
     </div>

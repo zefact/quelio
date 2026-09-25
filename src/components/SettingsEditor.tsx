@@ -3,6 +3,7 @@ import type { Notify } from "../notify";
 import { isMac } from "../platform";
 import { SettingRow } from "./SettingRow";
 import { SettingsSqlFormat } from "./SettingsSqlFormat";
+import { imeBusy } from "../ime";
 
 interface Props {
   notify: Notify;
@@ -72,7 +73,7 @@ export function SettingsEditor({ notify }: Props) {
             onBlur={() => saveApp({ ...app })}
             onKeyDown={(e) => {
               // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-              if (e.nativeEvent.isComposing) return;
+              if (imeBusy(e)) return;
               if (e.key === "Enter") saveApp({ ...app });
             }}
           />

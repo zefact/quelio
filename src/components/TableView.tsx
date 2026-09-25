@@ -214,6 +214,12 @@ export function TableView({
     []
   );
 
+  /** 定義と (取得済みなら) データを取り直す (再読み込みボタン) */
+  const refresh = () => {
+    onReloadDetail();
+    if (dataPane.data || dataPane.error) dataPane.onReload();
+  };
+
   /** データ1行の追加・更新・削除を実行し、一覧を取得し直す */
   const applyRow = useCallback(
     async (change: RowChange, confirmed: boolean) => {
@@ -444,6 +450,21 @@ export function TableView({
         )}
         {nameError && <span className="table-logical-error">{nameError}</span>}
         <span className="toolbar-spacer" />
+        {/*
+         * 見たテーブルは画面を行き来しても取り直さない (スクロールも元のまま)。
+         * 最新にしたいときはここから取り直す
+         */}
+        <button
+          className="btn-ghost table-ddl-btn"
+          onClick={refresh}
+          disabled={loadingDetail || dataPane.loading}
+          title={
+            "定義とデータを取得し直す\n" +
+            "(画面を切り替えても取り直さないので、最新にしたいときに押します)"
+          }
+        >
+          ↻ 再読み込み
+        </button>
         {/* 定義を人に渡すとき用。表示するだけで実行はしない */}
         <button
           className="btn-ghost table-ddl-btn"
@@ -490,6 +511,13 @@ export function TableView({
           />
         ) : (
           <TableDataView
+            /*
+             * テーブル (と接続タブ・DB) ごとに作り直す。
+             * 使い回すと、前のテーブルのスクロール位置のまま別のテーブルが出てしまい、
+             * 戻ってきたときにも元の位置へ戻せない (作り直せば控えから戻る)。
+             * 同じテーブルの取り直し (行の編集のあとなど) では作り直さず、位置を保つ
+             */
+            key={`${sessionId}\u0000${database ?? ""}\u0000${fullTableName}`}
             pane={dataPane}
             showRowNumbers={settings?.showRowNumbers ?? true}
             columnTips={columnTips}

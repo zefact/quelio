@@ -38,6 +38,8 @@ import {
 } from "@codemirror/state";
 import type { Line } from "@codemirror/state";
 import type { Command } from "@codemirror/view";
+import { rafThrottle } from "../rafThrottle";
+import { loadEditorView, saveEditorView } from "./sqlEditorMemo";
 import type { SqlSpan } from "../sqlSpans";
 import {
   setSpansEffect,
@@ -309,6 +311,11 @@ interface Props {
   autocompleteDelayMs?: number;
   /** 字下げ1段ぶん (設定 > エディタ > SQLの整形 の「字下げ」) */
   indent?: SqlIndent;
+  /**
+   * 見た目 (スクロール位置・カーソル) を控えておく名前 (シートごと)。
+   * 画面を切り替えてエディタを作り直したとき、同じ名前の控えから元に戻す
+   */
+  memoKey?: string;
 }
 
 /** 入力補完の拡張 (無効なら何も入れない) */
@@ -503,11 +510,15 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     autocomplete = true,
     autocompleteDelayMs = 100,
     indent,
+    memoKey,
   },
   ref
 ) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  /** 見た目を控える名前 (エディタを作り直さずに追従させる) */
+  const memoKeyRef = useRef(memoKey);
+  memoKeyRef.current = memoKey;
   /** 実行した範囲の光を消すタイマー */
   const flashTimer = useRef(0);
   /** 前に知らせた実行対象 (同じなら知らせ直さない) */
@@ -649,6 +660,23 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+
+    /*
+     * スクロール位置とカーソルを控える (1フレームに1回へ間引く)。
+     * 画面を離れたあとは位置を読めないので、離れるときではなく
+     * 動かすたびに控えておく
+     */
+    const saver = rafThrottle((v: EditorView) => {
+      const key = memoKeyRef.current;
+      if (!key || viewRef.current !== v) return;
+      const sel = v.state.selection.main;
+      saveEditorView(key, {
+        snapshot: v.scrollSnapshot(),
+        anchor: sel.anchor,
+        head: sel.head,
+        docLength: v.state.doc.length,
+      });
+    });
 
     const view = new EditorView({
       doc: value,
@@ -800,6 +828,7 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
           if (u.docChanged) {
             cbRef.current.onChange(u.state.doc.toString());
           }
+          if (u.docChanged || u.selectionSet) saver.run(u.view);
           if (u.selectionSet) {
             cbRef.current.onSelectionChange(!u.state.selection.main.empty);
           }
@@ -818,6 +847,18 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
     if (spansRef.current?.length) {
       view.dispatch({ effects: setSpansEffect.of(spansRef.current) });
     }
+    // 前にこのシートを開いていたときのスクロール位置・カーソルへ戻す
+    const saved = memoKeyRef.current
+      ? loadEditorView(memoKeyRef.current, view.state.doc.length)
+      : undefined;
+    if (saved) {
+      view.dispatch({
+        selection: { anchor: saved.anchor, head: saved.head },
+        effects: saved.snapshot as StateEffect<unknown>,
+      });
+    }
+    const onScroll = () => saver.run(view);
+    view.scrollDOM.addEventListener("scroll", onScroll);
 
     /*
      * 選んだ所を右クリックしても、選択が外れないようにする。
@@ -846,6 +887,8 @@ export const SqlEditor = forwardRef<SqlEditorHandle, Props>(function SqlEditor(
         capture: true,
       });
       view.dom.removeEventListener("contextmenu", handleCtx);
+      view.scrollDOM.removeEventListener("scroll", onScroll);
+      saver.cancel();
       view.destroy();
       viewRef.current = null;
     };

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { imeBusy } from "../ime";
 
 /**
  * 一覧をその場で編集する画面 (カラム / インデックス) で共通する仕組みをまとめたもの。
@@ -96,7 +97,7 @@ export function useEscapeCancel(
     if (!active || busy || blocked) return;
     const onKey = (e: KeyboardEvent) => {
       // 他で処理済みのEscや、変換中のEscは拾わない
-      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (e.key !== "Escape" || e.defaultPrevented || imeBusy(e)) return;
       if (preventDefault) e.preventDefault();
       cb.current();
     };

@@ -9,6 +9,7 @@ import {
 } from "../ResizableGrid";
 import { newJobId } from "./jobId";
 import type { KvSearchResult } from "../../types";
+import { imeBusy } from "../../ime";
 
 const COLS: GridColumn[] = [
   { id: "key", label: "キー", width: 260, minWidth: 120, wrap: true },
@@ -104,7 +105,7 @@ export function KvSearchPanel({
           placeholder="値の中から探す文字列"
           onChange={(e) => setNeedle(e.target.value)}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
+            if (imeBusy(e)) return;
             if (e.key === "Enter") void run();
           }}
         />

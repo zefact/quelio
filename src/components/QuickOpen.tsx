@@ -4,6 +4,7 @@ import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
 import { filterActions } from "../quickActions";
 import type { QuickAction } from "../quickActions";
 import type { ConnectionProfile, FolderInfo } from "../types";
+import { imeBusy } from "../ime";
 
 interface Props {
   connections: ConnectionProfile[];
@@ -105,7 +106,7 @@ export function QuickOpen({
             setIndex(0);
           }}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
+            if (imeBusy(e)) return;
             if (e.key === "ArrowDown") {
               e.preventDefault();
               setIndex((i) => Math.min(i + 1, total - 1));

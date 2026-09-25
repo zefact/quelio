@@ -17,6 +17,7 @@ import {
   useEscapeCancel,
   useGridFocus,
 } from "../hooks/useEditableGrid";
+import { imeBusy } from "../ime";
 
 interface Props {
   indexes: IndexInfo[];
@@ -367,7 +368,7 @@ export function IndexGrid({
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     // 日本語入力の変換中のEnter/Escは、確定・取り消しの操作なので拾わない
-    if (e.nativeEvent.isComposing) return;
+    if (imeBusy(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       commit();

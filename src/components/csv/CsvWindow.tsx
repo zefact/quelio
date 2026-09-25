@@ -81,6 +81,7 @@ import { formatLabel } from "./csvFormat";
 import { appliedLayoutName } from "./csvFixed";
 import { flatLayouts } from "./csvLayoutTree";
 import { MemoryChip } from "../MemoryChip";
+import { imeBusy } from "../../ime";
 
 /** 種別の色分けに使う色の数 (これを超える種別は最後の色を使い回す) */
 const KIND_COLORS = 4;
@@ -744,7 +745,7 @@ export function CsvWindow() {
   // ⌘S / ⌘Z / ⌘⇧Z / ⌘O / ⌘F はこのウィンドウで受ける
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.isComposing) return;
+      if (!(e.metaKey || e.ctrlKey) || imeBusy(e)) return;
       const k = e.key.toLowerCase();
       if (k === "s") {
         e.preventDefault();
@@ -874,7 +875,7 @@ export function CsvWindow() {
     tab: CsvInfo,
     paneRows: CsvRows,
     paneCursor: CsvCursor | null,
-    setPaneCursor: (c: CsvCursor) => void
+    setPaneCursor: (c: CsvCursor | null) => void
   ) => {
     const other = syncFor(side);
     /** 自分が動かした側には渡さない (行ったり来たりを止めるため) */
@@ -907,6 +908,8 @@ export function CsvWindow() {
 
       <CsvGrid
         key={`${side}:${tab.docId}`}
+        // タブを切り替えて戻ったとき、前に見ていた位置へ戻す
+        memoKey={`${side}:${tab.docId}`}
         // 開いた直後から、そのまま打てる・動かせるようにする
         autoFocus={focus === side}
         columns={tab.columns}

@@ -4,6 +4,7 @@
  * メニューを開いたらすぐ打ち込めるよう、自分でフォーカスを取る
  */
 import { useEffect, useRef } from "react";
+import { imeBusy } from "../../ime";
 
 interface Props {
   value: string;
@@ -37,7 +38,7 @@ export function LibrarySearch({
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
           // 日本語入力の変換中のEscは拾わない (変換の取り消しのため)
-          if (e.nativeEvent.isComposing) return;
+          if (imeBusy(e)) return;
           if (e.key !== "Escape") return;
           // 打ち込んだ語があるときは、まず語を消す (メニューは閉じない)
           if (value) {

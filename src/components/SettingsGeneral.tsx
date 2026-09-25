@@ -4,6 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useAppSettings } from "../hooks/useAppSettings";
 import { ColorMode, getColorMode, setColorMode } from "../theme";
 import { SettingRow } from "./SettingRow";
+import { imeBusy } from "../ime";
 
 interface Props {
   notify: Notify;
@@ -180,7 +181,7 @@ export function SettingsGeneral({ notify }: Props) {
               onBlur={() => saveApp({ ...app })}
               onKeyDown={(e) => {
                 // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                if (e.nativeEvent.isComposing) return;
+                if (imeBusy(e)) return;
                 if (e.key === "Enter") saveApp({ ...app });
               }}
             />
@@ -234,7 +235,7 @@ export function SettingsGeneral({ notify }: Props) {
             onBlur={() => saveApp({ ...app, commentDelimiter: delim })}
             onKeyDown={(e) => {
               // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-              if (e.nativeEvent.isComposing) return;
+              if (imeBusy(e)) return;
               if (e.key === "Enter") saveApp({ ...app, commentDelimiter: delim });
             }}
           />

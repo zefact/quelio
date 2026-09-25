@@ -7,6 +7,7 @@ import {
   useAsyncApply,
   useEscapeCancel,
 } from "../hooks/useEditableGrid";
+import { imeBusy } from "../ime";
 
 interface Props {
   sessionId: string;
@@ -192,7 +193,7 @@ export function KvValueGrid({
   const editKeys = (commit: () => void, cancel: () => void) => ({
     onKeyDown: (e: React.KeyboardEvent) => {
       // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-      if (e.nativeEvent.isComposing) return;
+      if (imeBusy(e)) return;
       if (e.key === "Enter") {
         // 値の入力欄では Shift+Enter を改行に使うため、そのときは確定しない
         if (e.shiftKey) return;

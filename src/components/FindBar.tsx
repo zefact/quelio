@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FIND_EVENT } from "../appEvents";
+import { imeBusy } from "../ime";
 
 /**
  * 探さないところ。
@@ -375,7 +376,7 @@ export function FindBar() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // 変換中のEscは変換の取り消しなので、検索バーは閉じない
-      if (e.isComposing) return;
+      if (imeBusy(e)) return;
       const ctrl = e.ctrlKey || e.metaKey;
       /*
        * Shiftを押しているものは拾わない。
@@ -424,7 +425,7 @@ export function FindBar() {
         onChange={(e) => findFresh(e.target.value)}
         onKeyDown={(e) => {
           // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-          if (e.nativeEvent.isComposing) return;
+          if (imeBusy(e)) return;
           if (e.key === "Enter") {
             e.preventDefault();
             e.stopPropagation();

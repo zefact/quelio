@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { imeBusy } from "../ime";
 
 /**
  * 開いているモーダルの重なり順 (後ろほど手前)。
@@ -46,7 +47,7 @@ export function useModal<T extends HTMLElement = HTMLDivElement>(
       // 手前に別のモーダルが開いているなら、そちらに任せる
       if (stack[stack.length - 1] !== id.current) return;
       // 日本語入力の変換を取り消したEscで閉じないようにする
-      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (e.key !== "Escape" || e.defaultPrevented || imeBusy(e)) return;
       // 下にある画面が同じEscに反応しないよう、ここで処理済みにする
       e.preventDefault();
       onClose();

@@ -8,6 +8,7 @@
 import { charUnits } from "../er/model";
 import { FILL_ALPHA, hexAlpha } from "../er/style";
 import type { ErFrame } from "../types";
+import { imeBusy } from "../ime";
 
 /** 注釈に対する操作 (どれも「どの注釈か」を id で受け取る) */
 export interface FrameHandlers {
@@ -30,7 +31,7 @@ export interface FrameHandlers {
 function editKeys(h: FrameHandlers) {
   return (e: React.KeyboardEvent) => {
     // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-    if (e.nativeEvent.isComposing) return;
+    if (imeBusy(e)) return;
     if (e.key === "Enter") h.onCommitEdit();
     else if (e.key === "Escape") h.onCancelEdit();
   };

@@ -24,6 +24,7 @@ import {
   pickedValues,
   usableRules,
 } from "./csvFilter";
+import { imeBusy } from "../../ime";
 
 /** 条件の選び方 (アプリ共通の見た目のセレクトに渡す形) */
 const KIND_OPTIONS = KINDS.map((k) => ({ value: k.kind, label: k.label }));
@@ -184,7 +185,7 @@ export function CsvFilterMenu({
       role="dialog"
       aria-label={`${name} の絞り込み`}
       onKeyDown={(e) => {
-        if (e.nativeEvent.isComposing) return;
+        if (imeBusy(e)) return;
         if (e.key === "Enter") {
           e.preventDefault();
           decide();

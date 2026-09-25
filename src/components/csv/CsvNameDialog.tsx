@@ -1,5 +1,6 @@
 /** 列名を入れてもらう小さなダイアログ */
 import { useEffect, useRef, useState } from "react";
+import { imeBusy } from "../../ime";
 
 interface Props {
   title: string;
@@ -36,7 +37,7 @@ export function CsvNameDialog({ title, initial, onDecide, onCancel }: Props) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
+            if (imeBusy(e)) return;
             if (e.key === "Enter") {
               e.preventDefault();
               decide();

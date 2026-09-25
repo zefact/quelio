@@ -7,6 +7,7 @@ import {
   RowMenuItem,
 } from "../ResizableGrid";
 import type { DbType, ObjectHit, ObjectSearchResult } from "../../types";
+import { imeBusy } from "../../ime";
 
 /** 表示する列 (PostgreSQL以外ではスキーマ列を出さない) */
 function columns(dbType: DbType): GridColumn[] {
@@ -107,7 +108,7 @@ export function ObjectSearchPanel({
           placeholder="テーブル名 / カラム名 / コメントの一部"
           onChange={(e) => setKeyword(e.target.value)}
           onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
+            if (imeBusy(e)) return;
             if (e.key === "Enter") void run();
           }}
         />

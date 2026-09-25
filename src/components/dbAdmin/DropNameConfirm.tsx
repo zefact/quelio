@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useModal } from "../../hooks/useModal";
 import type { AdminKind } from "./DbAdminDialog";
+import { imeBusy } from "../../ime";
 
 interface Props {
   /** 「データベース」「スキーマ」 */
@@ -88,7 +89,7 @@ export function DropNameConfirm({
             onChange={(e) => setTyped(e.target.value)}
             onKeyDown={(e) => {
               // 日本語入力の変換確定のEnterで消さない
-              if (e.nativeEvent.isComposing) return;
+              if (imeBusy(e)) return;
               if (e.key === "Enter" && matched) void run();
             }}
           />

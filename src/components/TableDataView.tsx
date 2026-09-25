@@ -32,6 +32,7 @@ import {
 } from "../hooks/useEditableGrid";
 import { HeaderLabelPicker } from "./HeaderLabelPicker";
 import { headerText, headerWidth } from "../headerLabel";
+import { imeBusy } from "../ime";
 
 interface Props {
   /** データタブの状態と操作 (上の画面から素通しで渡ってくる) */
@@ -118,6 +119,13 @@ function PlusIcon() {
   );
 }
 
+/** 取得した時刻 (時:分:秒) */
+function clockOf(ms: number): string {
+  const d = new Date(ms);
+  const p2 = (v: number) => String(v).padStart(2, "0");
+  return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+}
+
 /** 選択テーブルのデータ表示 (1000件ごとのページング + サーバーサイドソート + 編集) */
 function TableDataViewInner({
   pane,
@@ -142,6 +150,7 @@ function TableDataViewInner({
     loading,
     error,
     where,
+    fetchedAt,
     onChangeWhere,
     onApplyWhere,
     onPage,
@@ -426,7 +435,7 @@ function TableDataViewInner({
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     // 日本語入力の変換中のEnter/Escは、確定・取り消しの操作なので拾わない
-    if (e.nativeEvent.isComposing) return;
+    if (imeBusy(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       commit();
@@ -578,7 +587,7 @@ function TableDataViewInner({
           onChange={(e) => onChangeWhere(e.target.value)}
           onKeyDown={(e) => {
             // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-            if (e.nativeEvent.isComposing) return;
+            if (imeBusy(e)) return;
             // 取得中は受け付けない (連打すると古い結果が後から表示されうる)
             if (e.key === "Enter" && !loading) onApplyWhere();
           }}
@@ -644,6 +653,8 @@ function TableDataViewInner({
                   offset + data.rows.length
                 ).toLocaleString()}行目`}
             {` — ${data.elapsedMs}ms`}
+            {/* 取り直さずに出していることがあるので、いつの内容かを添える */}
+            {fetchedAt !== undefined && ` — ${clockOf(fetchedAt)} 時点`}
           </span>
         )}
 
@@ -766,6 +777,8 @@ function TableDataViewInner({
             clippedRowKeys={clippedRows}
             // まず200行だけ描き、スクロールに合わせて継ぎ足す
             maxRenderRows={200}
+            // 画面を切り替えて戻ったとき、同じデータならスクロール位置を戻す
+            memoKey={data}
             // 追加中の行は末尾にあるので、切り詰めても必ず描く
             pinLastRow={editing?.row === "new"}
             insertTable={insertTable}

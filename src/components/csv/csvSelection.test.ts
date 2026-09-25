@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  clipRange,
   colBlock,
   colInAny,
   frameBox,
@@ -179,5 +180,22 @@ describe("続いて選ばれているかたまり", () => {
     const rs: CsvRange[] = [{ top: 0, left: 0, bottom: 0, right: 0 }];
     expect(rowBlock(rs, 0)).toEqual({ at: 0, count: 1 });
     expect(colBlock(rs, 0)).toEqual({ at: 0, count: 1 });
+  });
+});
+
+describe("clipRange", () => {
+  it("消した行・列にはみ出したぶんを落とす", () => {
+    const r: CsvRange = { top: 95, left: 2, bottom: 120, right: 9 };
+    expect(clipRange(r, 100, 5)).toEqual({ top: 95, left: 2, bottom: 99, right: 4 });
+  });
+
+  it("全部はみ出していれば描かない", () => {
+    expect(clipRange({ top: 100, left: 0, bottom: 101, right: 0 }, 100, 5)).toBeNull();
+    expect(clipRange({ top: 0, left: 5, bottom: 0, right: 6 }, 100, 5)).toBeNull();
+  });
+
+  it("中に収まっていればそのまま", () => {
+    const r: CsvRange = { top: 1, left: 1, bottom: 3, right: 2 };
+    expect(clipRange(r, 100, 5)).toEqual(r);
   });
 });

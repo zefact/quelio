@@ -136,6 +136,8 @@ export interface TabTableData {
   error: string | null;
   /** 絞り込み条件 (WHERE句。空なら全件) */
   where: string;
+  /** データを取得した時刻 (ms)。取り直さずに出しているとき、いつの内容かを示す */
+  fetchedAt?: number;
 }
 
 export function emptyTableData(): TabTableData {

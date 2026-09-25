@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useModal } from "../../hooks/useModal";
 import { folderNameError } from "../../savedSqlForm";
+import { imeBusy } from "../../ime";
 
 export function FolderDialog({
   /** 名前を変える対象のパス (新規作成なら null) */
@@ -85,7 +86,7 @@ export function FolderDialog({
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
                 // 変換中のEnterは拾わない (確定の操作のため)
-                if (e.nativeEvent.isComposing) return;
+                if (imeBusy(e)) return;
                 if (e.key === "Enter") void submit();
               }}
             />

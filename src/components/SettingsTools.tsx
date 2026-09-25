@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Notify } from "../notify";
 import { detectTools, getToolSettings, saveToolSettings } from "../api";
 import type { ToolSettings, ToolStatus } from "../types";
+import { imeBusy } from "../ime";
 
 interface Props {
   notify: Notify;
@@ -147,7 +148,7 @@ export function SettingsTools({ notify }: Props) {
                   onBlur={save}
                   onKeyDown={(e) => {
                     // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                    if (e.nativeEvent.isComposing) return;
+                    if (imeBusy(e)) return;
                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                   }}
                 />

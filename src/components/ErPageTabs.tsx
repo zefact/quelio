@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { TAB_MARK, useTabReorder } from "../hooks/useTabReorder";
 import { CloseMark } from "./CloseMark";
+import { imeBusy } from "../ime";
 
 export interface ErPage {
   id: string;
@@ -85,7 +86,7 @@ export function ErPageTabs({
               onMouseDown={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
                 // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-                if (e.nativeEvent.isComposing) return;
+                if (imeBusy(e)) return;
                 if (e.key === "Enter") commitRename();
                 else if (e.key === "Escape") setEditingId(null);
               }}

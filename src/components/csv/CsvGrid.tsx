@@ -26,6 +26,7 @@ import type { CsvBlock, CsvCursor, CsvRange } from "./csvSelection";
 import {
   colBlock,
   colInAny,
+  clipRange,
   frameBox,
   inAny,
   jumpFix,
@@ -33,6 +34,8 @@ import {
   rowBlock,
   rowInAny,
 } from "./csvSelection";
+import { imeBusy } from "../../ime";
+import { loadCsvScroll, saveCsvScroll } from "./csvScrollMemo";
 
 /** 1行の高さ (揃えておかないと、見える範囲を高さから割り出せない) */
 export const ROW_H = 26;
@@ -60,7 +63,8 @@ interface Props {
   rows: CsvRows;
   /** 選んでいるセル (編集や行操作の起点にもなる) */
   cursor: CsvCursor | null;
-  onCursor: (c: CsvCursor) => void;
+  /** カーソルを動かす (行・列が1つも無くなったときは null) */
+  onCursor: (c: CsvCursor | null) => void;
   /**
    * 外からカーソルを動かされたとき、選んでいる範囲を残すか。
    *
@@ -171,6 +175,11 @@ interface Props {
    * 両方が取り合うと後から描いたほうへ行ってしまう)
    */
   autoFocus?: boolean;
+  /**
+   * スクロール位置を控えておく名前 (面とファイルごと)。
+   * タブを切り替えて表を作り直したとき、同じ名前の控えから元の位置へ戻す
+   */
+  memoKey?: string;
 }
 
 export function CsvGrid({
@@ -204,9 +213,28 @@ export function CsvGrid({
   syncTop,
   syncLeft,
   autoFocus,
+  memoKey,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
+  /** 前にこの表を開いていたときのスクロール位置 (作り直したときに戻す) */
+  const [restored] = useState(() =>
+    memoKey ? loadCsvScroll(memoKey) : undefined
+  );
+  const [scrollTop, setScrollTop] = useState(restored?.top ?? 0);
+  /**
+   * 元の位置へ戻したときのカーソル。
+   * カーソルが動くまでは、カーソルの所まで表を動かさない
+   * (列幅が決まるなどで下の効果が走り直しても、見ていた所に留める)。
+   * カーソルから離れた所を見ていたなら、その見ていた所へ戻したいため
+   */
+  const keepView = useRef(restored ? cursor : null);
+  /**
+   * まだ戻せていない横の位置。
+   * 列幅は行が届いてから中身へ合わせて決まるので、最初は表が狭く
+   * 横の位置が端で切られてしまう。表が広がるたびに合わせ直し、
+   * 届いたら (または自分で動かしたら) やめる
+   */
+  const pendingLeft = useRef(restored ? restored.left : null);
   const [height, setHeight] = useState(600);
   /** 編集中のセルと入力中の文字 */
   const [editing, setEditing] = useState<{ at: CsvCursor; text: string } | null>(
@@ -311,6 +339,87 @@ export function CsvGrid({
     // 開いたときの1回だけ (以後はクリックで移る)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 前に見ていた位置へ戻す (描く行も合わせるので、最初の描画の直後に行う)
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el || !restored) return;
+    el.scrollTop = restored.top;
+    el.scrollLeft = restored.left;
+    // 行が足りずに端で切られたときは、実際の位置に合わせる
+    setScrollTop(el.scrollTop);
+    if (Math.abs(el.scrollLeft - restored.left) < 1) pendingLeft.current = null;
+    // 開いたときの1回だけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /*
+   * 行や列が減ったら (末尾の行を消したなど)、カーソルと選んでいる範囲を今ある所へ寄せる。
+   * そのままだと、カーソルが消した行を指したまま表のどこにも出ず、
+   * 情報バーの選択も消した行を数えてしまう
+   */
+  const prevRowCount = useRef(rowCount);
+  useEffect(() => {
+    const before = prevRowCount.current;
+    prevRowCount.current = rowCount;
+    if (rowCount === 0 || columns.length === 0) {
+      // 全部消えたら、カーソルも選択も無くす (どこも指せない)
+      if (head) setHead(null);
+      setExtra((prev) => (prev.length === 0 ? prev : []));
+      if (cursor) onCursor(null);
+      return;
+    }
+    // 空の表に行が入ったら、先頭にカーソルを置き直す (キー操作ですぐ動けるように)
+    if (!cursor && before === 0) {
+      onCursor({ row: 0, col: 0 });
+      return;
+    }
+    const maxRow = rowCount - 1;
+    const maxCol = columns.length - 1;
+    const outside = (c: CsvCursor) => c.row > maxRow || c.col > maxCol;
+    const fit = (c: CsvCursor): CsvCursor => ({
+      row: Math.min(c.row, maxRow),
+      col: Math.min(c.col, maxCol),
+    });
+    if (head && outside(head)) setHead(fit(head));
+    setExtra((prev) => {
+      // 丸ごと消えた範囲は外し、はみ出しているものは端までに縮める
+      const next = prev
+        .filter(
+          (e) =>
+            Math.min(e.a.row, e.b.row) <= maxRow &&
+            Math.min(e.a.col, e.b.col) <= maxCol
+        )
+        .map((e) => ({ a: fit(e.a), b: fit(e.b) }));
+      const same =
+        next.length === prev.length &&
+        next.every(
+          (e, i) =>
+            e.a.row === prev[i].a.row &&
+            e.a.col === prev[i].a.col &&
+            e.b.row === prev[i].b.row &&
+            e.b.col === prev[i].b.col
+        );
+      return same ? prev : next;
+    });
+    // カーソルは最後に動かす (見えるところまで表が動く)
+    if (cursor && outside(cursor)) onCursor(fit(cursor));
+    // 行数・列数が変わったときだけ見る
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowCount, columns.length]);
+
+  /*
+   * 行が減ったら (末尾の行を消したなど)、ブラウザが縮めたスクロール位置に合わせる。
+   * 縮めたときにスクロールの知らせが来ない環境があり、そのままだと
+   * 前の位置のつもりで描いて、何も無い所を見せてしまう
+   */
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    if (Math.abs(el.scrollTop - scrollTop) >= 1) setScrollTop(el.scrollTop);
+    // 行数が変わったときだけ見る
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rowCount]);
 
   // 画面の高さを測る (見える行数の計算に使う)
   useLayoutEffect(() => {
@@ -608,7 +717,7 @@ export function CsvGrid({
       !e.ctrlKey &&
       !e.metaKey &&
       !e.altKey &&
-      !e.nativeEvent.isComposing &&
+      !imeBusy(e) &&
       e.key.length === 1
     ) {
       e.preventDefault();
@@ -620,6 +729,15 @@ export function CsvGrid({
     () => widths.reduce((a, b) => a + b, NUM_W),
     [widths]
   );
+
+  // 表が広がったら、戻しきれていなかった横の位置へ合わせ直す
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    const want = pendingLeft.current;
+    if (!el || want === null) return;
+    el.scrollLeft = want;
+    if (Math.abs(el.scrollLeft - want) < 1) pendingLeft.current = null;
+  }, [total]);
 
   /** 列の左端の位置 (絶対配置に使う) */
   const lefts = useMemo(() => {
@@ -660,6 +778,18 @@ export function CsvGrid({
    */
   useEffect(() => {
     if (!cursor) return;
+    /*
+     * カーソルは動いていない (列幅を変えたなどで、見せ方の関数が作り直されただけ)。
+     * ここで動かすと、離れた列の幅を変えただけでカーソルの所へ戻されてしまう
+     */
+    if (shown.current === cursor) return;
+    const kept = keepView.current;
+    if (kept && kept.row === cursor.row && kept.col === cursor.col) {
+      // 元の位置へ戻したところなので、カーソルの所へは動かさない
+      shown.current = cursor;
+      return;
+    }
+    keepView.current = null;
     const own =
       sent.current?.row === cursor.row && sent.current?.col === cursor.col;
     /*
@@ -871,9 +1001,18 @@ export function CsvGrid({
       ref={wrapRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
+      // 自分で動かし始めたら、前の位置へ合わせ直すのはやめる
+      onWheel={() => (pendingLeft.current = null)}
+      onMouseDownCapture={() => (pendingLeft.current = null)}
+      onKeyDownCapture={() => (pendingLeft.current = null)}
       onScroll={(e) => {
-        setScrollTop(e.currentTarget.scrollTop);
-        onScrollPos?.(e.currentTarget.scrollTop, e.currentTarget.scrollLeft);
+        const { scrollTop: top, scrollLeft: left } = e.currentTarget;
+        setScrollTop(top);
+        onScrollPos?.(top, left);
+        // 横の位置を戻している途中は、戻したい位置のほうを控えておく
+        if (memoKey) {
+          saveCsvScroll(memoKey, { top, left: pendingLeft.current ?? left });
+        }
       }}
     >
       <div className="csv-head" style={{ width: total, height: HEAD_H }}>
@@ -963,7 +1102,7 @@ export function CsvGrid({
                 onKeyDown={(e) => {
                   // 表のキー操作 (矢印やコピー) へは渡さない
                   e.stopPropagation();
-                  if (e.nativeEvent.isComposing) return;
+                  if (imeBusy(e)) return;
                   if (e.key === "Enter") {
                     e.preventDefault();
                     commitHead();
@@ -1074,7 +1213,10 @@ export function CsvGrid({
           セルに縁を付けると文字がずれるので、上に重ねた枠で描く
         */}
         {ranges.map((r, i) => {
-          const box = frameBox(r, lefts, widths, ROW_H, NUM_W);
+          // 消した行・列を指したままの範囲は、今ある所までに切り詰めて描く
+          const shownRange = clipRange(r, rowCount, columns.length);
+          if (!shownRange) return null;
+          const box = frameBox(shownRange, lefts, widths, ROW_H, NUM_W);
           return <div key={i} className="csv-sel-frame" style={box} />;
         })}
         {items}
@@ -1098,7 +1240,7 @@ export function CsvGrid({
             }
             onKeyDown={(e) => {
               // 変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-              if (e.nativeEvent.isComposing) return;
+              if (imeBusy(e)) return;
               if (e.key === "Enter") {
                 e.preventDefault();
                 /*

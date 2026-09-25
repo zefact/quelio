@@ -37,6 +37,8 @@ export interface ErViewport {
   zoomBy: (factor: number) => void;
   /** 図全体 (囲む四角) が収まるように合わせる */
   fitTo: (box: ErBox) => void;
+  /** 前に見ていた表示へ戻す (拡大率は範囲の中に収める) */
+  restoreView: (v: ErView) => void;
   /** 背景ドラッグでの移動 (押した位置からの差分で動かす) */
   startPan: (e: React.MouseEvent) => void;
   /** 指定のぶんだけ動かす (検索の一致位置を中央に出すときなど) */
@@ -194,6 +196,15 @@ export function useErViewport(initial?: Partial<ErView>): ErViewport {
     }, deps);
   };
 
+  const restoreView = useCallback((v: ErView) => {
+    if (![v.x, v.y, v.scale].every(Number.isFinite)) return;
+    setView({
+      x: v.x,
+      y: v.y,
+      scale: Math.min(MAX_SCALE, Math.max(MIN_SCALE, v.scale)),
+    });
+  }, []);
+
   return {
     view,
     viewRef,
@@ -201,6 +212,7 @@ export function useErViewport(initial?: Partial<ErView>): ErViewport {
     toWorld,
     zoomBy,
     fitTo,
+    restoreView,
     startPan,
     panBy,
     useWheel,

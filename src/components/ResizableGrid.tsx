@@ -23,6 +23,7 @@ import {
 
 import type { DbType } from "../types";
 import { HoverTip } from "./HoverTip";
+import { loadGridView, saveGridView } from "./gridViewMemo";
 import { useDismiss } from "../hooks/useDismiss";
 import { useMultiSelect } from "../hooks/useMultiSelect";
 import { useToast } from "../hooks/useToast";
@@ -179,6 +180,12 @@ interface Props {
    * 行キーが安定していて、末尾に追記していくだけの画面 (コンソール) 用
    */
   stableRowKeys?: boolean;
+  /**
+   * 表示しているデータ (取得結果のオブジェクト)。
+   * 渡すと、画面を切り替えて同じデータで作り直されたときに
+   * スクロール位置・描いた行数・列幅を元に戻す
+   */
+  memoKey?: object;
 }
 
 /** ソートメニューの選択肢 */
@@ -235,6 +242,7 @@ export function ResizableGrid({
   wrapRefOut,
   onScroll,
   stableRowKeys,
+  memoKey,
 }: Props) {
   /** 開いているソートメニュー (対象列と表示位置) */
   const [sortMenu, setSortMenu] = useState<{
@@ -276,9 +284,14 @@ export function ResizableGrid({
   );
   /** コピー結果の一時表示 */
   const { toast, flash } = useToast(1800);
-  const [widths, setWidths] = useState<Record<string, number>>(() =>
-    Object.fromEntries(columns.map((c) => [c.id, c.width]))
-  );
+  /** 表示中のデータ・並び順の目印 (入れ替わったら描画量やスクロールを戻す) */
+  const dataKey = `${fitKey ?? ""}\u0000${sort?.id ?? ""}:${sort?.dir ?? ""}`;
+  /** 前にこのデータを表示していたときの見た目 (作り直したときに戻す) */
+  const [restored] = useState(() => loadGridView(memoKey, dataKey));
+  const [widths, setWidths] = useState<Record<string, number>>(() => ({
+    ...Object.fromEntries(columns.map((c) => [c.id, c.width])),
+    ...restored?.widths,
+  }));
 
   // 列構成が変わった場合 (表示モード切替など) に新しい列の幅を補う
   useEffect(() => {
@@ -303,10 +316,11 @@ export function ResizableGrid({
   // ---------- 描画行数の制限 (maxRenderRows指定時のみ) ----------
 
   /** 実際に描画している行数 (下端までスクロールすると増える) */
-  const [shown, setShown] = useState(maxRenderRows ?? Number.MAX_SAFE_INTEGER);
+  const [shown, setShown] = useState(
+    restored?.shown ?? maxRenderRows ?? Number.MAX_SAFE_INTEGER
+  );
   /** 表示中のデータ・並び順が入れ替わったら先頭ぶんだけに戻す
    *  (行の編集など、同じデータのままの再描画では戻さない) */
-  const dataKey = `${fitKey ?? ""}\u0000${sort?.id ?? ""}:${sort?.dir ?? ""}`;
   const shownDataKey = useRef(dataKey);
   useEffect(() => {
     if (!maxRenderRows || shownDataKey.current === dataKey) return;
@@ -516,10 +530,47 @@ export function ResizableGrid({
     }
   };
 
+  // ---------- 画面を切り替えて戻ったときの見た目 (memoKey指定時のみ) ----------
+
+  /** 今の見た目を控えておく */
+  const rememberView = () => {
+    const el = wrapRef.current;
+    if (!memoKey || !el) return;
+    saveGridView(memoKey, {
+      top: el.scrollTop,
+      left: el.scrollLeft,
+      shown,
+      widths,
+      sig: dataKey,
+    });
+  };
+  // 描いた行数・列幅が変わったときも控え直す (スクロールしないまま離れることがある)
+  useEffect(() => {
+    rememberView();
+    // 控えるのは値が変わったときだけでよい
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [memoKey, shown, widths, dataKey]);
+  // 作り直した直後に、前のスクロール位置へ戻す
+  // (列幅が決まった次のフレームでもう一度合わせる。横位置が端で切られないように)
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!restored || !el) return;
+    const apply = () => {
+      el.scrollTop = restored.top;
+      el.scrollLeft = restored.left;
+    };
+    apply();
+    const raf = requestAnimationFrame(apply);
+    return () => cancelAnimationFrame(raf);
+  }, [restored]);
+
   // autoFit: 行が描画されたら全列を内容にフィットさせる
   // (fitKey指定時はその値が変わったときだけ測り直す。入力中の再描画などで
   //  毎回測り直すと重いため)
-  const fittedKey = useRef<string | number | null>(null);
+  // 前の見た目を戻したときは、その列幅をそのまま使う (測り直さない)
+  const fittedKey = useRef<string | number | null>(
+    restored && fitKey !== undefined ? fitKey : null
+  );
   useEffect(() => {
     if (!autoFit || rows.length === 0) return;
     if (fitKey !== undefined && fittedKey.current === fitKey) return;
@@ -751,10 +802,11 @@ export function ResizableGrid({
       tabIndex={selectable ? 0 : undefined}
       onKeyDown={selectable ? handleKeyDown : undefined}
       onScroll={
-        maxRenderRows || onScroll
+        maxRenderRows || onScroll || memoKey
           ? () => {
               if (maxRenderRows) growIfNeeded();
               onScroll?.();
+              rememberView();
             }
           : undefined
       }

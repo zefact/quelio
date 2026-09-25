@@ -13,6 +13,7 @@ import { importSavedSqlInto, inspectSavedSqlFile } from "../../api";
 import { useModal } from "../../hooks/useModal";
 import { folderNameError } from "../../savedSqlForm";
 import { restoreFolderName } from "../../savedSelection";
+import { imeBusy } from "../../ime";
 
 const JSON_FILTER = [{ name: "JSON", extensions: ["json"] }];
 
@@ -132,7 +133,7 @@ export function SavedRestoreDialog({ onClose, onDone }: Props) {
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
                 // 変換中のEnterは拾わない (確定の操作のため)
-                if (e.nativeEvent.isComposing) return;
+                if (imeBusy(e)) return;
                 if (e.key === "Enter") void run();
               }}
             />
