@@ -23,6 +23,7 @@ mod ddl_table;
 mod dialect;
 mod dml;
 mod er_store;
+mod er_xlsx;
 mod export;
 mod export_rows;
 mod export_sheet;
@@ -353,12 +354,19 @@ pub fn run() {
             commands::export_er_diagrams,
             commands::export_saved_sql,
             commands::import_saved_sql,
+            commands::export_saved_sql_subset,
+            commands::inspect_saved_sql_file,
+            commands::import_saved_sql_into,
             commands::export_csv_layouts,
             commands::import_csv_layouts,
             commands::import_er_diagrams,
+            commands::export_er_diagram_subset,
+            commands::inspect_er_diagram_file,
+            commands::import_er_diagrams_as_new,
             commands::default_ssh_key_dir,
             commands::save_capture,
             commands::save_text_file,
+            commands::save_er_xlsx,
             commands::save_text_as,
             commands::get_app_settings,
             commands::save_app_settings,

@@ -32,8 +32,28 @@ export function usePopupPosition<T extends HTMLElement>(
    */
   const cssMax = useRef<number | null>(null);
 
+  /**
+   * いま ref が指している要素。
+   *
+   * メニューは閉じるたびに消え、開き直すと別の要素として作り直される。
+   * 位置の計算を座標の変化だけで引き直していると、同じボタンから開き直したとき
+   * (座標が前回と同じとき) に新しい要素を測らず、見張りも消えた古い要素に
+   * 付いたままになる。あとから中身 (履歴・お気に入り) が届いて背が伸びても
+   * 位置が直らず、画面の下へはみ出していた。
+   * 要素が差し替わったことをここで拾い、そのたびに測り直す
+   */
+  const [node, setNode] = useState<T | null>(null);
+  /*
+   * 描き直しのたびに見る (ref の差し替わりは依存に書けないため)。
+   * 同じ要素なら何もしないので、描き直しが続くことはない
+   */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
-    const el = ref.current;
+    if (ref.current !== node) setNode(ref.current);
+  });
+
+  useLayoutEffect(() => {
+    const el = node;
     if (!el) return;
 
     if (cssMax.current === null) {
@@ -88,8 +108,8 @@ export function usePopupPosition<T extends HTMLElement>(
       ro.disconnect();
       window.removeEventListener("resize", place);
     };
-    // 位置が変わったとき (開き直したとき) だけ計算し直す
-  }, [x, y, flipY]);
+    // 開き直したとき (要素が作り直されたとき) と、位置が変わったときに計算し直す
+  }, [node, x, y, flipY]);
 
   return [ref, style];
 }

@@ -141,6 +141,19 @@ export interface SavedSqlStore {
   order: string[];
 }
 
+/** お気に入りのファイルの中身の数 (取り込む前の確認用) */
+export interface SavedSqlSummary {
+  items: number;
+  folders: number;
+}
+
+/** お気に入りを新しいフォルダへ取り込んだ結果 */
+export interface SavedSqlImported {
+  /** 実際に作ったフォルダ名 (同じ名前があると番号が付く) */
+  folder: string;
+  added: number;
+}
+
 export interface QueryLogEntry {
   seq: number;
   time: string;

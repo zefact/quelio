@@ -40,6 +40,8 @@ import { FolderDialog } from "./FolderDialog";
 import { HistoryList } from "./HistoryList";
 import { LibrarySearch } from "./LibrarySearch";
 import { SaveSqlDialog } from "./SaveSqlDialog";
+import { SavedBackupDialog } from "./SavedBackupDialog";
+import { SavedRestoreDialog } from "./SavedRestoreDialog";
 import { SavedSearchList } from "./SavedSearchList";
 import { SavedTree } from "./SavedTree";
 import {
@@ -48,6 +50,7 @@ import {
   searchTerms,
 } from "../../sqlLibrarySearch";
 import { CaretIcon } from "../SqlToolIcons";
+import { foldersToOpen } from "../../savedSqlForm";
 
 interface Props {
   /** 現在エディタにあるSQL (保存ダイアログの初期値) */
@@ -99,6 +102,10 @@ export function SqlLibraryMenu({
   } | null>(null);
   /** 操作に失敗したときの文言 (メニューの上に出す) */
   const [error, setError] = useState<string | null>(null);
+  /** 操作が済んだことの知らせ (復元したあとなど) */
+  const [notice, setNotice] = useState<string | null>(null);
+  /** バックアップ / 復元のダイアログ */
+  const [transfer, setTransfer] = useState<"backup" | "restore" | null>(null);
 
   const folderPaths = useMemo(() => store.folders, [store]);
 
@@ -123,7 +130,8 @@ export function SqlLibraryMenu({
    * 出したままだとダイアログに被ってしまう。
    * open は残しておくので、ダイアログを閉じると同じ場所に戻る
    */
-  const dialogOpen = !!confirm || !!saveDialog || !!folderDialog;
+  const dialogOpen =
+    !!confirm || !!saveDialog || !!folderDialog || transfer !== null;
 
   const reload = () => {
     getSqlHistory()
@@ -150,6 +158,7 @@ export function SqlLibraryMenu({
       reload();
       setConfirm(null);
       setError(null);
+      setNotice(null);
       // 開くたびに、探していた語は消しておく
       setQuery("");
       // 開くたびにフォルダは全て閉じた状態から始める
@@ -169,6 +178,14 @@ export function SqlLibraryMenu({
     }
     setOpen((o) => !o);
   };
+
+  /** 保存したものが見えるよう、そのフォルダ (と祖先) を開く */
+  const reveal = (folder: string) =>
+    setOpened((prev) => {
+      const next = new Set(prev);
+      for (const p of foldersToOpen(folder)) next.add(p);
+      return next;
+    });
 
   const toggleFolder = (path: string) =>
     setOpened((prev) => {
@@ -270,8 +287,52 @@ export function SqlLibraryMenu({
               }
               onEscape={() => setOpen(false)}
             />
+            {/*
+             * お気に入りを増やす操作は、一覧の項目と見分けがつくよう
+             * 検索欄の下にボタンとして並べる (一覧と一緒に流れていかない)
+             */}
+            {mode === "saved" && (
+              <div className="lib-saved-actions">
+                <button
+                  className="lib-action"
+                  disabled={!currentSql.trim()}
+                  title={
+                    currentSql.trim()
+                      ? `今エディタにある${contentLabel}をお気に入りに保存します`
+                      : `エディタが空です`
+                  }
+                  onClick={() => openSaveDialog()}
+                >
+                  ＋ 今の{contentLabel}を保存
+                </button>
+                <button
+                  className="lib-action"
+                  onClick={() => setFolderDialog({ target: null })}
+                >
+                  ＋ フォルダ
+                </button>
+                <span className="toolbar-spacer" />
+                {/* 選んだものだけ書き出す / 新しいフォルダへ取り込む */}
+                <button
+                  className="lib-action"
+                  disabled={store.items.length + store.folders.length === 0}
+                  title="選んだお気に入りをファイルへ書き出します"
+                  onClick={() => setTransfer("backup")}
+                >
+                  バックアップ
+                </button>
+                <button
+                  className="lib-action"
+                  title="ファイルのお気に入りを、新しいフォルダを作ってその中へ取り込みます"
+                  onClick={() => setTransfer("restore")}
+                >
+                  復元
+                </button>
+              </div>
+            )}
           </div>
           {error && <div className="lib-error">{error}</div>}
+          {notice && <div className="lib-notice">{notice}</div>}
 
           {mode === "history" ? (
             <HistoryList
@@ -291,20 +352,6 @@ export function SqlLibraryMenu({
             />
           ) : (
             <>
-              <button
-                className="context-item saved-add"
-                disabled={!currentSql.trim()}
-                onClick={() => openSaveDialog()}
-              >
-                ＋ 現在の{contentLabel}を保存...
-              </button>
-              <button
-                className="context-item saved-add"
-                onClick={() => setFolderDialog({ target: null })}
-              >
-                ＋ 新しいフォルダ...
-              </button>
-              <div className="context-sep" />
               {searching ? (
                 <SavedSearchList
                   entries={foundSaved}
@@ -313,7 +360,6 @@ export function SqlLibraryMenu({
                     setOpen(false);
                   }}
                   onEdit={(it) => openSaveDialog(it)}
-                  onDelete={(entry) => setConfirm({ kind: "item", entry })}
                 />
               ) : (
                 <SavedTree
@@ -325,17 +371,90 @@ export function SqlLibraryMenu({
                     setOpen(false);
                   }}
                   onEditItem={(it) => openSaveDialog(it)}
-                  onDeleteItem={(entry) => setConfirm({ kind: "item", entry })}
                   onRenameFolder={(path) => setFolderDialog({ target: path })}
-                  onDeleteFolder={(path) =>
-                    setConfirm({ kind: "folder", path })
-                  }
                   onMove={handleMove}
                 />
               )}
             </>
           )}
+          {/* 選ぶとエディタの中身が入れ替わる (実行はしない) ことを添える */}
+          <div className="lib-foot">
+            クリックでエディタに読み込みます (今の内容と置き換わります)
+          </div>
         </div>
+      )}
+
+      {saveDialog && (
+        <SaveSqlDialog
+          editing={saveDialog.editing}
+          folders={folderPaths}
+          currentSql={currentSql}
+          contentLabel={contentLabel}
+          onClose={() => setSaveDialog(null)}
+          onSubmit={async ({ name, folder, sql }) => {
+            const editing = saveDialog.editing;
+            setStore(
+              await upsertSavedSql(editing?.id ?? null, name, folder, sql),
+            );
+            // 保存したものが一覧ですぐ見えるようにする
+            reveal(folder);
+            setSaveDialog(null);
+          }}
+          onDelete={
+            saveDialog.editing
+              ? () => {
+                  const entry = saveDialog.editing;
+                  if (entry) setConfirm({ kind: "item", entry });
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {folderDialog && (
+        <FolderDialog
+          target={folderDialog.target}
+          onClose={() => setFolderDialog(null)}
+          onSubmit={async (name) => {
+            if (folderDialog.target !== null) {
+              setStore(await renameSavedFolder(folderDialog.target, name));
+            } else {
+              // 新しいフォルダは、いつも一覧のいちばん下 (どのフォルダにも入らない位置) に作る
+              setStore(await createSavedFolder(name));
+            }
+            setFolderDialog(null);
+          }}
+          onDelete={
+            folderDialog.target !== null
+              ? () => {
+                  const path = folderDialog.target;
+                  if (path !== null) setConfirm({ kind: "folder", path });
+                }
+              : undefined
+          }
+        />
+      )}
+
+      {transfer === "backup" && (
+        <SavedBackupDialog store={store} onClose={() => setTransfer(null)} />
+      )}
+
+      {transfer === "restore" && (
+        <SavedRestoreDialog
+          onClose={() => setTransfer(null)}
+          onDone={(r) => {
+            getSavedSql()
+              .then(setStore)
+              .catch(() => {});
+            // 取り込んだフォルダを開いて、どこに入ったか見えるようにする
+            reveal(r.folder);
+            setMode("saved");
+            setQuery("");
+            setError(null);
+            setNotice(`「${r.folder}」フォルダに${r.added}件を取り込みました`);
+            setTransfer(null);
+          }}
+        />
       )}
 
       {confirm?.kind === "item" && (
@@ -346,6 +465,8 @@ export function SqlLibraryMenu({
           onConfirm={async () => {
             await apply(() => deleteSavedSql(confirm.entry.id));
             setConfirm(null);
+            // 編集ダイアログから消したときは、そちらも閉じる
+            setSaveDialog(null);
           }}
         >
           このお気に入りを削除します。取り消しはできません。
@@ -360,6 +481,8 @@ export function SqlLibraryMenu({
           onConfirm={async () => {
             await apply(() => deleteSavedFolder(confirm.path));
             setConfirm(null);
+            // 変更画面から消したので、そちらも閉じる
+            setFolderDialog(null);
           }}
         >
           {(() => {
@@ -391,43 +514,6 @@ export function SqlLibraryMenu({
         </ConfirmDialog>
       )}
 
-      {saveDialog && (
-        <SaveSqlDialog
-          editing={saveDialog.editing}
-          folders={folderPaths}
-          currentSql={currentSql}
-          contentLabel={contentLabel}
-          onClose={() => setSaveDialog(null)}
-          onSubmit={async ({ name, folder, overwrite }) => {
-            const editing = saveDialog.editing;
-            // 新規: エディタのSQL / 編集: 上書き指定時だけ差し替える
-            const sql = editing && !overwrite ? editing.sql : currentSql;
-            setStore(
-              await upsertSavedSql(editing?.id ?? null, name, folder, sql),
-            );
-            setSaveDialog(null);
-          }}
-        />
-      )}
-
-      {folderDialog && (
-        <FolderDialog
-          target={folderDialog.target}
-          folders={folderPaths}
-          onClose={() => setFolderDialog(null)}
-          onSubmit={async ({ name, parent }) => {
-            if (folderDialog.target !== null) {
-              setStore(await renameSavedFolder(folderDialog.target, name));
-            } else {
-              const path = parent ? `${parent}/${name}` : name;
-              setStore(await createSavedFolder(path));
-              // 作ったフォルダはすぐ見えるように開いておく
-              setOpened((prev) => new Set(prev).add(parent).add(path));
-            }
-            setFolderDialog(null);
-          }}
-        />
-      )}
     </div>
   );
 }

@@ -2,6 +2,8 @@ import { SelectMenu } from "./SelectMenu";
 import { useDismiss } from "../hooks/useDismiss";
 import { useRef, useState } from "react";
 import type { SessionSummary } from "../types";
+import { ErSaveMenu } from "./ErSaveMenu";
+import type { ErExportFormat, ErTextFormat } from "../er/exportFormat";
 
 /** 表示設定の項目 */
 const OPTIONS = [
@@ -11,20 +13,6 @@ const OPTIONS = [
 ] as const;
 
 export type ErOptionKey = (typeof OPTIONS)[number]["key"];
-
-/** テキストで書き出せる形式 (SVGも文字列なのでここに並べる) */
-const TEXT_FORMATS = [
-  ["mermaid", "Mermaid"],
-  ["plantuml", "PlantUML"],
-  ["svg", "SVG"],
-] as const;
-
-export type ErTextFormat = (typeof TEXT_FORMATS)[number][0];
-
-/** 通知に出す表示名 */
-export function textFormatLabel(format: ErTextFormat): string {
-  return TEXT_FORMATS.find(([f]) => f === format)?.[1] ?? format;
-}
 
 interface Props {
   /** 開いている図の名前 (未保存はnull) */
@@ -36,6 +24,10 @@ interface Props {
   onSaveAs: () => void;
   onRename: () => void;
   onDelete: () => void;
+  /** 保存済みの図を選んでファイルへ書き出す */
+  onBackup: () => void;
+  /** ファイルから図を取り込む (今ある図は上書きしない) */
+  onRestore: () => void;
   /** 「名前を付けて保存」を押せるか (図が空なら押せない) */
   canSaveAs: boolean;
 
@@ -53,10 +45,12 @@ interface Props {
   options: Record<ErOptionKey, boolean>;
   onToggleOption: (key: ErOptionKey) => void;
 
-  onExportPng: () => void;
-  /** テキスト形式の書き出し (コピー / 保存) */
-  onExportText: (format: ErTextFormat, save: boolean) => void;
-  canExportPng: boolean;
+  /** 選んだ形式で保存する (Excel / PNG / SVG / Mermaid / PlantUML) */
+  onSave: (format: ErExportFormat) => void;
+  /** テキスト形式をクリップボードへコピーする */
+  onCopy: (format: ErTextFormat) => void;
+  /** 書き出せるか (図が空なら押せない) */
+  canExport: boolean;
   /** 右端に出す「Nテーブル / Mリレーション」 */
   meta: string;
 }
@@ -70,6 +64,8 @@ export function ErToolbar({
   onSaveAs,
   onRename,
   onDelete,
+  onBackup,
+  onRestore,
   canSaveAs,
   sessions,
   sessionId,
@@ -81,17 +77,15 @@ export function ErToolbar({
   onReverse,
   options,
   onToggleOption,
-  onExportPng,
-  onExportText,
-  canExportPng,
+  onSave,
+  onCopy,
+  canExport,
   meta,
 }: Props) {
   const diagMenuRef = useRef<HTMLDivElement>(null);
   const optsRef = useRef<HTMLDivElement>(null);
-  const textRef = useRef<HTMLDivElement>(null);
   const [diagOpen, setDiagOpen] = useState(false);
   const [optsOpen, setOptsOpen] = useState(false);
-  const [textOpen, setTextOpen] = useState(false);
 
   // どちらのプルダウンも外側クリックで閉じる。
   // テーブル等がmousedownをstopPropagationするため、キャプチャ段階で検知する
@@ -102,10 +96,6 @@ export function ErToolbar({
   useDismiss(optsOpen, () => setOptsOpen(false), {
     capture: true,
     ref: optsRef,
-  });
-  useDismiss(textOpen, () => setTextOpen(false), {
-    capture: true,
-    ref: textRef,
   });
 
   return (
@@ -182,6 +172,26 @@ export function ErToolbar({
                 この図を削除
               </button>
             )}
+            <div className="context-sep" />
+            <button
+              className="context-item"
+              disabled={diagList.length === 0}
+              onClick={() => {
+                onBackup();
+                setDiagOpen(false);
+              }}
+            >
+              バックアップ...
+            </button>
+            <button
+              className="context-item"
+              onClick={() => {
+                onRestore();
+                setDiagOpen(false);
+              }}
+            >
+              復元...
+            </button>
           </div>
         )}
       </div>
@@ -246,64 +256,8 @@ export function ErToolbar({
         )}
       </div>
 
-      <button
-        className="btn-secondary"
-        disabled={!canExportPng}
-        onClick={onExportPng}
-      >
-        PNG保存
-      </button>
-
-      {/* テキスト形式。図をそのままリポジトリやWikiへ貼れるようにする */}
-      <div className="er-opts" ref={textRef}>
-        <button
-          /*
-           * 開いているあいだはヒントを出さない。
-           * 押したあともマウスがボタンの上にあるので、
-           * 出したままだと選択肢に重なって読めない
-           */
-          className={
-            "btn-secondary tooltip-left tooltip-wrap" +
-            (textOpen ? "" : " has-tooltip")
-          }
-          data-tooltip={
-            textOpen
-              ? undefined
-              : "Mermaid / PlantUML / SVG で書き出します\n(GitHubやNotionはMermaidをそのまま図にします。SVGは見たままの図)"
-          }
-          disabled={!canExportPng}
-          onClick={() => setTextOpen(!textOpen)}
-        >
-          テキスト <span className="er-opts-caret">▾</span>
-        </button>
-        {textOpen && (
-          <div className="er-opts-pop er-text-pop">
-            {TEXT_FORMATS.map(([format, label]) => (
-              <div key={format} className="er-text-row">
-                <span className="er-text-name">{label}</span>
-                <button
-                  className="context-item"
-                  onClick={() => {
-                    setTextOpen(false);
-                    onExportText(format, false);
-                  }}
-                >
-                  コピー
-                </button>
-                <button
-                  className="context-item"
-                  onClick={() => {
-                    setTextOpen(false);
-                    onExportText(format, true);
-                  }}
-                >
-                  保存
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* 保存は1つのボタンにまとめ、形式は ▾ で切り替える */}
+      <ErSaveMenu disabled={!canExport} onSave={onSave} onCopy={onCopy} />
       <span className="er-meta mono">{meta}</span>
     </div>
   );

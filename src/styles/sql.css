@@ -3,10 +3,27 @@
 /* ============ 履歴・保存SQLの統合メニュー ============ */
 
 .lib-menu {
-  min-width: 440px;
-  max-width: 580px;
-  max-height: 400px;
+  min-width: 460px;
+  max-width: 600px;
+  max-height: 440px;
   overflow-y: auto;
+}
+
+/*
+ * 件数が多いときは中でスクロールする。
+ * 共通のスクロールバーは薄くて、メニューの地の上では見落としやすいので、
+ * ここだけつまみを濃くして「下にまだある」ことが分かるようにする
+ */
+.lib-menu::-webkit-scrollbar-thumb,
+.pick-list::-webkit-scrollbar-thumb {
+  background: rgba(var(--ink), 0.24);
+  background-clip: content-box;
+}
+
+.lib-menu::-webkit-scrollbar-thumb:hover,
+.pick-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--ink), 0.36);
+  background-clip: content-box;
 }
 
 /* メニュー内の「履歴 / 保存SQL」切り替えタブ */
@@ -99,50 +116,132 @@
   background: rgba(var(--ink), 0.08);
 }
 
-/* 絞り込み中のお気に入り (フォルダをたどらず平らに並べる) */
-.saved-found {
+/*
+ * お気に入りを増やす操作 (検索欄の下に並べる)。
+ * 一覧の項目と見分けがつくよう、行ではなく小さなボタンにする
+ */
+.lib-saved-actions {
   display: flex;
-  align-items: baseline;
   gap: var(--space-2);
+  margin: 0 8px 6px;
 }
 
-.saved-found-name {
+.lib-action {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+}
+
+.lib-action:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.lib-action:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+/* 選んだら何が起きるか (一覧の下に留める) */
+.lib-foot {
+  position: sticky;
+  bottom: 0;
+  margin-top: 4px;
+  padding: 6px 12px 2px;
+  border-top: 1px solid var(--border);
+  background: var(--menu-bg);
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/*
+ * お気に入りのツリーの行 (フォルダ・SQL共通)。
+ * 字下げは行の左余白ではなく、階層ごとのマス (.tree-guide) で取る
+ */
+.saved-folder,
+.saved-item-row .saved-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-left: 8px;
+}
+
+.saved-folder {
+  font-weight: 700;
+}
+
+/* 階層1つぶんのマス。中央に縦線を引き、親フォルダの開閉の印の真下に来るようにする */
+.tree-guide {
+  position: relative;
+  flex-shrink: 0;
+  align-self: stretch;
+  width: 18px;
+  /* 行の間の gap を打ち消して、マスの幅をそろえる */
+  margin-right: calc(-1 * var(--space-2));
+}
+
+.tree-guide::before {
+  content: "";
+  position: absolute;
+  left: 8.5px;
+  /* 行の上下の余白まで伸ばして、行どうしで線がつながるようにする */
+  top: -7px;
+  bottom: -7px;
+  width: 1px;
+  background: rgba(var(--ink), 0.12);
+}
+
+.saved-icon {
+  flex-shrink: 0;
+}
+
+.saved-icon-folder {
+  color: var(--icon-folder);
+}
+
+.saved-icon-sql {
+  color: var(--icon-sql);
+}
+
+/* 開閉の印 (開いているときは下を向く) */
+.saved-chevron {
+  color: var(--text-dim);
+  transition: transform 0.12s ease;
+}
+
+.saved-chevron.open {
+  transform: rotate(90deg);
+}
+
+.saved-folder-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* どのフォルダのものかを、名前の後ろに小さく添える */
-.saved-found-folder {
+/* 中にいくつあるか (閉じていても分かるように) */
+.saved-folder-count {
   flex-shrink: 0;
-  margin-left: auto;
-  padding-left: var(--space-2);
   color: var(--text-faint);
   font-size: 11px;
+  font-weight: 600;
 }
 
-.saved-add {
-  color: var(--text);
-}
-
-.saved-add:disabled {
-  color: var(--text-faint);
-  cursor: default;
-}
-
-.saved-folder {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-weight: 700;
-}
-
+/* 開閉の印のマス (SQLの行では空けておき、アイコンの列をそろえる) */
 .saved-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 18px;
   flex-shrink: 0;
-  font-size: 14px;
-  line-height: 1;
-  color: var(--text-dim);
+  /* アイコンとの間は詰める (印とアイコンで1組に見せる) */
+  margin-right: calc(-1 * var(--space-1));
 }
 
 /* 履歴・お気に入りの行 (右端に編集/削除のボタンを置く) */
@@ -222,9 +321,22 @@
 .saved-item-row .saved-item {
   flex: 1;
   min-width: 0;
+}
+
+.saved-item-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* どのフォルダのものか (検索結果のときだけ) */
+.saved-item-folder {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: var(--space-3);
+  color: var(--text-faint);
+  font-size: 11px;
 }
 
 .saved-del,
@@ -237,6 +349,12 @@
   cursor: pointer;
   font-size: 12px;
   padding: 4px 8px;
+  /* お気に入りの ✎ / × は常に薄く出す (行に乗ったときだけだと、あることに気づけない) */
+  opacity: 0.7;
+}
+
+/* 履歴の × は、1行ずつ消すことが少ないので乗ったときだけ出す */
+.hist-item-row .saved-del {
   visibility: hidden;
 }
 
@@ -247,6 +365,7 @@
 .hist-item-row:hover .saved-del,
 .saved-del.confirm {
   visibility: visible;
+  opacity: 1;
 }
 
 /* ドラッグ中は行の中の ✎/× を出さない (落とし先が狭くなるため) */
@@ -268,17 +387,131 @@
   background: rgba(248, 113, 113, 0.12);
 }
 
-/* 保存ダイアログの補足 (フォルダの作り方の案内) */
+/* 保存ダイアログの補足 (フォルダをどこに作るか等) */
 .save-sql-note {
   font-size: 11px;
   color: var(--text-faint);
 }
 
-/* 保存ダイアログ。
+.save-sql-note.error {
+  color: var(--danger);
+}
+
+/* 保存・編集ダイアログ。中身を全文直せるよう広めに取る。
  * .modal の width は settings.css (後に読む) で決まっているので、
  * クラスを2つ重ねて上書きする */
 .modal.save-sql-modal {
-  width: min(460px, calc(100vw - 60px));
+  width: min(640px, calc(100vw - 60px));
+}
+
+/* 保存先フォルダの選択 (選ぶ欄と「＋ 新しいフォルダ」を横に並べる) */
+.folder-pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.folder-pick .select-menu-wrap,
+.folder-pick-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-pick-box {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.btn-ghost.folder-pick-add {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* 新しいフォルダをどこに作るか (入力欄の前に添える) */
+.folder-pick-parent {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* 中身の欄の見出し (右に「エディタの内容を取り込む」) */
+.save-sql-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.btn-ghost.save-sql-import {
+  padding: 4px 10px;
+  font-size: 11.5px;
+}
+
+.btn-ghost.save-sql-import:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.save-sql-text {
+  width: 100%;
+  min-height: 180px;
+  height: 240px;
+  max-height: 50vh;
+  resize: vertical;
+  box-sizing: border-box;
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 8px 10px;
+  outline: none;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.save-sql-text:focus {
+  border-color: var(--accent);
+}
+
+/* 中身がどこから来たか・変えたか */
+.save-sql-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 18px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.save-sql-changed {
+  color: var(--warn);
+}
+
+.save-sql-revert {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+.save-sql-updated,
+.save-sql-keyhint {
+  font-size: 11px;
+  color: var(--text-faint);
+  white-space: nowrap;
 }
 
 /* フォルダのダイアログ (入力が少ないので幅を詰める) */
@@ -294,39 +527,11 @@
   padding: 4px 0 0;
 }
 
-/* 作成後のフルパスを小さく見せる */
-.folder-preview {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  background: rgba(var(--ink), 0.04);
-  border: 1px solid var(--border);
-  min-width: 0;
-}
-
-.folder-preview-label {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--text-faint);
-}
-
-.folder-preview-path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--text);
-}
-
 .save-sql-body {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: 14px 16px 16px;
+  padding: 4px 0 0;
 }
 
 .save-sql-label {
@@ -370,28 +575,6 @@
 
 .save-sql-input.db-select:hover {
   border-color: var(--accent);
-}
-
-.save-sql-overwrite {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12.5px;
-  color: var(--text-dim);
-  cursor: pointer;
-}
-
-.save-sql-preview {
-  max-height: 110px;
-  overflow: hidden;
-  background: rgba(var(--ink), 0.04);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  font-size: 11px;
-  color: var(--text-dim);
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 
 .save-sql-error {
@@ -2213,3 +2396,128 @@ html[data-theme="light"] .brand-name {
 }
 
 /* 保存トースト (モーダル右上に浮かせる) */
+
+/* ============ お気に入りのバックアップ / 復元 ============ */
+
+/* 復元などが済んだ知らせ (メニューの上に出す) */
+.lib-notice {
+  margin: 0 8px 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: rgba(52, 211, 153, 0.12);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.modal.saved-transfer-modal {
+  width: min(520px, calc(100vw - 60px));
+}
+
+.modal.saved-restore-modal {
+  width: min(480px, calc(100vw - 60px));
+}
+
+.saved-transfer-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: 4px 0 0;
+}
+
+.saved-transfer-done {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+/* 何件書き出すか と「すべて選ぶ / 外す」 */
+.pick-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pick-count {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* 書き出すものを選ぶツリー (一覧と同じ並び・フォルダは開いたまま) */
+.pick-list {
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--input-bg);
+}
+
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.pick-row:hover {
+  background: rgba(var(--ink), 0.05);
+}
+
+.pick-folder {
+  font-weight: 700;
+}
+
+/* 行の余白ぶんだけ縦線を伸ばして、行どうしでつなげる */
+.pick-row .tree-guide::before {
+  top: -5px;
+  bottom: -5px;
+}
+
+.pick-check {
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.pick-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 復元するファイル (名前と「選び直す」) */
+.restore-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.restore-file-name {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink), 0.03);
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* 既存のお気に入りを壊さないことを、取り込む前に伝える */
+.restore-safe {
+  margin: 0;
+  font-size: 12px;
+  color: var(--success);
+}

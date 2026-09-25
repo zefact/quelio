@@ -1,50 +1,56 @@
 /**
  * フォルダの新規作成と名前の変更。
  *
- * 作るときは「どこに作るか」も選ぶ。
- * 名前を変えるときは場所は動かさない (移動はドラッグで行う)
+ * 作る場所は選ばせない。新しいフォルダはいつも一覧のいちばん下
+ * (どのフォルダにも入らない位置) にでき、動かすのはドラッグで行う。
+ * 名前を変えるときも場所は動かさない。
+ *
+ * フォルダの削除はここ (名前を変える画面) からだけ行う。
+ * 一覧の行に × を置くと、開閉しようとして押し間違えやすい
  */
-import { useState } from "react";
-import { SelectMenu } from "../SelectMenu";
+import { useEffect, useRef, useState } from "react";
+import { useModal } from "../../hooks/useModal";
+import { folderNameError } from "../../savedSqlForm";
 
 export function FolderDialog({
   /** 名前を変える対象のパス (新規作成なら null) */
   target,
-  /** 選べる親フォルダのパス一覧 (新規作成のときだけ使う) */
-  folders,
-  /** 新規作成時に最初に選んでおく親 */
-  defaultParent = "",
   onClose,
   onSubmit,
+  onDelete,
 }: {
   target: string | null;
-  folders: string[];
-  defaultParent?: string;
   onClose: () => void;
-  onSubmit: (v: { name: string; parent: string }) => Promise<void>;
+  onSubmit: (name: string) => Promise<void>;
+  /** 中身ごと削除する (名前を変えるときだけ。確認は呼び出し側で出す) */
+  onDelete?: () => void;
 }) {
   const editing = target !== null;
   const [name, setName] = useState(
     editing ? target.slice(target.lastIndexOf("/") + 1) : ""
   );
-  const [parent, setParent] = useState(defaultParent);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Escで閉じる・枠へのフォーカスは共通の作法にそろえる
+  const boxRef = useModal(onClose, !busy);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // useModal が枠へフォーカスした後に、名前の欄へ移す (開いたときだけ)
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+  }, []);
+
   const trimmed = name.trim();
-  /** 作成後 / 変更後のフルパス (下に小さく出す) */
-  const preview = editing
-    ? (target.includes("/")
-        ? target.slice(0, target.lastIndexOf("/") + 1)
-        : "") + (trimmed || "…")
-    : (parent ? `${parent}/` : "") + (trimmed || "…");
+  /** 「/」は階層の区切りなので名前には使えない */
+  const nameError = folderNameError(name);
 
   const submit = async () => {
-    if (!trimmed || busy) return;
+    if (!trimmed || nameError || busy) return;
     setError(null);
     setBusy(true);
     try {
-      await onSubmit({ name: trimmed, parent });
+      await onSubmit(trimmed);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -53,20 +59,18 @@ export function FolderDialog({
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <div className="modal-overlay" onMouseDown={() => !busy && onClose()}>
       <div
         className="modal folder-modal"
+        ref={boxRef}
+        tabIndex={-1}
         onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing) return;
-          if (e.key === "Escape") onClose();
-        }}
       >
         <div className="modal-head">
           <span className="modal-title">
             {editing ? "フォルダ名を変える" : "新しいフォルダ"}
           </span>
-          <button className="modal-close" onClick={onClose}>
+          <button className="modal-close" onClick={onClose} title="閉じる">
             ×
           </button>
         </div>
@@ -74,9 +78,9 @@ export function FolderDialog({
           <label className="save-sql-label">
             フォルダ名
             <input
+              ref={inputRef}
               className="save-sql-input"
               value={name}
-              autoFocus
               placeholder="例: 月次集計"
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
@@ -85,35 +89,34 @@ export function FolderDialog({
                 if (e.key === "Enter") void submit();
               }}
             />
+            <span className={"save-sql-note" + (nameError ? " error" : "")}>
+              {nameError ??
+                (editing
+                  ? "場所は変わりません (移動は一覧でドラッグ)"
+                  : "一覧のいちばん下に作ります (移動は一覧でドラッグ)")}
+            </span>
           </label>
-          {!editing && (
-            // SelectMenu は独自部品なので label では包まない
-            <div className="save-sql-label">
-              作る場所
-              <SelectMenu
-                className="save-sql-input"
-                popFixed
-                value={parent}
-                options={[
-                  { value: "", label: "(いちばん上)" },
-                  ...folders.map((f) => ({ value: f, label: f })),
-                ]}
-                onChange={setParent}
-              />
-            </div>
-          )}
-          <div className="folder-preview">
-            <span className="folder-preview-label">できあがり</span>
-            <span className="folder-preview-path mono">{preview}</span>
-          </div>
           {error && <div className="save-sql-error">{error}</div>}
           <div className="save-sql-actions">
+            {editing && onDelete && (
+              <>
+                <button
+                  type="button"
+                  className="btn-ghost danger"
+                  disabled={busy}
+                  onClick={onDelete}
+                >
+                  削除
+                </button>
+                <span className="toolbar-spacer" />
+              </>
+            )}
             <button className="btn-secondary" onClick={onClose}>
               キャンセル
             </button>
             <button
               className="btn-primary"
-              disabled={!trimmed || busy}
+              disabled={!trimmed || !!nameError || busy}
               onClick={() => void submit()}
             >
               {editing ? "変更" : "作成"}

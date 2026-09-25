@@ -41,6 +41,8 @@ import type {
   DbUserChange,
   DbUsersInfo,
   ErDiagramData,
+  ErFileEntry,
+  ErImported,
   ExportedLog,
   ExportMode,
   ExportTable,
@@ -74,7 +76,9 @@ import type {
   RowCell,
   RowChange,
   RunOutput,
+  SavedSqlImported,
   SavedSqlStore,
+  SavedSqlSummary,
   SchemaEntry,
   SchemaTable,
   SessionSummary,
@@ -93,6 +97,7 @@ import type {
 } from "./types";
 import type { ParamValue } from "./sqlParams";
 import type { ExportFormat } from "./exportFormat";
+import type { XlsxErSheet } from "./er/xlsxModel";
 
 export function listConnections(): Promise<ConnectionStore> {
   return call("list_connections");
@@ -1266,6 +1271,27 @@ export function importErDiagrams(path: string): Promise<ImportCounts> {
   return call("import_er_diagrams", { path });
 }
 
+/** 選んだER図だけをJSONファイルへ書き出す (件数を返す) */
+export function exportErDiagramSubset(
+  path: string,
+  names: string[]
+): Promise<number> {
+  return call("export_er_diagram_subset", { path, names });
+}
+
+/** ER図のファイルの中身と、取り込むときの名前を調べる */
+export function inspectErDiagramFile(path: string): Promise<ErFileEntry[]> {
+  return call("inspect_er_diagram_file", { path });
+}
+
+/** ファイルから選んだER図を取り込む (今ある図は上書きせず、同じ名前は番号を付ける) */
+export function importErDiagramsAsNew(
+  path: string,
+  names: string[]
+): Promise<ErImported[]> {
+  return call("import_er_diagrams_as_new", { path, names });
+}
+
 /** SQLのお気に入りをJSONファイルへ書き出す (件数を返す) */
 export function exportSavedSql(path: string): Promise<number> {
   return call("export_saved_sql", { path });
@@ -1274,6 +1300,35 @@ export function exportSavedSql(path: string): Promise<number> {
 /** JSONファイルからSQLのお気に入りを取り込む (同じIDは上書き) */
 export function importSavedSql(path: string): Promise<ImportCounts> {
   return call("import_saved_sql", { path });
+}
+
+/**
+ * SQLのお気に入りのうち、選んだものだけを書き出す (件数を返す)。
+ * `folders` は中身の無いフォルダを残したいときに渡す
+ * (項目の入っているフォルダは、選ばなくても付く)
+ */
+export function exportSavedSqlSubset(
+  path: string,
+  ids: string[],
+  folders: string[],
+): Promise<number> {
+  return call("export_saved_sql_subset", { path, ids, folders });
+}
+
+/** 取り込む前に、ファイルの中のお気に入りの数を調べる */
+export function inspectSavedSqlFile(path: string): Promise<SavedSqlSummary> {
+  return call("inspect_saved_sql_file", { path });
+}
+
+/**
+ * ファイルのお気に入りを、新しいフォルダを作ってその中へ取り込む。
+ * 今あるお気に入りは変えない (同じ名前のフォルダがあれば番号を付ける)
+ */
+export function importSavedSqlInto(
+  path: string,
+  folder: string,
+): Promise<SavedSqlImported> {
+  return call("import_saved_sql_into", { path, folder });
 }
 
 /** 固定長のお気に入りをJSONファイルへ書き出す (件数を返す) */
@@ -1319,6 +1374,11 @@ export function saveCapture(
   dataBase64: string,
 ): Promise<string> {
   return call("save_capture", { fileName, dataBase64 });
+}
+
+/** ER図をExcelの図形として保存先フォルダへ書き出し、保存先パスを返す */
+export function saveErXlsx(fileName: string, sheet: XlsxErSheet): Promise<string> {
+  return call("save_er_xlsx", { fileName, sheet });
 }
 
 /** テキストファイルを保存先フォルダへ書き出し、保存先パスを返す */

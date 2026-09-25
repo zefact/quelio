@@ -174,3 +174,11 @@ export function resolveDrop(
   const before = spot.type === "before" ? target : (list[at + 1] ?? null);
   return { node, parent, before };
 }
+
+/**
+ * フォルダの中 (下の階層も含む) にあるお気に入りの数。
+ * 閉じたフォルダでも、中にどれだけあるかが分かるように行へ添える
+ */
+export function itemsInside(store: SavedSqlStore, path: string): number {
+  return store.items.filter((e) => isInside(e.folder, path)).length;
+}

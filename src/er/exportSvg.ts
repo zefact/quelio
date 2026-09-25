@@ -26,7 +26,7 @@ import {
 export type MeasureText = (text: string, font: string) => number;
 
 /** canvasで文字幅を測る (画面で使う既定の実装) */
-function canvasMeasure(): MeasureText {
+export function canvasMeasure(): MeasureText {
   const ctx = document.createElement("canvas").getContext("2d");
   if (!ctx) throw new Error("canvasを初期化できません");
   return (text, font) => {

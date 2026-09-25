@@ -316,6 +316,35 @@ pub fn import_er_diagrams(
     crate::backup::import_er_diagrams(&app, &path)
 }
 
+/// 選んだER図だけをJSONファイルへ書き出す (件数を返す)
+#[tauri::command]
+pub fn export_er_diagram_subset(
+    app: AppHandle,
+    path: String,
+    names: Vec<String>,
+) -> Result<usize, String> {
+    crate::er_store::transfer::export_subset(&app, &path, &names)
+}
+
+/// ER図のファイルの中身と、取り込むときの名前を返す
+#[tauri::command]
+pub fn inspect_er_diagram_file(
+    app: AppHandle,
+    path: String,
+) -> Result<Vec<crate::er_store::transfer::FileEntry>, String> {
+    crate::er_store::transfer::inspect_file(&app, &path)
+}
+
+/// ファイルから選んだER図を取り込む (今ある図は上書きしない)
+#[tauri::command]
+pub fn import_er_diagrams_as_new(
+    app: AppHandle,
+    path: String,
+    names: Vec<String>,
+) -> Result<Vec<crate::er_store::transfer::Imported>, String> {
+    crate::er_store::transfer::import_file(&app, &path, &names)
+}
+
 /// クエリログを返す (after_seqより新しいもの。0で全件)
 #[tauri::command]
 pub fn get_query_log(
@@ -402,6 +431,22 @@ pub async fn save_text_file(
     let path = dir.join(crate::filename::safe_file_name(&file_name));
     crate::outfile::write(&path, text.into_bytes())
         .map_err(|e| format!("ファイルを書き込めません: {e}"))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// ER図をExcelの図形として保存先フォルダへ書き出し、保存先パスを返す。
+/// テーブルは図形のグループ、リレーションはコネクタで描く (Excel上で動かせる)
+#[tauri::command]
+pub async fn save_er_xlsx(
+    app: AppHandle,
+    file_name: String,
+    sheet: crate::er_xlsx::ErSheet,
+) -> Result<String, String> {
+    let bytes = crate::er_xlsx::build(&sheet)?;
+    // 設定の「保存先フォルダ」に従う (未設定ならOSのダウンロードフォルダ)
+    let dir = crate::app_settings::download_dir(&app)?;
+    let path = dir.join(crate::filename::safe_file_name(&file_name));
+    crate::outfile::write(&path, bytes).map_err(|e| format!("Excelを書き込めません: {e}"))?;
     Ok(path.to_string_lossy().to_string())
 }
 

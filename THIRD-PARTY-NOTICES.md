@@ -41,6 +41,7 @@ copyrighted by its respective authors and distributed under its own license.
 | webpki-roots | CDLA-Permissive-2.0 | https://github.com/rustls/webpki-roots |
 | libsqlite3-sys (SQLite本体を同梱) | MIT (SQLite本体はパブリックドメイン) | https://www.sqlite.org/copyright.html |
 | WebView (wry / tao) | MIT / Apache-2.0 | https://github.com/tauri-apps/wry |
+| zip | MIT | https://github.com/zip-rs/zip2 |
 
 上記の直接依存のほか、それぞれが依存するライブラリ (推移的依存) も
 MIT / Apache-2.0 / BSD / ISC などの寛容なライセンスで配布されています。

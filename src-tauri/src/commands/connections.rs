@@ -325,6 +325,37 @@ pub fn import_saved_sql(
     crate::backup::import_saved_sql(&app, &path)
 }
 
+/// SQLのお気に入りのうち、選んだものだけをJSONファイルへ書き出す (件数を返す)。
+/// お気に入りの画面のバックアップから呼ぶ
+#[tauri::command]
+pub fn export_saved_sql_subset(
+    app: AppHandle,
+    path: String,
+    ids: Vec<String>,
+    folders: Vec<String>,
+) -> Result<usize, String> {
+    crate::saved_sql::transfer::export_subset(&app, &path, &ids, &folders)
+}
+
+/// 取り込む前に、ファイルの中身の数を返す
+#[tauri::command]
+pub fn inspect_saved_sql_file(
+    path: String,
+) -> Result<crate::saved_sql::transfer::Summary, String> {
+    crate::saved_sql::transfer::inspect_file(&path)
+}
+
+/// JSONファイルのお気に入りを、新しいフォルダを作ってその中へ取り込む。
+/// 今あるお気に入りは変えない (お気に入りの画面の復元から呼ぶ)
+#[tauri::command]
+pub fn import_saved_sql_into(
+    app: AppHandle,
+    path: String,
+    folder: String,
+) -> Result<crate::saved_sql::transfer::ImportedInto, String> {
+    crate::saved_sql::transfer::import_file_into(&app, &path, &folder)
+}
+
 /// 固定長のお気に入りをJSONファイルへ書き出す (件数を返す)
 #[tauri::command]
 pub fn export_csv_layouts(app: AppHandle, path: String) -> Result<usize, String> {

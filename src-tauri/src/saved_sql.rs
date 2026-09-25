@@ -13,7 +13,10 @@ use tauri::AppHandle;
 
 use crate::json_store;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// 一部だけの書き出しと、新しいフォルダへの取り込み (お気に入りの画面から使う)
+pub mod transfer;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedSql {
     pub id: String,

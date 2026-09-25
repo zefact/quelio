@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.9.6"
+version = "0.9.7"
 description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -87,6 +87,9 @@ schemars = "1"
 # テーブル定義書のExcel出力 (純Rust。Cのライブラリを持ち込まない)
 # constant_memory: 結果の書き出しは行数が読めないので、1行ずつ流して使用メモリを一定に保つ
 rust_xlsxwriter = { version = "0.95", features = ["constant_memory"] }
+# ER図のExcel出力 (図形・コネクタは rust_xlsxwriter で描けないので xlsx を自前で組む)。
+# rust_xlsxwriter が使っているものと同じ版・同じ機能にそろえる
+zip = { version = "7.2", default-features = false, features = ["deflate"] }
 
 # 外部CLI (SSM / Cloud SQL Proxy) をプロセスグループごと終わらせるため
 [target.'cfg(unix)'.dependencies]

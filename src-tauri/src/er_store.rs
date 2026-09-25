@@ -9,6 +9,8 @@ use tauri::AppHandle;
 
 use crate::json_store;
 
+pub mod transfer;
+
 fn store_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     json_store::config_path(app, "er_diagrams.json")
 }

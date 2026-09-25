@@ -34,6 +34,8 @@ import type {
   CsvReplaceOne,
   DangerousStatement,
   ErDiagramData,
+  ErFileEntry,
+  ErImported,
   ExportedLog,
   FkInfo,
   FolderInfo,
@@ -57,7 +59,9 @@ import type {
   QueryLogEntry,
   RoutineInfo,
   RunOutput,
+  SavedSqlImported,
   SavedSqlStore,
+  SavedSqlSummary,
   SchemaEntry,
   SchemaTable,
   ShapeReport,
@@ -126,7 +130,9 @@ export interface CommandResults {
   end_txn: string;
   export_connections: number;
   export_er_diagrams: number;
+  export_er_diagram_subset: number;
   export_saved_sql: number;
+  export_saved_sql_subset: number;
   export_csv_layouts: number;
   export_plan_csv: CsvExportResult;
   csv_open: CsvInfo;
@@ -190,7 +196,11 @@ export interface CommandResults {
   import_connections: ImportCounts;
   import_csv: ImportResult;
   import_er_diagrams: ImportCounts;
+  import_er_diagrams_as_new: ErImported[];
+  inspect_er_diagram_file: ErFileEntry[];
   import_saved_sql: ImportCounts;
+  import_saved_sql_into: SavedSqlImported;
+  inspect_saved_sql_file: SavedSqlSummary;
   import_csv_layouts: ImportCounts;
   job_status: JobStatus;
   kill_process: void;
@@ -241,6 +251,7 @@ export interface CommandResults {
   save_text_as: void;
   save_connection: ConnectionProfile;
   save_er_diagram: void;
+  save_er_xlsx: string;
   save_sql_params: void;
   save_tool_settings: void;
   save_workspace: void;
@@ -356,11 +367,13 @@ export const COMMAND_NAMES = [
   "end_txn",
   "export_connections",
   "export_csv_layouts",
+  "export_er_diagram_subset",
   "export_er_diagrams",
   "export_plan_csv",
   "export_query_log",
   "export_query_rows",
   "export_saved_sql",
+  "export_saved_sql_subset",
   "export_schema_csv",
   "export_schema_xlsx",
   "fetch_cell",
@@ -378,7 +391,11 @@ export const COMMAND_NAMES = [
   "import_csv",
   "import_csv_layouts",
   "import_er_diagrams",
+  "import_er_diagrams_as_new",
   "import_saved_sql",
+  "import_saved_sql_into",
+  "inspect_er_diagram_file",
+  "inspect_saved_sql_file",
   "job_status",
   "kill_process",
   "kv_apply",
@@ -433,6 +450,7 @@ export const COMMAND_NAMES = [
   "save_capture",
   "save_connection",
   "save_er_diagram",
+  "save_er_xlsx",
   "save_sql_params",
   "save_text_as",
   "save_text_file",

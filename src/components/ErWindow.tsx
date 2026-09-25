@@ -9,6 +9,7 @@ import {
   listTables,
   openMainWindow,
   saveCapture,
+  saveErXlsx,
   saveTextFile,
   schemaWithForeignKeys,
 } from "../api";
@@ -31,8 +32,9 @@ import type {
 import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
 import { rafThrottle } from "../rafThrottle";
 import { drawErPng } from "../er/exportPng";
-import { drawErSvg } from "../er/exportSvg";
-import type { ErDrawInput } from "../er/drawing";
+import { canvasMeasure, drawErSvg } from "../er/exportSvg";
+import { buildErSheet } from "../er/exportXlsx";
+import { fileStamp, type ErDrawInput } from "../er/drawing";
 import { toMermaid, toPlantUml } from "../er/exportText";
 import { usePolling } from "../hooks/usePolling";
 import { useDismiss } from "../hooks/useDismiss";
@@ -55,11 +57,15 @@ import { FrameMenu } from "./erMenu/FrameMenu";
 import { NodeMenu } from "./erMenu/NodeMenu";
 import type { ErCtxMenu } from "./erMenu/types";
 import { ErEdgeLayer } from "./ErEdgeLayer";
+import { ErToolbar } from "./ErToolbar";
+import { ErBackupDialog } from "./ErBackupDialog";
+import { ErRestoreDialog } from "./ErRestoreDialog";
+import { importedNotice } from "../er/erTransfer";
 import {
-  ErToolbar,
-  textFormatLabel,
+  formatLabel,
+  type ErExportFormat,
   type ErTextFormat,
-} from "./ErToolbar";
+} from "../er/exportFormat";
 import { ErNodeView } from "./ErNodeView";
 import { ErFrameLayer, type FrameHandlers } from "./ErFrameLayer";
 import { ErPageTabs } from "./ErPageTabs";
@@ -158,6 +164,8 @@ export function ErWindow() {
   /** 削除確認ダイアログ (タブ・テーブル・線・枠などの削除前に出す)。
    * subを指定するとサブテキストを差し替えられる (既定は「元に戻せません」) */
   const [confirm, setConfirm] = useState<ErConfirm | null>(null);
+  /** 図のバックアップ / 復元の画面 */
+  const [transfer, setTransfer] = useState<"backup" | "restore" | null>(null);
   // 保存用に最新のスキーマを参照できるようにしておく (ドラッグ終了時などに使う)
   const entriesRef = useRef<SchemaEntry[] | null>(null);
   entriesRef.current = entries;
@@ -1699,8 +1707,7 @@ export function ErWindow() {
     return { x1: src.x, y1: src.y, x2: linkDrag.x, y2: linkDrag.y };
   })();
 
-  /** PNG出力 (現在の配置をcanvasに描き直して保存) */
-  /** PNG・SVGへ描き直すときの入力 (画面に出ているものをそのまま渡す) */
+  /** PNG・SVG・Excelへ描き直すときの入力 (画面に出ているものをそのまま渡す) */
   const drawInput = (): ErDrawInput => ({
     database: sel.database,
     nodes,
@@ -1720,13 +1727,27 @@ export function ErWindow() {
     try {
       setNotice("PNG生成中...");
       const base64 = drawErPng(drawInput());
-      const d = new Date();
-      const p2 = (v: number) => String(v).padStart(2, "0");
-      const ts = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+      const ts = fileStamp();
       const path = await saveCapture(`quelio_er_${sel.database}_${ts}.png`, base64);
       setNotice(`保存しました → ${path}`);
     } catch (e) {
       setNotice(`PNG保存に失敗: ${e}`);
+    }
+  };
+
+  /** Excel出力 (テーブルと線をExcelの図形として描く) */
+  const exportXlsx = async () => {
+    if (nodes.length === 0) return;
+    try {
+      setNotice("Excel生成中...");
+      const sheet = buildErSheet(drawInput(), canvasMeasure());
+      const path = await saveErXlsx(
+        `quelio_er_${sel.database}_${fileStamp()}.xlsx`,
+        sheet
+      );
+      setNotice(`保存しました → ${path}`);
+    } catch (e) {
+      setNotice(`Excel保存に失敗: ${e}`);
     }
   };
 
@@ -1752,12 +1773,10 @@ export function ErWindow() {
             })();
       if (!save) {
         await writeClipboard(text);
-        setNotice(`${textFormatLabel(format)} をコピーしました`);
+        setNotice(`${formatLabel(format)} をコピーしました`);
         return;
       }
-      const d = new Date();
-      const p2 = (v: number) => String(v).padStart(2, "0");
-      const ts = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+      const ts = fileStamp();
       const ext =
         format === "mermaid" ? "mmd" : format === "plantuml" ? "puml" : "svg";
       const path = await saveTextFile(
@@ -1768,6 +1787,13 @@ export function ErWindow() {
     } catch (e) {
       setNotice(`書き出しに失敗: ${e}`);
     }
+  };
+
+  /** 選んだ形式で保存する (ツールバーの保存ボタン) */
+  const saveAs = (format: ErExportFormat) => {
+    if (format === "png") return exportPng();
+    if (format === "xlsx") return exportXlsx();
+    return exportText(format, true);
   };
 
   /** 注釈 (枠・見出し) への操作をまとめて渡す */
@@ -1807,6 +1833,8 @@ export function ErWindow() {
       <ErToolbar
         diagName={diagName}
         diagList={diagList}
+        onBackup={() => setTransfer("backup")}
+        onRestore={() => setTransfer("restore")}
         onOpenDiagram={openDiagram}
         onNewDiagram={() => {
           store.clearDiagram();
@@ -1839,9 +1867,9 @@ export function ErWindow() {
         onReverse={() => void openPicker()}
         options={{ allCols, showLogical, showTypes }}
         onToggleOption={toggleOpt}
-        onExportPng={exportPng}
-        onExportText={(f, save) => void exportText(f, save)}
-        canExportPng={nodes.length > 0}
+        onSave={(f) => void saveAs(f)}
+        onCopy={(f) => void exportText(f, false)}
+        canExport={nodes.length > 0}
         meta={
           entries
             ? `${nodes.length}テーブル / ${edges.length}リレーション`
@@ -2300,6 +2328,24 @@ export function ErWindow() {
           onClose={() => setSettingsOpen(false)}
           // この窓には接続の一覧が無いので、読み直すものは無い
           onImported={() => {}}
+        />
+      )}
+
+      {transfer === "backup" && (
+        <ErBackupDialog
+          names={diagList}
+          current={diagName}
+          onClose={() => setTransfer(null)}
+        />
+      )}
+      {transfer === "restore" && (
+        <ErRestoreDialog
+          onClose={() => setTransfer(null)}
+          onDone={(done) => {
+            setTransfer(null);
+            store.refreshDiagList();
+            setNotice(importedNotice(done));
+          }}
         />
       )}
 

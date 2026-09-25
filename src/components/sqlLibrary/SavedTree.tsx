@@ -16,10 +16,14 @@ import type { SavedSqlEntry, SavedSqlStore } from "../../types";
 import {
   buildTree,
   isInside,
+  itemsInside,
   type DragRef,
   type DropSpot,
   type SavedNode,
 } from "../../savedTree";
+import { ChevronIcon, FolderIcon } from "./LibraryIcons";
+import { SavedItemRow } from "./SavedItemRow";
+import { TreeIndent } from "./TreeIndent";
 
 export interface SavedTreeProps {
   store: SavedSqlStore;
@@ -27,10 +31,10 @@ export interface SavedTreeProps {
   opened: Set<string>;
   onToggleFolder: (path: string) => void;
   onPickItem: (entry: SavedSqlEntry) => void;
+  /** 編集画面を開く (お気に入りの削除も編集画面から行う) */
   onEditItem: (entry: SavedSqlEntry) => void;
-  onDeleteItem: (entry: SavedSqlEntry) => void;
+  /** フォルダの変更画面を開く (フォルダの削除も変更画面から行う) */
   onRenameFolder: (path: string) => void;
-  onDeleteFolder: (path: string) => void;
   /** ドラッグで動かした (置けない場所では呼ばれない) */
   onMove: (drag: DragRef, spot: DropSpot) => void;
 }
@@ -41,9 +45,7 @@ export function SavedTree({
   onToggleFolder,
   onPickItem,
   onEditItem,
-  onDeleteItem,
   onRenameFolder,
-  onDeleteFolder,
   onMove,
 }: SavedTreeProps) {
   /** 掴んでいるもの (描画には使わないので ref) */
@@ -189,31 +191,30 @@ export function SavedTree({
           >
             <button
               className="context-item saved-folder"
-              style={{ paddingLeft: 12 + depth * 16 }}
               title="クリックで開閉 / ドラッグで移動"
               draggable
               onDragStart={(e) => startDrag(e, { type: "folder", path: f.path })}
               onDragEnd={endDrag}
               onClick={() => onToggleFolder(f.path)}
             >
+              <TreeIndent depth={depth} />
               <span className="saved-caret" aria-hidden>
-                {closed ? "▸" : "▾"}
+                <ChevronIcon open={!closed} />
               </span>
-              {f.name}
+              <FolderIcon open={!closed} />
+              <span className="saved-folder-name">{f.name}</span>
+              {/* 閉じていても、中にいくつあるか分かるようにする */}
+              <span className="saved-folder-count">
+                {itemsInside(store, f.path)}
+              </span>
             </button>
             <button
               className="saved-edit"
-              title="フォルダ名を変える"
+              title="フォルダ名を変える (削除もここから)"
+              aria-label="フォルダを変更"
               onClick={() => onRenameFolder(f.path)}
             >
               ✎
-            </button>
-            <button
-              className="saved-del"
-              title="フォルダを中身ごと削除"
-              onClick={() => onDeleteFolder(f.path)}
-            >
-              ×
             </button>
           </div>
         );
@@ -222,36 +223,20 @@ export function SavedTree({
       }
       const it = child.entry;
       out.push(
-        <div
+        <SavedItemRow
           key={`i:${it.id}`}
-          className={
-            "saved-item-row" + (dragging ? " dragging" : "") + itemMark(it.id)
-          }
-          onDragOver={(e) => over(e, itemSpot(e, it.id, it.folder))}
-          onDrop={(e) => drop(e, itemSpot(e, it.id, it.folder))}
-        >
-          <button
-            className="context-item saved-item"
-            style={{ paddingLeft: 12 + depth * 16 }}
-            title={`${it.sql}\n\n(ドラッグで移動)`}
-            draggable
-            onDragStart={(e) => startDrag(e, { type: "item", id: it.id })}
-            onDragEnd={endDrag}
-            onClick={() => onPickItem(it)}
-          >
-            {it.name}
-          </button>
-          <button
-            className="saved-edit"
-            title="編集 (名前 / フォルダ / SQLの入れ替え)"
-            onClick={() => onEditItem(it)}
-          >
-            ✎
-          </button>
-          <button className="saved-del" title="削除" onClick={() => onDeleteItem(it)}>
-            ×
-          </button>
-        </div>
+          entry={it}
+          depth={depth}
+          rowClass={(dragging ? " dragging" : "") + itemMark(it.id)}
+          drag={{
+            onDragStart: (e) => startDrag(e, { type: "item", id: it.id }),
+            onDragEnd: endDrag,
+            onDragOver: (e) => over(e, itemSpot(e, it.id, it.folder)),
+            onDrop: (e) => drop(e, itemSpot(e, it.id, it.folder)),
+          }}
+          onPick={onPickItem}
+          onEdit={onEditItem}
+        />
       );
     }
     return out;

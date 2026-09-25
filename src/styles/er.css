@@ -1015,37 +1015,34 @@ html.macos .er-window .diff-toolbar {
   opacity: 0.7;
 }
 
-/* テキスト出力のプルダウン (形式ごとに「コピー」「保存」を並べる) */
-/* .er-opts-pop の指定を上書きするので、クラスを重ねて強くする */
-.er-opts-pop.er-text-pop {
-  min-width: 260px;
-  right: 0;
-  left: auto;
+/* 保存ボタンのメニュー (形式ごとの行。テキスト形式は右に「コピー」) */
+.er-save-menu {
+  min-width: 300px;
 }
 
-.er-text-row {
+.er-save-row {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 2px;
 }
 
-.er-text-name {
+.er-save-row .export-item {
   flex: 1;
-  /* 形式名が縮んで、ボタンの文字と重ならないようにする */
-  min-width: 90px;
-  padding: 0 4px 0 10px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text);
-  white-space: nowrap;
+  min-width: 0;
 }
 
-.er-text-row .context-item {
+.er-save-row .er-save-copy {
   width: auto;
   flex: 0 0 auto;
-  padding: 6px 12px;
+  align-self: center;
+  padding: 6px 10px;
   font-size: 12px;
   white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.er-save-row .er-save-copy:hover {
+  color: var(--text);
 }
 
 .er-opts-pop {
@@ -1240,4 +1237,33 @@ html.macos .er-window .diff-toolbar {
   cursor: grabbing;
   /* 滑っていくタブの上に重ねる */
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* 図のメニューのバックアップ / 復元: 行の目印と説明 */
+.er-pick-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--accent-2);
+}
+
+.er-pick-meta {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-left: var(--space-2);
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* 図の名前と、その下の「番号を付けて足す」の知らせ */
+.er-pick-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.er-pick-rename {
+  font-size: 11px;
+  color: var(--warn);
 }

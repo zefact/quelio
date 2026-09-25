@@ -105,3 +105,12 @@ export function frameDashOf(style: ErFrame["style"]): string {
   if (style === "dotted") return "2 4";
   return "";
 }
+
+/** 書き出すファイル名に付ける日時 (YYYYMMDD_HHMMSS) */
+export function fileStamp(d: Date = new Date()): string {
+  const p2 = (v: number) => String(v).padStart(2, "0");
+  return (
+    `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}` +
+    `_${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`
+  );
+}

@@ -3,6 +3,7 @@ import {
   buildTree,
   childRefs,
   isInside,
+  itemsInside,
   resolveDrop,
   type SavedChild,
 } from "./savedTree";
@@ -208,5 +209,23 @@ describe("パスの判定", () => {
     expect(isInside("集計外", "集計")).toBe(false);
     // ルート ("") は全部を含む
     expect(isInside("何か", "")).toBe(true);
+  });
+});
+
+describe("itemsInside", () => {
+  it("下の階層の分も数える", () => {
+    expect(itemsInside(store(), "集計")).toBe(3);
+    expect(itemsInside(store(), "集計/月次")).toBe(1);
+  });
+
+  it("空のフォルダは0", () => {
+    expect(itemsInside(store(), "他")).toBe(0);
+  });
+
+  it("名前の頭が同じだけの別フォルダは数えない", () => {
+    const s = store();
+    s.folders.push("集計2");
+    s.items.push({ ...s.items[0], id: "z", folder: "集計2" });
+    expect(itemsInside(s, "集計")).toBe(3);
   });
 });

@@ -116,3 +116,19 @@ export interface ErDiagramData {
   columnColors?: Record<string, string>;
   frames?: ErFrame[];
 }
+
+/** 復元する前に見せる、ファイルの中の図1つ */
+export interface ErFileEntry {
+  /** ファイルの中での名前 */
+  name: string;
+  /** 取り込むときの名前 (同じ名前の図があれば番号付き) */
+  saveAs: string;
+  pages: number;
+  tables: number;
+}
+
+/** 取り込んだ図 (元の名前と、実際に付けた名前) */
+export interface ErImported {
+  name: string;
+  savedAs: string;
+}
