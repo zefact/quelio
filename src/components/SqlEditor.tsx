@@ -400,7 +400,7 @@ export const editorTheme = EditorView.theme({
   ".cm-content": {
     // drawSelectionを使うとOS標準のキャレットは隠れるため、
     // 実際の色は下の .cm-cursor が決める (ここは使わない場合の保険)
-    caretColor: "var(--accent-2)",
+    caretColor: "var(--editor-caret)",
     padding: "10px 0",
   },
   ".cm-line": { padding: "0 12px" },
@@ -419,21 +419,33 @@ export const editorTheme = EditorView.theme({
     cursor: "default",
   },
   ".cm-lineNumbers .cm-gutterElement:hover": { color: "var(--text-dim)" },
-  ".cm-activeLine": { backgroundColor: "rgba(var(--ink), 0.035)" },
+  // カーソルのある行は、地の色を少し付けて見つけやすくする
+  ".cm-activeLine": { backgroundColor: "var(--editor-active-line)" },
   // 実行ボタンで走る文 (押す前から範囲が分かるようにする)
   ".cm-target": {
     backgroundColor: "rgba(99, 102, 241, 0.07)",
     boxShadow: "inset 2px 0 0 var(--accent)",
   },
+  // カーソルのある行の行番号は、濃く太くする (縦の位置を行番号側からも追える)
   ".cm-activeLineGutter": {
     backgroundColor: "transparent",
-    color: "var(--text-dim)",
+    color: "var(--editor-caret)",
+    fontWeight: "700",
   },
   ".cm-selectionBackground, &.cm-focused .cm-selectionBackground": {
     backgroundColor: "rgba(99, 102, 241, 0.32) !important",
   },
   ".cm-placeholder": { color: "var(--text-faint)" },
-  ".cm-cursor": { borderLeftColor: "var(--accent-2)" },
+  /*
+   * カーソルは細い1pxだと見失いやすいので、2pxの太さにして
+   * うっすら光らせる (文字の色とも取り違えない)
+   */
+  ".cm-cursor, .cm-dropCursor": {
+    borderLeft: "2px solid var(--editor-caret)",
+    marginLeft: "-1px",
+    boxShadow:
+      "0 0 6px color-mix(in srgb, var(--editor-caret) 55%, transparent)",
+  },
 
   /*
    * 字下げの縦線。

@@ -99,6 +99,10 @@
   --indent-guide: rgba(var(--ink), 0.13);
   /* カーソルのいるまとまりの線 (これだけ濃くする) */
   --indent-guide-on: rgba(var(--ink), 0.42);
+  /* SQLエディタのカーソル (文字の色と取り違えない、目立つ色) */
+  --editor-caret: #22d3ee;
+  /* カーソルのある行の地の色 */
+  --editor-active-line: rgba(var(--ink), 0.06);
 
   font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   font-size: 14px;
@@ -153,6 +157,9 @@ html[data-theme="light"] {
    */
   --indent-guide: rgba(var(--ink), 0.07);
   --indent-guide-on: rgba(var(--ink), 0.2);
+  /* 明るい地では水色が見えにくいので、濃い藍にする */
+  --editor-caret: #4338ca;
+  --editor-active-line: rgba(79, 70, 229, 0.07);
 }
 
 * {
