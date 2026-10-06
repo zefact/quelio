@@ -47,12 +47,18 @@ interface Props {
   layouts: CsvLayoutNode[];
   /** お気に入りの桁設定で読み直す */
   onUseLayout: (s: CsvSavedLayout) => void;
-  /** お気に入りを削除する */
+  /** お気に入りの名前・桁設定を直す画面を開く */
+  onEditLayout: (s: CsvSavedLayout) => void;
+  /** お気に入りを削除する (確認の画面を出す) */
   onDeleteLayout: (s: CsvSavedLayout) => void;
+  /** お気に入りの削除の確認を出しているか */
+  deletingLayout: boolean;
   /** 並び順やフォルダ分けを変えた結果を残す */
   onSaveLayoutTree: (nodes: CsvLayoutNode[]) => void;
   /** 桁設定のダイアログを開く */
   onEditFixed: () => void;
+  /** お気に入りのバックアップ・復元の画面を開く */
+  onLayoutTransfer: (kind: "backup" | "restore") => void;
   /** 区切り文字として読み直す */
   onUseDelimiter: () => void;
 }
@@ -72,15 +78,21 @@ export function CsvToolbar({
   onToggleSync,
   layouts,
   onUseLayout,
+  onEditLayout,
   onDeleteLayout,
+  deletingLayout,
   onSaveLayoutTree,
+  onLayoutTransfer,
   onEditFixed,
   onUseDelimiter,
 }: Props) {
   /** 固定長のメニューを開いているか */
   const [fixedOpen, setFixedOpen] = useState(false);
-  // 読み方を変えられるのは、ファイルから開いたタブだけ
-  const canFixed = !!active?.path;
+  /*
+   * 読み方を変えられるのは、ファイルから開いたタブだけ。
+   * お気に入りの整理はファイルが無くてもできるので、メニューそのものはいつでも開ける
+   */
+  const canApply = !!active?.path;
   /*
    * 今このファイルに使われているお気に入り。
    *
@@ -125,37 +137,40 @@ export function CsvToolbar({
             "pane-icon-btn has-tooltip tooltip-left" +
             (active?.format.fixed ? " on" : "")
           }
-          data-tooltip={
-            canFixed
-              ? applied
-                ? `固定長: ${applied}`
-                : active?.format.fixed
-                  ? "固定長の桁設定を変更"
-                  : "固定長として読み直す"
-              : "ファイルから開いたタブのみ読み方を変更できます"
-          }
-          disabled={!canFixed}
+          data-tooltip={applied ? `固定長設定: ${applied}` : "固定長設定"}
           onClick={() => setFixedOpen((v) => !v)}
         >
           <FixedIcon />
         </button>
-        {fixedOpen && active && (
+        {fixedOpen && (
           <CsvFixedMenu
-            fixed={!!active.format.fixed}
+            canApply={canApply}
+            fixed={canApply && !!active?.format.fixed}
             nodes={layouts}
             applied={applied}
             onUse={(s) => {
               setFixedOpen(false);
               onUseLayout(s);
             }}
-            onDelete={(s) => {
+            onEditItem={(s) => {
               setFixedOpen(false);
-              onDeleteLayout(s);
+              onEditLayout(s);
             }}
+            // 削除は確認の画面を挟む。どれを消すのか分かるよう、メニューは閉じない
+            onDelete={onDeleteLayout}
+            confirming={deletingLayout}
             onSaveTree={onSaveLayoutTree}
             onEdit={() => {
               setFixedOpen(false);
               onEditFixed();
+            }}
+            onBackup={() => {
+              setFixedOpen(false);
+              onLayoutTransfer("backup");
+            }}
+            onRestore={() => {
+              setFixedOpen(false);
+              onLayoutTransfer("restore");
             }}
             onUseDelimiter={() => {
               setFixedOpen(false);

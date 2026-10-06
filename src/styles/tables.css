@@ -702,6 +702,50 @@
   justify-content: space-between;
   padding: 8px 12px;
   background: rgba(var(--ink), 0.03);
+  /* 左の帯で、差異のあり・なしをひと目で分ける (色は右端の札と同じ) */
+  border-left: 4px solid transparent;
+}
+
+.diff-table-head.changed {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 11%, transparent);
+}
+
+.diff-table-head.added {
+  border-left-color: var(--success);
+  background: color-mix(in srgb, var(--success) 11%, transparent);
+}
+
+.diff-table-head.removed {
+  border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 11%, transparent);
+}
+
+/* 一致しているテーブルは控えめにする (差異のあるものが浮き上がるように) */
+.diff-table-head.same {
+  background: transparent;
+}
+
+.diff-table-head.same .diff-table-name {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+/* 見出しの「カラム差異 N件」(押すとそのタブへ移る) */
+.diff-inline-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(var(--ink), 0.25);
+  text-underline-offset: 2px;
+}
+
+.diff-inline-link:hover {
+  color: var(--text);
 }
 
 .diff-table-name {
@@ -719,28 +763,34 @@
   padding: 2px 8px;
 }
 
+/* 札の色はテーマの色から作る (明るい地でも文字が読める濃さになる) */
 .diff-status.added {
   color: var(--success);
-  background: rgba(52, 211, 153, 0.12);
-  border: 1px solid rgba(52, 211, 153, 0.4);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 50%, transparent);
 }
 
 .diff-status.removed {
   color: var(--danger);
-  background: rgba(248, 113, 113, 0.12);
-  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 50%, transparent);
 }
 
 .diff-status.changed {
-  color: #fbbf24;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.4);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 50%, transparent);
 }
 
 .diff-status.same {
   color: var(--text-faint);
   background: rgba(var(--ink), 0.05);
   border: 1px solid var(--border);
+}
+
+/* 一致しているカラム・インデックス (「差異のみ表示」を外したときに並ぶ) は控えめにする */
+.diff-item-row.same .diff-cell {
+  color: var(--text-dim);
 }
 
 .diff-row.added .diff-cell:last-child {

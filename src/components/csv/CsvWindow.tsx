@@ -75,11 +75,14 @@ import { CsvNameDialog } from "./CsvNameDialog";
 import { CsvDiffSetup } from "./CsvDiffSetup";
 import { CsvDiffView } from "./CsvDiffView";
 import { CsvEdgeRow } from "./CsvEdgeRow";
+import { CsvLayoutBackupDialog } from "./CsvLayoutBackupDialog";
+import { CsvLayoutRestoreDialog } from "./CsvLayoutRestoreDialog";
+import { layoutImportedNotice } from "./csvLayoutPick";
 import { CsvFixedDialog } from "./CsvFixedDialog";
 import { CsvFormatMenu } from "./CsvFormatMenu";
 import { formatLabel } from "./csvFormat";
 import { appliedLayoutName } from "./csvFixed";
-import { flatLayouts } from "./csvLayoutTree";
+import { flatLayouts, replaceLayout } from "./csvLayoutTree";
 import { MemoryChip } from "../MemoryChip";
 import { imeBusy } from "../../ime";
 
@@ -222,6 +225,14 @@ export function CsvWindow() {
   const [fixedOpen, setFixedOpen] = useState(false);
   /** お気に入りに登録した固定長の桁設定 (ツールバーから選べるようにする) */
   const [layouts, setLayouts] = useState<CsvLayoutNode[]>([]);
+  /** 固定長のお気に入りのバックアップ・復元の画面 */
+  const [layoutTransfer, setLayoutTransfer] = useState<
+    "backup" | "restore" | null
+  >(null);
+  /** 一覧から名前・桁設定を直しているお気に入り */
+  const [editingLayout, setEditingLayout] = useState<CsvSavedLayout | null>(
+    null
+  );
   /** 削除しようとしているお気に入り */
   const [removingLayout, setRemovingLayout] = useState<string | null>(null);
   /** 設定を出しているか (DBの画面に出さず、この窓の中に出す) */
@@ -550,6 +561,28 @@ export function CsvWindow() {
       setError(String(e));
       setLayouts(await csvLayouts());
     }
+  };
+
+  /**
+   * 一覧のお気に入りを、直した名前・桁設定で差し替える。
+   *
+   * 並びの場所と入っているフォルダは変えない。
+   * うまくいかなかったときは画面を閉じず、理由を画面の中に出してもらう
+   */
+  const saveEditedLayout = async (
+    from: string,
+    name: string,
+    layout: CsvFixedLayout
+  ) => {
+    const next = replaceLayout(layouts, from, {
+      name,
+      layout,
+      updatedAtMs: Date.now(),
+    });
+    if (!next) throw new Error(`「${from}」が一覧に見つかりません`);
+    setLayouts(await csvSaveLayoutTree(next));
+    setEditingLayout(null);
+    setNote(`「${name}」を保存しました`);
   };
 
   /** お気に入りを削除する */
@@ -1075,9 +1108,12 @@ export function CsvWindow() {
         onCompare={() => setDiffSetup(true)}
         layouts={layouts}
         onUseLayout={(s) => void applySavedLayout(s)}
+        onEditLayout={setEditingLayout}
         onDeleteLayout={(s) => setRemovingLayout(s.name)}
+        deletingLayout={removingLayout !== null}
         onSaveLayoutTree={(nodes) => void saveLayoutTree(nodes)}
         onEditFixed={() => setFixedOpen(true)}
+        onLayoutTransfer={setLayoutTransfer}
         onUseDelimiter={() =>
           void (active && run(() => csvSetFixed(active.docId, null)))
         }
@@ -1343,18 +1379,63 @@ export function CsvWindow() {
         />
       )}
 
-      {fixedOpen && active && (
-        <CsvFixedDialog
-          current={active.format.fixed}
-          applied={appliedLayoutName(flatLayouts(layouts), active.format.fixed)}
-          layouts={flatLayouts(layouts)}
-          onApply={(layout: CsvFixedLayout) => {
-            setFixedOpen(false);
-            void run(() =>
-              csvSetFixed(active.docId, { unit: layout.unit, layout })
-            );
+      {layoutTransfer === "backup" && (
+        <CsvLayoutBackupDialog
+          nodes={layouts}
+          onClose={() => setLayoutTransfer(null)}
+        />
+      )}
+      {layoutTransfer === "restore" && (
+        <CsvLayoutRestoreDialog
+          onClose={() => setLayoutTransfer(null)}
+          onDone={(done) => {
+            setLayoutTransfer(null);
+            setNote(layoutImportedNotice(done));
+            // 取り込んだものを一覧に出す
+            void csvLayouts()
+              .then(setLayouts)
+              .catch((e) => setError(String(e)));
           }}
+        />
+      )}
+
+      {fixedOpen && (
+        <CsvFixedDialog
+          current={active?.format.fixed ?? null}
+          applied={appliedLayoutName(
+            flatLayouts(layouts),
+            active?.format.fixed ?? null
+          )}
+          layouts={flatLayouts(layouts)}
+          /*
+            読み直せるのはファイルから開いたタブだけ。
+            それ以外 (何も開いていない・貼り付けて作った表) では、お気に入りに保存するだけにする
+          */
+          onApply={
+            active?.path
+              ? (layout: CsvFixedLayout) => {
+                  setFixedOpen(false);
+                  void run(() =>
+                    csvSetFixed(active.docId, { unit: layout.unit, layout })
+                  );
+                }
+              : undefined
+          }
           onClose={() => setFixedOpen(false)}
+        />
+      )}
+
+      {editingLayout && (
+        <CsvFixedDialog
+          current={editingLayout.layout}
+          applied={editingLayout.name}
+          layouts={flatLayouts(layouts)}
+          edit={{
+            name: editingLayout.name,
+            save: (name, layout) =>
+              saveEditedLayout(editingLayout.name, name, layout),
+          }}
+          onClose={() => setEditingLayout(null)}
         />
       )}
 

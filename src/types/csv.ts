@@ -128,6 +128,26 @@ export type CsvLayoutNode =
   | { kind: "folder"; name: string; items: CsvSavedLayout[] }
   | ({ kind: "item" } & CsvSavedLayout);
 
+/** 復元する前に見せる、ファイルの中の固定長のお気に入り1つ */
+export interface CsvLayoutFileEntry {
+  /** ファイルの中での名前 */
+  name: string;
+  /** ファイルの中で入っていたフォルダ (入っていなければ null) */
+  folder: string | null;
+  /** 取り込むときの名前 (同じ名前があれば番号付き) */
+  saveAs: string;
+  /** 取り込むときのフォルダ (同じ名前のフォルダがあれば番号付き) */
+  saveFolder: string | null;
+  /** 桁の数 */
+  columns: number;
+}
+
+/** 取り込んだお気に入り (元の名前と、実際に付けた名前) */
+export interface CsvLayoutImported {
+  name: string;
+  savedAs: string;
+}
+
 /** ファイルの形 (開いたときの状態。保存の既定にもなる) */
 export interface CsvFormat {
   /** 文字コードの名前 ("UTF-8" / "Shift_JIS" など) */

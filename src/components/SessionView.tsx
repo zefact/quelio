@@ -838,6 +838,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                 onChange={(e) => setFilter(e.target.value)}
               />
               <TableList
+                // 接続タブ・DBごとにスクロール位置を分ける (片方の位置がもう片方に付いてこないように)
+                scrollKey={`${tab.key}\u0000${selectedDb}`}
                 tables={filteredTables}
                 emptyLabel={tables.length === 0 ? "テーブルなし" : "該当なし"}
                 selectedKey={tab.selectedTable}

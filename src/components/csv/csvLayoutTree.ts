@@ -62,6 +62,21 @@ export function rowsOf(nodes: CsvLayoutNode[]): LayoutRow[] {
 }
 
 /**
+ * 閉じているフォルダの中身を除いた、画面に出す行。
+ *
+ * 掴んで動かすときの当たり判定も、この並び (画面に出ている行) で行う
+ */
+export function visibleRows(
+  rows: LayoutRow[],
+  /** 閉じているフォルダの名前 */
+  closed: ReadonlySet<string>
+): LayoutRow[] {
+  return rows.filter(
+    (r) => r.type === "folder" || r.folder === null || !closed.has(r.folder)
+  );
+}
+
+/**
  * その行の上で放したとき、どこへ入るか (入れられないなら null)。
  *
  * `upper` は行の上半分にいるかどうか。
@@ -148,6 +163,34 @@ export function removeFolder(
     }
   }
   return out;
+}
+
+/**
+ * お気に入り1件を、その場所のまま差し替える (名前・桁設定の変更)。
+ *
+ * 並びの場所と入っているフォルダは変えない。
+ * 元の名前のものが無ければ null (一覧から消えていた、など)
+ */
+export function replaceLayout(
+  nodes: CsvLayoutNode[],
+  from: string,
+  saved: CsvSavedLayout
+): CsvLayoutNode[] | null {
+  let done = false;
+  const out = clone(nodes).map((n): CsvLayoutNode => {
+    if (n.kind === "folder") {
+      const items = n.items.map((s) => {
+        if (s.name !== from) return s;
+        done = true;
+        return saved;
+      });
+      return { ...n, items };
+    }
+    if (n.name !== from) return n;
+    done = true;
+    return item(saved);
+  });
+  return done ? out : null;
 }
 
 /** その名前が既に使われているか (フォルダ名とお気に入り名は別々に見る) */

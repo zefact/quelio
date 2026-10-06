@@ -6,149 +6,21 @@ import { SqlTextDialog } from "./SqlTextDialog";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
 import { SelectMenu } from "./SelectMenu";
-import type {
-  ColumnInfo,
-  IndexInfo,
-  SchemaEntry,
-  SessionSummary,
-} from "../types";
+import {
+  computeDiff,
+  diffCounts,
+  diffItemsOf,
+  itemsToShow,
+  type ItemDiff,
+  type ItemKind,
+  type TableDiff,
+} from "../schemaDiff";
+import type { SchemaEntry, SessionSummary } from "../types";
 
 /** 片側の選択 (セッション×DB) */
 interface SideSel {
   sessionId: string;
   database: string;
-}
-
-interface FieldDiff {
-  label: string;
-  left?: string;
-  right?: string;
-}
-
-interface ItemDiff {
-  name: string;
-  status: "added" | "removed" | "changed";
-  fields: FieldDiff[];
-}
-
-interface TableDiff {
-  key: string;
-  status: "added" | "removed" | "changed" | "same";
-  attrs: FieldDiff[];
-  columns: ItemDiff[];
-  indexes: ItemDiff[];
-}
-
-function tableKey(e: SchemaEntry): string {
-  const t = e.table;
-  return t.schema ? `${t.schema}.${t.name}` : t.name;
-}
-
-/** カラム属性の比較対象 */
-function columnFields(c: ColumnInfo): [string, string][] {
-  return [
-    ["型", c.colType],
-    ["NULL許可", c.nullable ? "YES" : "NO"],
-    ["キー", c.key ?? ""],
-    ["デフォルト", c.default ?? ""],
-    ["属性", c.extra ?? ""],
-    ["照合順序", c.collation ?? ""],
-    ["コメント", c.comment ?? ""],
-  ];
-}
-
-function indexFields(ix: IndexInfo): [string, string][] {
-  return [
-    ["カラム", ix.columns],
-    ["ユニーク", ix.unique ? "YES" : "NO"],
-    ["種別", ix.indexType ?? ""],
-  ];
-}
-
-/** テーブル情報のうち比較する項目 (サイズ・行数・日時は除外) */
-const TABLE_INFO_LABELS = ["エンジン", "照合順序", "コメント"];
-
-function diffNamedItems<T>(
-  left: Map<string, T>,
-  right: Map<string, T>,
-  fieldsOf: (v: T) => [string, string][]
-): ItemDiff[] {
-  const out: ItemDiff[] = [];
-  const names = new Set([...left.keys(), ...right.keys()]);
-  for (const name of names) {
-    const l = left.get(name);
-    const r = right.get(name);
-    if (l && !r) {
-      out.push({ name, status: "removed", fields: [] });
-    } else if (!l && r) {
-      out.push({ name, status: "added", fields: [] });
-    } else if (l && r) {
-      const lf = fieldsOf(l);
-      const rf = fieldsOf(r);
-      const fields: FieldDiff[] = [];
-      for (let i = 0; i < lf.length; i++) {
-        if (lf[i][1] !== rf[i][1]) {
-          fields.push({ label: lf[i][0], left: lf[i][1], right: rf[i][1] });
-        }
-      }
-      if (fields.length > 0) {
-        out.push({ name, status: "changed", fields });
-      }
-    }
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-/** 2つのスナップショットの差分を計算する */
-function computeDiff(left: SchemaEntry[], right: SchemaEntry[]): TableDiff[] {
-  const lMap = new Map(left.map((e) => [tableKey(e), e]));
-  const rMap = new Map(right.map((e) => [tableKey(e), e]));
-  const keys = [...new Set([...lMap.keys(), ...rMap.keys()])].sort();
-
-  return keys.map((key) => {
-    const l = lMap.get(key);
-    const r = rMap.get(key);
-    if (l && !r) {
-      return { key, status: "removed" as const, attrs: [], columns: [], indexes: [] };
-    }
-    if (!l && r) {
-      return { key, status: "added" as const, attrs: [], columns: [], indexes: [] };
-    }
-    const le = l!;
-    const re = r!;
-
-    // テーブル属性
-    const attrs: FieldDiff[] = [];
-    if (le.table.tableType !== re.table.tableType) {
-      attrs.push({
-        label: "種別",
-        left: le.table.tableType,
-        right: re.table.tableType,
-      });
-    }
-    for (const label of TABLE_INFO_LABELS) {
-      const lv = le.detail.info.find(([l2]) => l2 === label)?.[1] ?? "";
-      const rv = re.detail.info.find(([l2]) => l2 === label)?.[1] ?? "";
-      if (lv !== rv) attrs.push({ label, left: lv, right: rv });
-    }
-
-    const columns = diffNamedItems(
-      new Map(le.detail.columns.map((c) => [c.name, c])),
-      new Map(re.detail.columns.map((c) => [c.name, c])),
-      columnFields
-    );
-    const indexes = diffNamedItems(
-      new Map(le.detail.indexes.map((ix) => [ix.name, ix])),
-      new Map(re.detail.indexes.map((ix) => [ix.name, ix])),
-      indexFields
-    );
-
-    const status =
-      attrs.length + columns.length + indexes.length > 0 ? "changed" : "same";
-    // asではなく型注釈で受ける (asだと中身の型チェックが効かない)
-    const diff: TableDiff = { key, status, attrs, columns, indexes };
-    return diff;
-  });
 }
 
 /** 共通prefix/suffixを除いた差異部分を求める */
@@ -211,6 +83,17 @@ function DiffValue({ value, other }: { value?: string; other?: string }) {
       {suffix}
     </>
   );
+}
+
+/**
+ * カラム・インデックスの行に出す中身 (その側の型や対象カラム)。
+ *
+ * 無い側は「—」。差異ありの行は、違っている項目を下の行に並べるので空にする
+ */
+function itemCell(it: ItemDiff, side: "left" | "right"): string {
+  if (it.status === "changed") return "";
+  const value = side === "left" ? it.left : it.right;
+  return value === undefined ? "—" : value || "あり";
 }
 
 const STATUS_LABEL: Record<TableDiff["status"], string> = {
@@ -340,27 +223,74 @@ export function DiffWindow() {
     [diff]
   );
 
-  /** タブごとの件数 */
-  const counts = useMemo(() => {
-    const d = diff ?? [];
-    return {
-      tables: d.filter(
-        (t) =>
-          t.status === "added" || t.status === "removed" || t.attrs.length > 0
-      ).length,
-      columns: d.reduce((sum, t) => sum + t.columns.length, 0),
-      indexes: d.reduce((sum, t) => sum + t.indexes.length, 0),
-    };
-  }, [diff]);
+  /** タブごとの件数 (差異の数。「差異のみ表示」を外しても変えない) */
+  const counts = useMemo(() => diffCounts(diff ?? []), [diff]);
 
+  /**
+   * カラム・インデックスのタブに出すテーブルと、その中身。
+   * 「差異のみ表示」のときは差異のあるものだけ、外したときは一致も含めて全部
+   */
+  const itemTables = (kind: ItemKind) =>
+    (diff ?? [])
+      .map((t) => ({ t, items: itemsToShow(t, kind, onlyDiff) }))
+      .filter((x) => x.items.length > 0);
   const columnTables = useMemo(
-    () => (diff ?? []).filter((t) => t.columns.length > 0),
-    [diff]
+    () => itemTables("columns"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [diff, onlyDiff]
   );
   const indexTables = useMemo(
-    () => (diff ?? []).filter((t) => t.indexes.length > 0),
-    [diff]
+    () => itemTables("indexes"),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [diff, onlyDiff]
   );
+
+  /**
+   * テーブルのタブの見出しに出す「カラム差異 N件」。
+   * 数えるのは差異だけ (一致しているものは数えない)。押すとそのタブへ移る
+   * (テーブルの属性に差が無いと下に何も出ないので、どこが違うかをここからたどれるように)
+   */
+  const inlineCount = (t: TableDiff, kind: ItemKind, label: string) => {
+    const n = diffItemsOf(t, kind).length;
+    if (n === 0) return null;
+    return (
+      <button
+        type="button"
+        className="diff-inline-link"
+        title={`${kind === "columns" ? "カラム" : "インデックス"}のタブで見る`}
+        onClick={() => setActiveView(kind)}
+      >
+        {label} {n}件
+      </button>
+    );
+  };
+
+  /**
+   * カラム・インデックスのタブの、テーブル1つぶん。
+   * 見出しには差異の件数を出す (差異が無ければ「一致」)
+   */
+  const renderItemTable = (
+    t: TableDiff,
+    kind: ItemKind,
+    title: string,
+    items: ItemDiff[]
+  ) => {
+    const n = diffItemsOf(t, kind).length;
+    // 片方にしか無いテーブルは、その旨を出す (中身は1件ずつの差異としては数えない)
+    const whole = t.status === "added" || t.status === "removed";
+    const status = whole ? t.status : n > 0 ? "changed" : "same";
+    return (
+      <div className="diff-table" key={t.key}>
+        <div className={`diff-table-head ${status}`}>
+          <span className="mono diff-table-name">{t.key}</span>
+          <span className={`diff-status ${status}`}>
+            {whole ? STATUS_LABEL[t.status] : n > 0 ? `${n}件` : "一致"}
+          </span>
+        </div>
+        {renderItemDiffs(title, items)}
+      </div>
+    );
+  };
 
   const renderItemDiffs = (title: string, items: ItemDiff[]) =>
     items.length > 0 && (
@@ -371,10 +301,10 @@ export function DiffWindow() {
             <div className={`diff-row diff-item-row ${it.status}`}>
               <span className="diff-label mono">{it.name}</span>
               <span className={`diff-cell mono ${it.status === "added" ? "empty" : ""}`}>
-                {it.status === "added" ? "—" : it.status === "removed" ? "あり" : ""}
+                {itemCell(it, "left")}
               </span>
               <span className={`diff-cell mono ${it.status === "removed" ? "empty" : ""}`}>
-                {it.status === "removed" ? "—" : it.status === "added" ? "あり" : ""}
+                {itemCell(it, "right")}
               </span>
             </div>
             {it.fields.map((f) => (
@@ -557,12 +487,8 @@ export function DiffWindow() {
                     <div className={`diff-table-head ${t.status}`}>
                       <span className="mono diff-table-name">{t.key}</span>
                       <span className="diff-inline-counts">
-                        {t.columns.length > 0 && (
-                          <span>カラム差異 {t.columns.length}件</span>
-                        )}
-                        {t.indexes.length > 0 && (
-                          <span>インデックス差異 {t.indexes.length}件</span>
-                        )}
+                        {inlineCount(t, "columns", "カラム差異")}
+                        {inlineCount(t, "indexes", "インデックス差異")}
                       </span>
                       <span className={`diff-status ${t.status}`}>
                         {STATUS_LABEL[t.status]}
@@ -603,20 +529,12 @@ export function DiffWindow() {
               <>
                 {columnTables.length === 0 && (
                   <div className="content-placeholder dim-center">
-                    カラムの差異はありません
+                    {onlyDiff ? "カラムの差異はありません" : "カラムはありません"}
                   </div>
                 )}
-                {columnTables.map((t) => (
-                  <div className="diff-table" key={t.key}>
-                    <div className="diff-table-head changed">
-                      <span className="mono diff-table-name">{t.key}</span>
-                      <span className="diff-status changed">
-                        {t.columns.length}件
-                      </span>
-                    </div>
-                    {renderItemDiffs("カラム", t.columns)}
-                  </div>
-                ))}
+                {columnTables.map(({ t, items }) =>
+                  renderItemTable(t, "columns", "カラム", items)
+                )}
               </>
             )}
 
@@ -625,20 +543,14 @@ export function DiffWindow() {
               <>
                 {indexTables.length === 0 && (
                   <div className="content-placeholder dim-center">
-                    インデックスの差異はありません
+                    {onlyDiff
+                      ? "インデックスの差異はありません"
+                      : "インデックスはありません"}
                   </div>
                 )}
-                {indexTables.map((t) => (
-                  <div className="diff-table" key={t.key}>
-                    <div className="diff-table-head changed">
-                      <span className="mono diff-table-name">{t.key}</span>
-                      <span className="diff-status changed">
-                        {t.indexes.length}件
-                      </span>
-                    </div>
-                    {renderItemDiffs("インデックス", t.indexes)}
-                  </div>
-                ))}
+                {indexTables.map(({ t, items }) =>
+                  renderItemTable(t, "indexes", "インデックス", items)
+                )}
               </>
             )}
           </div>

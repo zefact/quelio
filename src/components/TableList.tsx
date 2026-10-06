@@ -7,7 +7,8 @@
  * 数百件のテーブルを毎キーストローク作り直さずに済む
  * (そのため、渡す関数は呼び出し側で useCallback に包んでおくこと)
  */
-import { memo } from "react";
+import { memo, useLayoutEffect, useRef } from "react";
+import { loadListScroll, saveListScroll } from "./listScrollMemo";
 import { useImeGuard } from "../hooks/useImeGuard";
 import { tableKey } from "../tableSql";
 import { splitPinned } from "../pinnedTables";
@@ -22,6 +23,11 @@ export function typeLabel(t: string): { label: string; cls: string } {
 }
 
 export interface TableListProps {
+  /**
+   * スクロール位置を控えておく名前 (接続タブとDBごと)。
+   * 変わると、その一覧で前に見ていた位置へ戻す
+   */
+  scrollKey?: string;
   /** 絞り込み後の一覧 (この並びが Shift 範囲選択の基準になる) */
   tables: TableInfo[];
   /** 一覧が空のときの文言 (テーブルが無いのか、絞り込みの結果か) */
@@ -198,7 +204,20 @@ function TableListInner({
   onRenameCancel,
   onItemClick,
   onItemContextMenu,
+  scrollKey,
 }: TableListProps) {
+  const listRef = useRef<HTMLUListElement>(null);
+  /*
+   * 一覧が切り替わったら (別の接続タブ・別のDB)、その一覧で見ていた位置へ戻す。
+   * 部品は接続タブをまたいで使い回されるので、何もしないと
+   * 片方でスクロールした位置がもう片方にも付いてくる
+   */
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el || scrollKey === undefined) return;
+    el.scrollTop = loadListScroll(scrollKey);
+  }, [scrollKey]);
+
   // ピン留めしたものを先頭にまとめる (見出しを挟んで区切る)
   const { pinned, rest } = splitPinned(tables, tableKey, pinnedKeys);
 
@@ -233,7 +252,15 @@ function TableListInner({
   };
 
   return (
-    <ul className="side-table-list">
+    <ul
+      className="side-table-list"
+      ref={listRef}
+      onScroll={(e) => {
+        if (scrollKey !== undefined) {
+          saveListScroll(scrollKey, e.currentTarget.scrollTop);
+        }
+      }}
+    >
       {pinned.length > 0 && (
         <>
           <li className="side-table-group">ピン留め</li>

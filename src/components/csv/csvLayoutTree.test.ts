@@ -9,9 +9,11 @@ import {
   hitRow,
   removeFolder,
   renameFolder,
+  replaceLayout,
   rowsOf,
   spotAt,
   usedName,
+  visibleRows,
 } from "./csvLayoutTree";
 
 const layout: CsvFixedLayout = {
@@ -174,5 +176,58 @@ describe("フォルダ", () => {
     expect(usedName(tree(), "受注", "folder")).toBe(true);
     expect(usedName(tree(), "受注", "item")).toBe(false);
     expect(usedName(tree(), "い", "item")).toBe(true);
+  });
+});
+
+describe("閉じたフォルダ", () => {
+  const names = (closed: string[]) =>
+    visibleRows(rowsOf(tree()), new Set(closed)).map((r) =>
+      r.type === "folder" ? r.name : r.saved.name
+    );
+
+  it("閉じていなければ全部出す", () => {
+    expect(names([])).toEqual(["あ", "受注", "い", "う", "え"]);
+  });
+
+  it("閉じたフォルダは行だけ残して中身を出さない", () => {
+    expect(names(["受注"])).toEqual(["あ", "受注", "え"]);
+  });
+
+  it("閉じていても、フォルダの行へ放せば中の末尾に入る", () => {
+    const rows = visibleRows(rowsOf(tree()), new Set(["受注"]));
+    expect(spotAt(rows[1], false, { type: "item", name: "え" })).toEqual({
+      folder: "受注",
+      index: 2,
+    });
+  });
+});
+
+describe("お気に入りの差し替え", () => {
+  const next = { ...saved("新"), updatedAtMs: 9 };
+
+  it("上の並びのものを、場所はそのまま差し替える", () => {
+    const out = replaceLayout(tree(), "え", next);
+    expect(flatLayouts(out ?? []).map((s) => s.name)).toEqual([
+      "あ",
+      "い",
+      "う",
+      "新",
+    ]);
+  });
+
+  it("フォルダの中のものは、フォルダに入れたまま差し替える", () => {
+    const out = replaceLayout(tree(), "い", next) ?? [];
+    expect(rowsOf(out)[2]).toMatchObject({ folder: "受注", at: 0 });
+    expect(flatLayouts(out)[1]).toEqual(next);
+  });
+
+  it("元のものが無ければ何も返さない", () => {
+    expect(replaceLayout(tree(), "無い", next)).toBeNull();
+  });
+
+  it("元の並びは書き換えない", () => {
+    const before = tree();
+    replaceLayout(before, "い", next);
+    expect(flatLayouts(before).map((s) => s.name)).toEqual(["あ", "い", "う", "え"]);
   });
 });

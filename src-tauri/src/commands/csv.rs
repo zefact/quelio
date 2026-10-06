@@ -167,6 +167,36 @@ pub fn csv_save_layout_tree(
     crate::csv_layouts::save_tree(&app, nodes)
 }
 
+/// 固定長のお気に入りのうち、選んだものだけをJSONファイルへ書き出す (件数を返す)
+#[tauri::command]
+pub fn csv_export_layout_subset(
+    app: AppHandle,
+    path: String,
+    names: Vec<String>,
+    folders: Vec<String>,
+) -> Result<usize, String> {
+    crate::csv_layouts::transfer::export_subset(&app, &path, &names, &folders)
+}
+
+/// 固定長のお気に入りのファイルの中身と、取り込むときの名前を返す
+#[tauri::command]
+pub fn csv_inspect_layout_file(
+    app: AppHandle,
+    path: String,
+) -> Result<Vec<crate::csv_layouts::transfer::FileEntry>, String> {
+    crate::csv_layouts::transfer::inspect_file(&app, &path)
+}
+
+/// ファイルから選んだ固定長のお気に入りを取り込む (今あるものは上書きしない)
+#[tauri::command]
+pub fn csv_import_layouts_as_new(
+    app: AppHandle,
+    path: String,
+    names: Vec<String>,
+) -> Result<Vec<crate::csv_layouts::transfer::Imported>, String> {
+    crate::csv_layouts::transfer::import_file(&app, &path, &names)
+}
+
 /// 空のCSVを作る (新規作成)
 #[tauri::command]
 pub fn csv_new(docs: State<'_, CsvDocuments>, name: String) -> Result<CsvInfo, String> {

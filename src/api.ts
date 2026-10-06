@@ -23,6 +23,8 @@ import type {
   CsvFormatPatch,
   CsvFromQuery,
   CsvInfo,
+  CsvLayoutFileEntry,
+  CsvLayoutImported,
   CsvLayoutNode,
   CsvMatch,
   CsvOptions,
@@ -960,6 +962,30 @@ export function csvSaveLayoutTree(
   nodes: CsvLayoutNode[],
 ): Promise<CsvLayoutNode[]> {
   return call("csv_save_layout_tree", { nodes });
+}
+
+/** 固定長のお気に入りのうち、選んだものだけをJSONファイルへ書き出す (件数を返す) */
+export function csvExportLayoutSubset(
+  path: string,
+  names: string[],
+  folders: string[],
+): Promise<number> {
+  return call("csv_export_layout_subset", { path, names, folders });
+}
+
+/** 固定長のお気に入りのファイルの中身と、取り込むときの名前を調べる */
+export function csvInspectLayoutFile(
+  path: string,
+): Promise<CsvLayoutFileEntry[]> {
+  return call("csv_inspect_layout_file", { path });
+}
+
+/** ファイルから選んだ固定長のお気に入りを取り込む (今あるものは上書きしない) */
+export function csvImportLayoutsAsNew(
+  path: string,
+  names: string[],
+): Promise<CsvLayoutImported[]> {
+  return call("csv_import_layouts_as_new", { path, names });
 }
 
 /** タブを閉じる (未保存の確認は呼ぶ側で済ませておくこと) */

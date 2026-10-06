@@ -64,20 +64,21 @@ export function CsvFixedColumns({ columns, unit, onChange }: Props) {
   const total = totalWidth(columns);
 
   return (
-    <>
-      <div className="csv-form-row">
-        <span>桁幅を一括入力</span>
+    <div className="csv-fixed-cols">
+      <label className="save-sql-label">
+        桁幅を一括入力
         <input
-          className="csv-name-box csv-bulk"
+          className="save-sql-input mono"
           placeholder="10,8,20,4"
           value={bulk}
           onChange={(e) => applyBulk(e.target.value)}
         />
-      </div>
+      </label>
 
+      {/* 桁が多いときは、見出しを残してこの表だけをスクロールさせる */}
       <div className="csv-fixed-list">
         <div className="csv-fixed-head">
-          <span>#</span>
+          <span className="csv-fixed-no">#</span>
           <span>桁幅</span>
           <span>配置</span>
           <span>埋め文字</span>
@@ -110,34 +111,38 @@ export function CsvFixedColumns({ columns, unit, onChange }: Props) {
             />
             <input
               className="csv-fixed-name"
-              placeholder={`${i + 1}`}
+              placeholder={`項目${i + 1}`}
               value={c.name}
               onChange={(e) => patch(i, { name: e.target.value })}
             />
             <button
-              className="btn-ghost csv-fixed-del"
+              type="button"
+              className="csv-fixed-x"
               title="この桁を削除"
+              aria-label="この桁を削除"
               disabled={columns.length <= 1}
               onClick={() => put(columns.filter((_, at) => at !== i))}
             >
-              ✕
+              ×
             </button>
           </div>
         ))}
-        <div className="csv-fixed-foot">
-          <button
-            className="btn-secondary"
-            onClick={() => put([...columns, newColumn(10)])}
-          >
-            桁を追加
-          </button>
-          <span className="toolbar-spacer" />
-          <span className="mono">
-            計 {total}
-            {UNIT_LABEL[unit]}
-          </span>
-        </div>
       </div>
-    </>
+
+      <div className="csv-fixed-foot">
+        <button
+          type="button"
+          className="lib-action"
+          onClick={() => put([...columns, newColumn(10)])}
+        >
+          ＋ 桁を追加
+        </button>
+        <span className="toolbar-spacer" />
+        <span className="mono">
+          {columns.length}項目 / 計 {total}
+          {UNIT_LABEL[unit]}
+        </span>
+      </div>
+    </div>
   );
 }

@@ -24,6 +24,8 @@ import type {
   CsvFilterValues,
   CsvFindResult,
   CsvFromQuery,
+  CsvLayoutFileEntry,
+  CsvLayoutImported,
   CsvLayoutNode,
   CsvInfo,
   CsvPage,
@@ -143,6 +145,9 @@ export interface CommandResults {
   csv_save_layout: CsvLayoutNode[];
   csv_delete_layout: CsvLayoutNode[];
   csv_save_layout_tree: CsvLayoutNode[];
+  csv_export_layout_subset: number;
+  csv_inspect_layout_file: CsvLayoutFileEntry[];
+  csv_import_layouts_as_new: CsvLayoutImported[];
   csv_new: CsvInfo;
   csv_from_query: CsvFromQuery;
   csv_from_rows: CsvInfo;
@@ -319,6 +324,7 @@ export const COMMAND_NAMES = [
   "csv_diff_page",
   "csv_dirty_names",
   "csv_edge",
+  "csv_export_layout_subset",
   "csv_export_status",
   "csv_export_xlsx",
   "csv_filter_values",
@@ -326,9 +332,11 @@ export const COMMAND_NAMES = [
   "csv_from_query",
   "csv_from_rows",
   "csv_guess_key",
+  "csv_import_layouts_as_new",
   "csv_info",
   "csv_insert_col",
   "csv_insert_rows",
+  "csv_inspect_layout_file",
   "csv_layouts",
   "csv_new",
   "csv_open",

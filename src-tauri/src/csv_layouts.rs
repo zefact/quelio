@@ -13,6 +13,8 @@ use tauri::AppHandle;
 use crate::csv_doc::fixed::FixedLayout;
 use crate::json_store;
 
+pub mod transfer;
+
 /// 名前を付けて残した桁の並び
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

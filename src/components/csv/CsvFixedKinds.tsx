@@ -7,7 +7,7 @@
  * 桁の並びそのものはダイアログ側で出すので、ここは名前と見分け方だけを持つ
  */
 import type { CsvFixedKind, CsvWidthUnit } from "../../types";
-import { UNIT_LABEL, totalWidth } from "./csvFixed";
+import { UNIT_LABEL } from "./csvFixed";
 
 interface Props {
   kind: CsvFixedKind;
@@ -19,33 +19,31 @@ interface Props {
 
 export function CsvFixedKindPart({ kind, unit, onChange, onRemove }: Props) {
   return (
-    <>
-      <div className="csv-form-row">
-        <span>種別の名前</span>
+    <div className="csv-fixed-kind">
+      <label className="save-sql-label csv-fixed-kind-name">
+        種別の名前
         <input
-          className="csv-kind-name"
+          className="save-sql-input"
           placeholder="ヘッダ"
           value={kind.name}
           onChange={(e) => onChange({ name: e.target.value })}
         />
-        <span className="csv-kind-total">
-          計{totalWidth(kind.columns)}
-          {UNIT_LABEL[unit]}
-        </span>
-        <button
-          className="btn-ghost csv-fixed-del"
-          title="この種別をやめる"
-          onClick={onRemove}
-        >
-          ✕
-        </button>
-      </div>
+      </label>
 
-      <div className="csv-form-row">
-        <span>見分け方</span>
+      <button
+        type="button"
+        className="btn-ghost danger csv-fixed-kind-del"
+        title="この種別をやめる"
+        onClick={onRemove}
+      >
+        種別を削除
+      </button>
+
+      <div className="save-sql-label csv-fixed-kind-where">
+        見分け方
         <div className="csv-key-where">
           <input
-            className="csv-fixed-w mono"
+            className="save-sql-input csv-fixed-w mono"
             type="number"
             min={1}
             value={kind.at + 1}
@@ -55,7 +53,7 @@ export function CsvFixedKindPart({ kind, unit, onChange, onRemove }: Props) {
           />
           <span>{UNIT_LABEL[unit]}目から</span>
           <input
-            className="csv-fixed-w mono"
+            className="save-sql-input csv-fixed-w mono"
             type="number"
             min={1}
             value={kind.len}
@@ -63,13 +61,14 @@ export function CsvFixedKindPart({ kind, unit, onChange, onRemove }: Props) {
           />
           <span>{UNIT_LABEL[unit]}が</span>
           <input
-            className="csv-kind-value mono"
+            className="save-sql-input csv-kind-value mono"
             placeholder="例: A"
             value={kind.value}
             onChange={(e) => onChange({ value: e.target.value })}
           />
+          <span>のとき</span>
         </div>
       </div>
-    </>
+    </div>
   );
 }

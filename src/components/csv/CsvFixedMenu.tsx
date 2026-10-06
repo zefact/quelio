@@ -7,6 +7,8 @@
  *
  * 数が増えると探しにくいので、掴んで並べ替えたり、
  * フォルダを作ってまとめたりできる (フォルダは1階層まで)。
+ * フォルダは行を押すと開閉し、閉じたものは次に開いたときも閉じたまま出す。
+ * 行そのものは CsvFavFolderRow / CsvFavItemRow に分けてある。
  *
  * 掴む所は指の動き (pointer) で自前に作ってある。
  * このウィンドウはOSからのファイルの落とし込みを受けているので、
@@ -16,22 +18,37 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useDismiss } from "../../hooks/useDismiss";
 import type { CsvLayoutNode, CsvSavedLayout } from "../../types";
-import { CloseMark } from "../CloseMark";
-import { UNIT_LABEL, totalWidth } from "./csvFixed";
+import { CsvFavFolderRow } from "./CsvFavFolderRow";
+import { CsvFavItemRow } from "./CsvFavItemRow";
+import {
+  loadClosed,
+  pruneClosed,
+  renameClosed,
+  saveClosed,
+  toggleClosed,
+} from "./csvLayoutFold";
 import {
   addFolder,
   applyMove,
   endSpot,
+  folderNames,
   hitRow,
   removeFolder,
   renameFolder,
   rowsOf,
   spotAt,
   usedName,
+  visibleRows,
 } from "./csvLayoutTree";
 import type { LayoutDrag, LayoutRow, LayoutSpot } from "./csvLayoutTree";
 
 interface Props {
+  /**
+   * 開いているタブを読み直せるか (ファイルから開いたタブのときだけ)。
+   *
+   * 読み直せないときも、お気に入りの整理 (並べ替え・変更・バックアップ) はできる
+   */
+  canApply: boolean;
   /** 今このファイルを固定長として読んでいるか */
   fixed: boolean;
   /** お気に入り (フォルダ分けと並び順のまま) */
@@ -40,12 +57,20 @@ interface Props {
   applied: string | null;
   /** お気に入りの桁設定で読み直す */
   onUse: (s: CsvSavedLayout) => void;
-  /** お気に入りを削除する */
+  /** お気に入りの名前・桁設定を直す画面を開く */
+  onEditItem: (s: CsvSavedLayout) => void;
+  /** お気に入りを削除する (確認の画面を出す。その間もこのメニューは開いたまま) */
   onDelete: (s: CsvSavedLayout) => void;
+  /** 削除の確認の画面を出しているか (出している間は、その画面の後ろへ下げる) */
+  confirming: boolean;
   /** 並び順やフォルダ分けを変えた結果を残す */
   onSaveTree: (nodes: CsvLayoutNode[]) => void;
   /** 桁設定のダイアログを開く */
   onEdit: () => void;
+  /** 選んだお気に入りをファイルへ書き出す画面を開く */
+  onBackup: () => void;
+  /** ファイルから取り込む画面を開く */
+  onRestore: () => void;
   /** 区切り文字として読み直す */
   onUseDelimiter: () => void;
   onClose: () => void;
@@ -61,13 +86,18 @@ interface Over {
 const SLOP = 4;
 
 export function CsvFixedMenu({
+  canApply,
   fixed,
   nodes,
   applied,
   onUse,
+  onEditItem,
   onDelete,
+  confirming,
   onSaveTree,
   onEdit,
+  onBackup,
+  onRestore,
   onUseDelimiter,
   onClose,
 }: Props) {
@@ -90,8 +120,19 @@ export function CsvFixedMenu({
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** 閉じているフォルダ (次に開いたときのために覚えておく) */
+  const [closed, setClosed] = useState(loadClosed);
 
-  const rows = useMemo(() => rowsOf(nodes), [nodes]);
+  /** 画面に出す行 (閉じたフォルダの中身は除く)。掴むときの当たり判定もこの並びで行う */
+  const rows = useMemo(
+    () => visibleRows(rowsOf(nodes), closed),
+    [nodes, closed]
+  );
+
+  const putClosed = (next: Set<string>) => {
+    setClosed(next);
+    saveClosed(next);
+  };
 
   /*
    * メニューの外を触ったら閉じる。
@@ -100,7 +141,12 @@ export function CsvFixedMenu({
    * ふつうの監視では押されたことが届かない。
    * 共通のフックがそこまで見てくれる
    */
-  useDismiss(true, onClose, { ref, escape: true });
+  /*
+   * 削除の確認の画面 (.modal-overlay) を押したときは閉じない。
+   * どれを消そうとしているのかを見失わないよう、確認の間もメニューを残すため。
+   * 確認中の Escape は確認の画面が先に受け取って処理済みにするので、ここまでは来ない
+   */
+  useDismiss(true, onClose, { ref, escape: true, inside: ".modal-overlay" });
 
   const putOver = (o: Over | null) => {
     overRef.current = o;
@@ -181,6 +227,17 @@ export function CsvFixedMenu({
     return over.spot.index <= row.at ? " csv-drop-above" : " csv-drop-below";
   };
 
+  /** 掴んで動かした直後の「押した」は効かせない */
+  const tap = (act: () => void) => () => {
+    if (!moved.current) act();
+  };
+
+  /** フォルダの名前の書き換えを始める */
+  const startRename = (name: string) => {
+    setEditing(name);
+    setDraft(name);
+  };
+
   /** 使われていない名前で新しいフォルダを作る */
   const newFolder = () => {
     let name = "新しいフォルダ";
@@ -188,8 +245,14 @@ export function CsvFixedMenu({
       name = `新しいフォルダ${i}`;
     }
     onSaveTree(addFolder(nodes, name));
-    setEditing(name);
-    setDraft(name);
+    startRename(name);
+  };
+
+  /** フォルダを外す (覚えていた開閉も捨てる) */
+  const dropFolder = (name: string) => {
+    const next = removeFolder(nodes, name);
+    putClosed(pruneClosed(closed, folderNames(next)));
+    onSaveTree(next);
   };
 
   const commitName = (from: string) => {
@@ -201,19 +264,41 @@ export function CsvFixedMenu({
       return;
     }
     setError(null);
+    // 閉じていたフォルダは、名前が変わっても閉じたままにする
+    putClosed(renameClosed(closed, from, name));
     onSaveTree(renameFolder(nodes, from, name));
   };
 
   return (
-    <div className="csv-fixed-menu" ref={ref}>
-      <div className="csv-key-head csv-fav-head">
-        <span>お気に入り</span>
-        <button
-          className="btn-ghost csv-fav-addfolder"
-          title="フォルダを作る"
-          onClick={newFolder}
-        >
+    <div
+      className={"csv-fixed-menu" + (confirming ? " behind" : "")}
+      ref={ref}
+    >
+      <div className="csv-key-head csv-fav-head">お気に入り</div>
+
+      {/*
+        一覧を増やす・持ち出す操作は、一覧の項目と見分けがつくよう
+        小さなボタンにして上に並べる (SQLのお気に入りと同じ並び)
+      */}
+      <div className="lib-saved-actions csv-fav-actions">
+        <button className="lib-action" title="フォルダを作る" onClick={newFolder}>
           ＋ フォルダ
+        </button>
+        <span className="toolbar-spacer" />
+        <button
+          className="lib-action"
+          disabled={rows.length === 0}
+          title="選んだお気に入りをファイルへ書き出します"
+          onClick={onBackup}
+        >
+          バックアップ
+        </button>
+        <button
+          className="lib-action"
+          title="ファイルのお気に入りを取り込みます (今あるものは上書きしません)"
+          onClick={onRestore}
+        >
+          復元
         </button>
       </div>
 
@@ -230,113 +315,37 @@ export function CsvFixedMenu({
         >
           {rows.map((row, i) =>
             row.type === "folder" ? (
-              <div
-                className={"csv-fixed-folder" + mark(i, row)}
+              <CsvFavFolderRow
                 key={`f:${row.name}`}
-                data-row=""
-                onPointerDown={(e) =>
-                  hold(e, { type: "folder", name: row.name })
-                }
-              >
-                <span className="csv-fixed-folder-icon" aria-hidden>
-                  <FolderIcon />
-                </span>
-                {editing === row.name ? (
-                  <input
-                    className="csv-fixed-folder-input"
-                    value={draft}
-                    autoFocus
-                    onChange={(e) => setDraft(e.target.value)}
-                    onBlur={() => commitName(row.name)}
-                    onKeyDown={(e) => {
-                      // ここで止めないと、同じEscapeでメニューまで閉じてしまう
-                      if (e.key === "Enter" || e.key === "Escape") {
-                        e.preventDefault();
-                      }
-                      if (e.key === "Enter") commitName(row.name);
-                      if (e.key === "Escape") setEditing(null);
-                    }}
-                  />
-                ) : (
-                  <span
-                    className="csv-fixed-folder-name"
-                    title="ドラッグで移動 / ダブルクリックで名前を変更"
-                    onDoubleClick={() => {
-                      setEditing(row.name);
-                      setDraft(row.name);
-                    }}
-                  >
-                    {row.name}
-                  </span>
-                )}
-                <span className="csv-fixed-menu-note mono">{row.count}</span>
-                <button
-                  className="btn-ghost csv-fav-act"
-                  title="フォルダ名を変更"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => {
-                    if (moved.current) return;
-                    setEditing(row.name);
-                    setDraft(row.name);
-                  }}
-                >
-                  <RenameIcon />
-                </button>
-                <button
-                  className="btn-ghost csv-fixed-del"
-                  title="フォルダを外す (中のお気に入りは残ります)"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => onSaveTree(removeFolder(nodes, row.name))}
-                >
-                  <CloseMark size={10} />
-                </button>
-              </div>
+                name={row.name}
+                count={row.count}
+                open={!closed.has(row.name)}
+                mark={mark(i, row)}
+                draft={editing === row.name ? draft : null}
+                onDraft={setDraft}
+                onCommit={() => commitName(row.name)}
+                onCancel={() => setEditing(null)}
+                onRename={tap(() => startRename(row.name))}
+                onToggle={tap(() => putClosed(toggleClosed(closed, row.name)))}
+                onRemove={tap(() => dropFolder(row.name))}
+                onHold={(e) => hold(e, { type: "folder", name: row.name })}
+              />
             ) : (
-              <div
-                className={
-                  "csv-fixed-menu-row" +
-                  (row.folder ? " csv-fixed-inside" : "") +
-                  mark(i, row)
-                }
+              <CsvFavItemRow
                 key={`i:${row.saved.name}`}
-                data-row=""
-                onPointerDown={(e) =>
-                  hold(e, { type: "item", name: row.saved.name })
-                }
-              >
-                <button
-                  className={
-                    "context-item" +
-                    (applied === row.saved.name ? " csv-fixed-applied" : "")
-                  }
-                  title={
-                    (applied === row.saved.name
-                      ? "このファイルに使われています\n"
-                      : "") +
-                    `${row.saved.layout.columns.length}桁 (計${totalWidth(
-                      row.saved.layout.columns
-                    )}${UNIT_LABEL[row.saved.layout.unit]})\nドラッグで移動`
-                  }
-                  onClick={() => !moved.current && onUse(row.saved)}
-                >
-                  {/* 幅を取っておくと、印の有無で名前の頭が動かない */}
-                  <span className="csv-fixed-menu-check" aria-hidden>
-                    {applied === row.saved.name ? "✓" : ""}
-                  </span>
-                  <span className="csv-fixed-menu-name">{row.saved.name}</span>
-                  <span className="csv-fixed-menu-note mono">
-                    {row.saved.layout.columns.length}桁
-                  </span>
-                </button>
-                <button
-                  className="btn-ghost csv-fixed-del"
-                  title="このお気に入りを削除"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => !moved.current && onDelete(row.saved)}
-                >
-                  <CloseMark size={10} />
-                </button>
-              </div>
+                saved={row.saved}
+                inFolder={row.folder !== null}
+                applied={applied === row.saved.name}
+                canApply={canApply}
+                mark={mark(i, row)}
+                // 読み直す相手が無いときは、押したら直す画面を開く
+                onUse={tap(() =>
+                  canApply ? onUse(row.saved) : onEditItem(row.saved)
+                )}
+                onEdit={tap(() => onEditItem(row.saved))}
+                onDelete={tap(() => onDelete(row.saved))}
+                onHold={(e) => hold(e, { type: "item", name: row.saved.name })}
+              />
             )
           )}
           {/* 一番下へ置くための、少しだけ高さのある場所 */}
@@ -352,41 +361,22 @@ export function CsvFixedMenu({
       <div className="context-sep" />
 
       <button className="context-item" onClick={onEdit}>
-        {fixed ? "桁設定を変更..." : "固定長の桁を設定..."}
+        {!canApply
+          ? "桁設定を新しく登録..."
+          : fixed
+            ? "桁設定を変更..."
+            : "固定長の桁を設定..."}
       </button>
+      {!canApply && (
+        <div className="csv-empty-hint csv-fav-hint">
+          ファイルから開いたタブでは、お気に入りを選んで読み直せます
+        </div>
+      )}
       {fixed && (
         <button className="context-item" onClick={onUseDelimiter}>
           区切り文字として読み直す
         </button>
       )}
     </div>
-  );
-}
-
-/** 名前を変える絵 (鉛筆) */
-function RenameIcon() {
-  return (
-    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M4 20h4l10-10a2.1 2.1 0 0 0-3-3L5 17z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-/** フォルダの絵 */
-function FolderIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4l2 2.5h9A1.5 1.5 0 0 1 21 9v8.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }

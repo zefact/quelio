@@ -1265,5 +1265,7 @@ html.macos .er-window .diff-toolbar {
 
 .er-pick-rename {
   font-size: 11px;
+  /* フォルダの行 (太字) の中でも、知らせは細い字で出す */
+  font-weight: 400;
   color: var(--warn);
 }

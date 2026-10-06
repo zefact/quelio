@@ -728,6 +728,12 @@
   animation: slide-in 0.12s ease;
 }
 
+/* 開いたときにキー操作を受けるため枠ごとフォーカスするが、枠に輪郭は出さない */
+.modal:focus,
+.modal:focus-visible {
+  outline: none;
+}
+
 .modal-head {
   display: flex;
   align-items: center;
