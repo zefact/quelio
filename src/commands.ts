@@ -14,6 +14,7 @@ import type {
   AppSettings,
   CellValue,
   CharsetInfo,
+  DatabaseOwners,
   ConfigFile,
   ConnectInfo,
   ConnectionProfile,
@@ -106,6 +107,7 @@ export interface CommandResults {
   cancel_job: void;
   cancel_query: void;
   cancel_schema_load: void;
+  change_database_owner: DatabaseOwners;
   change_schema: string[];
   check_config_files: ConfigFile[];
   check_dangerous_filled: DangerousStatement[];
@@ -120,6 +122,7 @@ export interface CommandResults {
   create_table: string[];
   create_temp_upload: string;
   csv_export_status: JobProgress | null;
+  database_owners: DatabaseOwners;
   default_ssh_key_dir: string;
   delete_connection: void;
   delete_er_diagram: void;
@@ -241,6 +244,7 @@ export interface CommandResults {
   plan_test_data: TestDataColumn[];
   preview_column_ddl: string[];
   preview_index_ddl: string[];
+  preview_change_database_owner: string;
   preview_create_database: string;
   preview_create_schema: string;
   preview_create_table: string;
@@ -249,6 +253,7 @@ export interface CommandResults {
   quarantine_config_file: string;
   rename_table: string[];
   reveal_path: void;
+  reveal_saved_secret: string;
   run_query: RunOutput;
   save_app_settings: void;
   save_capture: string;
@@ -297,6 +302,7 @@ export const COMMAND_NAMES = [
   "cancel_job",
   "cancel_query",
   "cancel_schema_load",
+  "change_database_owner",
   "change_schema",
   "check_config_files",
   "check_dangerous_filled",
@@ -359,6 +365,7 @@ export const COMMAND_NAMES = [
   "csv_set_sort",
   "csv_summary",
   "csv_undo",
+  "database_owners",
   "db_privileges",
   "db_user_grants",
   "default_ssh_key_dir",
@@ -441,6 +448,7 @@ export const COMMAND_NAMES = [
   "open_main_window",
   "open_schema",
   "plan_test_data",
+  "preview_change_database_owner",
   "preview_column_ddl",
   "preview_create_database",
   "preview_create_schema",
@@ -453,6 +461,7 @@ export const COMMAND_NAMES = [
   "rename_saved_folder",
   "rename_table",
   "reveal_path",
+  "reveal_saved_secret",
   "run_query",
   "save_app_settings",
   "save_capture",

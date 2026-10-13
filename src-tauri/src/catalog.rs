@@ -37,6 +37,10 @@ pub use sqlite::*;
 mod users;
 pub use users::*;
 
+/// PostgreSQL のデータベースの所有者
+mod pg_owner;
+pub use pg_owner::*;
+
 const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// スキーマ全体をまとめて取るクエリのタイムアウト (テーブル数が多いぶん長め)

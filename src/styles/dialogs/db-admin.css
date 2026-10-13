@@ -116,6 +116,122 @@
   min-width: 0;
 }
 
+/* 作成・削除 / 所有者 の切り替え (PostgreSQLのみ) */
+.db-admin-tabs {
+  margin-top: var(--space-3);
+  padding: 0;
+}
+
+/* タブの名前は日本語なので、等幅にしない */
+.db-admin-tabs .result-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+/* 「選択中のデータベース」タブに添える名前 (長い名前は切る) */
+.db-admin-tab-db {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+/* 一覧で選択中のデータベースに付ける印 */
+.db-admin-selected {
+  margin-left: var(--space-2);
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* 「選択中のデータベース」の所有者の行 */
+.db-admin-current-owner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+}
+
+.db-admin-current-owner .db-admin-owner {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 「すべてのデータベース」の表: 名前・所有者・操作の列をそろえる */
+.db-admin-table-head,
+.db-admin-table li {
+  display: grid;
+  /* 操作の列は、ボタン2つか断り書きが1行に収まる幅にする */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 240px;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* MySQLは所有者の列が無い */
+.db-admin-table.no-owner.db-admin-table-head,
+.db-admin-table.no-owner li {
+  grid-template-columns: minmax(0, 1fr) 240px;
+}
+
+/* 見出しの「データベース」には件数を添える */
+.db-admin-table-head > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.db-admin-table-head {
+  padding: 0 var(--space-3) 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+ul.db-admin-table {
+  max-height: 260px;
+}
+
+.db-admin-owner {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+/* 操作は右端にそろえる */
+.db-admin-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+/* 所有者の付け替え: 今の所有者と新しい所有者を横に並べる */
+.db-owner-fields {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.db-owner-current {
+  padding: 6px 0;
+  font-size: 12px;
+}
+
 /* 作成と削除は別の操作なので、かたまりが分かるようにする。
    作る側は枠で囲い、一覧 (消す側) とは見出しで切り分ける */
 .db-admin-create {

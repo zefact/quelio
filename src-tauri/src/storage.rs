@@ -138,6 +138,51 @@ pub fn mask_secrets(store: &mut ConnectionStore) {
     }
 }
 
+/// 画面に見せる保存済みの秘匿値の種類
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SecretKind {
+    /// DBのパスワード
+    Password,
+    /// SSHの秘密鍵のパスフレーズ
+    Passphrase,
+}
+
+/**
+ * 保存済みの秘匿値を1つだけ取り出す (画面の「表示」ボタンから、確認のあとで呼ぶ)。
+ *
+ * 一覧や保存の戻り値では、これまでどおり秘匿値を伏せたまま渡す。
+ * ここは、利用者が1つの接続先の1つの値を見ると決めたときだけ通る口
+ */
+pub fn saved_secret(app: &AppHandle, id: &str, kind: SecretKind) -> Result<String, String> {
+    pick_secret(&load(app)?, id, kind)
+}
+
+/// 復号済みの一式から、指定の秘匿値を取り出す
+fn pick_secret(store: &ConnectionStore, id: &str, kind: SecretKind) -> Result<String, String> {
+    let c = store
+        .connections
+        .iter()
+        .find(|c| c.id == id)
+        .ok_or("接続先が見つかりません")?;
+    // 復号できなかった値は暗号文のまま入っているので、見せない
+    if c.password_locked {
+        return Err("保存されたパスワードを復号できませんでした。入力し直して保存してください".into());
+    }
+    let value = match kind {
+        SecretKind::Password => c.password.clone(),
+        SecretKind::Passphrase => c
+            .ssh
+            .as_ref()
+            .and_then(|s| s.passphrase.clone())
+            .unwrap_or_default(),
+    };
+    if value.is_empty() {
+        return Err("保存されていません".into());
+    }
+    Ok(value)
+}
+
 /// 伏せた秘匿値を、保存済みの内容から戻す。
 ///
 /// 画面は「変更していない」ものを目印付きで返してくるので、
@@ -219,6 +264,31 @@ mod tests {
             }}]}}"#,
             p = crypto::ENC_PREFIX
         )
+    }
+
+    #[test]
+    fn 保存済みの秘匿値を1つ取り出す() {
+        let mut store = parse_store(&text()).expect("読めること");
+        // load と同じく、復号済みの状態にしておく
+        store.connections[0].password = "pw".into();
+        store.connections[0].ssh.as_mut().unwrap().passphrase = Some("pp".into());
+        assert_eq!(pick_secret(&store, "a", SecretKind::Password).unwrap(), "pw");
+        assert_eq!(pick_secret(&store, "a", SecretKind::Passphrase).unwrap(), "pp");
+        assert!(pick_secret(&store, "none", SecretKind::Password).is_err());
+    }
+
+    #[test]
+    fn 復号できなかった値と空の値は見せない() {
+        let mut store = parse_store(&text()).expect("読めること");
+        store.connections[0].password_locked = true;
+        // 暗号文のまま入っていても返さない
+        assert!(pick_secret(&store, "a", SecretKind::Password).is_err());
+
+        store.connections[0].password_locked = false;
+        store.connections[0].password = String::new();
+        store.connections[0].ssh = None;
+        assert!(pick_secret(&store, "a", SecretKind::Password).is_err());
+        assert!(pick_secret(&store, "a", SecretKind::Passphrase).is_err());
     }
 
     #[test]

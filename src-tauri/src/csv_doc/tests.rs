@@ -332,6 +332,51 @@ fn ヘッダ無しで保存すると1行目も本文として書かれる() {
     assert_eq!(doc.to_bytes().unwrap(), "a,b\n1,2\n".as_bytes());
 }
 
+#[test]
+fn ヘッダの扱いを切り替えただけでは変更ありにならない() {
+    let text = "a,b\n1,2\n";
+    let mut doc = open(text);
+    assert!(!doc.dirty);
+
+    // どちら向きに切り替えても、保存される中身は開いたときと同じ
+    doc.set_has_header(false);
+    assert!(!doc.dirty);
+    assert_eq!(doc.to_bytes().unwrap(), text.as_bytes());
+
+    doc.set_has_header(true);
+    assert!(!doc.dirty);
+    assert_eq!(doc.to_bytes().unwrap(), text.as_bytes());
+}
+
+#[test]
+fn 変更ありのファイルはヘッダの扱いを切り替えても変更ありのまま() {
+    let mut doc = open("a,b\n1,2\n");
+    doc.apply(Edit::Cells(vec![CellEdit {
+        row: 0,
+        col: 0,
+        before: "1".to_string(),
+        after: "9".to_string(),
+    }]))
+    .unwrap();
+    assert!(doc.dirty);
+
+    doc.set_has_header(false);
+    assert!(doc.dirty);
+}
+
+#[test]
+fn 行が無いときにヘッダとして扱うと列名が書かれるので変更ありになる() {
+    let mut doc = open("a,b\n");
+    doc.set_has_header(false);
+    doc.rows.clear();
+    doc.dirty = false;
+    assert_eq!(doc.to_bytes().unwrap(), b"");
+
+    doc.set_has_header(true);
+    assert!(doc.dirty);
+    assert_eq!(doc.to_bytes().unwrap(), "1,2\n".as_bytes());
+}
+
 // ---------- ページ取得 ----------
 
 #[test]

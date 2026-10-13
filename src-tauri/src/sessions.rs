@@ -173,6 +173,10 @@ pub use schema_load::*;
 mod database;
 pub use database::*;
 
+/// データベースの所有者 (PostgreSQLのみ)
+mod db_owner;
+pub use db_owner::*;
+
 /// トランザクションの制御と後始末
 mod txn;
 pub use txn::*;

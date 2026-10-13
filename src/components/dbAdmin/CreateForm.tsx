@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listCharsets, previewCreateDatabase, previewCreateSchema } from "../../api";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { SelectMenu } from "../SelectMenu";
-import type { CharsetInfo, DbType } from "../../types";
+import type { CharsetInfo, DatabaseOwners, DbType } from "../../types";
 import type { AdminKind } from "./DbAdminDialog";
 import { imeBusy } from "../../ime";
 
@@ -13,6 +13,11 @@ interface Props {
   kind: AdminKind;
   /** 文字コードの指定欄を出すか (データベースのときだけ) */
   withEncoding: boolean;
+  /**
+   * 所有者に選べるロール (PostgreSQLのデータベースのときだけ渡す)。
+   * 渡さなければ所有者の欄は出さない
+   */
+  owners?: DatabaseOwners | null;
   disabled: boolean;
   /** 実行中かどうかを親へ伝える (閉じさせないため) */
   onBusyChange: (busy: boolean) => void;
@@ -20,7 +25,8 @@ interface Props {
   onCreate: (
     name: string,
     encoding?: string,
-    collation?: string
+    collation?: string,
+    owner?: string
   ) => Promise<void>;
 }
 
@@ -38,6 +44,7 @@ export function CreateForm({
   dbType,
   kind,
   withEncoding,
+  owners,
   disabled,
   onBusyChange,
   onCreate,
@@ -45,6 +52,8 @@ export function CreateForm({
   const [name, setName] = useState("");
   const [encoding, setEncoding] = useState(DEFAULT);
   const [collation, setCollation] = useState(DEFAULT);
+  /** 所有者 (選ばなければ、今つないでいるロールが所有者になる) */
+  const [owner, setOwner] = useState(DEFAULT);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [charsets, setCharsets] = useState<CharsetInfo[]>([]);
@@ -105,6 +114,20 @@ export function CreateForm({
     ];
   }, [pg, pgCollations, selected]);
 
+  const ownerOptions = useMemo(
+    () => [
+      {
+        value: DEFAULT,
+        label: owners?.me ? `既定のまま (${owners.me})` : "既定のまま",
+      },
+      // 既定と同じロールは2度出さない
+      ...(owners?.roles ?? [])
+        .filter((r) => r !== owners?.me)
+        .map((r) => ({ value: r, label: r })),
+    ],
+    [owners]
+  );
+
   const trimmed = name.trim();
   const canGo = !!trimmed && !busy && !disabled;
 
@@ -120,7 +143,8 @@ export function CreateForm({
               dbType,
               trimmed,
               encoding || undefined,
-              collation || undefined
+              collation || undefined,
+              owner || undefined
             );
       setPending(sql);
     } catch (e) {
@@ -133,10 +157,16 @@ export function CreateForm({
     setBusy(true);
     onBusyChange(true);
     try {
-      await onCreate(trimmed, encoding || undefined, collation || undefined);
+      await onCreate(
+        trimmed,
+        encoding || undefined,
+        collation || undefined,
+        owner || undefined
+      );
       setName("");
       setEncoding(DEFAULT);
       setCollation(DEFAULT);
+      setOwner(DEFAULT);
       setPending(null);
     } finally {
       setBusy(false);
@@ -206,6 +236,19 @@ export function CreateForm({
               onChange={setCollation}
             />
           </div>
+          {owners !== undefined && (
+            <div className="db-admin-opt-field">
+              <span className="db-admin-opt-label">所有者</span>
+              <SelectMenu
+                className="select-field mono"
+                value={owner}
+                options={ownerOptions}
+                disabled={disabled || busy || !owners}
+                popFixed
+                onChange={setOwner}
+              />
+            </div>
+          )}
         </div>
       )}
 

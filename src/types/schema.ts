@@ -172,6 +172,22 @@ export interface RoutineInfo {
 }
 
 /** 名前で探した結果の1件 */
+/** データベース1つと、その所有者 (PostgreSQLのみ。バックエンドの DatabaseOwner と対) */
+export interface DatabaseOwner {
+  name: string;
+  owner: string;
+}
+
+/** データベースの所有者の一覧と、所有者に選べるロール (バックエンドの DatabaseOwners と対) */
+export interface DatabaseOwners {
+  /** データベースごとの所有者 (データベースの一覧と同じ並び) */
+  databases: DatabaseOwner[];
+  /** 所有者に選べるロール (自分が属しているもの。スーパーユーザーならすべて) */
+  roles: string[];
+  /** 今つないでいるロール (所有者を指定せずに作ると、これが所有者になる) */
+  me: string;
+}
+
 /** 文字コード1件と、そこで使える照合順序 (バックエンドの CharsetInfo と対) */
 export interface CharsetInfo {
   name: string;

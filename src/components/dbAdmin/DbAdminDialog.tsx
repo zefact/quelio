@@ -1,15 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
+  changeDatabaseOwner,
   changeSchema,
   createDatabase,
+  databaseOwners,
   dropDatabase,
   listSchemas,
   systemDatabases,
 } from "../../api";
 import { useModal } from "../../hooks/useModal";
-import { CreateForm } from "./CreateForm";
+import { AllDatabasesPanel } from "./AllDatabasesPanel";
+import { CurrentDatabasePanel } from "./CurrentDatabasePanel";
 import { DropNameConfirm } from "./DropNameConfirm";
-import type { DbType } from "../../types";
+import { NewDatabasePanel } from "./NewDatabasePanel";
+import { OwnerDialog } from "./OwnerDialog";
+import type { DatabaseOwners, DbType } from "../../types";
 
 /** 作ったり消したりする対象の呼び方 */
 export type AdminKind = "データベース" | "スキーマ";
@@ -32,9 +38,14 @@ interface Props {
 }
 
 /**
- * データベースとスキーマの作成・削除。
+ * データベースとスキーマの作成・変更・削除。
  *
- * 作成は確認なし、削除は名前を打ち込ませる。
+ * 何に対する操作かでタブを分ける (同じ並びに置くと、どれが何の操作か分かりにくい)。
+ * - 新規作成: 新しいデータベースを作る
+ * - 選択中のデータベース: つないでいるデータベース1つ (所有者・スキーマ。PostgreSQLのみ)
+ * - すべてのデータベース: サーバーにあるもの全部 (所有者の変更・削除)
+ * 作成は実行するSQLを見せてから、削除は名前を打ち込ませてから実行する。
+ * PostgreSQLは、作るときに所有者を選べ、あとから付け替えられる。
  * 読み取り専用の接続では画面から開けない
  */
 export function DbAdminDialog({
@@ -59,7 +70,44 @@ export function DbAdminDialog({
    * (二重管理にならないよう、判断のもとは1箇所に置く)
    */
   const [system, setSystem] = useState<Set<string>>(new Set());
-  const boxRef = useModal(onClose, !pending && !busy);
+  /** データベースの所有者と、選べるロール (PostgreSQLのみ。読むまでは null) */
+  const [owners, setOwners] = useState<DatabaseOwners | null>(null);
+  const [ownerError, setOwnerError] = useState<string | null>(null);
+  /** 所有者を変えようとしているデータベース */
+  const [changing, setChanging] = useState<string | null>(null);
+  /** 出している面 */
+  const [picked, setPicked] = useState<"new" | "current" | "all">("new");
+  /*
+   * 「選択中のデータベース」でできるのは所有者とスキーマなので、PostgreSQLだけ。
+   * データベースを選んでいなければ出さない (出していたなら新規作成へ戻す)
+   */
+  const hasCurrent = isPg && !!currentDb;
+  const view = picked === "current" && !hasCurrent ? "new" : picked;
+  const boxRef = useModal(onClose, !pending && !busy && !changing);
+
+  /** データベース名から所有者を引く */
+  const ownerOf = useMemo(
+    () => new Map((owners?.databases ?? []).map((d) => [d.name, d.owner])),
+    [owners]
+  );
+
+  // 所有者は一覧が変わるたびに読み直す (作成・削除のあと)
+  useEffect(() => {
+    if (!isPg) return;
+    let alive = true;
+    databaseOwners(sessionId)
+      .then((o) => {
+        if (!alive) return;
+        setOwners(o);
+        setOwnerError(null);
+      })
+      .catch((e) => {
+        if (alive) setOwnerError(String(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isPg, sessionId, databases]);
 
   useEffect(() => {
     let alive = true;
@@ -117,7 +165,7 @@ export function DbAdminDialog({
   return (
     <div
       className="modal-overlay"
-      onMouseDown={pending || busy ? undefined : onClose}
+      onMouseDown={pending || busy || changing ? undefined : onClose}
     >
       <div
         className="modal db-admin-modal"
@@ -144,135 +192,94 @@ export function DbAdminDialog({
           </div>
         )}
 
-        <section className="db-admin-section">
-          <h3 className="db-admin-title">データベース</h3>
-          <CreateForm
+        {/*
+          何に対する操作かで面を分ける。
+          切り替えても書きかけの名前が消えないよう、面は隠すだけにする
+        */}
+        <div className="result-tabs db-admin-tabs" role="tablist">
+          <Tab on={view === "new"} onClick={() => setPicked("new")}>
+            新規作成
+          </Tab>
+          {hasCurrent && (
+            <Tab on={view === "current"} onClick={() => setPicked("current")}>
+              選択中のデータベース
+              <span className="mono db-admin-tab-db">{currentDb}</span>
+            </Tab>
+          )}
+          <Tab on={view === "all"} onClick={() => setPicked("all")}>
+            すべてのデータベース
+          </Tab>
+        </div>
+
+        <div hidden={view !== "new"}>
+          <NewDatabasePanel
             sessionId={sessionId}
             dbType={dbType}
-            kind="データベース"
-            withEncoding
-            disabled={busy}
+            owners={isPg ? owners : undefined}
+            busy={busy}
             onBusyChange={setBusy}
-            onCreate={async (name, encoding, collation) => {
+            onCreate={async (name, encoding, collation, owner) => {
               onDatabasesChanged(
-                await createDatabase(sessionId, name, encoding, collation)
+                await createDatabase(sessionId, name, encoding, collation, owner)
               );
               setNotice(`データベース ${name} を作成しました`);
             }}
           />
-          <h4 className="db-admin-subtitle">
-            今あるデータベース
-            <span className="db-admin-count">{databases.length}</span>
-          </h4>
-          <ul className="db-admin-list">
-            {databases.map((d) => (
-              <li key={d} className={d === currentDb ? "current" : undefined}>
-                <span className="mono">{d}</span>
-                {d === currentDb ? (
-                  <span className="faint">接続中のため削除できません</span>
-                ) : system.has(d.toLowerCase()) ? (
-                  <span className="faint">システムのため削除できません</span>
-                ) : (
-                  <button
-                    className="btn-ghost danger"
-                    aria-label={`${d} を削除`}
-                    disabled={busy}
-                    onClick={() =>
-                      setPending({ kind: "データベース", name: d })
-                    }
-                  >
-                    削除
-                  </button>
-                )}
-              </li>
-            ))}
-            {databases.length === 0 && (
-              <li className="faint">データベースがありません</li>
-            )}
-          </ul>
-        </section>
+        </div>
 
-        {isPg && (
-          <section className="db-admin-section">
-            <h3 className="db-admin-title">
-              スキーマ
-              {currentDb && (
-                <span className="column-modal-target mono">{currentDb}</span>
-              )}
-            </h3>
-            {!currentDb ? (
-              <p className="db-admin-hint">
-                データベースを選ぶと、そのスキーマを操作できます
-              </p>
-            ) : (
-              <>
-                <CreateForm
-                  sessionId={sessionId}
-                  dbType={dbType}
-                  kind="スキーマ"
-                  withEncoding={false}
-                  disabled={busy}
-                  onBusyChange={setBusy}
-                  onCreate={async (name) => {
-                    setSchemas(
-                      await changeSchema(
-                        sessionId,
-                        currentDb,
-                        name,
-                        false,
-                        false
-                      )
-                    );
-                    setNotice(`スキーマ ${name} を作成しました`);
-                  }}
-                />
-                {schemaError && (
-                  <div className="result-banner ng">
-                    <span className="dot" aria-hidden />
-                    <span className="result-detail">{schemaError}</span>
-                  </div>
-                )}
-                <h4 className="db-admin-subtitle">
-                  今あるスキーマ
-                  {schemas && (
-                    <span className="db-admin-count">{schemas.length}</span>
-                  )}
-                </h4>
-                <ul className="db-admin-list">
-                  {(schemas ?? []).map((sc) => (
-                    <li key={sc}>
-                      <span className="mono">{sc}</span>
-                      <button
-                        className="btn-ghost danger"
-                        aria-label={`${sc} を削除`}
-                        disabled={busy}
-                        onClick={() =>
-                          setPending({ kind: "スキーマ", name: sc })
-                        }
-                      >
-                        削除
-                      </button>
-                    </li>
-                  ))}
-                  {schemas !== null && schemas.length === 0 && (
-                    <li className="faint">スキーマがありません</li>
-                  )}
-                  {schemas === null && !schemaError && (
-                    <li className="faint">
-                      <span className="spinner accent" /> 読み込み中...
-                    </li>
-                  )}
-                </ul>
-              </>
-            )}
-          </section>
+        {hasCurrent && currentDb && (
+          <div hidden={view !== "current"}>
+            <CurrentDatabasePanel
+              sessionId={sessionId}
+              dbType={dbType}
+              database={currentDb}
+              owners={owners}
+              ownerError={ownerError}
+              system={system.has(currentDb.toLowerCase())}
+              schemas={schemas}
+              schemaError={schemaError}
+              busy={busy}
+              onBusyChange={setBusy}
+              onChangeOwner={() => setChanging(currentDb)}
+              onCreateSchema={async (name) => {
+                setSchemas(
+                  await changeSchema(sessionId, currentDb, name, false, false)
+                );
+                setNotice(`スキーマ ${name} を作成しました`);
+              }}
+              onDropSchema={(name) => setPending({ kind: "スキーマ", name })}
+            />
+          </div>
         )}
 
-        <p className="db-admin-hint">
-          作成はすぐに実行します。削除は名前を打ち込んでから実行します。
-          {isPg &&
-            "PostgreSQLは、他につないでいる人がいるデータベースを削除できません。public スキーマを消すと、そのデータベースはほぼ使えなくなります。"}
-        </p>
+        <div hidden={view !== "all"}>
+          <AllDatabasesPanel
+            isPg={isPg}
+            databases={databases}
+            currentDb={currentDb}
+            owners={owners}
+            ownerError={ownerError}
+            system={system}
+            busy={busy}
+            onChangeOwner={setChanging}
+            onDrop={(name) => setPending({ kind: "データベース", name })}
+          />
+        </div>
+
+        {changing && owners && (
+          <OwnerDialog
+            dbType={dbType}
+            name={changing}
+            current={ownerOf.get(changing) ?? ""}
+            roles={owners.roles}
+            onCancel={() => setChanging(null)}
+            onConfirm={async (owner) => {
+              setOwners(await changeDatabaseOwner(sessionId, changing, owner));
+              setNotice(`データベース ${changing} の所有者を ${owner} に変更しました`);
+              setChanging(null);
+            }}
+          />
+        )}
 
         {pending && (
           <DropNameConfirm
@@ -285,5 +292,28 @@ export function DbAdminDialog({
         )}
       </div>
     </div>
+  );
+}
+
+
+/** 面を切り替えるタブ1つ */
+function Tab({
+  on,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      className={"result-tab" + (on ? " active" : "")}
+      role="tab"
+      aria-selected={on}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }

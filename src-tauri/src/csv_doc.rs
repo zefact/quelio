@@ -526,7 +526,14 @@ impl CsvDoc {
         Ok(Some(label))
     }
 
-    /// 1行目をヘッダとして扱うかを切り替える
+    /**
+     * 1行目をヘッダとして扱うかを切り替える。
+     *
+     * 変わるのは見え方だけで、保存される中身は変わらない
+     * (ヘッダへ持ち上げた行も本文へ戻した行も、同じ順で書き出される)。
+     * なので、切り替えただけでは「変更あり」にしない (すでに変更ありならそのまま)。
+     * 行が1つも無いときだけは別で、連番の列名が1行目として書き出されるようになる
+     */
     pub fn set_has_header(&mut self, on: bool) {
         if self.has_header == on {
             return;
@@ -535,6 +542,8 @@ impl CsvDoc {
             // 先頭の行をヘッダへ持ち上げる
             if self.rows.is_empty() {
                 self.has_header = true;
+                // 持ち上げる行が無いので、今の列名がそのまま1行目として書かれる
+                self.dirty = true;
                 return;
             }
             self.header = self.rows.remove(0);
@@ -545,7 +554,6 @@ impl CsvDoc {
             self.rows.insert(0, head);
         }
         self.has_header = on;
-        self.dirty = true;
         // 行の位置がずれるので、絞り込みは掛け直す
         self.rebuild();
         // 同じ理由で、取り消しの履歴も続けられない

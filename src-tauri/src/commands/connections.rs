@@ -20,6 +20,19 @@ pub fn list_connections(app: AppHandle) -> Result<ConnectionStore, String> {
     Ok(store)
 }
 
+/// 保存済みのパスワード (または SSH のパスフレーズ) を1つだけ返す。
+///
+/// 一覧では伏せたまま渡しているので、画面で「表示」を押して確認したときだけ呼ばれる。
+/// AI連携からは呼べない (この口は画面専用)
+#[tauri::command]
+pub fn reveal_saved_secret(
+    app: AppHandle,
+    id: String,
+    kind: storage::SecretKind,
+) -> Result<String, String> {
+    storage::saved_secret(&app, &id, kind)
+}
+
 /// 接続プロファイルを保存(idが空なら新規採番)して保存後のものを返す
 #[tauri::command]
 pub fn save_connection(

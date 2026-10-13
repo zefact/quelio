@@ -332,6 +332,43 @@
   font-size: 11.5px;
 }
 
+/* ロールのメンバー (PostgreSQL)。権限の一覧の下に置く */
+.dbusers-members {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+/* 「メンバーを足す...」の選択欄 (見出しの右に置くので幅を決めておく) */
+.dbusers-member-add {
+  width: 220px;
+}
+
+.dbusers-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "SF Mono", ui-monospace, Menlo, monospace;
+}
+
+/* メンバーの名前の右の × (外す) */
+.dbusers-member-x {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.dbusers-member-x:hover {
+  color: var(--danger);
+  background: rgba(248, 113, 113, 0.12);
+}
+
 /* 権限1行の右に付く取り消し (行に指を載せたときだけはっきり出す) */
 .dbusers-revoke {
   flex-shrink: 0;

@@ -111,14 +111,10 @@ export function ConnectionPicker({
   /**
    * 「新しい接続を作る」を押したか。
    *
-   * 何も選んでいないときはホームを出すので、
-   * 新規作成の画面はここを立ててから見せる
+   * 何も選んでいないときはホームを出すので、新規作成の画面はこれが立っているときだけ見せる。
+   * タブの状態として持つので (onNewFavorite で立つ)、別のタブへ移って戻っても入力画面のまま
    */
-  const [newForm, setNewForm] = useState(false);
-  // 一覧から接続先を選んだら、新規作成の状態は解除する
-  useEffect(() => {
-    if (profile.id) setNewForm(false);
-  }, [profile.id]);
+  const newForm = !!tab.newConnForm;
   /**
    * ホームから繋ぎ始めたか。
    *
@@ -620,7 +616,6 @@ export function ConnectionPicker({
             data-tooltip="新規接続先を作成"
             onClick={() => {
               onNewFavorite();
-              setNewForm(true);
             }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -700,7 +695,6 @@ export function ConnectionPicker({
             onForget={onForgetRecent}
             onNew={() => {
               onNewFavorite();
-              setNewForm(true);
             }}
             onOpenSample={onOpenSample}
             connecting={busy === "connect"}
@@ -761,7 +755,6 @@ export function ConnectionPicker({
             onClick={() => {
               setMenu(null);
               onNewFavorite();
-              setNewForm(true);
             }}
           >
             新規接続先

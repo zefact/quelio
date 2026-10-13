@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { defaultSshKeyDir } from "../api";
+import { defaultSshKeyDir, revealSavedSecret } from "../api";
 import type {
   ConnectionEnv,
   ConnectionProfile,
@@ -31,6 +31,7 @@ import {
 } from "../connectionEnvHint";
 import { ConnectionProxyFields } from "./ConnectionProxyFields";
 import { SelectMenu } from "./SelectMenu";
+import { SecretInput } from "./SecretInput";
 
 interface Props {
   profile: ConnectionProfile;
@@ -325,8 +326,15 @@ export function ConnectionForm({
               </label>
               <label className="span2">
                 <span className="field-label">パスワード</span>
-                <input
-                  type="password"
+                <SecretInput
+                  // 接続先を切り替えたら、取り出した値や表示の状態を持ち越さない
+                  key={`pw:${profile.id}`}
+                  label="パスワード"
+                  onReveal={
+                    profile.id && profile.passwordSaved && !profile.passwordLocked
+                      ? () => revealSavedSecret(profile.id, "password")
+                      : undefined
+                  }
                   value={profile.passwordLocked ? "" : profile.password}
                   // 保存済みのものは中身を持ってこないので、そうと分かるようにする
                   placeholder={
@@ -334,7 +342,7 @@ export function ConnectionForm({
                       ? "保存済み (変えるときだけ入力)"
                       : ""
                   }
-                  onChange={(e) => setSecret({ password: e.target.value })}
+                  onChange={(password) => setSecret({ password })}
                 />
               </label>
               {profile.passwordLocked && (
@@ -622,15 +630,23 @@ export function ConnectionForm({
                 <span className="field-label">
                   パスフレーズ <em>任意</em>
                 </span>
-                <input
-                  type="password"
+                <SecretInput
+                  key={`pp:${profile.id}`}
+                  label="パスフレーズ"
+                  onReveal={
+                    profile.id &&
+                    profile.passphraseSaved &&
+                    !profile.passwordLocked
+                      ? () => revealSavedSecret(profile.id, "passphrase")
+                      : undefined
+                  }
                   value={profile.passwordLocked ? "" : (ssh.passphrase ?? "")}
                   placeholder={
                     profile.passphraseSaved && !profile.passwordLocked
                       ? "保存済み (変えるときだけ入力)"
                       : ""
                   }
-                  onChange={(e) => setSshSecret({ passphrase: e.target.value })}
+                  onChange={(passphrase) => setSshSecret({ passphrase })}
                 />
               </label>
             </div>

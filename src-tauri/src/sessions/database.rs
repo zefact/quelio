@@ -42,7 +42,7 @@ async fn mysql_current_db(conn: &mut DbConn) -> Option<String> {
 }
 
 /// データベースの作成・削除に共通の下ごしらえ (書き込み可・生存・種類の確認)
-async fn begin_db_admin(
+pub(super) async fn begin_db_admin(
     session: &mut Session,
     qlog: &QueryLog,
 ) -> Result<(DbType, String), String> {
@@ -66,6 +66,7 @@ pub async fn create_database(
     name: &str,
     encoding: Option<String>,
     collation: Option<String>,
+    owner: Option<String>,
 ) -> Result<Vec<String>, String> {
     let arc = get_session(sessions, session_id).await?;
     let mut guard = arc.lock().await;
@@ -76,6 +77,7 @@ pub async fn create_database(
         name,
         encoding.as_deref(),
         collation.as_deref(),
+        owner.as_deref(),
     )?;
     let db_label = session.current_db.clone().unwrap_or_default();
     exec_ctl(&mut session.conn, qlog, &label, &db_label, &sql).await?;

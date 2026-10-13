@@ -193,8 +193,32 @@ pub async fn create_database(
     name: String,
     encoding: Option<String>,
     collation: Option<String>,
+    owner: Option<String>,
 ) -> Result<Vec<String>, String> {
-    sessions::create_database(&state, &qlog, &session_id, &name, encoding, collation).await
+    sessions::create_database(&state, &qlog, &session_id, &name, encoding, collation, owner)
+        .await
+}
+
+/// データベースの所有者の一覧と、所有者に選べるロール (PostgreSQLのみ)
+#[tauri::command]
+pub async fn database_owners(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+) -> Result<crate::catalog::DatabaseOwners, String> {
+    sessions::database_owners(&state, &qlog, &session_id).await
+}
+
+/// データベースの所有者を付け替える (付け替えたあとの一覧を返す)
+#[tauri::command]
+pub async fn change_database_owner(
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    name: String,
+    owner: String,
+) -> Result<crate::catalog::DatabaseOwners, String> {
+    sessions::change_database_owner(&state, &qlog, &session_id, &name, &owner).await
 }
 
 /// データベースを消す (削除後の一覧を返す)
@@ -252,13 +276,25 @@ pub fn preview_create_database(
     name: String,
     encoding: Option<String>,
     collation: Option<String>,
+    owner: Option<String>,
 ) -> Result<String, String> {
     crate::dbadmin::create_database_sql(
         db_type,
         &name,
         encoding.as_deref(),
         collation.as_deref(),
+        owner.as_deref(),
     )
+}
+
+/// 実行せずに、所有者を付け替えるSQLを返す (確認ダイアログに出す)
+#[tauri::command]
+pub fn preview_change_database_owner(
+    db_type: crate::models::DbType,
+    name: String,
+    owner: String,
+) -> Result<String, String> {
+    crate::dbadmin::alter_database_owner_sql(db_type, &name, &owner)
 }
 
 /// 実行せずに、スキーマを作るSQLを返す (確認ダイアログに出す)

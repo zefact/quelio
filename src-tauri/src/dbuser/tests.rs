@@ -63,6 +63,49 @@ fn 自分自身は変えられない() {
 }
 
 #[test]
+fn 自分自身をロールに入れるのは許す() {
+    let me = user("postgres", "");
+    let key = user_key(DbType::Postgresql, &me);
+    let join = |add| UserChange::Role {
+        user: me.clone(),
+        role: "rext_qsc_user".into(),
+        add,
+    };
+    // 入れる (権限が増えるだけ) は、自分自身でもサーバーが用意したユーザーでもよい
+    assert!(check_change(&join(true), &key, DbType::Postgresql).is_ok());
+    // 外す (自分の権限を削りかねない) は、これまでどおり断る
+    assert!(check_change(&join(false), &key, DbType::Postgresql).is_err());
+    // ほかの変更も、これまでどおり断る
+    let lock = UserChange::Lock {
+        user: me.clone(),
+        locked: true,
+    };
+    assert!(check_change(&lock, &key, DbType::Postgresql).is_err());
+}
+
+#[test]
+fn サーバーが用意したロールには人を入れない() {
+    let change = UserChange::Role {
+        user: user("app", ""),
+        role: "postgres".into(),
+        add: true,
+    };
+    assert!(check_change(&change, "me", DbType::Postgresql).is_err());
+}
+
+#[test]
+fn mysqlは自分自身をロールに入れない() {
+    let me = user("app", "%");
+    let key = user_key(DbType::Mysql, &me);
+    let change = UserChange::Role {
+        user: me,
+        role: "reader".into(),
+        add: true,
+    };
+    assert!(check_change(&change, &key, DbType::Mysql).is_err());
+}
+
+#[test]
 fn 呼び名は引用符を重ねて逃がす() {
     assert_eq!(user_key(DbType::Mysql, &user("a'b", "%")), "'a''b'@'%'");
     assert_eq!(user_key(DbType::Postgresql, &user("a'b", "")), "a'b");

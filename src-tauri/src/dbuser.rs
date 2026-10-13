@@ -248,6 +248,36 @@ pub fn check_target(user: &UserRef, current_key: &str, db: DbType) -> Result<(),
     Ok(())
 }
 
+/**
+ * その変更を流してよいかを確かめる。
+ *
+ * ふだんは相手を `check_target` で見る。
+ * ただし PostgreSQL で「ロールに入れる」(GRANT ロール TO 相手) だけは、
+ * 相手が自分自身やサーバーが用意したユーザーでも許す。
+ * 相手の権限が増えるだけで削られることは無く、
+ * AWS RDS のマスターユーザーを作ったロールのメンバーにする
+ * (そのロールを所有者にするのに要る) といった使い方があるため。
+ * ロールから外すほうは、自分の権限を削りかねないのでこれまでどおり断る
+ */
+pub fn check_change(change: &UserChange, current_key: &str, db: DbType) -> Result<(), String> {
+    let Some(user) = change.target() else {
+        return Ok(());
+    };
+    if let UserChange::Role { role, add: true, .. } = change {
+        // サーバーが用意したロール (postgres など) に人を入れると、
+        // その人がスーパーユーザーになれてしまうので断る
+        if is_system_user(role) {
+            return Err(format!(
+                "「{role}」はサーバーが用意したロールなので、メンバーを足せません"
+            ));
+        }
+        if db == DbType::Postgresql {
+            return Ok(());
+        }
+    }
+    check_target(user, current_key, db)
+}
+
 /// 権限の一覧などで使う呼び名 (MySQL は `'名前'@'ホスト'`)
 pub fn user_key(db: DbType, user: &UserRef) -> String {
     if db == DbType::Mysql {

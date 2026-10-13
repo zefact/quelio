@@ -4,6 +4,7 @@ import type {
   AppSettings,
   CellValue,
   CharsetInfo,
+  DatabaseOwners,
   ColumnChange,
   ConfigFile,
   ConnectInfo,
@@ -117,6 +118,18 @@ export function trustSshHost(
   return call("trust_ssh_host", { host, port, fingerprint });
 }
 
+/**
+ * 保存済みのパスワード (または SSH のパスフレーズ) を1つだけ取り出す。
+ *
+ * 一覧では伏せたまま受け取っているので、画面で「表示」を押して確認したときだけ呼ぶ
+ */
+export function revealSavedSecret(
+  id: string,
+  kind: "password" | "passphrase",
+): Promise<string> {
+  return call("reveal_saved_secret", { id, kind });
+}
+
 export function createFolder(name: string): Promise<FolderInfo> {
   return call("create_folder", { name });
 }
@@ -196,13 +209,24 @@ export function previewCreateDatabase(
   name: string,
   encoding?: string,
   collation?: string,
+  owner?: string,
 ): Promise<string> {
   return call("preview_create_database", {
     dbType,
     name,
     encoding: encoding ?? null,
     collation: collation ?? null,
+    owner: owner ?? null,
   });
+}
+
+/** 実行せずに、データベースの所有者を付け替えるSQLを返す (確認に出す) */
+export function previewChangeDatabaseOwner(
+  dbType: DbType,
+  name: string,
+  owner: string,
+): Promise<string> {
+  return call("preview_change_database_owner", { dbType, name, owner });
 }
 
 /** 実行せずに、スキーマを作るSQLを返す (確認ダイアログに出す) */
@@ -608,8 +632,29 @@ export function createDatabase(
   name: string,
   encoding?: string,
   collation?: string,
+  owner?: string,
 ): Promise<string[]> {
-  return call("create_database", { sessionId, name, encoding, collation });
+  return call("create_database", {
+    sessionId,
+    name,
+    encoding,
+    collation,
+    owner,
+  });
+}
+
+/** データベースの所有者の一覧と、所有者に選べるロール (PostgreSQLのみ) */
+export function databaseOwners(sessionId: string): Promise<DatabaseOwners> {
+  return call("database_owners", { sessionId });
+}
+
+/** データベースの所有者を付け替える (付け替えたあとの一覧を返す) */
+export function changeDatabaseOwner(
+  sessionId: string,
+  name: string,
+  owner: string,
+): Promise<DatabaseOwners> {
+  return call("change_database_owner", { sessionId, name, owner });
 }
 
 /** データベースを消す (削除後の一覧を返す) */

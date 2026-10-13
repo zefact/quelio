@@ -6,6 +6,10 @@
 
 use crate::models::DbType;
 
+/// データベースの所有者 (PostgreSQLのみ)
+mod owner;
+pub use owner::*;
+
 /// 名前の長さの上限 (MySQLは64文字、PostgreSQLは63バイト)
 fn max_name_len(db: DbType) -> usize {
     match db {
@@ -78,9 +82,13 @@ pub fn create_database_sql(
     encoding: Option<&str>,
     // collation: MySQLは照合順序、PostgreSQLは LC_COLLATE のロケール名
     collation: Option<&str>,
+    // owner: 所有者にするロール (PostgreSQLのみ。無ければ接続しているロール)
+    owner: Option<&str>,
 ) -> Result<String, String> {
     check_name(db, name)?;
     let quoted = crate::ddl::quote(db, name);
+    // MySQLに指定されたときは、ここで断る
+    let owner = owner::owner_clause(db, owner)?;
     match db {
         DbType::Mysql => {
             let mut sql = format!("CREATE DATABASE {quoted}");
@@ -95,7 +103,7 @@ pub fn create_database_sql(
             Ok(sql)
         }
         DbType::Postgresql => {
-            let mut sql = format!("CREATE DATABASE {quoted}");
+            let mut sql = format!("CREATE DATABASE {quoted}{owner}");
             let enc = opt(encoding);
             let col = opt(collation);
             if let Some(enc) = enc {
@@ -222,11 +230,17 @@ mod tests {
     #[test]
     fn mysqlの作成文を組み立てる() {
         assert_eq!(
-            create_database_sql(DbType::Mysql, "shop", None, None).unwrap(),
+            create_database_sql(DbType::Mysql, "shop", None, None, None).unwrap(),
             "CREATE DATABASE `shop`"
         );
         assert_eq!(
-            create_database_sql(DbType::Mysql, "sh`op", Some("utf8mb4"), Some("utf8mb4_bin"))
+            create_database_sql(
+                DbType::Mysql,
+                "sh`op",
+                Some("utf8mb4"),
+                Some("utf8mb4_bin"),
+                None
+            )
                 .unwrap(),
             "CREATE DATABASE `sh``op` CHARACTER SET utf8mb4 COLLATE utf8mb4_bin"
         );
@@ -235,11 +249,11 @@ mod tests {
     #[test]
     fn postgresqlはtemplate0から作る() {
         assert_eq!(
-            create_database_sql(DbType::Postgresql, "shop", None, None).unwrap(),
+            create_database_sql(DbType::Postgresql, "shop", None, None, None).unwrap(),
             "CREATE DATABASE \"shop\""
         );
         assert_eq!(
-            create_database_sql(DbType::Postgresql, "shop", Some("UTF8"), None).unwrap(),
+            create_database_sql(DbType::Postgresql, "shop", Some("UTF8"), None, None).unwrap(),
             "CREATE DATABASE \"shop\" ENCODING 'UTF8' TEMPLATE template0"
         );
     }
@@ -251,7 +265,8 @@ mod tests {
                 DbType::Postgresql,
                 "shop",
                 Some("UTF8"),
-                Some("ja_JP.UTF-8")
+                Some("ja_JP.UTF-8"),
+                None
             )
             .unwrap(),
             "CREATE DATABASE \"shop\" ENCODING 'UTF8' \
@@ -259,14 +274,14 @@ mod tests {
         );
         // 照合順序だけでも template0 から作る
         assert_eq!(
-            create_database_sql(DbType::Postgresql, "shop", None, Some("C")).unwrap(),
+            create_database_sql(DbType::Postgresql, "shop", None, Some("C"), None).unwrap(),
             "CREATE DATABASE \"shop\" LC_COLLATE 'C' TEMPLATE template0"
         );
     }
 
     #[test]
     fn 照合順序の指定に記号は使えない() {
-        let e = create_database_sql(DbType::Postgresql, "shop", None, Some("C'; DROP"));
+        let e = create_database_sql(DbType::Postgresql, "shop", None, Some("C'; DROP"), None);
         assert!(e.is_err());
     }
 
@@ -274,16 +289,16 @@ mod tests {
     fn 文字コードの名前にハイフンを使える() {
         // PostgreSQLは UTF-8 / ISO-8859-1 のような別名も受け付ける
         assert_eq!(
-            create_database_sql(DbType::Postgresql, "shop", Some("UTF-8"), None).unwrap(),
+            create_database_sql(DbType::Postgresql, "shop", Some("UTF-8"), None, None).unwrap(),
             "CREATE DATABASE \"shop\" ENCODING 'UTF-8' TEMPLATE template0"
         );
     }
 
     #[test]
     fn 文字コードの指定に記号は使えない() {
-        let e = create_database_sql(DbType::Mysql, "shop", Some("utf8mb4'; DROP"), None);
+        let e = create_database_sql(DbType::Mysql, "shop", Some("utf8mb4'; DROP"), None, None);
         assert!(e.is_err());
-        let e = create_database_sql(DbType::Postgresql, "shop", Some("UTF8' --"), None);
+        let e = create_database_sql(DbType::Postgresql, "shop", Some("UTF8' --"), None, None);
         assert!(e.is_err());
     }
 

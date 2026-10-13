@@ -4,7 +4,8 @@
 //! 変更は `ensure_writable` を通す。
 //!
 //! 変えてはいけない相手 (サーバーが用意したもの・今つないでいる自分自身) は
-//! `dbuser::check_target` で断る。画面でもボタンを出さないが、ここでも止める
+//! `dbuser::check_change` で断る。画面でもボタンを出さないが、ここでも止める
+//! (自分自身をロールに入れるのだけは許す。理由は check_change に書いてある)
 
 use super::*;
 use crate::dbuser::{self, UserChange, UserRef};
@@ -153,9 +154,9 @@ pub async fn apply_change(
     ensure_database(session, Some(&database.to_string()), qlog, &label).await?;
     let style = ddl::SqlStyle::from_dialect(session.profile.db_type, &session.dialect);
 
-    if let Some(user) = change.target() {
+    if change.target().is_some() {
         let me = current_key(&mut session.conn).await;
-        dbuser::check_target(user, &me, style.db)?;
+        dbuser::check_change(&change, &me, style.db)?;
     }
     let statements = dbuser::build(style, &change)?;
     let dropping = matches!(change, UserChange::Drop { .. });

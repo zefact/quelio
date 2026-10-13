@@ -184,6 +184,13 @@ export interface WorkTab {
   error: string | null;
   testResult: TestResult | null;
   busy: "test" | "save" | "connect" | null;
+  /**
+   * 未接続のタブで「新しい接続」の入力画面を出しているか。
+   *
+   * 何も選んでいないタブはホーム (ようこそ画面) を出すので、入力画面かどうかはこれで見分ける。
+   * 画面の部品の中に持つと、別のタブへ移って戻ったときに消えてホームへ戻ってしまうため、タブに持つ
+   */
+  newConnForm?: boolean;
   /** Valkey画面の状態 (タブを切り替えても保持する) */
   kv: TabKvState;
   /** 前回終了時に開いていたDB・テーブル (接続できたら戻す。復元後に消す) */

@@ -21,8 +21,9 @@ import { DbUsersHelp } from "./DbUsersHelp";
 import { UserActions } from "./UserActions";
 import type { AskedChange } from "./UserActions";
 import { UserForm } from "./UserForm";
+import { RoleMembers } from "./RoleMembers";
 import { UserGrants } from "./UserGrants";
-import { filterUsers, userLabel } from "./dbUserView";
+import { blockedReason, filterUsers, userLabel } from "./dbUserView";
 
 interface Props {
   sessionId: string;
@@ -220,6 +221,16 @@ export function DbUsersDialog({
                       onAsk={setAsked}
                       refresh={refresh}
                     />
+                    {pg && (
+                      <RoleMembers
+                        key={`members:${current.key}`}
+                        role={current}
+                        users={info?.users ?? []}
+                        // 変えられないロール (自分自身・サーバーが用意したもの) は見るだけ
+                        editable={canManage && !blockedReason(current)}
+                        onAsk={setAsked}
+                      />
+                    )}
                     {canManage && (
                       <UserActions
                         // ユーザーを選び替えたら、開きかけの入力は閉じる

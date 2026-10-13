@@ -703,6 +703,20 @@
   border-color: rgba(var(--ink), 0.3);
 }
 
+/* 伏せ字の欄の右の目のボタン (絵だけなので幅を詰める) */
+.secret-eye {
+  justify-content: center;
+  padding: 0 11px;
+}
+
+.secret-eye:disabled {
+  cursor: default;
+}
+
+.secret-eye:disabled:hover {
+  border-color: var(--border-strong);
+}
+
 /* ---------- モーダル (設定 / エクスポート / インポート) ---------- */
 
 .modal-overlay {

@@ -880,10 +880,12 @@ function App() {
     const tab = tabOf(key);
     if (!tab?.profile.id) return;
     await deleteConnection(tab.profile.id);
+    // 消したあとは入力画面ではなくホームへ戻す
     updateTab(key, {
       profile: emptyProfile(),
       testResult: null,
       error: null,
+      newConnForm: false,
     });
     await reload();
   };
@@ -2194,6 +2196,7 @@ function App() {
                 profile: structuredClone(p),
                 testResult: null,
                 error: null,
+                newConnForm: false,
               })
             }
             onNewFavorite={() =>
@@ -2201,6 +2204,8 @@ function App() {
                 profile: emptyProfile(),
                 testResult: null,
                 error: null,
+                // 入力画面を出していることもタブに覚えさせる (切り替えて戻っても続きから)
+                newConnForm: true,
               })
             }
             onSave={() => handleSave(activeTab.key)}
