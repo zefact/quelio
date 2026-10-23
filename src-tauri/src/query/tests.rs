@@ -986,3 +986,57 @@ fn 括弧で囲んでも更新は更新として扱う() {
     ));
     assert_eq!(statements_to_confirm(d, sql, ConfirmEnv::Prod).len(), 1);
 }
+
+// ---------- DELIMITER (mysqlクライアントの命令) ----------
+
+#[test]
+fn delimiterで区切りを変えたトリガーを分けられる() {
+    let sql = "-- 説明\nSET SESSION sql_mode = '';\nDELIMITER $$\n\
+DROP TRIGGER IF EXISTS `t1`$$\n\
+CREATE TRIGGER `t1` AFTER DELETE ON `m` FOR EACH ROW begin\n  insert into h (a) values (OLD.a);\n  insert into h2 (a) values (OLD.a);\nend$$\n\n\
+DELIMITER ;\n\n-- 確認\nSELECT 1;";
+    let stmts = split_statements(Dialect::MYSQL, sql);
+    assert_eq!(stmts.len(), 4, "{stmts:#?}");
+    // 先頭のコメントは、これまでどおり最初の文に付いたまま
+    assert!(stmts[0].ends_with("SET SESSION sql_mode = ''"), "{}", stmts[0]);
+    assert_eq!(stmts[1], "DROP TRIGGER IF EXISTS `t1`");
+    // 本体の ; では切らない。区切り ($$) と DELIMITER の行は送らない
+    assert!(stmts[2].starts_with("CREATE TRIGGER"), "{}", stmts[2]);
+    assert!(stmts[2].ends_with("end"), "{}", stmts[2]);
+    assert_eq!(stmts[2].matches(';').count(), 2);
+    assert!(stmts.iter().all(|s| !s.to_ascii_uppercase().contains("DELIMITER")));
+    assert!(stmts[3].ends_with("SELECT 1"), "{}", stmts[3]);
+}
+
+#[test]
+fn delimiterは大小を問わず_好きな区切りにできる() {
+    let sql = "delimiter //\nCREATE PROCEDURE p() BEGIN SELECT 1; SELECT 2; END//\ndelimiter ;\nSELECT 3";
+    let stmts = split_statements(Dialect::MYSQL, sql);
+    assert_eq!(stmts.len(), 2, "{stmts:#?}");
+    assert!(stmts[0].ends_with("END"));
+    assert_eq!(stmts[1], "SELECT 3");
+}
+
+#[test]
+fn 文の途中のdelimiterは命令ではない() {
+    // 列名としての delimiter (行の頭でも、文が始まっていれば命令ではない)
+    let sql = "SELECT a,\ndelimiter FROM t;\nSELECT 1 AS delimiter";
+    let stmts = split_statements(Dialect::MYSQL, sql);
+    assert_eq!(stmts.len(), 2, "{stmts:#?}");
+    assert!(stmts[0].contains("delimiter FROM t"));
+}
+
+#[test]
+fn postgresqlではdelimiterを読まない() {
+    let sql = "DELIMITER //\nSELECT 1; SELECT 2";
+    let stmts = split_statements(Dialect::POSTGRESQL, sql);
+    assert_eq!(stmts.len(), 2, "{stmts:#?}");
+    assert!(stmts[0].starts_with("DELIMITER"));
+}
+
+#[test]
+fn delimiterで包んでも危険なsqlは見落とさない() {
+    let sql = "DELIMITER $$\nDELETE FROM t$$\nDELIMITER ;";
+    assert_eq!(dangerous_statements(Dialect::MYSQL, sql).len(), 1);
+    assert!(!is_read_only(Dialect::MYSQL, sql));
+}

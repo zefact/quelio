@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.9.11"
+version = "0.9.12"
 description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -41,18 +41,21 @@ uuid = { version = "1.24.0", features = ["v4"] }
 chrono = "0.4.45"
 rust_decimal = "1.42.1"
 base64 = "0.22"
-tauri-plugin-dialog = "2.7.2"
+tauri-plugin-dialog = "2.8.3"
 # クリップボードの読み書き。
 # WKWebViewは操作の直後でないと navigator.clipboard を受け付けないため、
 # 表のコピー・貼り付けはRust側から行う
 tauri-plugin-clipboard-manager = "2"
 aes-gcm = "0.10"
+# 接続一覧のバックアップにパスワードを入れるとき、利用者が決めたパスワードから鍵を作る。
+# SSH (ssh-key) が使っている版と同じものを使い、依存を増やさない
+argon2 = { version = "0.6.0-rc.8", default-features = false }
 # OSのキーチェーンに保存時暗号化の鍵を置く。
 # 対応環境は macOS / Windows のみなので、Linuxのバックエンドは入れていない
 # (Linuxで動かすと鍵が設定フォルダに平文で置かれ、暗号化の意味が薄くなる)
 keyring = { version = "3", features = ["apple-native", "windows-native"] }
-tauri-plugin-updater = "2.10.1"
-tauri-plugin-process = "2.3.1"
+tauri-plugin-updater = "2.14.0"
+tauri-plugin-process = "2.4.0"
 # アプリ全体のメモリ使用量 (プロセスの情報だけ使う)
 sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 csv = "1"
@@ -62,7 +65,7 @@ encoding_rs = "0.8"
 encoding_rs_io = "0.1"
 # MCPサーバー (AI連携)。公式のRust SDK。
 # local feature は futures が非Sendになり、Tauriのマルチスレッドtokio上で使えないので入れない
-rmcp = { version = "3.3.0", default-features = false, features = [
+rmcp = { version = "3.7.0", default-features = false, features = [
     "macros",
     "server",
     "schemars",
@@ -86,10 +89,10 @@ dirs = "6"
 schemars = "1"
 # テーブル定義書のExcel出力 (純Rust。Cのライブラリを持ち込まない)
 # constant_memory: 結果の書き出しは行数が読めないので、1行ずつ流して使用メモリを一定に保つ
-rust_xlsxwriter = { version = "0.95", features = ["constant_memory"] }
+rust_xlsxwriter = { version = "0.101", features = ["constant_memory"] }
 # ER図のExcel出力 (図形・コネクタは rust_xlsxwriter で描けないので xlsx を自前で組む)。
 # rust_xlsxwriter が使っているものと同じ版・同じ機能にそろえる
-zip = { version = "7.2", default-features = false, features = ["deflate"] }
+zip = { version = "9.0", default-features = false, features = ["deflate"] }
 
 # 外部CLI (SSM / Cloud SQL Proxy) をプロセスグループごと終わらせるため
 [target.'cfg(unix)'.dependencies]

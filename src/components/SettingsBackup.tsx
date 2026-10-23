@@ -3,18 +3,20 @@ import type { Notify } from "../notify";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   checkConfigFiles,
-  exportConnections,
   exportCsvLayouts,
   exportErDiagrams,
   exportSavedSql,
   importConnections,
   importCsvLayouts,
+  inspectConnectionsFile,
   importErDiagrams,
   importSavedSql,
   quarantineConfigFile,
 } from "../api";
-import type { ConfigFile } from "../types";
+import type { ConfigFile, ConnectionsFileInfo, ImportCounts } from "../types";
 import { SettingRow } from "./SettingRow";
+import { ConnectionExportDialog } from "./backup/ConnectionExportDialog";
+import { ConnectionImportDialog } from "./backup/ConnectionImportDialog";
 
 interface Props {
   notify: Notify;
@@ -36,6 +38,13 @@ export function SettingsBackup({ notify, onImported }: Props) {
   const [busy, setBusy] = useState(false);
   /** 設定ファイルの状態 (未取得はnull) */
   const [files, setFiles] = useState<ConfigFile[] | null>(null);
+  /** 接続一覧のバックアップの画面を出しているか */
+  const [exportingConns, setExportingConns] = useState(false);
+  /** パスワード入りの接続一覧を復元しようとしているファイル */
+  const [importingConns, setImportingConns] = useState<{
+    path: string;
+    info: ConnectionsFileInfo;
+  } | null>(null);
 
   const reloadFiles = () => {
     checkConfigFiles()
@@ -88,7 +97,7 @@ export function SettingsBackup({ notify, onImported }: Props) {
 
   /** 復元の共通処理: ファイルを選んで取り込む */
   const doImport = async (
-    run: (path: string) => Promise<{ added: number; updated: number }>,
+    run: (path: string) => Promise<ImportCounts>,
     label: string,
     reloadAfter: boolean
   ) => {
@@ -111,6 +120,43 @@ export function SettingsBackup({ notify, onImported }: Props) {
     }
   };
 
+  /** 接続一覧を取り込んだ結果を知らせる */
+  const connsImported = (r: ImportCounts) => {
+    const secrets = r.secrets > 0 ? ` / パスワード入り${r.secrets}件` : "";
+    notify(
+      `接続一覧を取り込みました (追加${r.added}件 / 上書き${r.updated}件${secrets})`
+    );
+    onImported();
+  };
+
+  /**
+   * 接続一覧の復元。
+   *
+   * パスワードが入ったファイルなら、取り込む前にバックアップのパスワードを聞く
+   */
+  const importConns = async () => {
+    if (busy) return;
+    const path = await open({
+      multiple: false,
+      filters: JSON_FILTER,
+      title: "接続一覧を復元",
+    }).catch(() => null);
+    if (typeof path !== "string") return;
+    setBusy(true);
+    try {
+      const info = await inspectConnectionsFile(path);
+      if (info.hasSecrets) {
+        setImportingConns({ path, info });
+        return;
+      }
+      connsImported(await importConnections(path));
+    } catch (e) {
+      notify(String(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <section className="set-section">
@@ -122,8 +168,8 @@ export function SettingsBackup({ notify, onImported }: Props) {
               保存済みの接続先とフォルダ構成をJSONファイルへ書き出し、
               別のPCや再インストール後に読み込めます。
               <br />
-              セキュリティのため、パスワードとSSHパスフレーズは書き出しに
-              含まれません (復元後に再入力してください)。
+              パスワードとSSHのパスフレーズは、選んだときだけ含めます
+              (含めるときは、決めたパスワードで暗号化します。復元のときにそのパスワードを入れます)。
               同じIDの接続先は上書きされます。
             </>
           }
@@ -132,26 +178,42 @@ export function SettingsBackup({ notify, onImported }: Props) {
             <button
               className="btn-secondary"
               disabled={busy}
-              onClick={() =>
-                doExport(
-                  `quelio_connections_${today()}.json`,
-                  exportConnections,
-                  "接続一覧"
-                )
-              }
+              onClick={() => setExportingConns(true)}
             >
               バックアップ
             </button>
             <button
               className="btn-secondary"
               disabled={busy}
-              onClick={() => doImport(importConnections, "接続一覧", true)}
+              onClick={() => void importConns()}
             >
               復元
             </button>
           </div>
         </SettingRow>
       </section>
+
+      {exportingConns && (
+        <ConnectionExportDialog
+          defaultName={`quelio_connections_${today()}.json`}
+          onDone={(message) => {
+            setExportingConns(false);
+            notify(message);
+          }}
+          onClose={() => setExportingConns(false)}
+        />
+      )}
+      {importingConns && (
+        <ConnectionImportDialog
+          path={importingConns.path}
+          info={importingConns.info}
+          onDone={(r) => {
+            setImportingConns(null);
+            connsImported(r);
+          }}
+          onClose={() => setImportingConns(null)}
+        />
+      )}
 
       <section className="set-section">
         <h3 className="set-section-title">ER図</h3>

@@ -43,6 +43,8 @@ import type {
   FkInfo,
   FolderInfo,
   ImportCounts,
+  ConnectionsExported,
+  ConnectionsFileInfo,
   ImportResult,
   JobProgress,
   JobStatus,
@@ -133,7 +135,7 @@ export interface CommandResults {
   drop_database: string[];
   drop_table: string[];
   end_txn: string;
-  export_connections: number;
+  export_connections: ConnectionsExported;
   export_er_diagrams: number;
   export_er_diagram_subset: number;
   export_saved_sql: number;
@@ -202,6 +204,7 @@ export interface CommandResults {
   get_txn_state: string;
   get_workspace: unknown | null;
   import_connections: ImportCounts;
+  inspect_connections_file: ConnectionsFileInfo;
   import_csv: ImportResult;
   import_er_diagrams: ImportCounts;
   import_er_diagrams_as_new: ErImported[];
@@ -409,6 +412,7 @@ export const COMMAND_NAMES = [
   "import_er_diagrams_as_new",
   "import_saved_sql",
   "import_saved_sql_into",
+  "inspect_connections_file",
   "inspect_er_diagram_file",
   "inspect_saved_sql_file",
   "job_status",

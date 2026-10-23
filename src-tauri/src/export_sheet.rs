@@ -217,7 +217,9 @@ impl SheetSink {
 
     fn with_look(path: &Path, sheet_name: &str, look: Look) -> Result<Self, String> {
         let mut book = Workbook::new();
-        let mut sheet = book.new_worksheet_with_constant_memory();
+        let mut sheet = book
+            .new_worksheet_with_constant_memory()
+            .map_err(|e| e.to_string())?;
         sheet.set_name(sheet_name).map_err(|e| e.to_string())?;
         /*
          * 画面の目盛り線は消す。

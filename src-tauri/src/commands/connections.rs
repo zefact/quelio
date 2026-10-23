@@ -308,19 +308,36 @@ pub async fn disconnect_session(
     Ok(())
 }
 
-/// 接続一覧をJSONファイルへ書き出す (件数を返す)
+/// 接続一覧をJSONファイルへ書き出す。
+///
+/// `secret_password` を渡すと、パスワード・パスフレーズもそれで暗号化して入れる
 #[tauri::command]
-pub fn export_connections(app: AppHandle, path: String) -> Result<usize, String> {
-    crate::backup::export_connections(&app, &path)
+pub fn export_connections(
+    app: AppHandle,
+    path: String,
+    secret_password: Option<String>,
+) -> Result<crate::backup::ConnectionsExported, String> {
+    crate::backup::export_connections(&app, &path, secret_password.as_deref())
 }
 
-/// JSONファイルから接続一覧を取り込む
+/// 接続一覧のファイルの中身を確かめる (パスワードが入っているか)
+#[tauri::command]
+pub fn inspect_connections_file(
+    path: String,
+) -> Result<crate::backup::ConnectionsFileInfo, String> {
+    crate::backup::inspect_connections_file(&path)
+}
+
+/// JSONファイルから接続一覧を取り込む。
+///
+/// ファイルにパスワードが入っていて `secret_password` を渡すと、それも取り込む
 #[tauri::command]
 pub fn import_connections(
     app: AppHandle,
     path: String,
+    secret_password: Option<String>,
 ) -> Result<crate::backup::ImportResult, String> {
-    crate::backup::import_connections(&app, &path)
+    crate::backup::import_connections(&app, &path, secret_password.as_deref())
 }
 
 /// SQLのお気に入りをJSONファイルへ書き出す (件数を返す)

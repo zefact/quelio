@@ -358,6 +358,7 @@ pub fn run() {
             commands::cancel_csv_export,
             commands::export_connections,
             commands::import_connections,
+            commands::inspect_connections_file,
             commands::export_er_diagrams,
             commands::export_saved_sql,
             commands::import_saved_sql,

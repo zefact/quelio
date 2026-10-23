@@ -177,6 +177,24 @@ export interface McpPendingApproval {
 export interface ImportCounts {
   added: number;
   updated: number;
+  /** パスワード・パスフレーズを取り込んだ接続先の数 (接続一覧のときだけ。ほかは0) */
+  secrets: number;
+}
+
+/** 接続一覧を書き出した結果 (バックエンドの ConnectionsExported と対) */
+export interface ConnectionsExported {
+  count: number;
+  /** パスワード・パスフレーズを入れた接続先の数 */
+  secrets: number;
+  /** 保存されたパスワードを復号できず、入れられなかった接続先の数 */
+  locked: number;
+}
+
+/** 接続一覧のバックアップファイルの中身 (取り込む前に確かめる) */
+export interface ConnectionsFileInfo {
+  connections: number;
+  /** パスワード・パスフレーズが (暗号化して) 入っているか */
+  hasSecrets: boolean;
 }
 
 /** 設定フォルダのファイル1件の状態 (バックエンドの ConfigFile と対) */

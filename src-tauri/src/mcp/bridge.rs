@@ -23,7 +23,7 @@ use rmcp::model::{
     CallToolRequestParams, CallToolResponse, ErrorData as McpError, GetPromptRequestParams,
     GetPromptResponse, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
     ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-    ReadResourceRequestParams, ReadResourceResponse, ServerInfo,
+    ReadResourceRequestParams, ReadResourceResponse, ServerConfig,
 };
 use rmcp::service::{NotificationContext, Peer, RequestContext, RoleClient, RoleServer};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
@@ -67,9 +67,9 @@ impl ServerHandler for Bridge {
     /// `list_changed` の印もそのまま伝わる。
     /// **上流が名乗る口は、下からの要求をすべて転送できるようにしておくこと**
     /// (名乗るのに応えないと、クライアントは空だと思い込む)
-    fn get_info(&self) -> ServerInfo {
+    fn get_info(&self) -> ServerConfig {
         let Some(up) = self.upstream.peer_info() else {
-            return ServerInfo::default();
+            return ServerConfig::default();
         };
         let mut info = InitializeResult::new(up.capabilities.clone());
         info.protocol_version = up.protocol_version.clone();

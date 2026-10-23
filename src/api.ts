@@ -4,6 +4,8 @@ import type {
   AppSettings,
   CellValue,
   CharsetInfo,
+  ConnectionsExported,
+  ConnectionsFileInfo,
   DatabaseOwners,
   ColumnChange,
   ConfigFile,
@@ -1322,14 +1324,42 @@ export function cancelCsvExport(jobId: string): Promise<void> {
 
 // ---------- 設定 > エクスポート/インポート ----------
 
-/** 接続一覧をJSONファイルへ書き出す (件数を返す)。パスワードは含まれない */
-export function exportConnections(path: string): Promise<number> {
-  return call("export_connections", { path });
+/**
+ * 接続一覧をJSONファイルへ書き出す。
+ *
+ * `secretPassword` を渡すと、パスワード・パスフレーズもそれで暗号化して入れる
+ * (渡さなければ入れない)
+ */
+export function exportConnections(
+  path: string,
+  secretPassword?: string,
+): Promise<ConnectionsExported> {
+  return call("export_connections", {
+    path,
+    secretPassword: secretPassword ?? null,
+  });
 }
 
-/** JSONファイルから接続一覧を取り込む */
-export function importConnections(path: string): Promise<ImportCounts> {
-  return call("import_connections", { path });
+/** 接続一覧のファイルの中身を確かめる (パスワードが入っているか) */
+export function inspectConnectionsFile(
+  path: string,
+): Promise<ConnectionsFileInfo> {
+  return call("inspect_connections_file", { path });
+}
+
+/**
+ * JSONファイルから接続一覧を取り込む。
+ *
+ * ファイルにパスワードが入っていて `secretPassword` を渡すと、それも取り込む
+ */
+export function importConnections(
+  path: string,
+  secretPassword?: string,
+): Promise<ImportCounts> {
+  return call("import_connections", {
+    path,
+    secretPassword: secretPassword ?? null,
+  });
 }
 
 /** 全ER図をJSONファイルへ書き出す (件数を返す) */

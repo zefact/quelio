@@ -1,0 +1,38 @@
+/* ============================================================
+   接続一覧のバックアップ・復元 (パスワードを含めるとき)
+   ============================================================ */
+
+.backup-secret-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.backup-secret-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+.backup-secret-note strong {
+  color: var(--warn);
+}
+
+/* 見出しを欄の上に置く (他のダイアログと同じ形) */
+.backup-secret-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.backup-secret-field .text-field {
+  width: 100%;
+}
+
+/* パスワードの不足 (短い・一致しない) */
+.backup-secret-problem {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--warn);
+}

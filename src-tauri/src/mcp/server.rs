@@ -14,7 +14,7 @@ use rmcp::{
         ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
         PaginatedRequestParams, Prompt, PromptArgument, PromptMessage, ReadResourceRequestParams,
         ReadResourceResponse, ReadResourceResult, Resource, ResourceContents, ResourceTemplate,
-        Role, ServerCapabilities, ServerInfo,
+        Role, ServerCapabilities, ServerConfig,
     },
     schemars,
     service::{NotificationContext, RequestContext, RoleServer},
@@ -341,8 +341,8 @@ Returns the sheet name it was placed in."
 
 #[tool_handler]
 impl ServerHandler for QuelioMcp {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(
             ServerCapabilities::builder()
                 .enable_tools()
                 // スキーマ資料 (quelio://<接続名>/<DB名>/schema) を渡すため

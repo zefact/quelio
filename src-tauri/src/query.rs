@@ -89,6 +89,10 @@ pub struct Dialect {
     pub exec_comment: bool,
     /// ブロックコメントが入れ子にできるか (PostgreSQL)
     pub nested_comment: bool,
+    /// `DELIMITER $$` で文の区切りを変えられるか (MySQL)。
+    /// mysqlクライアントの命令で、トリガーやストアドの中の ; を区切りにしないために使う。
+    /// サーバーへは送らない (送ると構文エラーになる)
+    pub delimiter_command: bool,
 }
 
 impl Dialect {
@@ -101,6 +105,7 @@ impl Dialect {
         dash_needs_space: true,
         exec_comment: true,
         nested_comment: false,
+        delimiter_command: true,
     };
     pub const POSTGRESQL: Dialect = Dialect {
         backslash_escape: false,
@@ -111,6 +116,7 @@ impl Dialect {
         dash_needs_space: false,
         exec_comment: false,
         nested_comment: true,
+        delimiter_command: false,
     };
     pub const SQLITE: Dialect = Dialect {
         backslash_escape: false,
@@ -121,6 +127,7 @@ impl Dialect {
         dash_needs_space: false,
         exec_comment: false,
         nested_comment: false,
+        delimiter_command: false,
     };
 
     /// DBの種類から見た既定の方言。

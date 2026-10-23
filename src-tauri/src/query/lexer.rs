@@ -67,6 +67,64 @@ fn dollar_tag(rest: &[char]) -> Option<String> {
     None
 }
 
+/// 位置 i が行の頭か (前にあるのが同じ行の空白だけか)
+fn line_start(chars: &[char], i: usize) -> bool {
+    let mut j = i;
+    while j > 0 {
+        match chars[j - 1] {
+            ' ' | '\t' => j -= 1,
+            '\n' | '\r' => return true,
+            _ => return false,
+        }
+    }
+    true
+}
+
+/**
+ * 位置 i から `DELIMITER 区切り` の行が始まるなら、新しい区切りと行の次の位置を返す。
+ *
+ * mysqlクライアントと同じく、語は大小を問わず、区切りは空白までの1語。
+ * 区切りが書かれていなければ命令とは見なさない
+ */
+fn delimiter_line(chars: &[char], i: usize) -> Option<(Vec<char>, usize)> {
+    const WORD: &str = "DELIMITER";
+    let n = WORD.len();
+    let word: String = chars.get(i..i + n)?.iter().collect();
+    if !word.eq_ignore_ascii_case(WORD) {
+        return None;
+    }
+    if !matches!(chars.get(i + n), Some(' ' | '\t')) {
+        return None;
+    }
+    let mut j = i + n;
+    while matches!(chars.get(j), Some(' ' | '\t')) {
+        j += 1;
+    }
+    let start = j;
+    while j < chars.len() && !chars[j].is_whitespace() {
+        j += 1;
+    }
+    if j == start {
+        return None;
+    }
+    let delim = chars[start..j].to_vec();
+    // 行の残りは読み捨てる (改行まで含める)
+    while j < chars.len() && chars[j] != '\n' {
+        j += 1;
+    }
+    Some((delim, (j + 1).min(chars.len())))
+}
+
+/// 今の文に、まだ中身が無いか (空白とコメントだけか)
+fn stmt_blank(toks: &[Tok], code: &str) -> bool {
+    code.trim().is_empty()
+        && toks
+            .iter()
+            .rev()
+            .take_while(|t| !t.semi)
+            .all(|t| t.masked.trim().is_empty())
+}
+
 /// SQLを走査して得た字句。
 ///
 /// 1つの字句は「そのまま送る形 (raw)」と
@@ -217,7 +275,39 @@ pub(super) fn lex(d: Dialect, sql: &str) -> Lexed {
         }};
     }
 
+    /*
+     * `DELIMITER $$` で変えた文の区切り (変えていなければ None で ; が区切り)。
+     * mysqlクライアントの命令なので、行の頭で、文がまだ始まっていないときだけ読む。
+     * 命令の行そのものは送らない (字句としては空にする)
+     */
+    let mut delim: Option<Vec<char>> = None;
+
     while i < chars.len() {
+        if d.delimiter_command {
+            if line_start(&chars, i) && stmt_blank(&toks, &code) {
+                if let Some((next_delim, end)) = delimiter_line(&chars, i) {
+                    flush!();
+                    toks.push(Tok::hidden(String::new()));
+                    delim = (next_delim != [';']).then_some(next_delim);
+                    i = end;
+                    continue;
+                }
+            }
+            if let Some(dl) = &delim {
+                if chars[i..].starts_with(dl) {
+                    flush!();
+                    toks.push(Tok::semi());
+                    i += dl.len();
+                    continue;
+                }
+                // 区切りを変えている間の ; は、文の中身 (トリガーの本体など)
+                if chars[i] == ';' {
+                    code.push(';');
+                    i += 1;
+                    continue;
+                }
+            }
+        }
         let c = chars[i];
         let next = chars.get(i + 1).copied();
         match c {
