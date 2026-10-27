@@ -189,6 +189,9 @@ pub use connect::*;
 mod rows;
 pub use rows::*;
 
+/// MySQLで列名が重なるSQLの件数の数え方
+mod count_mysql;
+
 /// CSV/TSVの取り込み
 mod csv;
 pub use csv::*;

@@ -22,6 +22,7 @@ import { insertNewline, lineCount, lineParts } from "./csvCellEdit";
 import { markSegments } from "./csvMark";
 import { edgeGap } from "./csvScrollbar";
 import { MAX_W, MIN_W, fitWidth } from "./csvWidth";
+import { carryWidths, type CsvColShift } from "./csvWidthCarry";
 import type { CsvBlock, CsvCursor, CsvRange } from "./csvSelection";
 import {
   colBlock,
@@ -180,6 +181,11 @@ interface Props {
    * タブを切り替えて表を作り直したとき、同じ名前の控えから元の位置へ戻す
    */
   memoKey?: string;
+  /**
+   * 直前に列を足した・消した位置。
+   * 列幅をその位置でずらして引き継ぐのに使う (無ければ並びのまま引き継ぐ)
+   */
+  colShift?: CsvColShift;
 }
 
 export function CsvGrid({
@@ -214,6 +220,7 @@ export function CsvGrid({
   syncLeft,
   autoFocus,
   memoKey,
+  colShift,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   /** 前にこの表を開いていたときのスクロール位置 (作り直したときに戻す) */
@@ -309,14 +316,54 @@ export function CsvGrid({
    * (測り直すと、手で変えた幅を勝手に戻してしまうため)
    */
   const measured = useRef<string[] | null>(null);
+  /** 今の列幅 (下の効果から、幅を依存に入れずに読むため) */
+  const widthsNow = useRef<number[]>([]);
+  useLayoutEffect(() => {
+    widthsNow.current = widths;
+  }, [widths]);
   const { row: rowAt, version } = rows;
   useEffect(() => {
     if (measured.current === columns) return;
+    /*
+     * 一度測ったあとに列名が届き直したら (セルの書き換え・列の追加など)、
+     * それまでの幅を引き継ぐ。
+     * ここで測り直すと、行を読み直している最中で中身が見えず
+     * 見出しだけの狭い幅になり、右へスクロールしていた位置が左へ戻されてしまう
+     */
+    const before = measured.current;
+    if (before) {
+      const shift = colShift?.columns === columns ? colShift : undefined;
+      const kept = carryWidths(
+        before,
+        widthsNow.current,
+        columns,
+        (name) => fitWidth(name, []),
+        shift
+      );
+      if (kept) {
+        measured.current = columns;
+        setWidths(kept);
+        return;
+      }
+      // 引き継げない (取り消しで列数が変わったなど) ときは測り直す
+      measured.current = null;
+    }
     // 先頭のほうの行を見て、見出しと中身が収まる幅にする
     const sample: string[][] = [];
     for (let i = 0; i < WIDTH_SAMPLE; i++) {
       const r = rowAt(i);
       if (r) sample.push(r);
+    }
+    /*
+     * 測り直すときに行がまだ届いていなければ、届くまで今の幅で待つ
+     * (見出しだけの狭い幅にすると、表が縮んでスクロール位置が戻される)
+     */
+    const prev = widthsNow.current;
+    if (sample.length === 0 && rowCount > 0 && prev.length > 0) {
+      if (prev.length !== columns.length) {
+        setWidths(columns.map((name, c) => prev[c] ?? fitWidth(name, [])));
+      }
+      return;
     }
     setWidths(
       columns.map((name, c) => fitWidth(name, sample.map((r) => r[c] ?? "")))
@@ -324,6 +371,8 @@ export function CsvGrid({
     if (sample.length >= Math.min(WIDTH_SAMPLE, rowCount)) {
       measured.current = columns;
     }
+    // 列の手がかりは、列名と一緒に届くので列名の変化で見れば足りる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [columns, rowAt, version, rowCount]);
 
   /*

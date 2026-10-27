@@ -60,6 +60,7 @@ import type {
 import { CsvGrid } from "./CsvGrid";
 import type { CsvCursor, CsvRange } from "./CsvGrid";
 import type { CsvBlock } from "./csvSelection";
+import type { CsvColShift } from "./csvWidthCarry";
 import { fillPatches, pasteAnchor, singleValue } from "./csvPasteFill";
 import { selectionCells } from "./csvSelection";
 import { readClipboard, writeClipboard } from "../../gridCopy";
@@ -260,6 +261,10 @@ export function CsvWindow() {
   const [leftRatio, setLeftRatio] = useState(0.5);
   /** 選んでいる範囲 (触っている側のもの。⌘+クリックで複数になる) */
   const [ranges, setRanges] = useState<CsvRange[]>([]);
+  /** 直前に列を足した・消したファイルと位置 (表の列幅をずらして引き継ぐ) */
+  const [colShift, setColShift] = useState<
+    (CsvColShift & { docId: string }) | null
+  >(null);
   /** 複数選んでいるときの合計・個数 (数えるのはRust側) */
   const [summary, setSummary] = useState<CsvSummary | null>(null);
   /** コピーしたときの短い知らせ (情報バーに少しだけ出す) */
@@ -750,6 +755,18 @@ export function CsvWindow() {
     void run(() => f(active.docId));
   };
 
+  /** 列を足す・消す (どこに何本かを表へ伝え、列幅をずらして引き継がせる) */
+  const shiftCols = (
+    at: number,
+    delta: number,
+    f: (id: string) => Promise<CsvInfo>
+  ) =>
+    doc(async (id) => {
+      const info = await f(id);
+      setColShift({ docId: id, columns: info.columns, at, delta });
+      return info;
+    });
+
   const startCompare = async (
     leftId: string,
     rightId: string,
@@ -943,6 +960,7 @@ export function CsvWindow() {
         key={`${side}:${tab.docId}`}
         // タブを切り替えて戻ったとき、前に見ていた位置へ戻す
         memoKey={`${side}:${tab.docId}`}
+        colShift={colShift?.docId === tab.docId ? colShift : undefined}
         // 開いた直後から、そのまま打てる・動かせるようにする
         autoFocus={focus === side}
         columns={tab.columns}
@@ -1336,10 +1354,12 @@ export function CsvWindow() {
               count={menu.block.count}
               canDelete={(n) => active.columns.length > n}
               onInsertLeft={(n) =>
-                doc((id) => csvInsertCol(id, menu.block.at, "新しい列", n))
+                shiftCols(menu.block.at, n, (id) =>
+                  csvInsertCol(id, menu.block.at, "新しい列", n)
+                )
               }
               onInsertRight={(n) =>
-                doc((id) =>
+                shiftCols(menu.block.at + menu.block.count, n, (id) =>
                   csvInsertCol(
                     id,
                     menu.block.at + menu.block.count,
@@ -1352,7 +1372,9 @@ export function CsvWindow() {
                 setRenaming(menu.index);
                 setMenu(null);
               }}
-              onDelete={(at, n) => doc((id) => csvDeleteCol(id, at, n))}
+              onDelete={(at, n) =>
+                shiftCols(at, -n, (id) => csvDeleteCol(id, at, n))
+              }
             />
           )}
         </div>

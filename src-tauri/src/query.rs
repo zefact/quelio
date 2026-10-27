@@ -41,6 +41,10 @@ pub use classify::*;
 mod plan;
 pub use plan::*;
 
+/// 列名が重なるSQLの件数の数え方
+mod count;
+pub use count::*;
+
 /// 結果のセルの文字列化
 mod cells;
 pub use cells::*;

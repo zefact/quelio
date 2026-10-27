@@ -129,10 +129,19 @@ pub async fn count_query_rows(
     let counted = query::plan_count(session.dialect, sql)
         .ok_or_else(|| "このSQLは件数を数えられません".to_string())?;
 
-    tokio::time::timeout(
-        query::query_timeout(timeout_secs),
-        fetch_bound_count(&mut session.conn, qlog, &label, &db_label, &counted, &[]),
-    )
+    tokio::time::timeout(query::query_timeout(timeout_secs), async {
+        /*
+         * MySQLは包んだ中に同じ名前の列があると数えられない
+         * (JOINした表の id どうしなど)。そのときは列名を付け直して包む
+         */
+        let counted = match &mut session.conn {
+            DbConn::MySql(c) => super::count_mysql::renamed_count_sql(c, sql)
+                .await
+                .unwrap_or(counted),
+            _ => counted,
+        };
+        fetch_bound_count(&mut session.conn, qlog, &label, &db_label, &counted, &[]).await
+    })
     .await
     .map_err(|_| crate::apperr::timeout_message("件数の取得"))?
 }

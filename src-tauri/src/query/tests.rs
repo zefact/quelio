@@ -761,6 +761,28 @@ fn 末尾が行コメントでも件数の包みが壊れない() {
 }
 
 #[test]
+fn 列名の重なりは大文字小文字を区別せずに見る() {
+    assert!(has_duplicate_names(&["id", "name", "ID"]));
+    assert!(has_duplicate_names(&["id", "id"]));
+    assert!(!has_duplicate_names(&["id", "name"]));
+    assert!(!has_duplicate_names(&[]));
+}
+
+#[test]
+fn 列名が重なるSQLは列名を付け直したCTEで数える() {
+    let out = plan_count_renamed("SELECT a.id, b.id FROM a JOIN b ON b.a_id = a.id;", 2).unwrap();
+    assert_eq!(
+        out,
+        "WITH q(c1, c2) AS (\nSELECT a.id, b.id FROM a JOIN b ON b.a_id = a.id\n) SELECT COUNT(*) FROM q"
+    );
+    // 末尾が行コメントでも閉じ括弧が飲み込まれない
+    let out = plan_count_renamed("SELECT 1 AS a, 2 AS a -- メモ", 2).unwrap();
+    assert!(out.contains("-- メモ\n) SELECT COUNT(*) FROM q"), "{out}");
+    // 列が無ければ組み立てない
+    assert!(plan_count_renamed("SELECT 1", 0).is_none());
+}
+
+#[test]
 fn 数えられないSQLはNone() {
     // LIMIT付きは絞る意図があるので数えない
     assert!(plan_count(pg(), "SELECT * FROM t LIMIT 10").is_none());
