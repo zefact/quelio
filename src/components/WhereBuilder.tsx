@@ -8,7 +8,7 @@ import { useState } from "react";
 import { useModal } from "../hooks/useModal";
 import { SelectMenu } from "./SelectMenu";
 import { quoteIdentIfNeeded } from "../tableSql";
-import { buildWhere, needsValue, OPS } from "../whereBuilder";
+import { buildWhere, emptyCond, needsValue, OPS } from "../whereBuilder";
 import type { FilterCond, OpKind } from "../whereBuilder";
 import type { DbType } from "../types";
 
@@ -19,30 +19,28 @@ interface Props {
   columnTypes: Record<string, string>;
   /** 最初に選んでおく列 (列ヘッダから開いたとき) */
   initialColumn?: string;
+  /** 最初に並べる条件 (前に作った条件を続けて直すとき) */
+  initialConds?: FilterCond[];
   /** 接続先のDB種別 (識別子の引用の要否を決める) */
   dbType: DbType;
-  /** 作った WHERE句を受け取る */
-  onApply: (where: string) => void;
+  /** 作った WHERE句と、その元になった条件を受け取る */
+  onApply: (where: string, conds: FilterCond[]) => void;
   onClose: () => void;
-}
-
-/** 条件の初期値 */
-function emptyCond(column: string): FilterCond {
-  return { column, op: "eq", value: "" };
 }
 
 export function WhereBuilder({
   columns,
   columnTypes,
   initialColumn,
+  initialConds,
   dbType,
   onApply,
   onClose,
 }: Props) {
   const boxRef = useModal(onClose);
-  const [conds, setConds] = useState<FilterCond[]>([
-    emptyCond(initialColumn ?? columns[0] ?? ""),
-  ]);
+  const [conds, setConds] = useState<FilterCond[]>(
+    () => initialConds ?? [emptyCond(initialColumn ?? columns[0] ?? "")]
+  );
 
   const patch = (i: number, p: Partial<FilterCond>) =>
     setConds((prev) => prev.map((c, n) => (n === i ? { ...c, ...p } : c)));
@@ -141,7 +139,7 @@ export function WhereBuilder({
             className="btn-primary"
             disabled={where === ""}
             onClick={() => {
-              onApply(where);
+              onApply(where, conds);
               onClose();
             }}
           >

@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   dropFilters,
+  recallBuilt,
   recallFilter,
+  rememberBuilt,
   rememberFilter,
   resetFilterStore,
 } from "./tableFilterStore";
@@ -42,5 +44,29 @@ describe("tableFilterStore", () => {
     dropFilters("s1");
     expect(recallFilter("s1", "shop", "orders")).toBe("");
     expect(recallFilter("s2", "shop", "orders")).toBe("b = 2");
+  });
+});
+
+describe("作った条件の記憶", () => {
+  const conds = [{ column: "status", op: "eq" as const, value: "1" }];
+
+  it("入力欄がそのときのままなら、前に作った条件を返す", () => {
+    rememberBuilt("s1", "shop", "orders", { conds, where: "status = 1" });
+    expect(recallBuilt("s1", "shop", "orders", "status = 1")).toEqual(conds);
+    // 前後の空白だけの違いは同じとみなす
+    expect(recallBuilt("s1", "shop", "orders", " status = 1 ")).toEqual(conds);
+  });
+
+  it("入力欄を書き換えたり消したりしていれば返さない", () => {
+    rememberBuilt("s1", "shop", "orders", { conds, where: "status = 1" });
+    expect(recallBuilt("s1", "shop", "orders", "status = 2")).toBeNull();
+    expect(recallBuilt("s1", "shop", "orders", "")).toBeNull();
+  });
+
+  it("別のテーブルの条件は返さず、タブを閉じたら忘れる", () => {
+    rememberBuilt("s1", "shop", "orders", { conds, where: "status = 1" });
+    expect(recallBuilt("s1", "shop", "items", "status = 1")).toBeNull();
+    dropFilters("s1");
+    expect(recallBuilt("s1", "shop", "orders", "status = 1")).toBeNull();
   });
 });

@@ -317,7 +317,7 @@ fn inner_parts(d: Dialect, sql: &str) -> Vec<Part> {
 
 /// 括弧の外側 (深さ0) に、単語として word が現れるか。
 /// サブクエリの中のWHEREを本体のWHEREと取り違えないために使う
-fn has_top_level_word(body: &str, word: &str) -> bool {
+pub(super) fn has_top_level_word(body: &str, word: &str) -> bool {
     let mut depth = 0i32;
     for (i, c) in body.char_indices() {
         match c {

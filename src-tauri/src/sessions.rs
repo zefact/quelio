@@ -1346,6 +1346,11 @@ pub async fn run_query(
                 if effects[i] == Some(false) {
                     session.txn = TxnState::None;
                 }
+                // 1ページで読むのをやめた結果は、残りを接続に溜めたままにしない
+                if r.has_more && !r.pageable {
+                    let in_txn = transaction || session.txn != TxnState::None;
+                    discard_rest(session, qlog, &label, &db_label, in_txn).await;
+                }
                 statements.push(StatementResult {
                     sql: run_sql.clone(),
                     result: r,
@@ -1682,6 +1687,62 @@ fn note_timeout<T>(session: &mut Session, res: Result<T, AppError>) -> Result<T,
         mark_needs_ping(session);
     }
     res
+}
+
+/// 読み残しを片付けるのを待つ上限。
+/// 止められなかった (中止用の接続を張れなかった) ときは、ここまで読み捨てて諦める
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(60);
+
+/**
+ * 1ページで読むのをやめた結果の、残りを片付ける。
+ *
+ * ページングできないSQL (外側に LIMIT を書いたもの・SHOW など) は、
+ * サーバーが全行を送ってくる。先頭の1000行だけ読んで止めると、
+ * 残りは接続に溜まったままになり、次にこの接続を使う操作 (再実行など) が
+ * それを全部受け取って捨て終わるまで待たされる (何百万行なら返ってこないように見える)。
+ *
+ * そこで、中止ボタンと同じ方法 (KILL QUERY / pg_cancel_backend) で
+ * サーバー側の実行を止めてから、溜まった分をこの場で読み捨てる。
+ * PostgreSQL のトランザクションの中では、止めるとトランザクションごと失敗扱いになるので、
+ * 止めずに読み捨てるだけにする (待つのは次の実行ではなく、今回の実行になる)。
+ * SQLite は読みに行った分しか作らないので、何もしなくてよい
+ */
+async fn discard_rest(
+    session: &mut Session,
+    qlog: &QueryLog,
+    label: &str,
+    db_label: &str,
+    in_txn: bool,
+) {
+    let stop = match session.conn {
+        DbConn::MySql(_) => true,
+        DbConn::Pg(_) => !in_txn,
+        DbConn::Sqlite(_) | DbConn::Kv(_) => return,
+    };
+    if stop {
+        qlog.add(label, db_label, "-- 1000行より先の受け取りを止めます");
+        let cancel = session.cancel.clone();
+        let _ = timeout(CLOSE_TIMEOUT, cancel_query(&cancel, qlog, &session.id)).await;
+    }
+    /*
+     * 溜まった分を読み捨てる。sqlx は次の往復の前に残りを読み切るので、ping で促す。
+     * 止めた場合、1回目は止めた文のエラー (中断された) を受け取るので結果は見ない。
+     * 2回目が通れば、次の操作はすぐ始められる
+     */
+    let drained = match &mut session.conn {
+        DbConn::MySql(c) => {
+            let _ = timeout(DRAIN_TIMEOUT, c.ping()).await;
+            matches!(timeout(PING_TIMEOUT, c.ping()).await, Ok(Ok(())))
+        }
+        DbConn::Pg(c) => {
+            let _ = timeout(DRAIN_TIMEOUT, c.ping()).await;
+            matches!(timeout(PING_TIMEOUT, c.ping()).await, Ok(Ok(())))
+        }
+        DbConn::Sqlite(_) | DbConn::Kv(_) => true,
+    };
+    if !drained {
+        mark_needs_ping(session);
+    }
 }
 
 /// 次の操作の入口で必ず生存確認が走るように、最終使用時刻を巻き戻す

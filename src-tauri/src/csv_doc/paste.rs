@@ -91,12 +91,12 @@ mod tests {
     }
 
     #[test]
-    fn 改行がCRLFでも読める() {
+    fn 改行がcrlfでも読める() {
         eq("a\tb\r\nc\td", &[&["a", "b"], &["c", "d"]]);
     }
 
     #[test]
-    fn 改行がCRだけでも読める() {
+    fn 改行がcrだけでも読める() {
         eq("a\rb", &[&["a"], &["b"]]);
     }
 

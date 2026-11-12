@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CellValue,
   ColumnInfo,
@@ -11,6 +11,9 @@ import { QUERY_PAGE_SIZE } from "../types";
 import type { TableDataPane } from "./panes";
 import { CellDetail } from "./CellDetail";
 import { WhereBuilder } from "./WhereBuilder";
+import { initialConds } from "../whereBuilder";
+import type { FilterCond } from "../whereBuilder";
+import { recallBuilt, rememberBuilt } from "../tableFilterStore";
 import { clipIndex, clippedRowKeys } from "../cellValue";
 import { columnKinds, kindAlign, kindClass } from "../cellKind";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -69,6 +72,11 @@ interface Props {
   onApplyRow: (change: RowChange, confirmed: boolean) => Promise<void>;
   /** 切り詰められたセルの全文を読み直す (主キーで行を特定する) */
   onFetchCell?: (column: string, key: RowCell[]) => Promise<CellValue>;
+  /**
+   * 「条件を作る」で作った条件を覚えておく場所 (接続タブ・DB・テーブル)。
+   * 開き直したときに前の条件を並べ直すのに使う
+   */
+  filterSlot?: { session: string; database: string; table: string };
 }
 
 /**
@@ -144,6 +152,7 @@ function TableDataViewInner({
   tableLabel = "",
   onApplyRow,
   onFetchCell,
+  filterSlot,
 }: Props) {
   const {
     data,
@@ -178,6 +187,8 @@ function TableDataViewInner({
    * openのときだけ出し、列ヘッダから開いたときはその列を選んでおく
    */
   const [building, setBuilding] = useState<{ column?: string } | null>(null);
+  /** 絞り込み条件の入力欄 (消したあとに入力を続けられるよう戻す先) */
+  const whereRef = useRef<HTMLInputElement>(null);
   /** 全文表示中のセル (カラム番号・行・表示中の値) */
   const [cellView, setCellView] = useState<{
     column: number;
@@ -571,27 +582,65 @@ function TableDataViewInner({
       : "";
 
   /** 組み立てた条件を入力欄へ入れて、そのまま取得し直す */
-  const applyBuilt = (built: string) => {
+  const applyBuilt = (built: string, conds: FilterCond[]) => {
+    if (filterSlot) {
+      rememberBuilt(filterSlot.session, filterSlot.database, filterSlot.table, {
+        conds,
+        where: built,
+      });
+    }
     onChangeWhere(built);
     onApplyWhere(built);
+  };
+
+  /** 前に作った条件 (入力欄がそのときのままなら) */
+  const savedConds = () =>
+    filterSlot
+      ? recallBuilt(filterSlot.session, filterSlot.database, filterSlot.table, where)
+      : null;
+
+  /** 絞り込みをやめて全件に戻す (入力欄を空にして取り直す) */
+  const clearWhere = () => {
+    onChangeWhere("");
+    onApplyWhere("");
+    whereRef.current?.focus();
   };
 
   return (
     <div className="table-data">
       {/* 絞り込み + ページ操作 */}
       <div className="query-actions table-data-actions">
-        <input
-          className="filter-input mono table-where"
-          placeholder="絞り込み条件 (WHERE句。例: status = 1 AND name LIKE '%山%')"
-          value={where}
-          onChange={(e) => onChangeWhere(e.target.value)}
-          onKeyDown={(e) => {
-            // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-            if (imeBusy(e)) return;
-            // 取得中は受け付けない (連打すると古い結果が後から表示されうる)
-            if (e.key === "Enter" && !loading) onApplyWhere();
-          }}
-        />
+        <span className="table-where-wrap">
+          <input
+            ref={whereRef}
+            className="filter-input mono table-where"
+            placeholder="絞り込み条件 (WHERE句。例: status = 1 AND name LIKE '%山%')"
+            value={where}
+            onChange={(e) => onChangeWhere(e.target.value)}
+            onKeyDown={(e) => {
+              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+              if (imeBusy(e)) return;
+              // 取得中は受け付けない (連打すると古い結果が後から表示されうる)
+              if (e.key === "Enter" && !loading) onApplyWhere();
+              // Esc で条件を消して全件に戻す (書いてあるときだけ)
+              if (e.key === "Escape" && where !== "" && !loading) {
+                e.stopPropagation();
+                clearWhere();
+              }
+            }}
+          />
+          {where !== "" && (
+            <button
+              className="table-where-clear"
+              title="条件を消して全件に戻す (Esc)"
+              aria-label="条件を消して全件に戻す"
+              disabled={loading}
+              onClick={clearWhere}
+            >
+              ×
+            </button>
+          )}
+        </span>
         <button
           className="btn-primary"
           onClick={() => onApplyWhere()}
@@ -813,6 +862,11 @@ function TableDataViewInner({
           columns={dataColumns}
           columnTypes={columnTypes}
           initialColumn={building.column}
+          initialConds={initialConds(
+            savedConds(),
+            dataColumns,
+            building.column
+          )}
           dbType={dbType}
           onApply={applyBuilt}
           onClose={() => setBuilding(null)}

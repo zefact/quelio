@@ -740,7 +740,7 @@ fn 末尾が行コメントでもソートの包みが壊れない() {
 }
 
 #[test]
-fn 件数を数えるSQLは元のSQLを包む() {
+fn 件数を数えるsqlは元のsqlを包む() {
     let out = plan_count(pg(), "SELECT * FROM t WHERE a = 1").unwrap();
     assert!(out.starts_with("SELECT COUNT(*) FROM ("), "{out}");
     assert!(out.contains("SELECT * FROM t WHERE a = 1"), "{out}");
@@ -748,7 +748,7 @@ fn 件数を数えるSQLは元のSQLを包む() {
 }
 
 #[test]
-fn 件数を数えるSQLは末尾のセミコロンを外す() {
+fn 件数を数えるsqlは末尾のセミコロンを外す() {
     let out = plan_count(pg(), "SELECT * FROM t;").unwrap();
     assert!(!out.contains(";"), "{out}");
 }
@@ -769,7 +769,7 @@ fn 列名の重なりは大文字小文字を区別せずに見る() {
 }
 
 #[test]
-fn 列名が重なるSQLは列名を付け直したCTEで数える() {
+fn 列名が重なるsqlは列名を付け直したcteで数える() {
     let out = plan_count_renamed("SELECT a.id, b.id FROM a JOIN b ON b.a_id = a.id;", 2).unwrap();
     assert_eq!(
         out,
@@ -783,9 +783,9 @@ fn 列名が重なるSQLは列名を付け直したCTEで数える() {
 }
 
 #[test]
-fn 数えられないSQLはNone() {
-    // LIMIT付きは絞る意図があるので数えない
-    assert!(plan_count(pg(), "SELECT * FROM t LIMIT 10").is_none());
+fn 数えられないsqlはnone() {
+    // 件数の指定を読み解けないものは、ページングもしないので数えない
+    assert!(plan_count(pg(), "SELECT * FROM t LIMIT 10 FOR UPDATE").is_none());
     // 更新系も数えない
     assert!(plan_count(pg(), "UPDATE t SET a = 1").is_none());
 }
@@ -803,10 +803,60 @@ fn 文字列の中の指定では止めない() {
 }
 
 #[test]
-fn 件数を絞る句が既にあれば足さない() {
+fn 書いてある件数の範囲の中でページングする() {
+    // 1000件より少なければ、書いたとおりの件数だけ取る
     let p = plan(pg(), "SELECT * FROM t LIMIT 10", 0, None, false);
-    assert!(!p.pageable);
-    assert_eq!(p.sql, "SELECT * FROM t LIMIT 10");
+    assert!(p.pageable);
+    assert_eq!(p.sql, "SELECT * FROM t\nLIMIT 10 OFFSET 0");
+
+    // 500000件まで: 1ページ目は1001件 (続きがあるかを見るため1件多く) 取る
+    let sql = "select * from m_item limit 500000";
+    let p = plan(Dialect::MYSQL, sql, 0, None, true);
+    assert!(p.pageable);
+    assert_eq!(p.sql, "select * from m_item\nLIMIT 1001 OFFSET 0");
+    // 途中のページ
+    let p = plan(Dialect::MYSQL, sql, 1000, None, true);
+    assert_eq!(p.sql, "select * from m_item\nLIMIT 1001 OFFSET 1000");
+    // 最後のページは残りの件数だけ (500000件を超えて取らない)
+    let p = plan(Dialect::MYSQL, sql, 499_500, None, true);
+    assert_eq!(p.sql, "select * from m_item\nLIMIT 500 OFFSET 499500");
+
+    // OFFSET を書いたもの・MySQLの `LIMIT 読み飛ばす数, 件数`
+    let p = plan(pg(), "SELECT * FROM t ORDER BY id LIMIT 2000 OFFSET 5", 1000, None, false);
+    assert_eq!(p.sql, "SELECT * FROM t ORDER BY id\nLIMIT 1000 OFFSET 1005");
+    let p = plan(Dialect::MYSQL, "SELECT * FROM t LIMIT 100, 50;", 0, None, true);
+    assert_eq!(p.sql, "SELECT * FROM t\nLIMIT 50 OFFSET 100");
+
+    // 並べ替えは、書いた件数で絞った結果を包んで並べる
+    let p = plan(pg(), "SELECT * FROM t LIMIT 10", 0, Some(("a", "DESC")), false);
+    assert!(p.sql.contains("SELECT * FROM t LIMIT 10\n) AS q ORDER BY"), "{}", p.sql);
+    // 件数は、書いた件数で絞った結果を数える
+    assert_eq!(
+        plan_count(pg(), "SELECT * FROM t LIMIT 10").as_deref(),
+        Some("SELECT COUNT(*) FROM (\nSELECT * FROM t LIMIT 10\n) AS q")
+    );
+}
+
+#[test]
+fn 読み解けない件数の指定ではページングしない() {
+    for sql in [
+        // 後ろに句やコメントが続く
+        "SELECT * FROM t LIMIT 10 FOR UPDATE",
+        "SELECT * FROM t LIMIT 10 -- メモ",
+        // 件数が式・パラメータ
+        "SELECT * FROM t LIMIT :n",
+        "SELECT * FROM t LIMIT 10 + 1",
+        // OFFSET だけ
+        "SELECT * FROM t OFFSET 5",
+    ] {
+        let p = plan(pg(), sql, 0, None, false);
+        assert!(!p.pageable, "{sql}");
+        assert_eq!(p.sql, sql, "書き換えない");
+    }
+    // 文字列の中の LIMIT は件数の指定ではない (指定が無いのでそのまま足す)
+    let p = plan(pg(), "SELECT 'LIMIT 5' AS s FROM t", 0, None, false);
+    assert!(p.pageable);
+    assert!(p.sql.ends_with("LIMIT 1001 OFFSET 0"), "{}", p.sql);
 }
 
 #[test]
@@ -957,7 +1007,7 @@ fn 本番の更新は確認の一覧に本番と分かる形で入る() {
 /// 危険なSQLは、本番でも今までどおりの文言で出す
 /// (「本番だから」で説明が薄くならないように)
 #[test]
-fn 本番でも危険なSQLの文言は変わらない() {
+fn 本番でも危険なsqlの文言は変わらない() {
     let d = Dialect::of(DbType::Mysql);
     let got = statements_to_confirm(d, "DROP TABLE t", ConfirmEnv::Prod);
     assert_eq!(got.len(), 1);
@@ -1202,4 +1252,24 @@ fn 引用符で囲んだ関数名も見る() {
     assert!(is_read_only(pg, "SELECT \"id\", \"name\" FROM \"users\""));
     // MySQLの " は (ANSI_QUOTESでなければ) 文字列なので、名前とは見ない
     assert!(is_read_only(Dialect::MYSQL, "SELECT \"setval\" AS memo"));
+}
+
+#[test]
+fn サブクエリの中の件数指定ではページングをやめない() {
+    // 外側の件数は絞られていないので、ページングしないと全行が送られてくる
+    for sql in [
+        "SELECT * FROM t JOIN (SELECT id FROM u ORDER BY id LIMIT 10) x ON x.id = t.id",
+        "SELECT * FROM t WHERE id IN (SELECT id FROM u FETCH FIRST 5 ROWS ONLY)",
+        "SELECT *, (SELECT name FROM u WHERE u.id = t.uid LIMIT 1) AS n FROM t",
+        "WITH x AS (SELECT * FROM u LIMIT 3) SELECT * FROM t, x",
+        "(SELECT * FROM t LIMIT 10) UNION ALL (SELECT * FROM u LIMIT 10)",
+    ] {
+        let p = plan(Dialect::MYSQL, sql, 0, None, true);
+        assert!(p.pageable, "{sql}");
+        assert!(p.sql.ends_with("LIMIT 1001 OFFSET 0"), "{}", p.sql);
+        assert!(plan_count(Dialect::MYSQL, sql).is_some(), "{sql}");
+    }
+    // 外側に書いた件数指定は、その範囲の中で送る (件数は付け替える)
+    let p = plan(pg(), "SELECT * FROM (SELECT * FROM t LIMIT 3) x ORDER BY id LIMIT 10", 0, None, false);
+    assert_eq!(p.sql, "SELECT * FROM (SELECT * FROM t LIMIT 3) x ORDER BY id\nLIMIT 10 OFFSET 0");
 }

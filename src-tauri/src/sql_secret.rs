@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn ふつうのSQLは書き換えない() {
+    fn ふつうのsqlは書き換えない() {
         let sql = "SELECT * FROM users WHERE password = 'abc'";
         assert_eq!(mask(sql), sql);
         let sql = "UPDATE t SET password = 'abc' WHERE id = 1";

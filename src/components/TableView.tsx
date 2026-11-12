@@ -534,6 +534,11 @@ export function TableView({
             tableLabel={fullTableName}
             onApplyRow={applyRow}
             onFetchCell={fetchFullCell}
+            filterSlot={{
+              session: sessionId,
+              database: database ?? "",
+              table: fullTableName,
+            }}
           />
         )}
       </div>

@@ -103,11 +103,43 @@
 }
 
 /* 絞り込み入力 (filter-inputの下マージンを打ち消して1行に並べる) */
-.table-where {
+/* 絞り込み条件の入力欄。右端に「×」(条件を消す) を重ねる */
+.table-where-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
   flex: 1;
   min-width: 160px;
   max-width: 520px;
+}
+
+.table-where {
+  flex: 1;
+  width: 100%;
   margin-bottom: 0;
+  padding-right: 26px;
+}
+
+.table-where-clear {
+  position: absolute;
+  right: 4px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 6px;
+}
+
+.table-where-clear:hover:not(:disabled) {
+  color: var(--text);
+  background: rgba(var(--ink), 0.08);
+}
+
+.table-where-clear:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .table-data-grid {

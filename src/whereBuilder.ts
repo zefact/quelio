@@ -150,3 +150,26 @@ export function buildWhere(
     .filter((s): s is string => s !== null)
     .join(" AND ");
 }
+
+/** 条件の初期値 (列だけ選んで「等しい」) */
+export function emptyCond(column: string): FilterCond {
+  return { column, op: "eq", value: "" };
+}
+
+/**
+ * 「条件を作る」を開いたときに並べる条件。
+ *
+ * 前に作った条件があれば、それを並べ直す (続けて直せるように)。
+ * もう無い列の条件は落とす (テーブルの定義が変わったとき)。
+ * 列ヘッダから開いたときは、その列の条件を1つ足す。
+ * 何も残らなければ、空の条件を1つ置く
+ */
+export function initialConds(
+  saved: FilterCond[] | null,
+  columns: string[],
+  column?: string
+): FilterCond[] {
+  const kept = (saved ?? []).filter((c) => columns.includes(c.column));
+  if (kept.length === 0) return [emptyCond(column ?? columns[0] ?? "")];
+  return column ? [...kept, emptyCond(column)] : kept;
+}

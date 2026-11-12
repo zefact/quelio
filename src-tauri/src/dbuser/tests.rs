@@ -208,7 +208,7 @@ fn 名前を変えても接続元は引き継ぐ() {
 }
 
 #[test]
-fn 入れないようにする書き方はDBで違う() {
+fn 入れないようにする書き方はdbで違う() {
     assert_eq!(
         set_lock_sql(my(), &user("app", "%"), true),
         "ALTER USER 'app'@'%' ACCOUNT LOCK"
@@ -347,7 +347,7 @@ fn 渡せる印も一緒に外す() {
 }
 
 #[test]
-fn サーバー全体をUSAGEに戻す() {
+fn サーバー全体をusageに戻す() {
     /*
      * MySQL の USAGE は「権限が無い」という印なので外す文は出さない。
      * 印だけが残った行からは、その印を外す文だけを出す
@@ -474,7 +474,7 @@ fn ロールの付け外し() {
 // ---------- まとめて組み立てる ----------
 
 #[test]
-fn 変更の種類ごとにSQLを組み立てる() {
+fn 変更の種類ごとにsqlを組み立てる() {
     let u = user("app", "%");
     let got = build(my(), &UserChange::Lock { user: u.clone(), locked: true }).unwrap();
     assert_eq!(got, vec!["ALTER USER 'app'@'%' ACCOUNT LOCK".to_string()]);

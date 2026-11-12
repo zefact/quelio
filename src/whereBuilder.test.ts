@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildWhere, condSql, isNumericLiteral, quoteValue } from "./whereBuilder";
+import { initialConds } from "./whereBuilder";
 import type { FilterCond } from "./whereBuilder";
 
 /** テストではMySQL風のバッククォートで囲む */
@@ -206,5 +207,40 @@ describe("WHERE句の組み立て", () => {
         t
       )
     ).toBe("`status` = 1 AND `code` = '0123'");
+  });
+});
+
+describe("initialConds", () => {
+  const cols = ["id", "name", "status"];
+  const saved = [
+    { column: "status", op: "eq" as const, value: "1" },
+    { column: "name", op: "contains" as const, value: "山" },
+  ];
+
+  it("前に作った条件があれば、そのまま並べ直す", () => {
+    expect(initialConds(saved, cols)).toEqual(saved);
+  });
+
+  it("列ヘッダから開いたときは、その列の条件を1つ足す", () => {
+    expect(initialConds(saved, cols, "id")).toEqual([
+      ...saved,
+      { column: "id", op: "eq", value: "" },
+    ]);
+  });
+
+  it("もう無い列の条件は落とす", () => {
+    expect(initialConds(saved, ["id", "status"])).toEqual([saved[0]]);
+  });
+
+  it("何も無ければ空の条件を1つ置く", () => {
+    expect(initialConds(null, cols)).toEqual([
+      { column: "id", op: "eq", value: "" },
+    ]);
+    expect(initialConds(null, cols, "name")).toEqual([
+      { column: "name", op: "eq", value: "" },
+    ]);
+    expect(initialConds(saved, ["id"])).toEqual([
+      { column: "id", op: "eq", value: "" },
+    ]);
   });
 });

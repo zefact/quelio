@@ -375,7 +375,7 @@ mod tests {
 
     /// 直接書く形 (`write_csv_row`) は、組み立てる形と1バイトも変わらない
     #[test]
-    fn 直接書いても同じCSVになる() {
+    fn 直接書いても同じcsvになる() {
         let cases: Vec<Vec<Option<CsvCell>>> = vec![
             vec![
                 Some(CsvCell::text("ふつうの値".into())),
