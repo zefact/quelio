@@ -1062,3 +1062,144 @@ fn delimiterで包んでも危険なsqlは見落とさない() {
     assert_eq!(dangerous_statements(Dialect::MYSQL, sql).len(), 1);
     assert!(!is_read_only(Dialect::MYSQL, sql));
 }
+
+#[test]
+fn delimiterの中に並べた文は1つずつ見る() {
+    let d = Dialect::MYSQL;
+    // 区切りを変えると字句の上では1文になるが、サーバーは中の文を順に実行する
+    let sql = "DELIMITER //\nSELECT 1; DROP TABLE users; SELECT 2 //";
+    let stmts = split_statements(d, sql);
+    assert_eq!(stmts.len(), 1, "{stmts:#?}");
+    let a = Analyzed::new(d, &stmts[0]);
+    assert!(a.has_inner_statements());
+    assert!(!a.is_read_only(), "先頭の SELECT だけで読み取りと決めない");
+    assert!(!is_read_only(d, sql));
+    // 確認ダイアログには中の DROP を出す
+    let found = dangerous_statements(d, sql);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].sql.starts_with("DROP TABLE users"), "{found:#?}");
+    // 本番では中の更新も確認の対象
+    let found = statements_to_confirm(d, "DELIMITER //\nSELECT 1; INSERT INTO t VALUES (1) //", ConfirmEnv::Prod);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].prod_update);
+}
+
+#[test]
+fn ストアドの本体の中の文は定義として見る() {
+    let d = Dialect::MYSQL;
+    // BEGIN … END の中の ; は定義するだけ。中の DELETE を「全行削除」と確認しない
+    let sql = "DELIMITER //\nCREATE PROCEDURE p() BEGIN DELETE FROM log; SELECT 1; END //";
+    let stmts = split_statements(d, sql);
+    let a = Analyzed::new(d, &stmts[0]);
+    assert!(a.defines_routine_body());
+    assert!(dangerous_statements(d, sql).is_empty());
+    // 本番では定義の文として1つだけ確認する
+    let found = statements_to_confirm(d, sql, ConfirmEnv::Prod);
+    assert_eq!(found.len(), 1, "{found:#?}");
+    assert!(found[0].sql.starts_with("CREATE PROCEDURE"), "{found:#?}");
+    // トリガーもMariaDBの無名ブロックも同じ
+    for sql in [
+        "DELIMITER $$\nCREATE DEFINER=`root`@`%` TRIGGER t AFTER DELETE ON m FOR EACH ROW BEGIN DELETE FROM h; END$$",
+        "DELIMITER $$\nBEGIN NOT ATOMIC DELETE FROM h; SELECT 1; END$$",
+    ] {
+        let stmts = split_statements(d, sql);
+        assert!(Analyzed::new(d, &stmts[0]).defines_routine_body(), "{sql}");
+        assert!(dangerous_statements(d, sql).is_empty(), "{sql}");
+    }
+}
+
+#[test]
+fn mariadbの実行可能コメントも中身を読む() {
+    let d = Dialect::MYSQL;
+    for sql in [
+        "SELECT * FROM t /*M! FOR UPDATE */",
+        "SELECT * FROM t /*M!100100 FOR UPDATE */",
+        "SELECT 1 /*M! INTO OUTFILE '/tmp/x' */",
+    ] {
+        assert!(!is_read_only(d, sql), "{sql}");
+    }
+    assert_eq!(dangerous_statements(d, "/*M! DROP TABLE t */").len(), 1);
+    // 送る形は変えない
+    assert_eq!(split_statements(d, "SELECT 1 /*M! , 2 */"), vec!["SELECT 1 /*M! , 2 */"]);
+    // PostgreSQLではただのコメント
+    assert!(is_read_only(Dialect::POSTGRESQL, "SELECT * FROM t /*M! FOR UPDATE */"));
+}
+
+#[test]
+fn 括弧の中のintoも参照ではない() {
+    let d = Dialect::MYSQL;
+    for sql in [
+        "(SELECT * FROM t LIMIT 1 INTO OUTFILE '/tmp/x')",
+        "SELECT * FROM (SELECT 1) s UNION (SELECT 2 INTO @v)",
+        "WITH x AS (SELECT 1) (SELECT * FROM x INTO DUMPFILE '/tmp/y')",
+    ] {
+        assert!(!is_read_only(d, sql), "{sql}");
+        assert!(!is_analyzable(d, sql), "{sql}");
+    }
+    // 文字列やコメントの中の into は関係ない
+    assert!(is_read_only(d, "SELECT 'into' AS a /* into */ FROM t"));
+}
+
+#[test]
+fn 副作用のある関数を呼ぶselectは読み取りではない() {
+    let pg = Dialect::POSTGRESQL;
+    for sql in [
+        "SELECT setval('orders_id_seq', 1)",
+        "SELECT nextval('orders_id_seq')",
+        "SELECT pg_terminate_backend(123)",
+        "SELECT pg_cancel_backend(123)",
+        "SELECT pg_reload_conf()",
+        "SELECT pg_catalog.pg_terminate_backend(pid) FROM pg_stat_activity",
+        "SELECT dblink_exec('dbname=x', 'DELETE FROM t')",
+        "SELECT lo_export(1, '/tmp/x')",
+        "SELECT pg_create_logical_replication_slot('s', 'pgoutput')",
+        "SELECT pg_stat_reset()",
+        "SELECT pg_notify('ch', 'x')",
+        "WITH x AS (SELECT setval('s', 1)) SELECT * FROM x",
+        "EXPLAIN SELECT setval('s', 1)",
+        // 関数名とかっこの間にコメントを挟んでも同じ
+        "SELECT setval /* x */ ('s', 1)",
+    ] {
+        assert!(!is_read_only(pg, sql), "{sql}");
+    }
+    assert!(!is_analyzable(pg, "SELECT setval('s', 1)"));
+    // MariaDBのシーケンス
+    assert!(!is_read_only(Dialect::MYSQL, "SELECT NEXT VALUE FOR s"));
+    assert!(!is_read_only(Dialect::MYSQL, "SELECT NEXTVAL(s)"));
+    // SQLiteの拡張の読み込み
+    assert!(!is_read_only(Dialect::SQLITE, "SELECT load_extension('x')"));
+    // 同じ名前の列や、文字列の中の名前は関数呼び出しではない
+    for sql in [
+        "SELECT nextval FROM t",
+        "SELECT 'setval(1)' AS memo",
+        "SELECT currval('s')",
+        "SELECT * FROM pg_stat_activity",
+    ] {
+        assert!(is_read_only(pg, sql), "{sql}");
+    }
+}
+
+#[test]
+fn 引用符で囲んだ関数名も見る() {
+    let pg = Dialect::POSTGRESQL;
+    // 名前を引用符で囲んでも同じ関数が呼ばれる
+    let sql = "SELECT \"set_config\"('default_transaction_read_only', 'off', false)";
+    assert!(changes_dialect(pg, sql));
+    assert!(!is_read_only(pg, sql));
+    assert!(!is_read_only(pg, "SELECT pg_catalog.\"setval\"('s', 1)"));
+    assert!(!is_read_only(pg, "SELECT \"pg_advisory_lock\"(1)"));
+    assert!(locks_rows(pg, "SELECT \"pg_advisory_lock\"(1)"));
+    // 引用符の中の "" は引用符そのもの
+    assert!(!is_read_only(pg, "SELECT \"SETVAL\"('s', 1)"));
+    // U&"…" は名前を読めないので、副作用があるかもしれないものとして扱う
+    let sql = "SELECT U&\"\\0073et_config\"('default_transaction_read_only', 'off', false)";
+    assert!(!is_read_only(pg, sql));
+    assert!(changes_dialect(pg, sql));
+    // MySQLのバッククォートも同じ
+    assert!(!is_read_only(Dialect::MYSQL, "SELECT `setval`(s, 1)"));
+    assert!(!is_read_only(Dialect::MYSQL, "SELECT `get_lock`('x', 1)"));
+    // 普通の引用符付きの名前は読み取りのまま
+    assert!(is_read_only(pg, "SELECT \"id\", \"name\" FROM \"users\""));
+    // MySQLの " は (ANSI_QUOTESでなければ) 文字列なので、名前とは見ない
+    assert!(is_read_only(Dialect::MYSQL, "SELECT \"setval\" AS memo"));
+}

@@ -56,7 +56,7 @@ export function SettingsModal({ onClose, onImported }: Props) {
 
   /**
    * 通知の表示 (各ページから呼ばれる)。
-   * 成功は2秒で消し、失敗は読み終えるまで残す (押して消す)
+   * 成功は2秒で消し、注意と失敗は読み終えるまで残す (押して消す)
    */
   const notify: Notify = (msg, level = "success") => {
     setToast({ msg, level });
@@ -81,10 +81,10 @@ export function SettingsModal({ onClose, onImported }: Props) {
             {toast && (
               <button
                 className={"save-toast " + toast.level}
-                title={toast.level === "error" ? "押すと閉じます" : undefined}
+                title={toast.level === "success" ? undefined : "押すと閉じます"}
                 onClick={() => setToast(null)}
               >
-                {toast.level === "error" ? "! " : "✓ "}
+                {toast.level === "success" ? "✓ " : "! "}
                 {toast.msg}
               </button>
             )}

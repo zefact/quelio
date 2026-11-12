@@ -559,6 +559,15 @@
   pointer-events: auto;
 }
 
+/* できたが気にしてほしいことがあるとき (押して閉じるまで残す) */
+.save-toast.warning {
+  color: var(--warn);
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.4);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
 /* 上下中央に置いたまま出したいので、専用のアニメーションにする */
 @keyframes save-toast-in {
   from {

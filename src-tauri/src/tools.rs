@@ -310,6 +310,21 @@ pub fn mysql_tls_args(flavor: MysqlFlavor, tls: &crate::db::TlsConfig) -> Vec<St
 ///
 /// `-d` に接続文字列を渡す方法もあるが、DB名と紛れるので環境変数にする
 /// (パスワードを PGPASSWORD で渡しているのと同じやり方)
+/**
+ * pg_dump / psql の `-d` に渡すDB名。
+ *
+ * libpq は `-d` の値に `=` が入っていたり `postgresql://` で始まったりすると、
+ * それをDB名ではなく接続文字列として読み、`-h` / `-p` / `-U` より優先する。
+ * `host=別のホスト dbname=x` という名前のDBを書き出すと、
+ * パスワード (PGPASSWORD) を別のホストへ送ってしまいうる。
+ * いつも `dbname='…'` の接続文字列にして、名前としてだけ読ませる
+ */
+fn pg_dbname_arg(database: &str) -> String {
+    // 接続文字列の値の中では \ と ' をバックスラッシュで逃がす
+    let escaped = database.replace('\\', "\\\\").replace('\'', "\\'");
+    format!("dbname='{escaped}'")
+}
+
 pub fn pg_tls_env(tls: &crate::db::TlsConfig) -> Vec<(&'static str, String)> {
     use crate::db::SslMode;
     let mut out: Vec<(&'static str, String)> = Vec::new();
@@ -504,7 +519,7 @@ pub async fn start_export(
                 .arg("-U")
                 .arg(&ep.user)
                 .arg("-d")
-                .arg(&database)
+                .arg(pg_dbname_arg(&database))
                 .arg("--no-password");
             match mode.as_str() {
                 "schema" => {
@@ -615,7 +630,7 @@ pub async fn start_import(
                 .arg("-U")
                 .arg(&ep.user)
                 .arg("-d")
-                .arg(&database)
+                .arg(pg_dbname_arg(&database))
                 .arg("--no-password")
                 .arg("-v")
                 .arg("ON_ERROR_STOP=1")
@@ -738,6 +753,22 @@ pub async fn cancel_job(jobs: &Jobs, job_id: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pgのdb名は接続文字列として読ませない() {
+        assert_eq!(super::pg_dbname_arg("app"), "dbname='app'");
+        // 名前の中の = や URI は、名前の一部のまま
+        assert_eq!(
+            super::pg_dbname_arg("host=evil.example dbname=x"),
+            "dbname='host=evil.example dbname=x'"
+        );
+        assert_eq!(
+            super::pg_dbname_arg("postgresql://evil/x"),
+            "dbname='postgresql://evil/x'"
+        );
+        // 引用符とバックスラッシュは逃がす (値の外へ出られない)
+        assert_eq!(super::pg_dbname_arg(r"a'b\c"), r"dbname='a\'b\\c'");
+    }
+
     use super::*;
     use crate::db::{SslMode, TlsConfig};
 

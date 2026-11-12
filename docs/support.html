@@ -205,7 +205,7 @@
         Quelio が未実装のものの2種類があります。理由も併記しています。
       </p>
       <div class="meta-row">
-        <span class="chip">対象バージョン: Quelio v0.7.3</span>
+        <span class="chip">対象バージョン: Quelio v0.9.14</span>
         <span class="chip">最終更新: 2026-08-31</span>
         <span class="chip">ベータ版のため今後変更されることがあります</span>
       </div>
@@ -575,14 +575,14 @@
               <td class="c"><span class="mark n">—</span><span class="note">第1弾はSQLを書くDBのみ</span></td>
             </tr>
             <tr>
-              <td>AIからのSQL実行（参照）<span class="note">1文のみ・既定200行／最大1000行。トランザクションとセッション設定は常に拒否</span></td>
+              <td>AIからのSQL実行（参照）<span class="note">1文のみ・既定200行／最大1000行。読み取り専用のトランザクションで実行し、トランザクションとセッション設定は常に拒否</span></td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark n">—</span></td>
             </tr>
             <tr>
-              <td>AIからのSQL実行（更新）<span class="note">実行のたびにQuelioの画面で許可を求めます。「本番」環境の接続では許可できません</span></td>
+              <td>AIからのSQL実行（更新）<span class="note">実行のたびにQuelioの画面で許可を求めます。<span class="mono">setval()</span> など、SELECTの形で状態を変える関数も更新として扱います。「本番」環境の接続では許可できません</span></td>
               <td class="c"><span class="mark p">△</span><span class="note">許可制</span></td>
               <td class="c"><span class="mark p">△</span><span class="note">許可制</span></td>
               <td class="c"><span class="mark p">△</span><span class="note">許可制</span></td>
@@ -754,6 +754,10 @@
             <tr>
               <td>取り返しのつかないSQLの確認</td>
               <td>DROP / TRUNCATE や WHERE の無い UPDATE / DELETE は、実行前に接続先とSQLを出して確認します。<span class="note">ALTER / RENAME の確認は 設定 &gt; 一般 で外せます（マイグレーション用のSQLをまとめて流すとき向け）。</span></td>
+            </tr>
+            <tr>
+              <td>記録に残すSQLのパスワード</td>
+              <td>SQLコンソールと実行履歴には、<span class="mono">CREATE USER … IDENTIFIED BY</span> や Valkey の <span class="mono">AUTH</span> などのパスワードを伏せて残します。</td>
             </tr>
             <tr>
               <td>画面に出す件数・文字数</td>

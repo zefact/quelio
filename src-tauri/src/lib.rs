@@ -222,6 +222,21 @@ pub fn run() {
         .manage(tools::Jobs::default())
         .manage(csv_job::CsvJobs::default())
         .manage(csv_doc::CsvDocuments::default())
+        /*
+         * CSVエディタの窓を閉じたら、預かっていた表をすべて手放す。
+         *
+         * 表は窓の中のタブでしか使わない (クエリ結果を開くときも、この窓で開く)。
+         * 窓ごと閉じたときは画面からタブを1つずつ閉じないので、
+         * ここで捨てないと、数百MBの表がアプリを終えるまでメモリに残り続ける
+         */
+        .on_window_event(|window, event| {
+            use tauri::Manager;
+            if matches!(event, tauri::WindowEvent::Destroyed) && window.label() == "csv" {
+                if let Some(docs) = window.try_state::<csv_doc::CsvDocuments>() {
+                    docs.clear();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_connections,
             commands::mcp_status,

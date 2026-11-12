@@ -192,9 +192,40 @@ export function KvSessionView({
   /** エディタ高さ (SQL画面と同じくスプリッタで変更) */
   const [editorHeight, startResize] = useResizableHeight(180, 72, 4000);
 
+  /*
+   * この部品はValkeyのタブ同士で使い回される (タブを切り替えても作り直さない)。
+   * 一覧・詳細の取得を待っている間にタブやDBが変わったら、届いた結果は捨てる。
+   * 捨てないと、前のタブのキー一覧や値が今のタブに出て、
+   * そのまま編集すると今のタブの接続にある同じ名前のキーへ書き込んでしまう
+   */
+  const viewRef = useRef({ tabKey: tab.key, db });
+  viewRef.current = { tabKey: tab.key, db };
+  /** 一覧の取得の通し番号 (いちばん後に投げたものだけを表示する) */
+  const scanSeq = useRef(0);
+  /** キー詳細の取得の通し番号 */
+  const detailSeq = useRef(0);
+
   /** キー一覧を取得する (fresh=trueで先頭から取り直し) */
   const scan = useCallback(
     async (fresh: boolean, pat?: string) => {
+      const from = { tabKey: tab.key, db };
+      /*
+       * 前のタブで始めた操作の続き (改名の後の取り直しなど) は、
+       * もう別のタブを見ているなら何もしない。
+       * 番号を進めると、今のタブで待っている取得まで捨ててしまう
+       */
+      if (
+        viewRef.current.tabKey !== from.tabKey ||
+        viewRef.current.db !== from.db
+      ) {
+        return;
+      }
+      const seq = ++scanSeq.current;
+      // 後から別の取得が始まったか、タブ・DBが変わったら、この結果は古い
+      const stale = () =>
+        scanSeq.current !== seq ||
+        viewRef.current.tabKey !== from.tabKey ||
+        viewRef.current.db !== from.db;
       setScanning(true);
       setError(null);
       appliedPattern.current = pat ?? pattern;
@@ -205,14 +236,15 @@ export function KvSessionView({
           appliedPattern.current,
           fresh ? "0" : cursor
         );
+        if (stale()) return;
         setKeys((prev) => (fresh ? r.entries : [...prev, ...r.entries]));
         setCursor(r.cursor);
         setDone(r.done);
         setDbsize(r.dbsize);
       } catch (e) {
-        setError(String(e));
+        if (!stale()) setError(String(e));
       } finally {
-        setScanning(false);
+        if (scanSeq.current === seq) setScanning(false);
       }
     },
     [tab.key, db, pattern, cursor]
@@ -227,6 +259,11 @@ export function KvSessionView({
     const id = `${tab.key}\u0000${db}`;
     if (loaded.current === id) return;
     loaded.current = id;
+    // 前のタブ・DBで待っている取得は、届いても使わない
+    scanSeq.current++;
+    detailSeq.current++;
+    setScanning(false);
+    setLoadingDetail(false);
     const keep = tab.kv.browse;
     setDetail(null);
     if (keep && keep.db === db && keep.keys.length > 0) {
@@ -271,17 +308,34 @@ export function KvSessionView({
 
   /** キー選択 → 詳細を取得 */
   const openKey = async (key: string) => {
+    const from = { tabKey: tab.key, db };
+    // 前のタブで始めた操作の続きなら何もしない (scan と同じ)
+    if (
+      viewRef.current.tabKey !== from.tabKey ||
+      viewRef.current.db !== from.db
+    ) {
+      return;
+    }
+    const seq = ++detailSeq.current;
+    // 後から別のキーを開いたか、タブ・DBが変わったら、この結果は古い
+    const stale = () =>
+      detailSeq.current !== seq ||
+      viewRef.current.tabKey !== from.tabKey ||
+      viewRef.current.db !== from.db;
     setSelectedKey(key);
     onSetConsole(false);
     setLoadingDetail(true);
     try {
-      setDetail(await kvKeyDetail(tab.key, db, key));
+      const d = await kvKeyDetail(tab.key, db, key);
+      if (stale()) return;
+      setDetail(d);
       setError(null);
     } catch (e) {
+      if (stale()) return;
       setDetail(null);
       setError(String(e));
     } finally {
-      setLoadingDetail(false);
+      if (detailSeq.current === seq) setLoadingDetail(false);
     }
   };
 
@@ -400,7 +454,7 @@ export function KvSessionView({
         return;
       }
     }
-    addSqlHistory(text).catch(() => {});
+    addSqlHistory(text, true).catch(() => {});
     setRunning(true);
     setCaptureMsg(null);
     try {

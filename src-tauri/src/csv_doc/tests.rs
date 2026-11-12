@@ -650,3 +650,21 @@ fn 並べ替えをやめると元の並びに戻る() {
     assert!(!doc.filtered());
     assert_eq!(doc.page(0, 10).rows[0][0], "う");
 }
+
+// ---------- 預かり ----------
+
+#[test]
+fn 窓を閉じたら預かった表をすべて手放す() {
+    let docs = CsvDocuments::default();
+    let a = docs.insert(open("a\n1\n")).unwrap();
+    let b = docs.insert(open("b\n2\n")).unwrap();
+    assert!(docs.with(&a, |_| ()).is_ok());
+    docs.clear();
+    assert!(docs.with(&a, |_| ()).is_err());
+    assert!(docs.with(&b, |_| ()).is_err());
+    assert!(docs.with_diff(|_| ()).is_err());
+    // 手放した後も、新しく開いた表は預かれる (番号は振り直さない)
+    let c = docs.insert(open("c\n3\n")).unwrap();
+    assert_ne!(c, a);
+    assert!(docs.with(&c, |_| ()).is_ok());
+}

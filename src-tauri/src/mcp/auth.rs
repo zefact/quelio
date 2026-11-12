@@ -75,9 +75,8 @@ fn save(app: &AppHandle, token: String) -> Result<String, String> {
 ///
 /// 乱数はOSのものを使う (接続先の暗号化と同じ出どころ)
 fn generate() -> String {
-    use aes_gcm::aead::rand_core::RngCore;
-    let mut buf = [0u8; TOKEN_BYTES];
-    aes_gcm::aead::OsRng.fill_bytes(&mut buf);
+    use aes_gcm::aead::Generate;
+    let buf = <[u8; TOKEN_BYTES]>::generate();
     buf.iter().map(|b| format!("{b:02x}")).collect()
 }
 

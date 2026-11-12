@@ -404,14 +404,17 @@ function App() {
         e.preventDefault();
         try {
           const names: string[] = [];
+          let busy = false;
           for (const t of tabsRef.current) {
             if (!t.connected) continue;
-            if (await hasOpenTxn(t.key)) {
+            const risk = await closeRisk(t.key);
+            if (risk) {
               names.push(t.profile.name || t.profile.host);
+              busy ||= risk === "busy";
             }
           }
           if (names.length > 0) {
-            setCloseWarn({ kind: "window", names });
+            setCloseWarn({ kind: "window", names, busy });
             return;
           }
         } catch {
@@ -739,8 +742,8 @@ function App() {
    * 巻き戻される (＝変更が消える) ので、その前に気づけるようにする
    */
   const [closeWarn, setCloseWarn] = useState<
-    | { kind: "tab"; key: string; name: string }
-    | { kind: "window"; names: string[] }
+    | { kind: "tab"; key: string; name: string; busy: boolean }
+    | { kind: "window"; names: string[]; busy: boolean }
     | null
   >(null);
   /** 閉じる確認の解除 (閉じると決めたら、まずこれを外す) */
@@ -765,33 +768,52 @@ function App() {
     }
   };
 
-  /** そのタブに未確定のトランザクションが残っているか (読めなければ false) */
-  const hasOpenTxn = async (key: string): Promise<boolean> => {
+  /**
+   * 閉じる前に確かめたいことがあるか。
+   *  - "txn": 未確定のトランザクションが開いている
+   *  - "busy": SQLを実行中で、トランザクションの状態を読めない。
+   *    BEGIN の後に重い SELECT を流している最中かもしれないので、
+   *    「開いていない」とみなして黙って閉じない
+   * 読めなければ null (閉じるのは止めない)
+   */
+  const closeRisk = async (key: string): Promise<"txn" | "busy" | null> => {
     try {
       const s = await getTxnState(key);
-      return s === "open" || s === "broken";
+      if (s === "open" || s === "broken") return "txn";
+      if (s === "busy") return "busy";
+      return null;
     } catch {
-      return false;
+      return null;
     }
   };
 
   /** タブを閉じる。未確定の変更が残っていれば先に確認する */
   const requestCloseTab = async (key: string) => {
     const tab = tabOf(key);
-    if (tab?.connected && (await hasOpenTxn(key))) {
+    const risk = tab?.connected ? await closeRisk(key) : null;
+    if (tab && risk) {
       setCloseWarn({
         kind: "tab",
         key,
         name: tab.profile.name || tab.profile.host,
+        busy: risk === "busy",
       });
       return;
     }
     await closeTab(key);
   };
 
+  /**
+   * 閉じたタブのキー。
+   * 接続を待っている間にタブを閉じられたとき、繋がった後で切るのに使う
+   * (キーはタブごとに使い捨てなので、同じキーのタブが戻ってくることはない)
+   */
+  const closedTabs = useRef(new Set<string>());
+
   /** タブを閉じる。最後の1枚を閉じたら新しい空タブを作る */
   const closeTab = async (key: string) => {
     const tab = tabOf(key);
+    closedTabs.current.add(key);
     // 覚えていた絞り込み条件・見たテーブルの控えも、このタブのぶんは片付ける
     dropFilters(key);
     dropTableViews(key);
@@ -942,6 +964,15 @@ function App() {
        * 設定が書き換わってしまわないようにする
        */
       const info = await connectSession(key, profile);
+      /*
+       * 接続を待っている間にタブを閉じられていたら、繋がった接続を切る。
+       * 閉じたときはまだ「接続済み」ではないので切っておらず、
+       * そのままだと DB の接続と SSH トンネルが残り続ける
+       */
+      if (closedTabs.current.has(key)) {
+        await disconnectSession(key).catch(() => {});
+        return;
+      }
       const selectedDb = info.currentDb ?? null;
       updateTab(key, {
         connected: true,
@@ -960,6 +991,8 @@ function App() {
         await loadTables(key, selectedDb);
       }
     } catch (e) {
+      // 閉じたタブのために、鍵の確認やエラーを出さない
+      if (closedTabs.current.has(key)) return;
       // 初回接続 (ホスト鍵が未記録) は、確認してもらってからやり直す
       const unknown = parseUnknownHost(String(e));
       if (unknown) {
@@ -1576,6 +1609,7 @@ function App() {
     patchSheetOf(key, ticket.sheet, {
       queryError: null,
       queryResults: null,
+      queryDb: ticket.db ?? null,
       queryExplain: explain ?? null,
     });
     try {
@@ -1643,8 +1677,16 @@ function App() {
   ) => {
     const tab = tabOf(key);
     if (!tab) return;
-    const stmt = activeSheetOf(tab.editor).queryResults?.[index];
+    const sheet = activeSheetOf(tab.editor);
+    const stmt = sheet.queryResults?.[index];
     if (!stmt) return;
+    /*
+     * 結果を出したときのDBへ流す。
+     * 今選んでいるDBで流すと、実行した後に左でDBを選び直したとき、
+     * 別のDBのデータが「同じ結果の続き」として出てしまう
+     */
+    const db =
+      sheet.queryDb === undefined ? tab.selectedDb : sheet.queryDb;
     const scope = `${key}:editor`;
     const seq = startReq(scope);
     patchEditor(key, { running: true, startedAt: Date.now() });
@@ -1652,7 +1694,7 @@ function App() {
     try {
       const out = await runQuery(
         key,
-        tab.selectedDb ?? undefined,
+        db ?? undefined,
         stmt.sql,
         offset,
         orderBy,
@@ -2044,7 +2086,11 @@ function App() {
 
       {closeWarn && (
         <ConfirmDialog
-          title="未確定の変更が残っています"
+          title={
+            closeWarn.busy
+              ? "SQLの実行中です"
+              : "未確定の変更が残っています"
+          }
           target={
             closeWarn.kind === "tab"
               ? closeWarn.name
@@ -2064,12 +2110,18 @@ function App() {
             await closeWindow();
           }}
         >
-          {closeWarn.kind === "tab"
-            ? "このタブではトランザクションが開いたままです。"
-            : "トランザクションが開いたままの接続があります。"}
+          {closeWarn.busy
+            ? closeWarn.kind === "tab"
+              ? "このタブではSQLを実行中です。"
+              : "SQLを実行中か、トランザクションが開いたままの接続があります。"
+            : closeWarn.kind === "tab"
+              ? "このタブではトランザクションが開いたままです。"
+              : "トランザクションが開いたままの接続があります。"}
           このまま閉じると接続が切れ、確定していない変更はサーバー側で
-          取り消されます。残したい場合は、いったん中止して画面下の
-          「確定」を押してください。
+          取り消されます。
+          {closeWarn.busy
+            ? "残したい場合は、いったん中止して実行が終わるのを待ち、画面下の「確定」を押してください。"
+            : "残したい場合は、いったん中止して画面下の「確定」を押してください。"}
         </ConfirmDialog>
       )}
 

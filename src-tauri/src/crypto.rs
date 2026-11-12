@@ -1,5 +1,5 @@
-use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
-use aes_gcm::{Aes256Gcm, Key, Nonce};
+use aes_gcm::aead::{Aead, Generate, KeyInit, Nonce};
+use aes_gcm::{Aes256Gcm, Key};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use tauri::{AppHandle, Manager};
@@ -34,7 +34,7 @@ fn key_from_keychain() -> Result<Vec<u8>, String> {
             .decode(b64)
             .map_err(|e| format!("マスターキーの形式が不正です: {e}")),
         Err(keyring::Error::NoEntry) => {
-            let key = Aes256Gcm::generate_key(OsRng);
+            let key = Key::<Aes256Gcm>::generate();
             entry
                 .set_password(&B64.encode(key))
                 .map_err(|e| format!("キーチェーンへ保存できません: {e}"))?;
@@ -88,7 +88,7 @@ fn create_key_file(app: &AppHandle) -> Result<Vec<u8>, String> {
     let mut file = opts
         .open(&path)
         .map_err(|e| format!("鍵ファイルを作成できません: {e}"))?;
-    let key = Aes256Gcm::generate_key(OsRng);
+    let key = Key::<Aes256Gcm>::generate();
     file.write_all(B64.encode(key).as_bytes())
         .map_err(|e| format!("鍵ファイルを保存できません: {e}"))?;
     Ok(key.to_vec())
@@ -151,12 +151,71 @@ impl MasterKeys {
         &self.primary
     }
 
-    /// 持っている鍵を順に試して復号する
-    pub fn decrypt(&self, stored: &str) -> Option<String> {
+    /// 持っている鍵を順に試して復号する。
+    /// 保存に使う鍵では開けず過去の鍵 (鍵ファイル) で開けたかも返す
+    pub fn decrypt_noting_fallback(&self, stored: &str) -> Option<(String, bool)> {
         if let Some(plain) = decrypt(&self.primary, stored) {
-            return Some(plain);
+            return Some((plain, false));
         }
-        self.fallbacks.iter().find_map(|k| decrypt(k, stored))
+        self.fallbacks
+            .iter()
+            .find_map(|k| decrypt(k, stored))
+            .map(|plain| (plain, true))
+    }
+
+    /// 過去の鍵 (鍵ファイル) を持っているか
+    pub fn has_fallback(&self) -> bool {
+        !self.fallbacks.is_empty()
+    }
+
+    /// 保存に使う鍵では開けず、過去の鍵でだけ開ける値か
+    /// (鍵ファイルを消すと開けなくなる値)
+    pub fn only_fallback_opens(&self, stored: &str) -> bool {
+        matches!(self.decrypt_noting_fallback(stored), Some((_, true)))
+    }
+}
+
+/**
+ * キーチェーンの鍵が、読むたびに同じものとして返ってくるか。
+ *
+ * 保存の効かないキーチェーン (Linuxで使われるモックなど) は、
+ * 読むたびに新しい鍵を作って返す。そこで鍵ファイルを片付けると、
+ * 鍵ファイルの鍵で保存した値が二度と開けなくなるので、2回読んで確かめる
+ */
+pub fn keychain_is_stable() -> bool {
+    matches!(
+        (key_from_keychain(), key_from_keychain()),
+        (Ok(a), Ok(b)) if a == b
+    )
+}
+
+/**
+ * 鍵ファイルを消す。
+ *
+ * キーチェーンが読めない間に作った鍵ファイルは、そのままだと
+ * 接続先の暗号文と同じフォルダに鍵が置かれ続ける
+ * (フォルダごとバックアップ・同期されると、鍵と暗号文が一緒に流れる)。
+ * 鍵ファイルの鍵でしか開けない値が無くなったことを確かめてから呼ぶこと
+ */
+pub fn remove_key_file(app: &AppHandle) -> Result<(), String> {
+    let path = key_file_path(app)?;
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("鍵ファイルを消せません: {e}")),
+    }
+}
+
+#[cfg(test)]
+impl MasterKeys {
+    /// 試験用に鍵を直接そろえる
+    pub fn for_test(primary: [u8; 32], fallbacks: Vec<[u8; 32]>) -> Self {
+        Self { primary, fallbacks }
+    }
+
+    /// 持っている鍵を順に試して復号する (どの鍵で開けたかは見ない)
+    pub fn decrypt(&self, stored: &str) -> Option<String> {
+        self.decrypt_noting_fallback(stored).map(|(plain, _)| plain)
     }
 }
 
@@ -181,8 +240,8 @@ pub fn encrypt(key: &[u8; 32], plain: &str) -> Result<String, String> {
     if plain.is_empty() || looks_encrypted(plain) {
         return Ok(plain.to_string());
     }
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(*key));
+    let nonce = Nonce::<Aes256Gcm>::generate();
     match cipher.encrypt(&nonce, plain.as_bytes()) {
         Ok(ct) => {
             let mut out = nonce.to_vec();
@@ -207,14 +266,47 @@ pub fn decrypt(key: &[u8; 32], stored: &str) -> Option<String> {
         return None;
     }
     let (nonce, ct) = data.split_at(12);
-    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
-    let plain = cipher.decrypt(Nonce::from_slice(nonce), ct).ok()?;
+    let cipher = Aes256Gcm::new(&Key::<Aes256Gcm>::from(*key));
+    let nonce = Nonce::<Aes256Gcm>::try_from(nonce).ok()?;
+    let plain = cipher.decrypt(&nonce, ct).ok()?;
     String::from_utf8(plain).ok()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 旧版で暗号化した値も復号できる() {
+        // aes-gcm 0.10.3 (v0.9.13まで) で、鍵 [7; 32]・nonce [3; 12] で作った暗号文。
+        // ライブラリを上げても、保存済みのパスワードを読めることを確かめる
+        let stored = "enc:v1:AwMDAwMDAwMDAwMDw2kE5NOgvcPdpPzBDvpn72yrA24rdhfhzFw+UmBKozsNRP6r4poPL8TRBO79FMXy7zYzVA==";
+        assert_eq!(
+            decrypt(&[7u8; 32], stored).as_deref(),
+            Some("旧版で保存したパスワード")
+        );
+        assert_eq!(decrypt(&[8u8; 32], stored), None);
+    }
+
+    #[test]
+    fn 鍵ファイルの鍵でしか開けない値を見分ける() {
+        let (keychain, file) = ([1u8; 32], [2u8; 32]);
+        let keys = MasterKeys::for_test(keychain, vec![file]);
+        let by_keychain = encrypt(&keychain, "a").unwrap();
+        let by_file = encrypt(&file, "b").unwrap();
+        let by_lost = encrypt(&[3u8; 32], "c").unwrap();
+        assert_eq!(keys.decrypt_noting_fallback(&by_keychain), Some(("a".into(), false)));
+        assert_eq!(keys.decrypt_noting_fallback(&by_file), Some(("b".into(), true)));
+        assert!(keys.only_fallback_opens(&by_file));
+        assert!(!keys.only_fallback_opens(&by_keychain));
+        // どの鍵でも開けない値は、鍵ファイルを消しても失うものが無い
+        assert!(!keys.only_fallback_opens(&by_lost));
+        // 平文 (旧形式) と空文字も同じ
+        assert!(!keys.only_fallback_opens("plain"));
+        assert!(!keys.only_fallback_opens(""));
+        assert!(keys.has_fallback());
+        assert!(!MasterKeys::for_test(keychain, Vec::new()).has_fallback());
+    }
 
     #[test]
     fn roundtrip() {

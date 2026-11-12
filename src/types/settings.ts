@@ -179,6 +179,16 @@ export interface ImportCounts {
   updated: number;
   /** パスワード・パスフレーズを取り込んだ接続先の数 (接続一覧のときだけ。ほかは0) */
   secrets: number;
+  /**
+   * ファイルにあったAIへの公開を取り込まず、このPCの設定のままにした接続先の数
+   * (接続一覧のときだけ。ほかは0)
+   */
+  aiKeptLocal: number;
+  /**
+   * ファイルにあった外部コマンド (SSM / Cloud SQL Proxy) の場所を取り込まなかった
+   * 接続先の数 (接続一覧のときだけ。ほかは0)
+   */
+  commandPathsDropped: number;
 }
 
 /** 接続一覧を書き出した結果 (バックエンドの ConnectionsExported と対) */

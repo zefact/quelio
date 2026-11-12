@@ -18,6 +18,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::models::AiAccess;
 use crate::query::{Analyzed, DangerousStatement, Dialect};
+use crate::sessions::TxnWrap;
 
 use super::approval::{self, Decision, APPROVAL_TIMEOUT};
 use super::catalog::database_of;
@@ -89,6 +90,15 @@ pub fn classify_sql(dialect: Dialect, sql: &str) -> Result<SqlKind, String> {
         return Err("実行するSQLがありません".to_string());
     };
     let a = Analyzed::new(dialect, one);
+    /*
+     * `DELIMITER //` で区切りを変えると、`SELECT 1; DROP TABLE t //` が
+     * 字句の上では1文になる。サーバーは中の文を順に実行するので、
+     * 先頭の SELECT だけを見て「読み取り」と決めると、確認なしに DROP が走る。
+     * AI連携は1文だけなので、中に文が並んでいるものは受け付けない
+     */
+    if a.has_inner_statements() {
+        return Err(SINGLE_ONLY.to_string());
+    }
     // トランザクションと設定変更は、この1回の呼び出しを超えて影響が残る
     if a.changes_dialect() || is_txn_control(&a) {
         return Err(NO_SESSION_CONTROL.to_string());
@@ -125,16 +135,23 @@ pub async fn run(
     let kind = classify_sql(dialect, sql)?;
     let db = database_of(opened, database);
 
-    if let SqlKind::Write { dangerous } = kind {
-        // 「読み取りのみ」の接続では、ダイアログを出すまでもなく断る
-        // (画面に出すと、押せば通せるように見えてしまう)
-        if opened.access != AiAccess::Write {
-            return Err(READ_ONLY_ONLY.to_string());
+    let wrap = match kind {
+        SqlKind::Write { dangerous } => {
+            // 「読み取りのみ」の接続では、ダイアログを出すまでもなく断る
+            // (画面に出すと、押せば通せるように見えてしまう)
+            if opened.access != AiAccess::Write {
+                return Err(READ_ONLY_ONLY.to_string());
+            }
+            ask_and_wait(app, opened, &db, sql, dangerous, APPROVAL_TIMEOUT).await?;
+            TxnWrap::None
         }
-        ask_and_wait(app, opened, &db, sql, dangerous, APPROVAL_TIMEOUT).await?;
-    }
+        // 参照と判定したものは、読み取り専用のトランザクションの中で流す。
+        // 利用者が作った関数の中の更新など、字面では見えない書き込みをサーバーに断らせる
+        // (更新も許可した接続で、確認なしに書き込まれないように)
+        SqlKind::Read => TxnWrap::ReadOnly,
+    };
 
-    execute(app, opened, &db, sql, clamp_max_rows(max_rows), None, format).await
+    execute(app, opened, &db, sql, clamp_max_rows(max_rows), None, format, wrap).await
 }
 
 /// 実行計画を返す。
@@ -161,6 +178,7 @@ pub async fn explain(
         Some("explain".to_string()),
         // 実行計画は表そのものを読むので、行の形のまま返す
         RowFormat::Json,
+        TxnWrap::ReadOnly,
     )
     .await
 }
@@ -222,6 +240,7 @@ async fn execute(
     limit: usize,
     explain: Option<String>,
     format: RowFormat,
+    wrap: TxnWrap,
 ) -> Result<AiRows, String> {
     let sessions = app.state::<crate::sessions::Sessions>();
     let qlog = app.state::<crate::query_log::QueryLog>();
@@ -238,9 +257,9 @@ async fn execute(
         0,
         None,
         None,
-        // トランザクションは張らない。
-        // 1文ずつしか受け付けないので、まとめて戻す相手がいない
-        false,
+        // 更新はトランザクションを張らない (1文ずつしか受け付けないので、
+        // まとめて戻す相手がいない)。参照は読み取り専用のトランザクションで包む
+        wrap,
         explain,
         timeout,
         // パラメータ (:name) は受け付けない。
@@ -375,6 +394,56 @@ mod tests {
         assert_eq!(
             classify_sql(MY, "SELECT 1; DROP TABLE users").expect_err("断ること"),
             SINGLE_ONLY
+        );
+    }
+
+    #[test]
+    fn delimiterで中に並べた文も拒否する() {
+        // 字句の上では1文でも、サーバーは中の文を順に実行する
+        for sql in [
+            "DELIMITER //\nSELECT 1; DROP TABLE users; SELECT 2 //",
+            "DELIMITER $$\nSELECT 1; SELECT 2$$",
+            "DELIMITER //\nCREATE PROCEDURE p() BEGIN DELETE FROM t; END //",
+        ] {
+            assert_eq!(
+                classify_sql(MY, sql).expect_err("断ること"),
+                SINGLE_ONLY,
+                "{sql}"
+            );
+        }
+        // 区切りを変えても中が1文なら、これまでどおり
+        assert_eq!(kind("DELIMITER //\nSELECT 1 //"), SqlKind::Read);
+    }
+
+    #[test]
+    fn 字面を変えた読み取り以外は読み取りにしない() {
+        // MariaDBの実行可能コメント
+        assert_ne!(kind("SELECT * FROM users /*M! FOR UPDATE */"), SqlKind::Read);
+        // 括弧の中の INTO OUTFILE
+        assert_ne!(
+            kind("(SELECT * FROM users LIMIT 1 INTO OUTFILE '/tmp/x')"),
+            SqlKind::Read
+        );
+        // 副作用のある関数は、更新として人の許可を求める
+        let pg = Dialect::POSTGRESQL;
+        for sql in [
+            "SELECT setval('orders_id_seq', 1)",
+            "SELECT pg_terminate_backend(123)",
+            "SELECT dblink_exec('dbname=x', 'DELETE FROM t')",
+        ] {
+            assert!(
+                matches!(classify_sql(pg, sql), Ok(SqlKind::Write { .. })),
+                "{sql}"
+            );
+        }
+        // 引用符で囲んだ set_config も設定変更として断る
+        assert_eq!(
+            classify_sql(
+                pg,
+                "SELECT \"set_config\"('default_transaction_read_only', 'off', false)"
+            )
+            .expect_err("断ること"),
+            NO_SESSION_CONTROL
         );
     }
 

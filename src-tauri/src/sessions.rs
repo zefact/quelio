@@ -1084,6 +1084,32 @@ pub async fn exec_ddl(
     Ok(())
 }
 
+/// 実行をトランザクションで包むか (`run_query`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TxnWrap {
+    /// 包まない
+    None,
+    /// 全文成功でCOMMIT、途中エラーでROLLBACK (画面の「トランザクションで実行」)
+    ReadWrite,
+    /// 読み取り専用のトランザクションで包む (AI連携の参照)。
+    ///
+    /// 字面では参照に見える `SELECT my_func()` でも、関数の中で更新していることがある。
+    /// 関数の中身までは判定できないので、サーバーに更新を断らせる。
+    /// SQLiteには読み取り専用のトランザクションが無いので包まない
+    /// (SQLiteの関数はSQLで定義できないので、中で更新されることもない)
+    ReadOnly,
+}
+
+impl From<bool> for TxnWrap {
+    fn from(transaction: bool) -> Self {
+        if transaction {
+            TxnWrap::ReadWrite
+        } else {
+            TxnWrap::None
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_query(
     sessions: &Sessions,
@@ -1094,11 +1120,12 @@ pub async fn run_query(
     offset: usize,
     order_by: Option<String>,
     order_dir: Option<String>,
-    transaction: bool,
+    transaction: impl Into<TxnWrap>,
     explain: Option<String>,
     timeout_secs: u64,
     params: &std::collections::HashMap<String, query::ParamValue>,
 ) -> Result<RunOutput, String> {
+    let wrap: TxnWrap = transaction.into();
     // サーバーサイドソート (方向はASC/DESCのみ許可)
     let dir = match order_dir.as_deref() {
         Some("desc") => "DESC",
@@ -1166,6 +1193,11 @@ pub async fn run_query(
 
     // トランザクション実行: 全文成功でCOMMIT、途中エラーでROLLBACK
     let db_type = session.profile.db_type;
+    let wrap = match wrap {
+        TxnWrap::ReadOnly if db_type == DbType::Sqlite => TxnWrap::None,
+        w => w,
+    };
+    let transaction = wrap != TxnWrap::None;
     let dialect = session.dialect;
     let effects: Vec<Option<bool>> = analyzed.iter().map(|a| a.txn_effect(db_type)).collect();
     if transaction && effects.iter().any(|e| e.is_some()) {
@@ -1219,7 +1251,12 @@ pub async fn run_query(
     }
 
     if transaction {
-        let begin = begin_sql(&session.conn);
+        let begin = if wrap == TxnWrap::ReadOnly {
+            // MySQL・MariaDB・PostgreSQLで同じ書き方が通る
+            "START TRANSACTION READ ONLY"
+        } else {
+            begin_sql(&session.conn)
+        };
         begin_txn(session, qlog, &label, &db_label, begin).await?;
     }
 
@@ -1332,6 +1369,8 @@ pub async fn run_query(
                 };
                 if transaction {
                     match end_txn(session, qlog, &label, &db_label, false).await {
+                        // 読み取り専用で包んだときは、取り消す変更がそもそも無い
+                        Ok(()) if wrap == TxnWrap::ReadOnly => {}
                         Ok(()) => {
                             msg = format!("{msg}\nロールバックしました (変更はすべて取り消されました)");
                         }

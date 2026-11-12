@@ -647,20 +647,8 @@ export function ConnectionPicker({
                 : renderFolderItem(item.folder)
             )}
             {connections.length === 0 && folders.length === 0 && (
-              <li className="connection-empty">
-                保存済みの接続先がありません。
-                <br />
-                右のフォームから作成してください。
-                <br />
-                <span className="hint">右クリックでフォルダを作成できます</span>
-                {/* 接続情報が手元に無くても中身のあるDBを触れるようにする */}
-                <button className="btn-secondary sample-db-btn" onClick={onOpenSample}>
-                  サンプルDBで試す
-                </button>
-                <span className="hint">
-                  受注まわりの小さなSQLiteを作って開きます
-                </span>
-              </li>
+              /* 作り方やサンプルDBは右のホームに出しているので、ここは一言だけ */
+              <li className="connection-empty">保存済みの接続先がありません。</li>
             )}
           </ul>
           {/* 一番下の受け皿。フォルダの外 (ルート階層の末尾) へ移動できる */}

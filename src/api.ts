@@ -1841,9 +1841,12 @@ export function getSqlHistory(): Promise<SqlHistoryEntry[]> {
   return call("get_sql_history");
 }
 
-/** SQL実行履歴に追加する */
-export function addSqlHistory(sql: string): Promise<void> {
-  return call("add_sql_history", { sql });
+/**
+ * 実行したSQLを履歴に残す。パスワードはRust側で伏せてから残す。
+ * `valkey` はValkeyのコマンドか (AUTH などの伏せ方がSQLと違う)
+ */
+export function addSqlHistory(sql: string, valkey = false): Promise<void> {
+  return call("add_sql_history", { sql, valkey });
 }
 
 /** 履歴を1件消す。残りの全件を返す */

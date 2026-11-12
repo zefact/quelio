@@ -144,7 +144,17 @@ pub(super) struct Tok {
     pub(super) semi: bool,
     /// 文字列リテラル・コメントなど、中身を読まない字句か
     pub(super) hidden: bool,
+    /// 引用符で囲んだ識別子 (`"set_config"` / `` `nextval` ``) なら、その名前 (大文字)。
+    ///
+    /// 識別子は masked では伏せるが、関数名を引用符で囲めば
+    /// 副作用のある関数の検出をすり抜けられてしまう。名前だけは別に控えておく。
+    /// 中身を読めない書き方 (PostgreSQLの `U&"…"`) は `OPAQUE_IDENT` にする
+    pub(super) ident: Option<String>,
 }
+
+/// 中身を読めない引用符付きの識別子 (`U&"\0073et_config"` など) の印。
+/// 何の名前か分からないので、判定では副作用のある関数かもしれないと扱う
+pub(super) const OPAQUE_IDENT: &str = "\u{1}";
 
 impl Tok {
     /// そのままSQLとして読む字句
@@ -154,6 +164,7 @@ impl Tok {
             raw,
             semi: false,
             hidden: false,
+            ident: None,
         }
     }
 
@@ -164,6 +175,7 @@ impl Tok {
             masked: " ".to_string(),
             semi: false,
             hidden: true,
+            ident: None,
         }
     }
 
@@ -173,6 +185,7 @@ impl Tok {
             masked: ";".to_string(),
             semi: true,
             hidden: false,
+            ident: None,
         }
     }
 }
@@ -231,20 +244,52 @@ fn scan_block_comment(chars: &[char], start: usize, nested: bool) -> Option<usiz
 }
 
 /// MySQLの実行可能コメントの開始 (`/*!12345` や `/*+`) の長さ。
-/// 中身は普通のSQLとしてサーバーが実行するので、読み飛ばしてはいけない
+/// 中身は普通のSQLとしてサーバーが実行するので、読み飛ばしてはいけない。
+///
+/// MariaDBは `/*M!100100 … */` も実行する (MySQLでは普通のコメント)。
+/// MySQLの方言はMariaDBにも使うので、こちらも中身を読む側に倒す
+/// (MySQLに対しては判定が少し厳しくなるだけで、見落としは起きない)
 fn exec_comment_head(chars: &[char], i: usize) -> Option<usize> {
     if chars.get(i + 2) == Some(&'+') {
         return Some(3);
     }
-    if chars.get(i + 2) != Some(&'!') {
-        return None;
-    }
-    // /*!50000 のようにバージョン番号が続くことがある
-    let mut n = 3;
+    let mut n = match (chars.get(i + 2), chars.get(i + 3)) {
+        (Some('!'), _) => 3,
+        (Some('M' | 'm'), Some('!')) => 4,
+        _ => return None,
+    };
+    // /*!50000 / /*M!100100 のようにバージョン番号が続くことがある
     while chars.get(i + n).is_some_and(|c| c.is_ascii_digit()) {
         n += 1;
     }
     Some(n)
+}
+
+/// `"…"` が識別子の引用符か。
+///
+/// MySQL系 (実行可能コメントのある方言) では ANSI_QUOTES のときだけ識別子で、
+/// それ以外は文字列。PostgreSQL・SQLiteでは常に識別子
+fn double_quote_is_ident(d: Dialect) -> bool {
+    d.ansi_quotes || !d.exec_comment
+}
+
+/// 引用符で囲んだ識別子の名前 (大文字)。
+/// `""` / ` `` ` は引用符そのものに戻す。
+/// `U&"…"` はエスケープを解かないと名前が分からないので `OPAQUE_IDENT` を返す
+fn quoted_ident_name(chars: &[char], start: usize, end: usize, quote: char) -> String {
+    let unicode = start >= 2
+        && chars[start - 1] == '&'
+        && matches!(chars[start - 2], 'U' | 'u')
+        && !(start >= 3 && {
+            let p = chars[start - 3];
+            p.is_alphanumeric() || p == '_' || p == '$'
+        });
+    if unicode {
+        return OPAQUE_IDENT.to_string();
+    }
+    let inner: String = chars[start + 1..end - 1].iter().collect();
+    let pair: String = [quote, quote].iter().collect();
+    inner.replace(&pair, &quote.to_string()).to_uppercase()
 }
 
 /// SQLを1回だけ走査して字句に分ける。
@@ -324,7 +369,11 @@ pub(super) fn lex(d: Dialect, sql: &str) -> Lexed {
                 match scan_quoted(&chars, i, c, esc) {
                     Some(end) => {
                         flush!();
-                        toks.push(Tok::hidden(chars[i..end].iter().collect()));
+                        let mut tok = Tok::hidden(chars[i..end].iter().collect());
+                        if c == '`' || (c == '"' && double_quote_is_ident(d)) {
+                            tok.ident = Some(quoted_ident_name(&chars, i, end, c));
+                        }
+                        toks.push(tok);
                         i = end;
                     }
                     None => rest_as_hidden!(i, format!("引用符 {c} が閉じられていません")),

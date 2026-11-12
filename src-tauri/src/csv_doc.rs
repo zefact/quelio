@@ -671,6 +671,14 @@ impl CsvDocuments {
         Ok(())
     }
 
+    /// すべて手放す (CSVエディタの窓を閉じたとき)。
+    /// 施錠に失敗しても (別のスレッドが落ちた後でも) 中身は捨てる
+    pub fn clear(&self) {
+        let mut docs = self.docs.lock().unwrap_or_else(|e| e.into_inner());
+        docs.clear();
+        *self.diff.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
     /// 比較結果を預かる
     pub fn set_diff(&self, d: StoredDiff) -> Result<(), String> {
         *self.diff.lock().map_err(|_| LOCK_ERR)? = Some(d);

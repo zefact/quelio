@@ -123,9 +123,25 @@ export function SettingsBackup({ notify, onImported }: Props) {
   /** 接続一覧を取り込んだ結果を知らせる */
   const connsImported = (r: ImportCounts) => {
     const secrets = r.secrets > 0 ? ` / パスワード入り${r.secrets}件` : "";
-    notify(
-      `接続一覧を取り込みました (追加${r.added}件 / 上書き${r.updated}件${secrets})`
-    );
+    /*
+     * AIへの公開と外部コマンドの場所は、このPCで決めることなので取り込まない。
+     * 取り込まなかったものがあれば、設定し直せるように伝える
+     */
+    const skipped = [
+      r.aiKeptLocal > 0 ? `AI連携の公開設定 (${r.aiKeptLocal}件)` : null,
+      r.commandPathsDropped > 0
+        ? `外部コマンドの場所 (${r.commandPathsDropped}件)`
+        : null,
+    ].filter((s): s is string => s !== null);
+    const done = `接続一覧を取り込みました (追加${r.added}件 / 上書き${r.updated}件${secrets})`;
+    if (skipped.length === 0) {
+      notify(done);
+    } else {
+      notify(
+        `${done}。${skipped.join("・")}はファイルから取り込まず、このPCの設定のままにしました。必要なら接続先の編集で設定し直してください`,
+        "warning"
+      );
+    }
     onImported();
   };
 

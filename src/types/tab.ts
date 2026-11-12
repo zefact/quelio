@@ -60,6 +60,13 @@ export interface QuerySheet {
   title: string;
   sql: string;
   queryResults: StatementResult[] | null;
+  /**
+   * queryResults を実行したときのデータベース (null はデータベースを選ばずに実行)。
+   *
+   * ページ送り・並べ替えは同じSQLを流し直すので、実行した後に左でDBを選び直しても、
+   * 結果を出したときのDBへ流す。読んでいないとき (古い作業状態など) は undefined
+   */
+  queryDb?: string | null;
   queryError: string | null;
   queryExplain: "explain" | "analyze" | null;
   editorOpts: EditorOptions;

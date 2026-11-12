@@ -103,23 +103,75 @@ pub fn load(app: &AppHandle) -> Result<ConnectionStore, String> {
     // 復号できなかった値は暗号文のまま残し、目印を立てる
     // (空文字にすると、次の保存でそのまま上書きされ保存済みパスワードが消えるため)
     let keys = crypto::master_keys(app)?;
+    // 鍵ファイルの鍵でしか開けなかった値があるか (キーチェーンの鍵で暗号化し直す)
+    let mut rekey = false;
     for c in &mut store.connections {
         let mut locked = false;
-        match keys.decrypt(&c.password) {
-            Some(plain) => c.password = plain,
+        match keys.decrypt_noting_fallback(&c.password) {
+            Some((plain, by_file)) => {
+                c.password = plain;
+                rekey |= by_file;
+            }
             None => locked = true,
         }
         if let Some(ssh) = &mut c.ssh {
             if let Some(p) = &ssh.passphrase {
-                match keys.decrypt(p) {
-                    Some(plain) => ssh.passphrase = Some(plain),
+                match keys.decrypt_noting_fallback(p) {
+                    Some((plain, by_file)) => {
+                        ssh.passphrase = Some(plain);
+                        rekey |= by_file;
+                    }
                     None => locked = true,
                 }
             }
         }
         c.password_locked = locked;
     }
+    if keys.has_fallback() {
+        // 片付けられなくても読み込みは続ける (鍵ファイルが残るだけで、値は開ける)
+        let _ = retire_key_file(app, &store, rekey);
+    }
     Ok(store)
+}
+
+/**
+ * キーチェーンが使えるようになった後に、鍵ファイルを片付ける。
+ *
+ * キーチェーンが読めなかった間は、鍵ファイルの鍵で暗号化して保存している。
+ * 鍵ファイルを残し続けると、暗号文と鍵が同じフォルダに並んだままになるので、
+ * 1. 鍵ファイルの鍵でしか開けない値を、キーチェーンの鍵で暗号化し直して保存し
+ * 2. 保存した内容を読み直して、鍵ファイルの鍵でしか開けない値が無いことを確かめてから
+ * 3. 鍵ファイルを消す
+ *
+ * キーチェーンが読むたびに違う鍵を返す (保存されない) 環境では何もしない。
+ * なお直前の `connections.json.bak` は鍵ファイルの鍵のままなので、
+ * 消した後は `.bak` からは戻せなくなる (次の保存で入れ替わる控えなので許容する)
+ */
+fn retire_key_file(app: &AppHandle, store: &ConnectionStore, rekey: bool) -> Result<(), String> {
+    if !crypto::keychain_is_stable() {
+        return Ok(());
+    }
+    if rekey {
+        save(app, store)?;
+    }
+    let saved = read_store(app)?;
+    let keys = crypto::master_keys(app)?;
+    if !still_needs_fallback(&keys, &saved) {
+        crypto::remove_key_file(app)?;
+    }
+    Ok(())
+}
+
+/// 保存済みの値 (暗号文のまま) に、鍵ファイルの鍵でしか開けないものが残っているか
+fn still_needs_fallback(keys: &crypto::MasterKeys, saved: &ConnectionStore) -> bool {
+    saved.connections.iter().any(|c| {
+        keys.only_fallback_opens(&c.password)
+            || c
+                .ssh
+                .as_ref()
+                .and_then(|s| s.passphrase.as_deref())
+                .is_some_and(|p| keys.only_fallback_opens(p))
+    })
 }
 
 /// 画面へ渡す前に秘匿値を伏せる。
@@ -249,6 +301,36 @@ pub fn save(app: &AppHandle, store: &ConnectionStore) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 鍵ファイルの鍵でしか開けない値が残っていれば片付けない() {
+        let (keychain, file) = ([1u8; 32], [2u8; 32]);
+        let keys = crypto::MasterKeys::for_test(keychain, vec![file]);
+        let store = |pw: String, pp: Option<String>| -> ConnectionStore {
+            let mut v = serde_json::json!({"connections": [{
+                "id": "a", "name": "n", "dbType": "mysql",
+                "host": "h", "port": 3306, "user": "u", "password": pw
+            }]});
+            if let Some(pp) = pp {
+                v["connections"][0]["ssh"] = serde_json::json!({
+                    "enabled": true, "host": "b", "port": 22, "user": "o",
+                    "keyPath": "", "passphrase": pp
+                });
+            }
+            serde_json::from_value(v).unwrap()
+        };
+        let by_keychain = || crypto::encrypt(&keychain, "pw").unwrap();
+        let by_file = || crypto::encrypt(&file, "pw").unwrap();
+
+        // すべてキーチェーンの鍵で開ける → 片付けてよい
+        assert!(!still_needs_fallback(&keys, &store(by_keychain(), Some(by_keychain()))));
+        // パスワードかパスフレーズのどちらかが鍵ファイルの鍵のまま → 残す
+        assert!(still_needs_fallback(&keys, &store(by_file(), None)));
+        assert!(still_needs_fallback(&keys, &store(by_keychain(), Some(by_file()))));
+        // どの鍵でも開けない値は、鍵ファイルを残しても開けないので数えない
+        let lost = crypto::encrypt(&[3u8; 32], "pw").unwrap();
+        assert!(!still_needs_fallback(&keys, &store(lost, None)));
+    }
 
     /// 暗号文つきの接続先 (新形式)
     fn text() -> String {

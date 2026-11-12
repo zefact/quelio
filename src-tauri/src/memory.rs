@@ -73,7 +73,14 @@ pub fn current() -> AppMemory {
     use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
     // 親子を辿るので、すべてのプロセスを見る必要がある。
     // ただし要るのはメモリだけなので、それ以外は集めない
-    let mut sys = System::new();
+    // 調べる手立てが用意できなければ 0 にする (メモリの表示が出ないだけ)
+    let Ok(mut sys) = System::new() else {
+        return AppMemory {
+            bytes: 0,
+            own: 0,
+            processes: 0,
+        };
+    };
     sys.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,

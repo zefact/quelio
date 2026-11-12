@@ -524,12 +524,6 @@
   color: var(--text-faint);
 }
 
-/* 接続先が1つも無いときの「サンプルDBで試す」 */
-.sample-db-btn {
-  display: block;
-  margin: 12px auto 6px;
-}
-
 /* ---- 未接続タブのホーム ---- */
 .picker-home {
   display: flex;

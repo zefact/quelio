@@ -53,13 +53,20 @@ async fn connect_inner(
     use_tls: bool,
     sni_host: Option<&str>,
 ) -> Result<MultiplexedConnection, String> {
-    let info = redis::RedisConnectionInfo {
-        db: db_index,
-        username: Some(user.to_string()).filter(|s| !s.is_empty()),
-        password: Some(password.to_string()).filter(|s| !s.is_empty()),
-        ..Default::default()
-    };
+    let mut info = redis::RedisConnectionInfo::default().set_db(db_index);
+    if !user.is_empty() {
+        info = info.set_username(user);
+    }
+    if !password.is_empty() {
+        info = info.set_password(password);
+    }
 
+    /*
+     * 接続は自分で張った TCP / TLS の上に載せる (SNI を本来のホスト名で送るため)。
+     * redis 1.x の `MultiplexedConnection::new` は、返す送受信のタスクが
+     * 接続情報を借りたままになり別タスクで動かせないので、
+     * 中身が同じ `new_with_config` (既定の設定) を使う
+     */
     let tcp = tokio::net::TcpStream::connect((host, port))
         .await
         .map_err(|e| format!("Valkeyに接続できません: {e}"))?;
@@ -86,15 +93,23 @@ async fn connect_inner(
                 )
             })?;
 
-        let (conn, driver) = redis::aio::MultiplexedConnection::new(&info, tls)
-            .await
-            .map_err(|e| map_setup_err(e, use_tls))?;
+        let (conn, driver) = redis::aio::MultiplexedConnection::new_with_config(
+            &info,
+            tls,
+            redis::AsyncConnectionConfig::default(),
+        )
+        .await
+        .map_err(|e| map_setup_err(e, use_tls))?;
         tokio::spawn(driver);
         Ok(conn)
     } else {
-        let (conn, driver) = redis::aio::MultiplexedConnection::new(&info, tcp)
-            .await
-            .map_err(|e| map_setup_err(e, use_tls))?;
+        let (conn, driver) = redis::aio::MultiplexedConnection::new_with_config(
+            &info,
+            tcp,
+            redis::AsyncConnectionConfig::default(),
+        )
+        .await
+        .map_err(|e| map_setup_err(e, use_tls))?;
         tokio::spawn(driver);
         Ok(conn)
     }
@@ -1290,6 +1305,14 @@ pub fn mask_secrets(line: &str) -> String {
         } else {
             None
         }
+    } else if name.eq_ignore_ascii_case("HELLO") {
+        // HELLO 3 AUTH <ユーザー> <パスワード> [SETNAME …]
+        auth_arg(&args, "AUTH").map(|i| i + 2)
+    } else if name.eq_ignore_ascii_case("MIGRATE") {
+        // MIGRATE … AUTH <パスワード> / AUTH2 <ユーザー> <パスワード>
+        auth_arg(&args, "AUTH")
+            .map(|i| i + 1)
+            .or_else(|| auth_arg(&args, "AUTH2").map(|i| i + 2))
     } else {
         None
     };
@@ -1303,6 +1326,14 @@ pub fn mask_secrets(line: &str) -> String {
             out.join(" ")
         }
     }
+}
+
+/// 2番目以降の引数で、word (大小は問わない) が最初に出る位置
+fn auth_arg(args: &[String], word: &str) -> Option<usize> {
+    args.iter()
+        .skip(1)
+        .position(|a| a.eq_ignore_ascii_case(word))
+        .map(|p| p + 1)
 }
 
 /// `CONFIG GET` かどうか
@@ -1696,6 +1727,23 @@ mod tests {
         // 参照系はそのまま
         assert_eq!(mask_secrets("ACL LIST"), "ACL LIST");
         assert_eq!(mask_secrets("ACL WHOAMI"), "ACL WHOAMI");
+    }
+
+    #[test]
+    fn helloとmigrateのパスワードも伏せる() {
+        assert_eq!(
+            mask_secrets("HELLO 3 AUTH alice hunter2 SETNAME app"),
+            "HELLO 3 AUTH alice (値は伏せています)"
+        );
+        assert_eq!(mask_secrets("HELLO 3"), "HELLO 3");
+        assert_eq!(
+            mask_secrets("MIGRATE h 6379 k 0 5000 AUTH hunter2"),
+            "MIGRATE h 6379 k 0 5000 AUTH (値は伏せています)"
+        );
+        assert_eq!(
+            mask_secrets("MIGRATE h 6379 \"\" 0 5000 AUTH2 alice hunter2 KEYS a b"),
+            "MIGRATE h 6379  0 5000 AUTH2 alice (値は伏せています)"
+        );
     }
 
     #[test]

@@ -10,7 +10,7 @@ use tauri::AppHandle;
 
 use crate::csv_layouts;
 use crate::er_store;
-use crate::models::ConnectionStore;
+use crate::models::{AiAccess, ConnectionProfile, ConnectionStore};
 use crate::saved_sql;
 use crate::storage;
 
@@ -19,13 +19,19 @@ mod secrets;
 use secrets::{Secret, SecretBox, Secrets};
 
 /// インポート結果 (追加数・上書き数)
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportResult {
     pub added: usize,
     pub updated: usize,
     /// パスワード・パスフレーズを取り込んだ接続先の数 (接続一覧のときだけ)
     pub secrets: usize,
+    /// ファイルにあったAIへの公開を取り込まず、このPCの設定のままにした接続先の数
+    /// (接続一覧のときだけ)
+    pub ai_kept_local: usize,
+    /// ファイルにあった外部コマンド (SSM / Cloud SQL Proxy) の場所を取り込まなかった
+    /// 接続先の数 (接続一覧のときだけ)
+    pub command_paths_dropped: usize,
 }
 
 /// 接続一覧を書き出した結果
@@ -201,6 +207,8 @@ pub fn import_connections(
         }
     }
 
+    let mut ai_kept_local = 0;
+    let mut command_paths_dropped = 0;
     for mut c in incoming.connections {
         // ファイルに入っていたパスワード・パスフレーズを戻す (IDを振り直す前に引く)
         let secret = secrets.get(&c.id);
@@ -210,6 +218,10 @@ pub fn import_connections(
         if c.id.is_empty() {
             c.id = uuid::Uuid::new_v4().to_string();
         }
+        let local = store.connections.iter().find(|x| x.id == c.id).cloned();
+        let kept = keep_local_settings(&mut c, local.as_ref());
+        ai_kept_local += usize::from(kept.ai_access);
+        command_paths_dropped += usize::from(kept.command_path);
         if let Some(existing) = store.connections.iter_mut().find(|x| x.id == c.id) {
             // エクスポートには秘匿情報が入っていないため、
             // 未設定のパスワード・パスフレーズは既存の値を引き継ぐ
@@ -238,7 +250,52 @@ pub fn import_connections(
         added,
         updated,
         secrets: secret_count,
+        ai_kept_local,
+        command_paths_dropped,
     })
+}
+
+/// `keep_local_settings` で、ファイルの値を取り込まなかった項目
+#[derive(Debug, Default, PartialEq, Eq)]
+struct KeptLocal {
+    /// AIへの公開
+    ai_access: bool,
+    /// 外部コマンドの場所
+    command_path: bool,
+}
+
+/**
+ * 取り込む接続先のうち「このPCで利用者が決めること」を、このPCの値にそろえる。
+ *
+ * 他の人から受け取ったファイルを取り込んだだけで、次のことが起きないようにする。
+ * - AIへの公開 (`ai_access`): 利用者が決めていないのに、DBがAIから見えるようになる。
+ *   すでにある接続先は今の値のまま、新しい接続先は「公開しない」にする
+ * - 外部コマンドの場所 (`proxy.command_path`): 接続のときに起動する実行ファイル。
+ *   ファイルに書かれた任意のプログラムを起動しないよう、すでにある接続先は今の値のまま、
+ *   新しい接続先は空 (PATHと決まった場所から探す) にする
+ *
+ * 本番の接続に「更新も許可」が残っていれば「読み取りのみ」へ下げる
+ * (保存のときに断っている組み合わせを、取り込みで作らない)
+ */
+fn keep_local_settings(c: &mut ConnectionProfile, existing: Option<&ConnectionProfile>) -> KeptLocal {
+    let mut kept = KeptLocal::default();
+
+    let mut access = existing.map_or(AiAccess::None, |e| e.ai_access);
+    if crate::commands::validate_ai_access(c.env.as_deref(), access).is_err() {
+        access = AiAccess::Read;
+    }
+    kept.ai_access = c.ai_access.is_exposed() && c.ai_access != access;
+    c.ai_access = access;
+
+    let local_path = existing
+        .and_then(|e| e.proxy.as_ref())
+        .map(|p| p.command_path.clone())
+        .unwrap_or_default();
+    if let Some(p) = c.proxy.as_mut() {
+        kept.command_path = !p.command_path.is_empty() && p.command_path != local_path;
+        p.command_path = local_path;
+    }
+    kept
 }
 
 /// 取り出したパスワード・パスフレーズを接続先へ入れる (入れたら true)
@@ -280,7 +337,7 @@ pub fn import_er_diagrams(app: &AppHandle, path: &str) -> Result<ImportResult, S
     Ok(ImportResult {
         added,
         updated,
-        secrets: 0,
+        ..Default::default()
     })
 }
 
@@ -302,7 +359,7 @@ pub fn import_saved_sql(app: &AppHandle, path: &str) -> Result<ImportResult, Str
     Ok(ImportResult {
         added,
         updated,
-        secrets: 0,
+        ..Default::default()
     })
 }
 
@@ -324,13 +381,73 @@ pub fn import_csv_layouts(app: &AppHandle, path: &str) -> Result<ImportResult, S
     Ok(ImportResult {
         added,
         updated,
-        secrets: 0,
+        ..Default::default()
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn profile(v: serde_json::Value) -> ConnectionProfile {
+        let mut base = serde_json::json!({
+            "id": "a", "name": "n", "dbType": "postgresql",
+            "host": "db", "port": 5432, "user": "app", "password": ""
+        });
+        for (k, val) in v.as_object().unwrap() {
+            base[k] = val.clone();
+        }
+        serde_json::from_value(base).unwrap()
+    }
+
+    #[test]
+    fn 新しい接続先はaiへ公開せず外部コマンドの場所も取り込まない() {
+        let mut c = profile(serde_json::json!({
+            "aiAccess": "write",
+            "proxy": {"enabled": true, "kind": "ssm", "commandPath": "/tmp/evil"}
+        }));
+        let kept = keep_local_settings(&mut c, None);
+        assert_eq!(c.ai_access, AiAccess::None);
+        assert_eq!(c.proxy.as_ref().unwrap().command_path, "");
+        assert_eq!(
+            kept,
+            KeptLocal {
+                ai_access: true,
+                command_path: true
+            }
+        );
+    }
+
+    #[test]
+    fn すでにある接続先はこのpcの設定を残す() {
+        let local = profile(serde_json::json!({
+            "aiAccess": "read",
+            "proxy": {"enabled": true, "kind": "ssm", "commandPath": "/opt/homebrew/bin/aws"}
+        }));
+        let mut c = profile(serde_json::json!({
+            "aiAccess": "write",
+            "proxy": {"enabled": true, "kind": "ssm", "commandPath": "/tmp/evil"}
+        }));
+        let kept = keep_local_settings(&mut c, Some(&local));
+        assert_eq!(c.ai_access, AiAccess::Read);
+        assert_eq!(c.proxy.as_ref().unwrap().command_path, "/opt/homebrew/bin/aws");
+        assert!(kept.ai_access && kept.command_path);
+
+        // ファイルの値が同じなら「取り込まなかった」とは数えない
+        let mut same = profile(serde_json::json!({
+            "aiAccess": "read",
+            "proxy": {"enabled": true, "kind": "ssm", "commandPath": "/opt/homebrew/bin/aws"}
+        }));
+        assert_eq!(keep_local_settings(&mut same, Some(&local)), KeptLocal::default());
+    }
+
+    #[test]
+    fn 本番に更新の許可を残さない() {
+        let local = profile(serde_json::json!({"aiAccess": "write"}));
+        let mut c = profile(serde_json::json!({"aiAccess": "write", "env": "prod"}));
+        keep_local_settings(&mut c, Some(&local));
+        assert_eq!(c.ai_access, AiAccess::Read);
+    }
 
     fn file(with_secrets: bool) -> String {
         let mut v = serde_json::json!({

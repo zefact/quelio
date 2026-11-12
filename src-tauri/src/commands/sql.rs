@@ -289,10 +289,11 @@ pub fn get_sql_history(app: AppHandle) -> Result<Vec<crate::sql_history::History
     crate::sql_history::load(&app)
 }
 
-/// SQL実行履歴に追加する (同一SQLは先頭へ移動)
+/// SQL実行履歴に追加する (同一SQLは先頭へ移動)。
+/// `valkey` はValkeyのコマンドか (パスワードの伏せ方が変わる)
 #[tauri::command]
-pub fn add_sql_history(app: AppHandle, sql: String) -> Result<(), String> {
-    crate::sql_history::add(&app, sql)
+pub fn add_sql_history(app: AppHandle, sql: String, valkey: Option<bool>) -> Result<(), String> {
+    crate::sql_history::add(&app, sql, valkey.unwrap_or(false))
 }
 
 /// 履歴を1件消して、残りを返す

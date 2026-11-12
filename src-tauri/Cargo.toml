@@ -1,6 +1,6 @@
 [package]
 name = "quelio"
-version = "0.9.13"
+version = "0.9.14"
 description = "Quelio - MySQL / PostgreSQL / SQLite / Valkey 対応のデスクトップDBクライアント"
 authors = ["ZEFACT Co., Ltd."]
 license = "MIT"
@@ -30,34 +30,36 @@ tokio = { version = "1.53.1", features = ["full"] }
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "rust_decimal", "uuid", "json"] }
 # 結果セットを1ページ分だけストリームで読み取るために使う (sqlxが返すStreamの操作用)
 futures-util = "0.3"
-russh = "0.62.5"
-redis = { version = "0.27", default-features = false, features = ["tokio-comp", "keep-alive"] }
+russh = "0.65.1"
+redis = { version = "1.8.1", default-features = false, features = ["tokio-comp"] }
 # Valkey TLS (AWS ElastiCache等のin-transit暗号化) 用。
 # redisクレートのTLSはinsecure時にSNIを送らずAWSに接続を切られるため、
 # 自前でハンドシェイクしてSSHトンネル経由でも本来のホスト名でSNI/証明書検証を行う
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
-webpki-roots = "0.26"
+webpki-roots = "1.0.12"
 uuid = { version = "1.24.0", features = ["v4"] }
 chrono = "0.4.45"
 rust_decimal = "1.42.1"
-base64 = "0.22"
+base64 = "0.23"
 tauri-plugin-dialog = "2.8.3"
 # クリップボードの読み書き。
 # WKWebViewは操作の直後でないと navigator.clipboard を受け付けないため、
 # 表のコピー・貼り付けはRust側から行う
 tauri-plugin-clipboard-manager = "2"
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 # 接続一覧のバックアップにパスワードを入れるとき、利用者が決めたパスワードから鍵を作る。
-# SSH (ssh-key) が使っている版と同じものを使い、依存を増やさない
-argon2 = { version = "0.6.0-rc.8", default-features = false }
+# SSH (ssh-key) が使っている版と同じものを使い、依存を増やさない。
+# 鍵を作る重さはバックアップのファイルに残すので、版が上がって既定値が変わっても古いファイルを開ける
+argon2 = { version = "0.6", default-features = false }
 # OSのキーチェーンに保存時暗号化の鍵を置く。
-# 対応環境は macOS / Windows のみなので、Linuxのバックエンドは入れていない
-# (Linuxで動かすと鍵が設定フォルダに平文で置かれ、暗号化の意味が薄くなる)
-keyring = { version = "3", features = ["apple-native", "windows-native"] }
+# v4 の既定 (v1 互換) は macOS: キーチェーン / Windows: 資格情報マネージャー で、
+# 項目の作り方 (サービス名・アカウント名・文字コード) は v3 と同じなので、保存済みの鍵をそのまま読める。
+# Linux では Secret Service を使う (配布は macOS / Windows のみ)
+keyring = "4.2"
 tauri-plugin-updater = "2.14.0"
 tauri-plugin-process = "2.4.0"
 # アプリ全体のメモリ使用量 (プロセスの情報だけ使う)
-sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+sysinfo = { version = "0.40.3", default-features = false, features = ["system"] }
 csv = "1"
 # CSVエディタの検索・置換を正規表現でも行えるようにする
 regex = "1"
@@ -84,12 +86,12 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tokio-util = "0.7"
 # --mcp-stdio (中継モード) は Tauri を初期化しないので、
 # 設定フォルダを自分で求める必要がある。Tauri が内側で使っているものと同じクレート
-dirs = "6"
+dirs = "7"
 # ツールの入出力のJSON Schema (rmcpが要求するのと同じメジャーを直接指定する)
 schemars = "1"
 # テーブル定義書のExcel出力 (純Rust。Cのライブラリを持ち込まない)
 # constant_memory: 結果の書き出しは行数が読めないので、1行ずつ流して使用メモリを一定に保つ
-rust_xlsxwriter = { version = "0.101", features = ["constant_memory"] }
+rust_xlsxwriter = { version = "0.102", features = ["constant_memory"] }
 # ER図のExcel出力 (図形・コネクタは rust_xlsxwriter で描けないので xlsx を自前で組む)。
 # rust_xlsxwriter が使っているものと同じ版・同じ機能にそろえる
 zip = { version = "9.0", default-features = false, features = ["deflate"] }

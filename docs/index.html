@@ -1115,7 +1115,7 @@
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="12" r="2.2"/><circle cx="18.5" cy="6.5" r="2.2"/><circle cx="18.5" cy="17.5" r="2.2"/><path d="M7.6 11l8.8-3.6M7.6 13l8.8 3.6" stroke-width="1.6"/></svg></div>
           <h3>AI連携 (MCPサーバー)</h3>
-          <p>Quelio自身がMCPサーバーになり、お使いのAIクライアント (Claude Code / Claude Desktop / Cursor など) からQuelio経由でDBを参照できます。<b>AI側に接続情報・パスワード・SSHの設定は渡しません</b>。AIが知るのは接続名だけです。待受は同じPCの中 (127.0.0.1) のみ・トークン必須で、公開するかどうかは接続ごとに選べます (既定は公開しない)。更新系のSQLは実行のたびに画面で許可を求め、AIが流したSQLはすべてSQLコンソールに残ります。</p>
+          <p>Quelio自身がMCPサーバーになり、お使いのAIクライアント (Claude Code / Claude Desktop / Cursor など) からQuelio経由でDBを参照できます。<b>AI側に接続情報・パスワード・SSHの設定は渡しません</b>。AIが知るのは接続名だけです。待受は同じPCの中 (127.0.0.1) のみ・トークン必須で、公開するかどうかは接続ごとに選べます (既定は公開しない)。参照のSQLは読み取り専用のトランザクションで実行し、更新系のSQLは実行のたびに画面で許可を求めます。AIが流したSQLはすべてSQLコンソールに残ります。</p>
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.7-7 8.5-4.1-.8-7-4.3-7-8.5V6z"/><path d="m9 12 2 2 4-4" stroke-width="1.6"/></svg></div>
@@ -1282,7 +1282,7 @@
         </details>
         <details class="faq-item">
           <summary>接続情報はどこに保存されますか?</summary>
-          <div class="a">接続プロファイルはお使いのPCのローカルにのみ保存され、外部サーバーへ送信されることはありません。パスワードとSSHパスフレーズはAES-256-GCMで暗号化され、暗号鍵はOSのキーチェーンに保管されます。</div>
+          <div class="a">接続プロファイルはお使いのPCのローカルにのみ保存され、外部サーバーへ送信されることはありません。パスワードとSSHパスフレーズはAES-256-GCMで暗号化され、暗号鍵はOSのキーチェーンに保管されます。SQLの実行履歴やコンソールにも、パスワードは伏せて残します。</div>
         </details>
         <details class="faq-item">
           <summary>無料で使えますか?</summary>

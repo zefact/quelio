@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use russh::client;
-use russh::keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg, PublicKey};
+use russh::keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
 use tokio::net::TcpListener;
 
 use crate::known_hosts;
@@ -18,8 +18,16 @@ struct ClientHandler {
 impl client::Handler for ClientHandler {
     type Error = russh::Error;
 
-    async fn check_server_key(&mut self, key: &PublicKey) -> Result<bool, Self::Error> {
-        let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
+    async fn check_server_key(
+        &mut self,
+        key: &PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
+        /*
+         * 証明書 (ホスト証明書) で名乗られても、鍵そのものの指紋で照合する。
+         * 証明書の署名元 (CA) は見ない。これまでどおり「初めて見た鍵を覚え、
+         * 変わったら断る」(TOFU) で、証明書の中の鍵と素の鍵は同じ指紋になる
+         */
+        let fingerprint = key.public_key().fingerprint(HashAlg::Sha256).to_string();
         match known_hosts::verify(&self.host, self.port, &fingerprint) {
             Ok(()) => Ok(true),
             Err(reason) => {
