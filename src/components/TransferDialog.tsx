@@ -3,6 +3,8 @@ import { useModal } from "../hooks/useModal";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   cancelJob,
+  checkExportTarget,
+  defaultExportTarget,
   detectTools,
   jobStatus,
   startExport,
@@ -10,7 +12,19 @@ import {
 } from "../api";
 import { stageDroppedFile } from "../uploadFile";
 import { fmtBytes } from "../format";
-import type { DbType, ExportMode, ExportTable } from "../types";
+import {
+  badPattern,
+  DEFAULT_NAME_PATTERN,
+  expandPattern,
+  folderName,
+  joinPath,
+  PATTERN_TOKENS,
+  splitPath,
+} from "../dumpTarget";
+import { dbBadgeLabel } from "../colors";
+import { RevealButton } from "./RevealButton";
+import { fmtDuration, fmtRemaining, pushSample, remainingSeconds, type EtaSample } from "../jobEta";
+import type { DbType, DumpEngine, ExportMode, ExportTable } from "../types";
 
 interface JobView {
   jobId: string;
@@ -19,12 +33,22 @@ interface JobView {
   total: number | null;
   error: string | null;
   outPath: string | null;
+  progress: number | null;
+  stage: string | null;
+  notes: string[];
+  /** 始めた時刻 (経過時間の表示用) */
+  startedAt: number;
+  /** 終わった時刻 */
+  endedAt: number | null;
+  /** 残りの秒数の見積もり */
+  remaining: number | null;
 }
 
 /** ジョブの進捗をポーリングする共通フック */
 function useJob() {
   const [job, setJob] = useState<JobView | null>(null);
   const timer = useRef<number | null>(null);
+  const samples = useRef<EtaSample[]>([]);
 
   const stop = () => {
     if (timer.current !== null) {
@@ -35,9 +59,15 @@ function useJob() {
 
   const watch = (jobId: string) => {
     stop();
+    const startedAt = Date.now();
+    samples.current = [];
     timer.current = window.setInterval(async () => {
       try {
         const s = await jobStatus(jobId);
+        const now = Date.now();
+        if (s.progress !== null) {
+          samples.current = pushSample(samples.current, { at: now, progress: s.progress });
+        }
         setJob({
           jobId,
           running: s.running,
@@ -45,55 +75,367 @@ function useJob() {
           total: s.total,
           error: s.error,
           outPath: s.outPath,
+          progress: s.progress,
+          stage: s.stage,
+          notes: s.notes ?? [],
+          startedAt,
+          endedAt: s.running ? null : now,
+          remaining: s.running ? remainingSeconds(samples.current) : null,
         });
         if (!s.running) stop();
       } catch {
         stop();
       }
-    }, 400);
-    setJob({ jobId, running: true, bytes: 0, total: null, error: null, outPath: null });
+    }, 500);
+    setJob({
+      jobId,
+      running: true,
+      bytes: 0,
+      total: null,
+      error: null,
+      outPath: null,
+      progress: null,
+      stage: null,
+      notes: [],
+      startedAt,
+      endedAt: null,
+      remaining: null,
+    });
   };
 
   useEffect(() => stop, []);
   return { job, setJob, watch };
 }
 
-function JobProgress({ job }: { job: JobView }) {
-  const pct =
-    job.total && job.total > 0
-      ? Math.min(100, Math.round((job.bytes / job.total) * 100))
-      : null;
+/** 経過時間を1秒ごとに数え直す (ポーリングの間も表示を進める) */
+function useNow(running: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const t = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [running]);
+  return now;
+}
+
+/** 進捗パネルの小さな数字 (ラベルと値) */
+function JobStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="job-stat">
+      <span className="job-stat-label">{label}</span>
+      <span className="job-stat-value mono">{value}</span>
+    </div>
+  );
+}
+
+function JobProgress({ job, kind }: { job: JobView; kind: "export" | "import" }) {
+  const now = useNow(job.running);
+  const ratio =
+    job.progress !== null
+      ? job.progress
+      : job.total && job.total > 0
+        ? job.bytes / job.total
+        : null;
+  // 大きなジョブは1%が長いので、小数1桁まで出す
+  const pct = ratio !== null ? Math.min(100, Math.floor(ratio * 1000) / 10) : null;
+  const elapsed = ((job.endedAt ?? now) - job.startedAt) / 1000;
+  const verb = kind === "export" ? "書き出し" : "実行";
+  // ファイル名だけを大きく見せる (場所はボタンで開ける)
+  const fileName = job.outPath ? job.outPath.split(/[\\/]/).pop() : null;
   return (
     <div className="job-progress">
       {job.running ? (
-        <>
+        <div className="job-panel">
+          <div className="job-panel-head">
+            <span className="job-spinner" aria-hidden />
+            <span className="job-panel-title">{verb}ています</span>
+            <span className="toolbar-spacer" />
+            <span className="job-big-pct mono">
+              {pct !== null ? (
+                <>
+                  {pct.toFixed(1)}
+                  <small>%</small>
+                </>
+              ) : (
+                ""
+              )}
+            </span>
+          </div>
           <div className="job-bar">
             <div
               className={"job-bar-fill" + (pct === null ? " indeterminate" : "")}
               style={pct !== null ? { width: `${pct}%` } : undefined}
             />
           </div>
-          <span className="job-bytes mono">
-            {fmtBytes(job.bytes)}
-            {job.total ? ` / ${fmtBytes(job.total)} (${pct}%)` : ""}
-          </span>
-        </>
+          <div className="job-stats">
+            <JobStat
+              label={kind === "export" ? "書き出した量" : "実行した量"}
+              value={fmtBytes(job.bytes) + (job.total ? ` / ${fmtBytes(job.total)}` : "")}
+            />
+            <JobStat label="経過" value={fmtDuration(elapsed)} />
+            <JobStat
+              label="残り"
+              value={job.remaining !== null ? fmtRemaining(job.remaining) : "計算中…"}
+            />
+          </div>
+          {job.stage && (
+            <div className="job-stage mono" title={job.stage}>
+              {job.stage}
+            </div>
+          )}
+        </div>
       ) : job.error ? (
-        <div className="result-banner ng">
-          <span className="dot" aria-hidden />
-          <strong>失敗</strong>
-          <span className="result-detail">{job.error}</span>
+        <div className="job-result ng">
+          <span className="job-result-icon" aria-hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M7 7l10 10M17 7L7 17" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+            </svg>
+          </span>
+          <div className="job-result-body">
+            <strong>{verb}に失敗しました</strong>
+            <span className="job-error">{job.error}</span>
+          </div>
         </div>
       ) : (
-        <div className="result-banner ok">
-          <span className="dot" aria-hidden />
-          <strong>完了</strong>
-          <span className="result-detail mono">
-            {fmtBytes(job.bytes)}
-            {job.outPath ? ` → ${job.outPath}` : ""}
+        <div className="job-result ok">
+          <span className="job-result-icon" aria-hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </span>
+          <div className="job-result-body">
+            <strong>{verb}が終わりました</strong>
+            {fileName && <span className="job-result-file mono">{fileName}</span>}
+            <span className="job-result-meta mono">
+              {fmtBytes(job.bytes)} ・ {fmtDuration(elapsed)}
+            </span>
+          </div>
+          {job.outPath && <RevealButton path={job.outPath} />}
         </div>
       )}
+      {!job.running && job.notes.length > 0 && (
+        <div className="result-banner warn job-notes">
+          <span className="dot" aria-hidden />
+          <ul className="result-detail">
+            {job.notes.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 実行方法の選択を、次に開いたときにも引き継ぐ */
+const ENGINE_KEY = "quelio.dumpEngine";
+
+function useEngine(dbType: DbType): [DumpEngine, (e: DumpEngine) => void] {
+  const [engine, setEngine] = useState<DumpEngine>(() => {
+    try {
+      return localStorage.getItem(ENGINE_KEY) === "tool" ? "tool" : "native";
+    } catch {
+      return "native";
+    }
+  });
+  const choose = (e: DumpEngine) => {
+    setEngine(e);
+    try {
+      localStorage.setItem(ENGINE_KEY, e);
+    } catch {
+      /* 残せなくても、今回の選択は効く */
+    }
+  };
+  // SQLiteには外部ツールの道が無い
+  return [dbType === "sqlite" ? "native" : engine, choose];
+}
+
+/** 使う外部ツールの名前 */
+function toolName(dbType: DbType, kind: "export" | "import"): string {
+  if (dbType === "mysql") return kind === "export" ? "mysqldump" : "mysql";
+  return kind === "export" ? "pg_dump" : "psql";
+}
+
+/** 選択肢をカードで並べる (ラジオボタンの代わり) */
+function ChoiceCard({
+  name,
+  checked,
+  disabled,
+  onChange,
+  icon,
+  title,
+  desc,
+  badge,
+}: {
+  name: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: () => void;
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  badge?: string;
+}) {
+  return (
+    <label className={"choice-card" + (checked ? " on" : "") + (disabled ? " disabled" : "")}>
+      <input
+        type="radio"
+        name={name}
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+      />
+      <span className="choice-icon" aria-hidden>
+        {icon}
+      </span>
+      <span className="choice-text">
+        <span className="choice-title">
+          {title}
+          {badge && <span className="choice-badge">{badge}</span>}
+        </span>
+        <span className="choice-desc">{desc}</span>
+      </span>
+    </label>
+  );
+}
+
+/** 見出し付きのまとまり */
+function Section({
+  label,
+  extra,
+  children,
+}: {
+  label: string;
+  extra?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="tf-section">
+      <div className="tf-label">
+        {label}
+        {extra}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+const ICON_BOLT = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+    <path d="M13 3L5 13.5h6L10 21l8-10.5h-6L13 3z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+  </svg>
+);
+const ICON_TERMINAL = (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+    <rect x="3" y="4.5" width="18" height="15" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
+    <path d="M7 10l3 2.5L7 15M12.5 15.5H17" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+/** Quelio自身でするか、外部ツールを使うかの選択 */
+function EngineSelect({
+  dbType,
+  kind,
+  engine,
+  disabled,
+  onChange,
+}: {
+  dbType: DbType;
+  kind: "export" | "import";
+  engine: DumpEngine;
+  disabled?: boolean;
+  onChange: (e: DumpEngine) => void;
+}) {
+  if (dbType === "sqlite") return null;
+  const tool = toolName(dbType, kind);
+  return (
+    <Section label="実行方法">
+      <div className="choice-grid cols-2">
+        <ChoiceCard
+          name={`engine-${kind}`}
+          checked={engine === "native"}
+          disabled={disabled}
+          onChange={() => onChange("native")}
+          icon={ICON_BOLT}
+          title="Quelioで実行"
+          badge="おすすめ"
+          desc="外部ツール不要。進み具合と残り時間を表示します"
+        />
+        <ChoiceCard
+          name={`engine-${kind}`}
+          checked={engine === "tool"}
+          disabled={disabled}
+          onChange={() => onChange("tool")}
+          icon={ICON_TERMINAL}
+          title={`${tool} を使う`}
+          desc={`インストール済みの ${tool} で実行します`}
+        />
+      </div>
+    </Section>
+  );
+}
+
+/** ダイアログの見出し (何をするか・どの接続か) */
+function TransferHead({
+  kind,
+  title,
+  sub,
+  dbType,
+  connName,
+  database,
+  closeDisabled,
+  onClose,
+}: {
+  kind: "export" | "import";
+  title: string;
+  sub: string;
+  dbType: DbType;
+  connName: string;
+  database: string;
+  closeDisabled?: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="tf-head">
+      <span className={"tf-head-icon " + kind} aria-hidden>
+        {kind === "export" ? (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <ellipse cx="12" cy="5.5" rx="7" ry="2.8" stroke="currentColor" strokeWidth="1.7" />
+            <path d="M5 5.5v6c0 1.5 3.1 2.8 7 2.8M19 5.5V10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            <path d="M5 11.5v6c0 1.5 3.1 2.8 7 2.8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            <path d="M18 13v7m0 0l-2.8-2.8M18 20l2.8-2.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : (
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <ellipse cx="12" cy="5.5" rx="7" ry="2.8" stroke="currentColor" strokeWidth="1.7" />
+            <path d="M5 5.5v6c0 1.5 3.1 2.8 7 2.8M19 5.5V10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            <path d="M5 11.5v6c0 1.5 3.1 2.8 7 2.8" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            <path d="M18 20v-7m0 0l-2.8 2.8M18 13l2.8 2.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+      </span>
+      <div className="tf-head-text">
+        <span className="modal-title">{title}</span>
+        <span className="tf-head-sub">{sub}</span>
+        <span className="tf-head-target">
+          <span className={`db-badge mini ${dbType}`}>{dbBadgeLabel(dbType)}</span>
+          <span className="mono">{connName}</span>
+          {dbType !== "sqlite" && (
+            <>
+              <span className="tf-head-sep">/</span>
+              <span className="mono">{database}</span>
+            </>
+          )}
+        </span>
+      </div>
+      <button
+        className="modal-close"
+        onClick={onClose}
+        disabled={closeDisabled}
+        title="閉じる"
+      >
+        ×
+      </button>
     </div>
   );
 }
@@ -113,18 +455,18 @@ interface ExportProps {
  * 必要な外部ツールが使えるかを、ダイアログを開いた時点で確かめる。
  * 開始してから「見つかりません」と言われるのを避ける
  */
-function useToolCheck(dbType: DbType, kind: "export" | "import") {
+function useToolCheck(dbType: DbType, kind: "export" | "import", engine: DumpEngine) {
   const [missing, setMissing] = useState<string | null>(null);
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(engine === "tool");
   useEffect(() => {
-    const need =
-      dbType === "mysql"
-        ? kind === "export"
-          ? "mysqldump"
-          : "mysql"
-        : kind === "export"
-          ? "pg_dump"
-          : "psql";
+    // Quelio自身で動かすときは、外部ツールは要らない
+    if (engine !== "tool") {
+      setMissing(null);
+      setChecking(false);
+      return;
+    }
+    setChecking(true);
+    const need = toolName(dbType, kind);
     let alive = true;
     detectTools()
       .then((list) => {
@@ -142,7 +484,7 @@ function useToolCheck(dbType: DbType, kind: "export" | "import") {
     return () => {
       alive = false;
     };
-  }, [dbType, kind]);
+  }, [dbType, kind, engine]);
   return { missing, checking };
 }
 
@@ -172,6 +514,185 @@ function tableLabel(t: ExportTable): string {
   return t.schema ? `${t.schema}.${t.name}` : t.name;
 }
 
+/** 書き出す内容の選択肢 */
+const MODES: { mode: ExportMode; title: string; desc: string; icon: React.ReactNode }[] = [
+  {
+    mode: "full",
+    title: "スキーマ + データ",
+    desc: "定義と全行。バックアップに",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <rect x="3.5" y="4" width="17" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
+        <path d="M3.5 9h17M3.5 14.5h17M10 9v11" stroke="currentColor" strokeWidth="1.7" />
+      </svg>
+    ),
+  },
+  {
+    mode: "schema",
+    title: "スキーマのみ",
+    desc: "CREATE文だけ。構造の複製に",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <rect x="3.5" y="4" width="17" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.7" strokeDasharray="3 2.4" />
+        <path d="M3.5 9h17" stroke="currentColor" strokeWidth="1.7" />
+      </svg>
+    ),
+  },
+  {
+    mode: "data",
+    title: "データのみ",
+    desc: "行だけ。既存のテーブルへ戻すときに",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <path d="M5 7h14M5 12h14M5 17h9" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+];
+
+/** テーブルがこれより多いときは、初めは畳んでおく */
+const CHIP_LIMIT = 16;
+
+/** 対象テーブルの一覧 (多いときは畳む) */
+function TableChips({ tables }: { tables: ExportTable[] }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? tables : tables.slice(0, CHIP_LIMIT);
+  const rest = tables.length - shown.length;
+  if (tables.length === 0) {
+    return <div className="tf-empty">テーブルが選ばれていません</div>;
+  }
+  return (
+    <div className="tf-chips">
+      {shown.map((t) => (
+        <span className="tf-chip mono" key={tableLabel(t)} title={tableLabel(t)}>
+          {tableLabel(t)}
+        </span>
+      ))}
+      {rest > 0 && (
+        <button className="tf-chip more" onClick={() => setAll(true)}>
+          ほか {rest} 件を表示
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 選んだ保存先フォルダとファイル名のパターンを、次に開いたときにも引き継ぐ */
+const DIR_KEY = "quelio.dumpDir";
+const PATTERN_KEY = "quelio.dumpNamePattern";
+
+function loadPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function savePref(key: string, value: string | null) {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    /* 残せなくても、今回の選択は効く */
+  }
+}
+
+/**
+ * 書き出す先 (フォルダとファイル名のパターン)。
+ *
+ * 既定は設定の保存先フォルダに {db}_{date}_{time}.sql。
+ * パターンは書き出すときに日時などを埋めるので、続けて書き出しても上書きにならない。
+ * フォルダもパターンも次回へ引き継ぐ
+ */
+function useExportTarget(sessionId: string, database: string) {
+  const [defaultDir, setDefaultDir] = useState("");
+  const [dir, setDirRaw] = useState("");
+  const [db, setDb] = useState("");
+  const [pattern, setPatternRaw] = useState(
+    () => loadPref(PATTERN_KEY) || DEFAULT_NAME_PATTERN
+  );
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    defaultExportTarget(sessionId, database)
+      .then((t) => {
+        if (!alive) return;
+        setDefaultDir(t.dir);
+        setDirRaw(loadPref(DIR_KEY) || t.dir);
+        setDb(t.db);
+      })
+      .catch((e) => alive && setLoadError(String(e)));
+    return () => {
+      alive = false;
+    };
+  }, [sessionId, database]);
+
+  const setPattern = (p: string) => {
+    setPatternRaw(p);
+    savePref(PATTERN_KEY, p === DEFAULT_NAME_PATTERN ? null : p);
+  };
+
+  /** 保存するフォルダを選ぶ */
+  const pickDir = async () => {
+    const picked = await open({
+      directory: true,
+      defaultPath: dir || undefined,
+      title: "SQLダンプを保存するフォルダ",
+    }).catch(() => null);
+    if (typeof picked !== "string") return;
+    setDirRaw(picked);
+    savePref(DIR_KEY, picked === defaultDir ? null : picked);
+  };
+
+  /** 既定のフォルダとパターンに戻す */
+  const reset = () => {
+    savePref(DIR_KEY, null);
+    setDirRaw(defaultDir);
+    setPattern(DEFAULT_NAME_PATTERN);
+  };
+
+  return {
+    dir,
+    db,
+    pattern,
+    ready: !!dir && !!db,
+    customized:
+      (!!defaultDir && dir !== defaultDir) || pattern !== DEFAULT_NAME_PATTERN,
+    loadError,
+    setPattern,
+    pickDir,
+    reset,
+  };
+}
+
+/** パターンの入力欄の下に並べる、置き換えを差し込むボタン */
+function PatternTokens({ onInsert }: { onInsert: (token: string) => void }) {
+  return (
+    <div className="tf-tokens">
+      {PATTERN_TOKENS.filter((t) => t.main).map((t) => (
+        <button
+          key={t.token}
+          className="tf-token has-tooltip tooltip-left"
+          data-tooltip={t.label}
+          // 押しても入力欄からフォーカスを奪わない (カーソル位置に差し込むため)
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onInsert(`{${t.token}}`)}
+        >
+          <span className="mono">{`{${t.token}}`}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const ICON_FOLDER = (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <path d="M3 7.5A2.5 2.5 0 015.5 5H10l2 2.5h6.5A2.5 2.5 0 0121 10v7.5a2.5 2.5 0 01-2.5 2.5h-13A2.5 2.5 0 013 17.5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+  </svg>
+);
+
 /** 選択テーブルをSQLダンプへ書き出すダイアログ */
 export function ExportDialog({
   sessionId,
@@ -185,96 +706,220 @@ export function ExportDialog({
   const [mode, setMode] = useState<ExportMode>("full");
   const [error, setError] = useState<string | null>(null);
   const { job, watch } = useJob();
-  const { missing, checking } = useToolCheck(dbType, "export");
+  const [engine, setEngine] = useEngine(dbType);
+  const { missing, checking } = useToolCheck(dbType, "export", engine);
+  const running = !!job?.running;
+  const target = useExportTarget(sessionId, database);
+  /** 同じ名前のファイルがあり、上書きしてよいか尋ねているパス */
+  const [overwriteAsk, setOverwriteAsk] = useState<string | null>(null);
+  const patternError = badPattern(target.pattern);
+  const patternRef = useRef<HTMLInputElement>(null);
+  // 見本の日時は1秒ごとに進める (書き出すときの時刻で名前が決まることが分かるように)
+  const now = useNow(!running);
+  const vars = {
+    db: target.db,
+    conn: connName,
+    mode,
+    tables: tables.map(tableLabel),
+  };
+  const preview =
+    target.ready && !patternError
+      ? joinPath(target.dir, expandPattern(target.pattern, vars, new Date(now)))
+      : "";
 
-  const handleStart = async () => {
+  /** カーソルの位置に置き換えを差し込む */
+  const insertToken = (token: string) => {
+    const el = patternRef.current;
+    const p = target.pattern;
+    const start = el?.selectionStart ?? p.length;
+    const end = el?.selectionEnd ?? p.length;
+    target.setPattern(p.slice(0, start) + token + p.slice(end));
+    setOverwriteAsk(null);
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(start + token.length, start + token.length);
+    });
+  };
+
+  const handleStart = async (overwrite = false) => {
     setError(null);
+    if (patternError) {
+      setError(patternError);
+      return;
+    }
     try {
-      const started = await startExport(sessionId, database, tables, mode);
+      // 名前は押した時点の日時で決める。上書きを尋ねたときは、尋ねたパスのまま書く
+      const path =
+        overwrite && overwriteAsk
+          ? overwriteAsk
+          : joinPath(target.dir, expandPattern(target.pattern, vars, new Date()));
+      const checked = await checkExportTarget(path);
+      if (checked.exists && !overwrite) {
+        setOverwriteAsk(checked.path);
+        return;
+      }
+      setOverwriteAsk(null);
+      const started = await startExport(
+        sessionId,
+        database,
+        tables,
+        mode,
+        engine,
+        checked.path
+      );
       watch(started.jobId);
     } catch (e) {
       setError(String(e));
     }
   };
 
-
   // Escで閉じる・初期フォーカスは共通の作法にそろえる (実行中は閉じない)
-  const boxRef = useModal(onClose, !job?.running);
+  const boxRef = useModal(onClose, !running);
+  const modeTitle = MODES.find((m) => m.mode === mode)?.title ?? "";
 
   return (
-    <div className="modal-overlay" onMouseDown={job?.running ? undefined : onClose}>
+    <div className="modal-overlay" onMouseDown={running ? undefined : onClose}>
       <div
-        className="modal"
+        className="modal transfer-modal"
         onMouseDown={(e) => e.stopPropagation()}
         tabIndex={-1}
         ref={boxRef}
       >
-        <div className="modal-head">
-          <span className="modal-title">SQLダンプ出力</span>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={job?.running}
-            title="閉じる"
-          >
-            ×
-          </button>
-        </div>
+        <TransferHead
+          kind="export"
+          title="SQLダンプ出力"
+          sub="選んだテーブルをSQLファイルに書き出します"
+          dbType={dbType}
+          connName={connName}
+          database={database}
+          closeDisabled={running}
+          onClose={onClose}
+        />
 
-        <div className="transfer-summary">
-          <span className="transfer-target mono">
-            {connName} / {database}
-          </span>
-          <span className="transfer-tables">
-            {tables.length}テーブル: {tables.map(tableLabel).join(", ")}
-          </span>
-        </div>
+        {running ? (
+          // 実行中は設定を畳み、進み具合を主役にする
+          <div className="tf-running-summary">
+            <span>{tables.length}テーブル</span>
+            <span className="tf-dot" aria-hidden />
+            <span>{modeTitle}</span>
+            <span className="tf-dot" aria-hidden />
+            <span>{engine === "native" ? "Quelio" : toolName(dbType, "export")}</span>
+          </div>
+        ) : (
+          <>
+            <Section
+              label="対象テーブル"
+              extra={<span className="tf-count">{tables.length}</span>}
+            >
+              <TableChips tables={tables} />
+            </Section>
 
-        <div className="mode-select">
-          {(
-            [
-              ["full", "スキーマ + データ"],
-              ["schema", "スキーマのみ"],
-              ["data", "データのみ"],
-            ] as const
-          ).map(([m, label]) => (
-            <label className="mode-option" key={m}>
-              <input
-                type="radio"
-                name="export-mode"
-                checked={mode === m}
-                disabled={job?.running}
-                onChange={() => setMode(m)}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
+            <Section label="書き出す内容">
+              <div className="choice-grid cols-3">
+                {MODES.map((m) => (
+                  <ChoiceCard
+                    key={m.mode}
+                    name="export-mode"
+                    checked={mode === m.mode}
+                    onChange={() => setMode(m.mode)}
+                    icon={m.icon}
+                    title={m.title}
+                    desc={m.desc}
+                  />
+                ))}
+              </div>
+            </Section>
 
-        {error && (
+            <EngineSelect
+              dbType={dbType}
+              kind="export"
+              engine={engine}
+              onChange={setEngine}
+            />
+
+            <Section
+              label="保存先とファイル名"
+              extra={
+                target.customized && (
+                  <button className="tf-link" onClick={target.reset}>
+                    既定に戻す
+                  </button>
+                )
+              }
+            >
+              <div className={"tf-dest" + (patternError ? " invalid" : "")}>
+                <button
+                  className="tf-dest-folder has-tooltip tooltip-left"
+                  data-tooltip={target.dir ? `フォルダを選ぶ\n${target.dir}` : "フォルダを選ぶ"}
+                  onClick={target.pickDir}
+                  disabled={!target.ready}
+                  aria-label="保存するフォルダを選ぶ"
+                >
+                  {ICON_FOLDER}
+                  <span className="tf-dest-folder-name">
+                    {target.dir ? folderName(target.dir) : "…"}
+                  </span>
+                </button>
+                <span className="tf-dest-sep" aria-hidden>
+                  /
+                </span>
+                <input
+                  ref={patternRef}
+                  className="tf-dest-name mono"
+                  value={target.pattern}
+                  onChange={(e) => {
+                    target.setPattern(e.target.value);
+                    setOverwriteAsk(null);
+                  }}
+                  spellCheck={false}
+                  aria-label="ファイル名のパターン"
+                  placeholder={DEFAULT_NAME_PATTERN}
+                />
+              </div>
+              <PatternTokens onInsert={insertToken} />
+              <div className={"tf-dest-full mono" + (patternError ? " error" : "")}>
+                {patternError ?? (preview && <>→ {preview}</>)}
+              </div>
+            </Section>
+          </>
+        )}
+
+        {(error ?? target.loadError) && (
           <div className="result-banner ng">
             <span className="dot" aria-hidden />
             <strong>エラー</strong>
-            <span className="result-detail">{error}</span>
+            <span className="result-detail">{error ?? target.loadError}</span>
+          </div>
+        )}
+        {overwriteAsk && !running && (
+          <div className="result-banner warn tf-overwrite">
+            <span className="dot" aria-hidden />
+            <span className="result-detail">
+              同じ名前のファイル <strong className="mono">{splitPath(overwriteAsk).name}</strong>{" "}
+              があります。書き出しが終わった時点で置き換わります。
+            </span>
+            <button className="btn-secondary" onClick={() => handleStart(true)}>
+              上書きする
+            </button>
           </div>
         )}
         {missing && (
           <ToolMissing tool={missing} onOpenSettings={onOpenSettings} />
         )}
-        {job && <JobProgress job={job} />}
+        {job && <JobProgress job={job} kind="export" />}
 
         <div className="modal-actions">
           <span className="toolbar-spacer" />
-          {job?.running ? (
+          {running ? (
             <button
               className="btn-secondary"
               onClick={() =>
-                cancelJob(job.jobId).catch((e) =>
+                cancelJob(job!.jobId).catch((e) =>
                   setError(`中止できませんでした: ${e}`)
                 )
               }
             >
-              キャンセル
+              中止する
             </button>
           ) : (
             <>
@@ -283,8 +928,10 @@ export function ExportDialog({
               </button>
               <button
                 className="btn-primary"
-                onClick={handleStart}
-                disabled={tables.length === 0 || !!missing || checking}
+                onClick={() => handleStart()}
+                disabled={
+                  tables.length === 0 || !!missing || checking || !target.ready || !!patternError
+                }
                 title={
                   missing
                     ? `${missing} が見つかりません`
@@ -292,10 +939,15 @@ export function ExportDialog({
                       ? "必要なコマンドを確認しています..."
                       : tables.length === 0
                         ? "表を1つ以上選んでください"
-                        : undefined
+                        : patternError
+                          ? patternError
+                          : undefined
                 }
               >
-                {job && !job.error ? "再実行" : "出力を開始"}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                {job && !job.error ? "もう一度書き出す" : "書き出しを開始"}
               </button>
             </>
           )}
@@ -340,7 +992,8 @@ export function ImportDialog({
   const [staging, setStaging] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { job, watch } = useJob();
-  const { missing, checking } = useToolCheck(dbType, "import");
+  const [engine, setEngine] = useEngine(dbType);
+  const { missing, checking } = useToolCheck(dbType, "import", engine);
   const notified = useRef(false);
 
   useEffect(() => {
@@ -396,7 +1049,7 @@ export function ImportDialog({
     setError(null);
     notified.current = false;
     try {
-      const started = await startImport(sessionId, database, file.path);
+      const started = await startImport(sessionId, database, file.path, engine);
       watch(started.jobId);
     } catch (e) {
       setError(String(e));
@@ -410,22 +1063,21 @@ export function ImportDialog({
   return (
     <div className="modal-overlay" onMouseDown={job?.running ? undefined : onClose}>
       <div
-        className="modal"
+        className="modal transfer-modal"
         onMouseDown={(e) => e.stopPropagation()}
         tabIndex={-1}
         ref={boxRef}
       >
-        <div className="modal-head">
-          <span className="modal-title">SQLファイル実行</span>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={job?.running}
-            title="閉じる"
-          >
-            ×
-          </button>
-        </div>
+        <TransferHead
+          kind="import"
+          title="SQLファイル実行"
+          sub="SQLファイルの文を順に実行します (バックアップの復元など)"
+          dbType={dbType}
+          connName={connName}
+          database={database}
+          closeDisabled={job?.running}
+          onClose={onClose}
+        />
 
         <div className="result-banner warn import-warn">
           <span className="dot" aria-hidden />
@@ -499,10 +1151,20 @@ export function ImportDialog({
               <span className="dropzone-main">
                 SQLファイルをここにドロップ
               </span>
-              <span className="dropzone-sub">またはクリックして選択</span>
+              <span className="dropzone-sub">
+                またはクリックして選択 (大きなファイルは、クリックして選ぶと転送を待たずに始められます)
+              </span>
             </>
           )}
         </div>
+
+        <EngineSelect
+          dbType={dbType}
+          kind="import"
+          engine={engine}
+          disabled={busy}
+          onChange={setEngine}
+        />
 
         {error && (
           <div className="result-banner ng">
@@ -514,7 +1176,7 @@ export function ImportDialog({
         {missing && (
           <ToolMissing tool={missing} onOpenSettings={onOpenSettings} />
         )}
-        {job && <JobProgress job={job} />}
+        {job && <JobProgress job={job} kind="import" />}
 
         <div className="modal-actions">
           <span className="toolbar-spacer" />

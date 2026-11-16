@@ -26,6 +26,7 @@ function tab(docId: string, dirty = false): CsvInfo {
     dirty,
     ragged: false,
     replaced: false,
+    quotedCsv: false,
     undoLabel: null,
     redoLabel: null,
     headRow: [],

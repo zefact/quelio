@@ -643,3 +643,24 @@ fn 表に要る列の数は種別の中でいちばん多いものに合わせ�
     };
     assert_eq!(layout.width(), 4);
 }
+
+#[test]
+fn 引用符で囲んだcsvは見分ける() {
+    assert!(looks_like_quoted_csv(b"\"001\",\"ABC  \"\r\n\"002\",\"DE   \"\r\n"));
+    // タブ区切り・BOM付きも同じ
+    assert!(looks_like_quoted_csv(b"\xEF\xBB\xBF\"a\"\t\"b\"\n"));
+    // Shift_JISの漢字が入っていても見分ける
+    let mut line = to_sjis("\"表\",\"ソ\"");
+    line.push(b'\n');
+    assert!(looks_like_quoted_csv(&line));
+}
+
+#[test]
+fn ふつうの固定長はcsvと見なさない() {
+    assert!(!looks_like_quoted_csv(b"001ABC  \n002DE   \n"));
+    // 行全体を囲んだだけで区切りが無いもの
+    assert!(!looks_like_quoted_csv(b"\"001ABC  \"\n"));
+    // 一部の行だけがたまたまその形のもの
+    assert!(!looks_like_quoted_csv(b"\"1\",\"2\"\n001ABC  \n"));
+    assert!(!looks_like_quoted_csv(b""));
+}

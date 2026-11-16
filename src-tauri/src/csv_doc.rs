@@ -66,6 +66,8 @@ pub struct CsvInfo {
     pub ragged: bool,
     /// 文字コードの変換で置き換えが起きたか (文字化けの疑い)
     pub replaced: bool,
+    /// 固定長で読んだが、中身は `"…","…"` の形のCSVに見えるか
+    pub quoted_csv: bool,
     /// 取り消せる操作の名前 (無ければ None)
     pub undo_label: Option<String>,
     /// やり直せる操作の名前 (無ければ None)
@@ -124,6 +126,12 @@ pub struct CsvDoc {
     pub dirty: bool,
     pub ragged: bool,
     pub replaced: bool,
+    /**
+     * 固定長で読んだが、中身は `"…","…"` の形のCSVに見えるか。
+     *
+     * CSVとして開き直すよう画面で案内する (固定長では `"` も桁に数えてしまうため)
+     */
+    pub quoted_csv: bool,
     /// 開いた (保存した) 時点のファイルの更新時刻。外部での書き換えに気づくために持つ
     pub mtime: Option<u64>,
     /// 列ごとの絞り込み (空なら絞っていない)
@@ -186,6 +194,7 @@ impl CsvDoc {
             dirty: false,
             ragged: loaded.ragged,
             replaced: loaded.replaced,
+            quoted_csv: false,
             mtime: None,
             filters: Vec::new(),
             sort: None,
@@ -209,6 +218,7 @@ impl CsvDoc {
         reading: fixed::Reading,
     ) -> Result<CsvDoc, String> {
         let loaded = io::load_fixed(bytes, forced_encoding, unit, reading)?;
+        let quoted_csv = fixed::looks_like_quoted_csv(bytes);
         // 種別が混ざるファイルは、ヘッダ行のほうが項目が多いこともある
         let width = loaded
             .format
@@ -231,6 +241,7 @@ impl CsvDoc {
             dirty: false,
             ragged: loaded.ragged,
             replaced: loaded.replaced,
+            quoted_csv,
             mtime: None,
             filters: Vec::new(),
             sort: None,
@@ -305,6 +316,7 @@ impl CsvDoc {
             dirty: true,
             ragged: false,
             replaced: false,
+            quoted_csv: false,
             mtime: None,
             filters: Vec::new(),
             sort: None,
@@ -362,6 +374,7 @@ impl CsvDoc {
             dirty: self.dirty,
             ragged: self.ragged,
             replaced: self.replaced,
+            quoted_csv: self.quoted_csv,
             undo_label: self.undo.last().map(|e| e.label().to_string()),
             redo_label: self.redo.last().map(|e| e.label().to_string()),
             head_row: self.head.clone(),

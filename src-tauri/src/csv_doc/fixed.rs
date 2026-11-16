@@ -359,6 +359,35 @@ fn trim_edges(bytes: &[u8]) -> &[u8] {
     out
 }
 
+/// 引用符付きのCSVかを見るときに確かめる行数
+const QUOTED_SAMPLE: usize = 20;
+
+/**
+ * 各項目を `"` で囲んで区切り文字で並べた、CSVの形のファイルか。
+ *
+ * CSVを固定長として読むと、`"` と区切り文字まで桁に数えてしまい、
+ * 書いてある桁数どおりに切れない。そのときに「CSVとして開き直す」を案内するために見る。
+ *
+ * 見た行が1つ残らず `"…","…"` の形 (区切りはカンマ・タブ・セミコロン) のときだけ真にする。
+ * 中身にたまたま `","` が入る固定長のファイルを、取り違えないようにするため。
+ * `"` と区切り文字はShift_JISの2バイト目にも現れないので、バイトのまま見てよい
+ */
+pub fn looks_like_quoted_csv(bytes: &[u8]) -> bool {
+    let body = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+    let lines: Vec<&[u8]> = split_lines(body).into_iter().take(QUOTED_SAMPLE).collect();
+    !lines.is_empty() && lines.iter().all(|l| quoted_fields(l))
+}
+
+/// 1行が `"…"` を区切り文字でつないだ形 (2項目以上) か
+fn quoted_fields(line: &[u8]) -> bool {
+    if line.len() < 2 || line[0] != b'"' || line[line.len() - 1] != b'"' {
+        return false;
+    }
+    b",\t;"
+        .iter()
+        .any(|d| line.windows(3).any(|w| w == [b'"', *d, b'"']))
+}
+
 /// 桁の区切りを推測するときに見る行数
 const SAMPLE_LINES: usize = 200;
 

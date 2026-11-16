@@ -787,9 +787,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               </svg>
             </button>
             <span className="toolbar-spacer" />
-            {/* SQLダンプの出力・実行は外部ツール(mysqldump等)を使うためSQLiteでは出さない */}
-            {!isSqlite && (
-              <>
+            {/* SQLダンプの出力・実行 (Quelio自身でできるので、SQLiteでも出す) */}
             <button
               className="pane-icon-btn has-tooltip tooltip-left"
               data-tooltip={
@@ -820,8 +818,6 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                 <path d="M4 20h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
             </button>
-              </>
-            )}
           </PaneHead>
           {!selectedDb ? (
             <div className="table-pane-empty">上部からデータベースを選択</div>
@@ -1121,6 +1117,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                     );
                   })()}
                   <div className="context-sep" />
+                  <div className="context-group">コピー</div>
                   <button
                     className="context-item"
                     onClick={() =>
@@ -1134,6 +1131,22 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                   >
                     {label("テーブル名をコピー", "のテーブル名をコピー")}
                   </button>
+                  <button
+                    className="context-item"
+                    title="COUNT(*) のSQLをコピーします"
+                    onClick={() =>
+                      copySql(
+                        joinSql(targets, (t) =>
+                          buildCountStatement(profile.dbType, t)
+                        ),
+                        label("COUNT文", "のCOUNT文")
+                      )
+                    }
+                  >
+                    {label("COUNT文をコピー", "のCOUNT文をコピー")}
+                  </button>
+                  <div className="context-sep" />
+                  <div className="context-group">SQLをエディタへ</div>
                   <button
                     className="context-item"
                     title="列を並べたSELECT文をSQLエディタへ入れます"
@@ -1163,6 +1176,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                   >
                     {label("INSERT文をエディタへ", "のINSERT文をエディタへ")}
                   </button>
+                  <div className="context-sep" />
+                  <div className="context-group">データ</div>
                   <button
                     className="context-item"
                     title="一覧の行数は概算です。COUNT(*) で正確に数えます (大きな表では時間が掛かります)"
@@ -1172,64 +1187,17 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                   </button>
                   <button
                     className="context-item"
-                    title="COUNT(*) のSQLをコピーします"
-                    onClick={() =>
-                      copySql(
-                        joinSql(targets, (t) =>
-                          buildCountStatement(profile.dbType, t)
-                        ),
-                        label("COUNT文", "のCOUNT文")
-                      )
-                    }
+                    title="テーブルの定義とデータをSQLファイルへ書き出します"
+                    disabled={!selectedDb}
+                    onClick={() => {
+                      setTableMenu(null);
+                      setDialog("export");
+                    }}
                   >
-                    {label("COUNT文をコピー", "のCOUNT文をコピー")}
+                    {label("このテーブルをSQLダンプ", "をSQLダンプ")}
                   </button>
-                  {/* SQLダンプは外部ツール(mysqldump等)を使うためSQLiteでは出さない */}
-                  {!isSqlite && (
-                    <button
-                      className="context-item"
-                      title="mysqldump / pg_dump でSQLファイルへ書き出します"
-                      disabled={!selectedDb}
-                      onClick={() => {
-                        setTableMenu(null);
-                        setDialog("export");
-                      }}
-                    >
-                      {label("このテーブルをSQLダンプ", "をSQLダンプ")}
-                    </button>
-                  )}
-                  <div className="context-sep" />
-                  {readOnly ? (
-                    <div className="context-note">
-                      読み取り専用の接続のため、変更はできません
-                    </div>
-                  ) : (
+                  {!readOnly && (
                     <>
-                      <button
-                        className="context-item"
-                        // 名前は1つずつしか付けられない
-                        disabled={
-                          multi ||
-                          tableMenu.table.tableType.toUpperCase().includes("VIEW")
-                        }
-                        title={oneOnly}
-                        onClick={() => {
-                          const t = tableMenu.table;
-                          setTableMenu(null);
-                          setRenaming({ key: tableKey(t), value: t.name });
-                        }}
-                      >
-                        テーブル名を変更
-                      </button>
-                      <button
-                        className="context-item"
-                        onClick={() => {
-                          setTableMenu(null);
-                          setShowCreate(true);
-                        }}
-                      >
-                        テーブルを新規作成
-                      </button>
                       <button
                         className="context-item"
                         title={
@@ -1268,6 +1236,43 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                       >
                         テストデータを作る
                       </button>
+                    </>
+                  )}
+                  <div className="context-sep" />
+                  {readOnly ? (
+                    <div className="context-note">
+                      読み取り専用の接続のため、変更はできません
+                    </div>
+                  ) : (
+                    <>
+                      <div className="context-group">テーブルの管理</div>
+                      <button
+                        className="context-item"
+                        onClick={() => {
+                          setTableMenu(null);
+                          setShowCreate(true);
+                        }}
+                      >
+                        テーブルを新規作成
+                      </button>
+                      <button
+                        className="context-item"
+                        // 名前は1つずつしか付けられない
+                        disabled={
+                          multi ||
+                          tableMenu.table.tableType.toUpperCase().includes("VIEW")
+                        }
+                        title={oneOnly}
+                        onClick={() => {
+                          const t = tableMenu.table;
+                          setTableMenu(null);
+                          setRenaming({ key: tableKey(t), value: t.name });
+                        }}
+                      >
+                        テーブル名を変更
+                      </button>
+                      <div className="context-sep" />
+                      <div className="context-group danger">危険な操作</div>
                       <button
                         className="context-item danger"
                         title="実行はしません。エディタで内容を確かめてから実行してください"

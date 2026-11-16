@@ -1270,6 +1270,24 @@ export function CsvWindow() {
               文字化けの疑いがあります
             </span>
           )}
+          {/*
+            CSVを固定長として開くと、" と区切り文字まで桁に数えてしまい、
+            書いてある桁数どおりに切れない。押せばCSVとして読み直す
+          */}
+          {active.quotedCsv && (
+            <button
+              type="button"
+              className="csv-warn csv-warn-action"
+              title={
+                "各項目が \" で囲まれ、区切り文字で並んでいます。\n" +
+                "固定長では \" と区切り文字も桁に数えるため、桁がずれます。\n" +
+                "押すとCSVとして開き直します"
+              }
+              onClick={() => void run(() => csvSetFixed(active.docId, null))}
+            >
+              CSVの形のファイルです。CSVとして開き直す
+            </button>
+          )}
           <span className="toolbar-spacer" />
           <MemoryChip />
           {busy && <span className="spinner accent" />}

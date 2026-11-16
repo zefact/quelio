@@ -841,43 +841,445 @@
 
 /* エクスポート/インポートダイアログ */
 
-.transfer-summary {
+/* 枠は少し広めにし、選択カードが3つ並ぶようにする */
+.modal.transfer-modal {
+  width: min(720px, calc(100vw - 60px));
+  padding: 20px 22px 18px;
+}
+
+/* 見出し: 何をするか・どの接続か */
+.tf-head {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin-bottom: 12px;
+  align-items: flex-start;
+  gap: 14px;
+  padding-bottom: 16px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
 }
 
-.transfer-target {
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.transfer-tables {
-  font-size: 11.5px;
-  color: var(--text-dim);
-  line-height: 1.6;
-  max-height: 120px;
-  overflow-y: auto;
-  word-break: break-all;
-}
-
-.mode-select {
-  display: flex;
-  gap: 18px;
-  margin: 6px 0 4px;
-}
-
-.mode-option {
+.tf-head-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.35);
+}
+
+/* 流し込みは書き換えを伴うので、暖色で区別する */
+.tf-head-icon.import {
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  box-shadow: 0 6px 18px rgba(239, 68, 68, 0.3);
+}
+
+.tf-head-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tf-head-text .modal-title {
+  font-size: 16px;
+}
+
+.tf-head-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tf-head-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 0;
+}
+
+.tf-head-target .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tf-head-target .db-badge {
+  width: auto;
+  height: 18px;
+  padding: 0 6px;
+  font-size: 9.5px;
+  border-radius: var(--radius-xs);
+}
+
+.tf-head-sep {
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+/* 見出し付きのまとまり */
+.tf-section {
+  margin-top: 16px;
+}
+
+.tf-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.tf-count {
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: rgba(99, 102, 241, 0.16);
+  color: var(--accent);
+  font-size: 11px;
+  text-align: center;
+  letter-spacing: 0;
+}
+
+html[data-theme="light"] .tf-count {
+  color: #4338ca;
+}
+
+/* 対象テーブル */
+.tf-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+
+.tf-chip {
+  max-width: 100%;
+  padding: 3px 9px;
+  border-radius: var(--radius-xs);
+  background: rgba(var(--ink), 0.06);
+  border: 1px solid var(--border);
+  font-size: 11.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.tf-chip.more {
+  font-family: inherit;
+  color: var(--accent);
+  background: transparent;
+  border-style: dashed;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.tf-chip.more:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.tf-empty {
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-strong);
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* 選択カード (ラジオボタンの代わり) */
+.choice-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.choice-grid.cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.choice-grid.cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+@media (max-width: 620px) {
+  .choice-grid.cols-2,
+  .choice-grid.cols-3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+.choice-card {
+  position: relative;
+  /* 絵と題を1行目に、説明は2行目に幅いっぱいで置く (狭いカードでも折り返しが少ない) */
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 7px;
+  padding: 11px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* 本物のラジオは隠し、キーボード操作とフォーカスだけ活かす */
+.choice-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.choice-card:hover:not(.disabled) {
+  border-color: rgba(99, 102, 241, 0.45);
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.choice-card:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.choice-card.on {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.choice-card.disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.choice-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--ink), 0.06);
+  color: var(--text-dim);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.choice-card.on .choice-icon {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+}
+
+.choice-text {
+  display: contents;
+}
+
+.choice-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
   font-size: 12.5px;
+  font-weight: 800;
+}
+
+.choice-desc {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.choice-badge {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: rgba(52, 211, 153, 0.16);
+  color: var(--success);
+  font-size: 9.5px;
+  font-weight: 800;
+}
+
+/* 保存先: [フォルダ] / [ファイル名] [変更…] */
+.tf-dest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  border: 1px solid var(--border-strong);
+  min-width: 0;
+  transition: border-color 0.15s ease;
+}
+
+.tf-dest:focus-within {
+  border-color: var(--accent);
+}
+
+.tf-dest.invalid {
+  border-color: var(--danger);
+}
+
+.tf-dest-folder {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink), 0.07);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
   cursor: pointer;
 }
 
-.mode-option input {
-  accent-color: var(--accent);
+.tf-dest-folder svg {
+  flex-shrink: 0;
+  color: var(--warn);
+}
+
+.tf-dest-folder:hover:not(:disabled) {
+  background: rgba(var(--ink), 0.12);
+}
+
+.tf-dest-folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tf-dest-sep {
+  flex-shrink: 0;
+  color: var(--text-faint);
+}
+
+.tf-dest-name {
+  flex: 1;
+  min-width: 80px;
+  padding: 5px 4px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+/* 実際に書くパスの見本 (パターンを今の日時で埋めたもの) */
+.tf-dest-full {
+  margin-top: 6px;
+  padding: 0 4px;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.tf-dest-full.error {
+  color: var(--danger);
+}
+
+/* フォルダのヒントは長いパスになるので、どこでも折り返す */
+.tf-dest-folder.has-tooltip::after {
+  max-width: min(420px, calc(100vw - 80px));
+  overflow-wrap: anywhere;
+}
+
+/* ファイル名のパターンに差し込む置き換え ({db} など) */
+.tf-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.tf-token {
+  padding: 2px 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tf-token:hover {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+/* 見出しの右の小さな文字ボタン */
+.tf-link {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.tf-link:hover {
+  text-decoration: underline;
+}
+
+.tf-overwrite {
+  align-items: center;
+}
+
+.tf-overwrite .btn-secondary {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* 実行中は設定を1行にまとめる */
+.tf-running-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.tf-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--text-faint);
 }
 
 .import-warn {
@@ -978,7 +1380,7 @@
 /* 進捗バー */
 
 .job-progress {
-  margin-top: 12px;
+  margin-top: 16px;
 }
 
 .job-bar {
@@ -1012,11 +1414,223 @@
   }
 }
 
-.job-bytes {
-  display: inline-block;
-  margin-top: 6px;
+/* 実行中のパネル: 大きな割合・バー・数字3つ・今のテーブル */
+.job-panel {
+  padding: 16px 16px 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(34, 211, 238, 0.1), transparent 55%),
+    rgba(99, 102, 241, 0.07);
+  animation: slide-in 0.18s ease;
+}
+
+.job-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.job-panel-title {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.job-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(99, 102, 241, 0.25);
+  border-top-color: var(--accent);
+  animation: job-spin 0.8s linear infinite;
+}
+
+@keyframes job-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.job-big-pct {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.job-big-pct small {
+  margin-left: 2px;
+  font-size: 14px;
+}
+
+.job-panel .job-bar {
+  height: 10px;
+}
+
+/* 動いていると分かるよう、バーの上を光が流れる */
+.job-panel .job-bar-fill:not(.indeterminate) {
+  position: relative;
+  overflow: hidden;
+}
+
+.job-panel .job-bar-fill:not(.indeterminate)::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.35),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: job-shine 1.8s ease-in-out infinite;
+}
+
+@keyframes job-shine {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.job-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.job-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(var(--ink), 0.04);
+  min-width: 0;
+}
+
+.job-stat-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-faint);
+}
+
+.job-stat-value {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 今どのテーブル (何文目) か */
+.job-stage {
+  margin-top: 10px;
   font-size: 11px;
   color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 終わったとき (成功・失敗) */
+.job-result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-lg);
+  animation: slide-in 0.18s ease;
+}
+
+.job-result.ok {
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  background: rgba(52, 211, 153, 0.08);
+}
+
+.job-result.ng {
+  align-items: flex-start;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.job-result-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+
+.job-result.ok .job-result-icon {
+  background: var(--success);
+  box-shadow: 0 0 14px rgba(52, 211, 153, 0.55);
+}
+
+.job-result.ng .job-result-icon {
+  background: var(--danger);
+  box-shadow: 0 0 14px rgba(248, 113, 113, 0.5);
+}
+
+.job-result-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+}
+
+.job-result-body strong {
+  font-size: 13px;
+}
+
+.job-result-file {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.job-result-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.job-result.ng .job-error {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 失敗した文も見せるので、改行を活かして長ければ巻き取る */
+.job-error {
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow-y: auto;
+  word-break: break-all;
+}
+
+.job-notes {
+  margin-top: 8px;
+}
+
+.job-notes ul {
+  margin: 0;
+  padding-left: 16px;
 }
 
 /* テーブル一覧の複数選択とペインのアイコンボタン */
@@ -2458,4 +3072,25 @@
   color: var(--text);
   font-size: 11.5px;
   line-height: 1.6;
+}
+
+/* 書き出し完了のカードでは、フォルダを開くボタンを押しやすい大きさにする */
+.job-result .reveal-btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-btn);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/*
+ * 完了カードは右下にあるので、ヒントは左上へ伸ばす。
+ * 下や右へ出すとダイアログの枠で切れる。パスは長く区切りが無いので、どこでも折り返す
+ */
+.job-result .reveal-btn.tooltip-left::after {
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: auto;
+  right: 0;
+  max-width: min(420px, calc(100vw - 80px));
+  overflow-wrap: anywhere;
 }

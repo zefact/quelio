@@ -790,6 +790,18 @@ body.col-resizing {
   font-weight: 700;
 }
 
+/* 押して直せる知らせ (CSVの形のファイルを固定長で開いたとき) */
+.csv-warn-action {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* ---------- 検索・置換 ---------- */
 
 /*

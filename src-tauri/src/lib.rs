@@ -20,6 +20,7 @@ mod sql_secret;
 mod db;
 mod ddl;
 mod ddl_table;
+mod dump;
 mod dialect;
 mod dml;
 mod er_store;
@@ -410,6 +411,8 @@ pub fn run() {
             commands::save_tool_settings,
             commands::detect_tools,
             commands::start_export,
+            commands::default_export_target,
+            commands::check_export_target,
             commands::start_import,
             commands::job_status,
             commands::cancel_job,

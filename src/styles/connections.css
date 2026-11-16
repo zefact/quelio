@@ -337,6 +337,21 @@
   background: var(--border);
 }
 
+/* 右クリックメニューの、まとまりごとの小見出し (「コピー」「データ」など) */
+.context-group {
+  padding: 4px 12px 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  user-select: none;
+}
+
+.context-group.danger {
+  color: var(--danger);
+  opacity: 0.8;
+}
+
 .context-item {
   display: block;
   width: 100%;

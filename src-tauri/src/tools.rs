@@ -211,6 +211,12 @@ pub struct Job {
     pub out_path: Option<PathBuf>,
     child: Option<Arc<Mutex<Child>>>,
     pub cancelled: bool,
+    /**
+     * Quelio自身が書き出し・流し込みをしているときの進み具合と止め方。
+     *
+     * 外部ツールのときは None (進み具合はファイルの大きさで見る)
+     */
+    pub native: Option<Arc<crate::dump::Progress>>,
 }
 
 /// ジョブID → 状態 (Tauriのmanaged state)。
@@ -227,6 +233,12 @@ pub struct JobStatus {
     pub total: Option<u64>,
     pub out_path: Option<String>,
     pub cancelled: bool,
+    /// 全体のどこまで進んだか (0〜1。分からなければ None)
+    pub progress: Option<f64>,
+    /// 今していること (例: 「m_item (3/12)」)
+    pub stage: Option<String>,
+    /// 終わったときの補足 (無視した命令など)
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -248,6 +260,10 @@ pub struct Endpoint {
     /// TLSの使い方。画面で選んだ設定を外部ツールにも同じように渡す
     /// (渡さないとツールの既定 = 証明書を検証しない接続に落ちる)
     pub tls: crate::db::TlsConfig,
+    /// SQLコンソールに出す接続名
+    pub label: String,
+    /// SQLite: データベースファイルの場所 (ほかの接続では空)
+    pub sqlite_path: String,
 }
 
 /// MySQL系クライアントの系統。TLSの指定方法が違う
@@ -357,6 +373,8 @@ async fn spawn_watched(
     job_id: String,
     mut child: Child,
     feeder: Option<tokio::task::JoinHandle<Result<(), String>>>,
+    // 書き出しのとき: 終わったら .partial を本来の名前に置き換える先
+    out_path: Option<PathBuf>,
 ) {
     let stderr = child.stderr.take();
     let child = Arc::new(Mutex::new(child));
@@ -388,6 +406,9 @@ async fn spawn_watched(
             j.child = None;
             if j.cancelled {
                 j.error = Some("キャンセルされました".to_string());
+                if let Some(p) = &out_path {
+                    crate::dump::target::discard(p);
+                }
                 return;
             }
             let significant: Vec<&str> = err_text
@@ -412,6 +433,17 @@ async fn spawn_watched(
                     j.error = Some(detail);
                 }
                 Err(e) => j.error = Some(format!("プロセスの実行に失敗: {e}")),
+            }
+            // 書き出しは、うまくいったときだけ本来の名前にする
+            // (途中までのファイルを、完全なバックアップと取り違えないように消す)
+            if let Some(p) = &out_path {
+                if j.error.is_none() {
+                    if let Err(e) = crate::dump::target::commit(p) {
+                        j.error = Some(e);
+                    }
+                } else {
+                    crate::dump::target::discard(p);
+                }
             }
         }
     });
@@ -441,8 +473,38 @@ fn new_job(kind: &str, total: Option<u64>, out_path: Option<PathBuf>) -> (String
         out_path,
         child: None,
         cancelled: false,
+        native: None,
     };
     (id, job)
+}
+
+/// Quelio自身で動かすジョブを登録する (終わったジョブはここで片付ける)
+pub(crate) async fn register_native(
+    jobs: &Jobs,
+    kind: &str,
+    total: Option<u64>,
+    out_path: Option<PathBuf>,
+    progress: Arc<crate::dump::Progress>,
+) -> String {
+    let (id, mut job) = new_job(kind, total, out_path);
+    job.native = Some(progress);
+    let mut map = jobs.0.lock().await;
+    drop_finished(&mut map);
+    map.insert(id.clone(), job);
+    id
+}
+
+/// Quelio自身で動かしたジョブの終わりを記録する
+pub(crate) async fn finish_native(jobs: &Jobs, job_id: &str, result: Result<(), String>) {
+    let mut map = jobs.0.lock().await;
+    if let Some(j) = map.get_mut(job_id) {
+        j.done = true;
+        j.error = match result {
+            Ok(()) => None,
+            Err(_) if j.cancelled => Some("キャンセルされました".to_string()),
+            Err(e) => Some(e),
+        };
+    }
 }
 
 /// 選択テーブルをSQLファイルへエクスポートする
@@ -453,19 +515,17 @@ pub async fn start_export(
     database: String,
     tables: Vec<crate::models::ExportTable>,
     mode: String, // full | schema | data
+    out_path: Option<String>,
 ) -> Result<StartedJob, String> {
     // 使えない接続は、空のファイルを残さないよう先に断る
     if matches!(ep.db_type, DbType::Valkey | DbType::Sqlite) {
         return Err("この接続ではSQLダンプの出力・実行は使えません".into());
     }
-    // 設定の「保存先フォルダ」に従う (未設定ならOSのダウンロードフォルダ)
-    let dir = crate::app_settings::download_dir(app)?;
-    let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    // DB名はユーザーが決めるものなので、そのままファイル名にしない
-    let stem = crate::filename::safe_stem(&database);
-    let out_path = dir.join(format!("{stem}_{ts}.sql"));
+    // 画面で指定が無ければ、設定の「保存先フォルダ」に DB名_日時.sql で置く
+    let out_path = crate::dump::target::resolve(app, &ep, &database, out_path.as_deref())?;
+    // 途中は隣の .partial に書き、終わってから置き換える (古いバックアップを壊さない)
     // ダンプはDBの中身そのものなので、所有者だけが読める権限で作る
-    let out_file = crate::outfile::create(&out_path)
+    let out_file = crate::outfile::create(&crate::dump::target::partial_path(&out_path))
         .map_err(|e| format!("出力ファイルを作成できません: {e}"))?;
     let mut cmd = match ep.db_type {
         DbType::Valkey | DbType::Sqlite => unreachable!(),
@@ -554,7 +614,7 @@ pub async fn start_export(
         drop_finished(&mut map);
         map.insert(job_id.clone(), job);
     }
-    spawn_watched(jobs.clone(), job_id.clone(), child, None).await;
+    spawn_watched(jobs.clone(), job_id.clone(), child, None, Some(out_path.clone())).await;
 
     Ok(StartedJob {
         job_id,
@@ -693,7 +753,7 @@ pub async fn start_import(
         result
     });
 
-    spawn_watched(jobs.clone(), job_id.clone(), child, Some(feeder)).await;
+    spawn_watched(jobs.clone(), job_id.clone(), child, Some(feeder), None).await;
     Ok(StartedJob {
         job_id,
         out_path: None,
@@ -703,7 +763,7 @@ pub async fn start_import(
 pub async fn job_status(jobs: &Jobs, job_id: &str) -> Result<JobStatus, String> {
     // 必要な値を写し取ってからロックを手放す
     // (ファイルサイズの取得は同期処理なので、ロックを持ったまま行わない)
-    let (kind, done, error, counted, total, out_path, cancelled) = {
+    let (kind, done, error, counted, total, out_path, cancelled, native) = {
         let map = jobs.0.lock().await;
         let j = map.get(job_id).ok_or("ジョブが見つかりません")?;
         (
@@ -714,12 +774,31 @@ pub async fn job_status(jobs: &Jobs, job_id: &str) -> Result<JobStatus, String> 
             j.total,
             j.out_path.clone(),
             j.cancelled,
+            j.native.clone(),
         )
     };
+    if let Some(p) = native {
+        return Ok(JobStatus {
+            running: !done,
+            error,
+            bytes: p.bytes(),
+            total,
+            out_path: out_path.as_ref().map(|p| p.to_string_lossy().to_string()),
+            cancelled,
+            progress: p.fraction(),
+            stage: p.stage(),
+            notes: p.notes(),
+        });
+    }
     let bytes = if kind == "export" {
+        // 書いている途中は .partial のほう、終わったら本来の名前のほうを見る
         out_path
             .as_ref()
-            .and_then(|p| std::fs::metadata(p).ok())
+            .and_then(|p| {
+                std::fs::metadata(crate::dump::target::partial_path(p))
+                    .or_else(|_| std::fs::metadata(p))
+                    .ok()
+            })
             .map(|m| m.len())
             .unwrap_or(0)
     } else {
@@ -732,6 +811,9 @@ pub async fn job_status(jobs: &Jobs, job_id: &str) -> Result<JobStatus, String> 
         total,
         out_path: out_path.as_ref().map(|p| p.to_string_lossy().to_string()),
         cancelled,
+        progress: total.filter(|t| *t > 0).map(|t| (bytes as f64 / t as f64).min(1.0)),
+        stage: None,
+        notes: Vec::new(),
     })
 }
 
@@ -743,6 +825,9 @@ pub async fn cancel_job(jobs: &Jobs, job_id: &str) -> Result<(), String> {
             return Ok(());
         }
         j.cancelled = true;
+        if let Some(p) = &j.native {
+            p.stop();
+        }
         j.child.clone()
     };
     if let Some(c) = child {

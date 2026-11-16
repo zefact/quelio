@@ -134,6 +134,7 @@ pub fn append_temp_upload(app: AppHandle, path: String, data_base64: String) -> 
 
 /// 選択テーブルのエクスポートを開始する (mode: full | schema | data)
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn start_export(
     app: AppHandle,
     state: State<'_, Sessions>,
@@ -143,13 +144,73 @@ pub async fn start_export(
     database: String,
     tables: Vec<crate::models::ExportTable>,
     mode: String,
+    engine: Option<String>,
+    // 画面で選んだ保存先 (無ければ設定の保存先フォルダに DB名_日時.sql)
+    out_path: Option<String>,
 ) -> Result<StartedJob, String> {
     let ep = sessions::endpoint_info(&state, &qlog, &session_id).await?;
-    tools::start_export(&app, &jobs, ep, database, tables, mode).await
+    // 外部ツール (mysqldump / pg_dump) を使うか、Quelio自身で書き出すか
+    if uses_tool(engine.as_deref(), &ep) {
+        tools::start_export(&app, &jobs, ep, database, tables, mode, out_path).await
+    } else {
+        crate::dump::start_export(&app, &jobs, ep, database, tables, mode, out_path).await
+    }
+}
+
+/// SQLダンプの既定の保存先 (画面に出し、変えるときの出発点にする)
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportTarget {
+    dir: String,
+    /// ファイル名のパターンの {db} に入れる名前 (SQLiteはDBファイルの名前)
+    db: String,
+}
+
+#[tauri::command]
+pub async fn default_export_target(
+    app: AppHandle,
+    state: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+    database: String,
+) -> Result<ExportTarget, String> {
+    let ep = sessions::endpoint_info(&state, &qlog, &session_id).await?;
+    Ok(ExportTarget {
+        dir: crate::app_settings::download_dir(&app)?
+            .to_string_lossy()
+            .to_string(),
+        db: crate::dump::target::base_name(&ep, &database),
+    })
+}
+
+/// 画面で指定した保存先を確かめた結果
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckedTarget {
+    /// 実際に書くパス (拡張子が無ければ .sql を付けたもの)
+    path: String,
+    /// 同じ名前のファイルが既にあるか (あれば上書きしてよいか尋ねる)
+    exists: bool,
+}
+
+/// 書き出す前に保存先を確かめる (フォルダが無い・同じ名前がある、を先に知らせる)
+#[tauri::command]
+pub fn check_export_target(path: String) -> Result<CheckedTarget, String> {
+    let p = crate::dump::target::check(std::path::Path::new(path.trim()))?;
+    Ok(CheckedTarget {
+        exists: p.exists(),
+        path: p.to_string_lossy().to_string(),
+    })
+}
+
+/// 外部ツールで動かすか (SQLiteには外部ツールの道が無い)
+fn uses_tool(engine: Option<&str>, ep: &tools::Endpoint) -> bool {
+    engine == Some("tool") && ep.db_type != crate::models::DbType::Sqlite
 }
 
 /// SQLファイルのインポートを開始する
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn start_import(
     app: AppHandle,
     state: State<'_, Sessions>,
@@ -158,9 +219,14 @@ pub async fn start_import(
     session_id: String,
     database: String,
     file_path: String,
+    engine: Option<String>,
 ) -> Result<StartedJob, String> {
     let ep = sessions::endpoint_info(&state, &qlog, &session_id).await?;
-    tools::start_import(&app, &jobs, ep, database, file_path).await
+    if uses_tool(engine.as_deref(), &ep) {
+        tools::start_import(&app, &jobs, ep, database, file_path).await
+    } else {
+        crate::dump::start_import(&app, &jobs, ep, database, file_path).await
+    }
 }
 
 /// ジョブの進捗を返す

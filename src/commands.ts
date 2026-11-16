@@ -277,6 +277,8 @@ export interface CommandResults {
   set_table_comment: string[];
   split_sql_statements: string[];
   start_export: StartedJob;
+  default_export_target: { dir: string; db: string };
+  check_export_target: { path: string; exists: boolean };
   start_import: StartedJob;
   system_databases: string[];
   table_ddl: string;
@@ -310,6 +312,7 @@ export const COMMAND_NAMES = [
   "check_config_files",
   "check_dangerous_filled",
   "check_dangerous_sql",
+  "check_export_target",
   "check_kv_destructive",
   "clear_query_log",
   "clear_sql_history",
@@ -371,6 +374,7 @@ export const COMMAND_NAMES = [
   "database_owners",
   "db_privileges",
   "db_user_grants",
+  "default_export_target",
   "default_ssh_key_dir",
   "delete_connection",
   "delete_er_diagram",

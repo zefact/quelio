@@ -46,7 +46,16 @@ export interface JobStatus {
   total: number | null;
   outPath: string | null;
   cancelled: boolean;
+  /** 全体のどこまで進んだか (0〜1。分からなければ null) */
+  progress: number | null;
+  /** 今していること (例: 「m_item (3/12)」) */
+  stage: string | null;
+  /** 終わったときの補足 (飛ばした命令など) */
+  notes: string[];
 }
+
+/** SQLダンプの出力・実行を、Quelio自身でするか外部ツールでするか */
+export type DumpEngine = "native" | "tool";
 
 /** ジョブ開始結果 */
 export interface StartedJob {

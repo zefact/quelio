@@ -191,6 +191,8 @@ export interface CsvInfo {
   ragged: boolean;
   /** 文字コードの変換で置き換えが起きたか (文字化けの疑い) */
   replaced: boolean;
+  /** 固定長で読んだが、中身は `"…","…"` の形のCSVに見えるか */
+  quotedCsv: boolean;
   /** 取り消せる操作の名前 (無ければ null) */
   undoLabel: string | null;
   /** やり直せる操作の名前 (無ければ null) */

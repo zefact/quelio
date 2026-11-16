@@ -105,7 +105,8 @@ export function SettingsTools({ notify }: Props) {
         </button>
       </div>
       <p className="set-section-note">
-        SQLダンプの出力・実行に使うコマンドの場所です。空欄のままなら
+        SQLダンプの出力・実行で「外部ツールを使う」を選んだときのコマンドの場所です。
+        Quelioで実行するときは要りません。空欄のままなら
         よく使われる場所から自動で探します。パスの変更は自動で保存されます。
       </p>
 

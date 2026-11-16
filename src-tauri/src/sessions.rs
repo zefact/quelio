@@ -1676,6 +1676,12 @@ pub async fn endpoint_info(
         password: s.profile.password.clone(),
         read_only: s.profile.read_only,
         tls,
+        label: conn_label(&s.profile),
+        sqlite_path: if s.profile.db_type == DbType::Sqlite {
+            s.profile.database.clone().unwrap_or_default()
+        } else {
+            String::new()
+        },
     })
 }
 /// タイムアウトで打ち切ったときは、次の操作で必ず生存確認 (ping) を走らせる。

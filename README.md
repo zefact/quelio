@@ -3,8 +3,8 @@
 MySQL / PostgreSQL / SQLite / Valkey 対応の無料デスクトップDBクライアント。
 macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です。
 
-**紹介ページ**: https://zefact.github.io/quelio/
-**機能詳細（対応バージョン・機能一覧）**: https://zefact.github.io/quelio/support.html
+- **紹介ページ**: https://zefact.github.io/quelio/
+- **機能詳細（対応バージョン・機能一覧）**: https://zefact.github.io/quelio/support.html
 
 > **ベータ版について**
 > Quelioは現在ベータ版 (v0.x) です。不具合が含まれる可能性があり、
@@ -19,6 +19,7 @@ macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です�
   - SSHの代わりに AWS Systems Manager (SSM) のポート転送 / Cloud SQL Auth Proxy も使えます
 - 接続先のプロファイル管理 (フォルダ分け・並び替え・アイコン色)
 - タブ式セッション、テーブル構造表示 (カラム / インデックス / テーブル情報)
+  - テーブル一覧の右クリックから、名前やSQLのコピー・SELECT / INSERT のひな形・正確な件数・ダンプ・CSV取り込みなどを呼び出せます (種類ごとに区切って並べています)
 - カラムコメントから「論理名 (日本語名)」を取り出して表示
 - テーブル定義の編集 (カラム・インデックスの追加/変更/削除、テーブルの作成・改名・削除・日本語名)
 - データタブでの直接編集 (UPDATE / INSERT / DELETE。主キーのあるテーブルのみ)
@@ -34,7 +35,10 @@ macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です�
 - 日本語のテストデータ生成 (氏名・住所・電話番号など。外部キーの整合を保ちます)
 - ER図の自動生成 (リバース・手動編集・PNG / SVG / Mermaid / PlantUML 出力)
   - DBに繋がずに単独ウィンドウでも使えます。図の上だけのテーブルを置く・カラムの文字色を変える、もできます
-- テーブル選択式エクスポート / SQLファイルのインポート (mysqldump / pg_dump / mysql / psql 連携)
+- テーブル選択式のSQLダンプ出力 / SQLファイルの実行 (外部ツールなしでバックアップ・復元。進み具合と残り時間の目安つき)
+  - mysqldump / pg_dump / mysql / psql を使うこともできます
+  - 保存先とファイル名を指定できます。ファイル名は `{db}_{date}_{time}` のようなパターンで決められます (DB名・接続名・日付・時刻・内容・テーブル名)
+  - 書き終えてから本来の名前に置き換えるので、同じ名前へ上書きするときも、途中で失敗・中止すれば元のファイルが残ります
 - DBのユーザー・権限管理 (一覧・作成・パスワード変更・停止・削除、GRANT / REVOKE。MySQL / PostgreSQLのみ)
 - **AI連携 (MCPサーバー)**: お使いのAIクライアント (Claude Code / Claude Desktop / Cursor など) から
   Quelio経由でDBのスキーマ参照・SQL実行ができます。AI側に接続情報は渡しません
@@ -51,8 +55,8 @@ macOS (Apple Silicon) / Windows で動作します。UIは日本語専用です�
 
 Windowsで初回実行時にSmartScreenの警告が出た場合は「詳細情報」→「実行」を選択してください。
 
-エクスポート/インポート機能を使う場合は外部ツールが必要です (設定画面で自動検出されます)。
-SQLite・Valkeyは外部ツールなしで利用できます。
+SQLダンプの出力・SQLファイルの実行は、外部ツールなしで使えます。
+mysqldump / pg_dump などで行いたい場合だけ、外部ツールを入れてください (設定画面で自動検出されます)。
 
 ```bash
 # macOS の例

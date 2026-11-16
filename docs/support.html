@@ -205,8 +205,8 @@
         Quelio が未実装のものの2種類があります。理由も併記しています。
       </p>
       <div class="meta-row">
-        <span class="chip">対象バージョン: Quelio v0.9.14</span>
-        <span class="chip">最終更新: 2026-08-31</span>
+        <span class="chip">対象バージョン: Quelio v0.9.16</span>
+        <span class="chip">最終更新: 2026-11-16</span>
         <span class="chip">ベータ版のため今後変更されることがあります</span>
       </div>
     </div>
@@ -323,6 +323,13 @@
             </tr>
 
             <tr class="grp"><td colspan="5">閲覧</td></tr>
+            <tr>
+              <td>テーブル一覧の右クリックメニュー<span class="note">コピー／SQLをエディタへ／データ／テーブルの管理／危険な操作、の種類ごとに区切って並べます。複数のテーブルを選んでまとめて操作することもできます</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
+              <td class="c"><span class="mark n">—</span></td>
+            </tr>
             <tr>
               <td>テーブル構造（カラム／インデックス／外部キー）</td>
               <td class="c"><span class="mark y">✓</span></td>
@@ -538,10 +545,10 @@
               <td class="c"><span class="mark n">—</span></td>
             </tr>
             <tr>
-              <td>エクスポート／インポート（外部ツール連携）</td>
-              <td class="c"><span class="mark y">✓</span><span class="note">mysqldump / mysql<br>接続設定のTLSを引き継ぎます</span></td>
-              <td class="c"><span class="mark y">✓</span><span class="note">pg_dump / psql<br>接続設定のTLSを引き継ぎます</span></td>
-              <td class="c"><span class="mark n">—</span></td>
+              <td>SQLダンプの出力／SQLファイルの実行<span class="note">外部ツールを入れなくても、Quelioだけでバックアップと復元ができます。進み具合と残り時間の目安を出します。保存先とファイル名のパターンも決められます</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">mysqldump / mysql も選べます<br>接続設定のTLSを引き継ぎます</span></td>
+              <td class="c"><span class="mark y">✓</span><span class="note">pg_dump / psql も選べます<br>COPY形式で読み書きします</span></td>
+              <td class="c"><span class="mark y">✓</span></td>
               <td class="c"><span class="mark n">—</span></td>
             </tr>
             <tr class="grp"><td colspan="5">ユーザー・権限</td></tr>
@@ -615,7 +622,7 @@
               <li>インデックス種別の指定（BTREE / HASH / FULLTEXT / SPATIAL）</li>
               <li><b>外部キーの追加・削除</b>（ON DELETE / ON UPDATE の指定つき）</li>
               <li><b>テーブル・データベースの作成</b>（文字コードと照合順序を選択）</li>
-              <li>CSV / TSVファイルの取り込み、mysqldump / mysql を使ったエクスポート・インポート</li>
+              <li>CSV / TSVファイルの取り込み、SQLダンプの出力・SQLファイルの実行（Quelioだけで、または mysqldump / mysql で）</li>
               <li><b>ユーザーと権限の管理</b>（作成・パスワード変更・改名・停止・削除、GRANT / REVOKE）。
                 8.0 の動的権限（<span class="mono">ROLE_ADMIN</span> など）も、付いているものは外せます</li>
             </ul>
@@ -650,7 +657,7 @@
               <li><b>外部キーの追加・削除</b>、<b>スキーマ・データベースの作成／削除</b>
                 （エンコーディングと照合順序 <span class="mono">LC_COLLATE</span> を指定できます）</li>
               <li>パーティションの表示（CREATE 文・ALTER 文の生成にも <span class="mono">PARTITION BY / PARTITION OF</span> を反映）</li>
-              <li>EXPLAIN / EXPLAIN ANALYZE、CSV取り込み、pg_dump / psql 連携</li>
+              <li>EXPLAIN / EXPLAIN ANALYZE、CSV取り込み、SQLダンプの出力・実行（Quelioだけで、または pg_dump / psql で。pg_dump のプレーン形式のファイルも実行できます）</li>
               <li><b>ロールと権限の管理</b>（作成・パスワード変更・改名・停止・削除、GRANT / REVOKE）。
                 ロールの削除では、先に権限と持ち物を片付けます</li>
             </ul>

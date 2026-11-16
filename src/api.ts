@@ -49,6 +49,7 @@ import type {
   ErFileEntry,
   ErImported,
   ExportedLog,
+  DumpEngine,
   ExportMode,
   ExportTable,
   FkInfo,
@@ -1697,16 +1698,40 @@ export function startExport(
   database: string,
   tables: ExportTable[],
   mode: ExportMode,
+  engine: DumpEngine,
+  /** 保存先 (省略すると設定の保存先フォルダに DB名_日時.sql) */
+  outPath?: string | null,
 ): Promise<StartedJob> {
-  return call("start_export", { sessionId, database, tables, mode });
+  return call("start_export", {
+    sessionId,
+    database,
+    tables,
+    mode,
+    engine,
+    outPath: outPath ?? null,
+  });
+}
+
+/** SQLダンプの既定の保存先フォルダと、ファイル名の {db} に入れる名前 */
+export function defaultExportTarget(
+  sessionId: string,
+  database: string,
+): Promise<{ dir: string; db: string }> {
+  return call("default_export_target", { sessionId, database });
+}
+
+/** 書き出す前に保存先を確かめる (拡張子を補ったパスと、同じ名前のファイルがあるか) */
+export function checkExportTarget(path: string): Promise<{ path: string; exists: boolean }> {
+  return call("check_export_target", { path });
 }
 
 export function startImport(
   sessionId: string,
   database: string,
   filePath: string,
+  engine: DumpEngine,
 ): Promise<StartedJob> {
-  return call("start_import", { sessionId, database, filePath });
+  return call("start_import", { sessionId, database, filePath, engine });
 }
 
 export function jobStatus(jobId: string): Promise<JobStatus> {
