@@ -60,7 +60,7 @@ pub async fn open_schema(
     let b = b
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0));
+        .traffic_light_position(crate::traffic_lights::position(28.0));
     b.build()
         .map_err(|e| format!("スキーマ一覧を開けません: {e}"))?;
     Ok(())
@@ -106,7 +106,7 @@ pub async fn open_er(
     let b = b
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(20.0, 22.0));
+        .traffic_light_position(crate::traffic_lights::position(24.0));
     b.build().map_err(|e| format!("ER図を開けません: {e}"))?;
     Ok(())
 }
@@ -130,7 +130,7 @@ pub async fn open_diff(app: AppHandle) -> Result<(), String> {
     let b = b
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0));
+        .traffic_light_position(crate::traffic_lights::position(28.0));
     b.build()
         .map_err(|e| format!("差分ウィンドウを開けません: {e}"))?;
     Ok(())
@@ -155,7 +155,7 @@ pub async fn open_console(app: AppHandle) -> Result<(), String> {
     let b = b
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(20.0, 26.0));
+        .traffic_light_position(crate::traffic_lights::position(28.0));
     b.build()
         .map_err(|e| format!("コンソールを開けません: {e}"))?;
     Ok(())
@@ -201,7 +201,7 @@ pub async fn open_csv_window(
     let b = b
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(20.0, 22.0));
+        .traffic_light_position(crate::traffic_lights::position(24.0));
     b.build()
         .map_err(|e| format!("CSVエディタを開けません: {e}"))?;
     Ok(())
@@ -227,12 +227,17 @@ fn front(w: tauri::WebviewWindow) {
     let _ = w.set_focus();
 }
 
-/// メインウィンドウを返す (閉じられていたら建て直す)
-fn ensure_main(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
+/**
+ * メインウィンドウを返す (無ければ作る)。
+ *
+ * 起動時もここで作る (tauri.conf.json では作らせない)。
+ * 閉じる・最小化ボタンの位置を、起動時に測った寸法から決めるため
+ */
+pub(crate) fn ensure_main(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     if let Some(w) = app.get_webview_window("main") {
         return Ok(w);
     }
-    // tauri.conf.json の設定と同じ形で建て直す
+    // tauri.conf.json の設定と同じ形で作る
     let b = tauri::WebviewWindowBuilder::new(
         app,
         "main",
@@ -248,7 +253,7 @@ fn ensure_main(app: &AppHandle) -> Result<tauri::WebviewWindow, String> {
     let b = b
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(20.0, 22.0));
+        .traffic_light_position(crate::traffic_lights::position(24.0));
     b.build().map_err(|e| format!("画面を開けません: {e}"))
 }
 

@@ -8,9 +8,11 @@ interface Props {
   initial: string;
   onDecide: (name: string) => void;
   onCancel: () => void;
+  /** 入れた名前に添える注意 (同じ名前を上書きする、など。無ければ null) */
+  note?: (name: string) => string | null;
 }
 
-export function CsvNameDialog({ title, initial, onDecide, onCancel }: Props) {
+export function CsvNameDialog({ title, initial, onDecide, onCancel, note }: Props) {
   const [name, setName] = useState(initial);
   const ref = useRef<HTMLInputElement>(null);
 
@@ -47,6 +49,9 @@ export function CsvNameDialog({ title, initial, onDecide, onCancel }: Props) {
             }
           }}
         />
+        {note?.(name.trim()) && (
+          <div className="csv-name-note">{note(name.trim())}</div>
+        )}
         <div className="modal-actions csv-modal-actions">
           <button className="btn-secondary" onClick={onCancel}>
             キャンセル

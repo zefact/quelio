@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use crate::csv_doc::fixed::FixedLayout;
+use crate::fav_tree::{self, FavItem, FavNode};
 use crate::json_store;
 
 pub mod transfer;
@@ -24,27 +25,26 @@ pub struct SavedLayout {
     pub updated_at_ms: u64,
 }
 
+impl FavItem for SavedLayout {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
+    fn size(&self) -> usize {
+        self.layout.columns.len()
+    }
+}
+
 /**
  * 一覧に並ぶもの (フォルダか、フォルダに入っていないお気に入り)。
  *
- * 並び順はこの一覧の順そのまま。
- * フォルダの中も `items` の順そのままで、入れ子にはしない
+ * 並べ方は列名のお気に入りと同じなので、共通の形 (`fav_tree`) を使う
  */
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum LayoutNode {
-    /// フォルダ (中にお気に入りを入れる)
-    Folder {
-        name: String,
-        #[serde(default)]
-        items: Vec<SavedLayout>,
-    },
-    /// フォルダに入っていないお気に入り
-    Item {
-        #[serde(flatten)]
-        saved: SavedLayout,
-    },
-}
+pub type LayoutNode = FavNode<SavedLayout>;
+
+pub use fav_tree::flatten;
 
 fn store_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     json_store::config_path(app, "csv_layouts.json")
@@ -75,22 +75,11 @@ pub fn parse(text: &str) -> Result<Vec<LayoutNode>, String> {
     nodes_from(raw)
 }
 
-/// 読み込んだJSONを、今の形の並びにする
+/// 読み込んだJSONを、今の形の並びにする (古い形の桁設定も今の形に直す)
 fn nodes_from(raw: serde_json::Value) -> Result<Vec<LayoutNode>, String> {
-    let mut nodes: Vec<LayoutNode> = match serde_json::from_value(raw.clone()) {
-        Ok(nodes) => nodes,
-        // 古い形はフォルダを持たないので、そのまま上に並べる
-        Err(_) => {
-            let old: Vec<SavedLayout> = serde_json::from_value(raw)
-                .map_err(|e| format!("固定長のレイアウトを読めません: {e}"))?;
-            old.into_iter()
-                .map(|saved| LayoutNode::Item { saved })
-                .collect()
-        }
-    };
-    // 古い形の桁設定は、今の形に直して渡す
+    let mut nodes: Vec<LayoutNode> = fav_tree::nodes_from(raw, "固定長のレイアウト")?;
     for node in &mut nodes {
-        for s in items_mut(node) {
+        for s in fav_tree::items_mut(node) {
             s.layout = s.layout.migrated();
         }
     }
@@ -98,7 +87,7 @@ fn nodes_from(raw: serde_json::Value) -> Result<Vec<LayoutNode>, String> {
 }
 
 /**
- * 取り込んだお気に入りを、今の並びへ混ぜる。
+ * 取り込んだお気に入りを、今の並びへ混ぜる (設定画面のバックアップからの復元)。
  *
  * 同じ名前のものは桁設定を上書きし、無いものは足す。
  * 足す先は、取り込む側で入っていたフォルダ
@@ -114,67 +103,18 @@ pub fn merge(app: &AppHandle, incoming: Vec<LayoutNode>) -> Result<(usize, usize
             LayoutNode::Item { saved } => (None, vec![saved]),
         };
         for saved in items {
-            if let Some(old) = find_item(&mut nodes, &saved.name) {
+            if let Some(old) = fav_tree::find_item(&mut nodes, &saved.name) {
                 old.layout = saved.layout;
                 old.updated_at_ms = saved.updated_at_ms;
                 updated += 1;
                 continue;
             }
-            put_item(&mut nodes, folder.as_deref(), saved);
+            fav_tree::put_item(&mut nodes, folder.as_deref(), saved);
             added += 1;
         }
     }
     write(app, &nodes)?;
     Ok((added, updated))
-}
-
-/// その名前のお気に入りを探す (フォルダの中も見る)
-fn find_item<'a>(nodes: &'a mut [LayoutNode], name: &str) -> Option<&'a mut SavedLayout> {
-    nodes
-        .iter_mut()
-        .flat_map(items_mut)
-        .find(|s| s.name == name)
-}
-
-/// お気に入りを足す (フォルダ名の指定があれば、そのフォルダの末尾へ)
-fn put_item(nodes: &mut Vec<LayoutNode>, folder: Option<&str>, saved: SavedLayout) {
-    let Some(name) = folder else {
-        nodes.push(LayoutNode::Item { saved });
-        return;
-    };
-    for node in nodes.iter_mut() {
-        if let LayoutNode::Folder { name: n, items } = node {
-            if n == name {
-                items.push(saved);
-                return;
-            }
-        }
-    }
-    // 同じ名前のフォルダが無ければ作る
-    nodes.push(LayoutNode::Folder {
-        name: name.to_string(),
-        items: vec![saved],
-    });
-}
-
-/// その節に入っているお気に入り (フォルダなら中身、そうでなければ自分)
-fn items_mut(node: &mut LayoutNode) -> Vec<&mut SavedLayout> {
-    match node {
-        LayoutNode::Folder { items, .. } => items.iter_mut().collect(),
-        LayoutNode::Item { saved } => vec![saved],
-    }
-}
-
-/// 木を、並んでいる順のお気に入りの一覧にする
-pub fn flatten(nodes: &[LayoutNode]) -> Vec<SavedLayout> {
-    let mut out = Vec::new();
-    for node in nodes {
-        match node {
-            LayoutNode::Folder { items, .. } => out.extend(items.iter().cloned()),
-            LayoutNode::Item { saved } => out.push(saved.clone()),
-        }
-    }
-    out
 }
 
 /**
@@ -184,23 +124,7 @@ pub fn flatten(nodes: &[LayoutNode]) -> Vec<SavedLayout> {
  * 同じ名前が2つあると選び分けられないので、そこだけ確かめる
  */
 pub fn save_tree(app: &AppHandle, nodes: Vec<LayoutNode>) -> Result<Vec<LayoutNode>, String> {
-    let mut seen = std::collections::HashSet::new();
-    for s in flatten(&nodes) {
-        if !seen.insert(s.name.clone()) {
-            return Err(format!("「{}」という名前が2つあります", s.name));
-        }
-    }
-    let mut folders = std::collections::HashSet::new();
-    for node in &nodes {
-        if let LayoutNode::Folder { name, .. } = node {
-            if name.trim().is_empty() {
-                return Err("フォルダの名前を入力してください".into());
-            }
-            if !folders.insert(name.clone()) {
-                return Err(format!("「{name}」というフォルダが2つあります"));
-            }
-        }
-    }
+    fav_tree::check_tree(&nodes)?;
     write(app, &nodes)?;
     Ok(nodes)
 }
@@ -215,27 +139,15 @@ pub fn save(app: &AppHandle, name: &str, layout: FixedLayout) -> Result<Vec<Layo
         return Err("桁が設定されていません".into());
     }
     let mut nodes = tree(app)?;
-    let now = now_ms();
-    let mut done = false;
-    for node in &mut nodes {
-        for s in items_mut(node) {
-            if s.name == name {
-                s.layout = layout.clone();
-                s.updated_at_ms = now;
-                done = true;
-            }
-        }
-    }
-    if !done {
-        // 新しいものは、フォルダに入れずに一番下へ足す
-        nodes.push(LayoutNode::Item {
-            saved: SavedLayout {
-                name: name.to_string(),
-                layout,
-                updated_at_ms: now,
-            },
-        });
-    }
+    // 新しいものは、フォルダに入れずに一番下へ足す
+    fav_tree::upsert(
+        &mut nodes,
+        SavedLayout {
+            name: name.to_string(),
+            layout,
+            updated_at_ms: now_ms(),
+        },
+    );
     write(app, &nodes)?;
     Ok(nodes)
 }
@@ -243,12 +155,7 @@ pub fn save(app: &AppHandle, name: &str, layout: FixedLayout) -> Result<Vec<Layo
 /// 名前を指定して削除する (フォルダの中にあっても消す)
 pub fn delete(app: &AppHandle, name: &str) -> Result<Vec<LayoutNode>, String> {
     let mut nodes = tree(app)?;
-    nodes.retain(|n| !matches!(n, LayoutNode::Item { saved } if saved.name == name));
-    for node in &mut nodes {
-        if let LayoutNode::Folder { items, .. } = node {
-            items.retain(|s| s.name != name);
-        }
-    }
+    fav_tree::remove(&mut nodes, name);
     write(app, &nodes)?;
     Ok(nodes)
 }
@@ -271,6 +178,7 @@ fn now_ms() -> u64 {
 mod tests {
     use super::*;
     use crate::csv_doc::fixed::WidthUnit;
+    use crate::fav_tree::{find_item, put_item};
 
     fn saved(name: &str) -> SavedLayout {
         SavedLayout {
@@ -292,7 +200,9 @@ mod tests {
 
     fn nodes() -> Vec<LayoutNode> {
         vec![
-            LayoutNode::Item { saved: saved("あ") },
+            LayoutNode::Item {
+                saved: saved("あ")
+            },
             LayoutNode::Folder {
                 name: "受注".to_string(),
                 items: vec![saved("い"), saved("う")],
@@ -313,8 +223,11 @@ mod tests {
         ]);
         let nodes: Vec<LayoutNode> = serde_json::from_value(old.clone())
             .or_else(|_| {
-                serde_json::from_value::<Vec<SavedLayout>>(old)
-                    .map(|v| v.into_iter().map(|saved| LayoutNode::Item { saved }).collect())
+                serde_json::from_value::<Vec<SavedLayout>>(old).map(|v| {
+                    v.into_iter()
+                        .map(|saved| LayoutNode::Item { saved })
+                        .collect()
+                })
             })
             .expect("読めること");
         assert_eq!(flatten(&nodes).len(), 1);

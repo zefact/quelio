@@ -213,3 +213,15 @@ export function FilterIcon() {
     </svg>
   );
 }
+
+/** 列名のお気に入り (見出しの帯に名札) */
+export function NamesIcon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="3" y="4.5" width="18" height="15" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M3 9.5h18" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M9 4.5v15M15 4.5v15" stroke="currentColor" strokeWidth="1.2" opacity="0.55" />
+      <path d="M5 7h2M11 7h2M17 7h2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}

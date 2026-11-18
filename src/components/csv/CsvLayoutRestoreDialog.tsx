@@ -1,26 +1,29 @@
 /**
- * 固定長のお気に入りの復元 (ファイルから選んで取り込む)。
+ * お気に入り (固定長の桁設定・列名の並び) の復元 (ファイルから選んで取り込む)。
  *
  * 今あるお気に入りは1件も書き換えない
  * (同じ名前のものを上書きする、設定画面の復元とはここが違う)。
  * ファイルのフォルダ分けはそのまま足し、名前が重なるものには
  * 「名前 (2)」のように番号を付ける (お気に入りもフォルダも)。
- * 付ける名前は取り込む前に行ごとに見せる
+ * 付ける名前は取り込む前に行ごとに見せる。
+ * 呼び名・読み込む関数は種類ごとに `kind` で受け取る
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { CsvLayoutFileEntry, CsvLayoutImported } from "../../types";
-import { csvImportLayoutsAsNew, csvInspectLayoutFile } from "../../api";
 import { useModal } from "../../hooks/useModal";
 import { FolderIcon } from "../sqlLibrary/LibraryIcons";
 import { TreeIndent } from "../sqlLibrary/TreeIndent";
 import { TriCheckbox } from "../sqlLibrary/TriCheckbox";
-import { LayoutIcon } from "./CsvLayoutIcons";
+import type { FavKind } from "./csvFavKinds";
+import type { Named } from "./csvLayoutTree";
 import { restoreGroups, togglePick } from "./csvLayoutPick";
 
 const JSON_FILTER = [{ name: "JSON", extensions: ["json"] }];
 
-interface Props {
+interface Props<T extends Named> {
+  /** お気に入りの種類 (呼び名・読み込む関数) */
+  kind: FavKind<T>;
   onClose: () => void;
   /** 取り込んだあと (一覧を読み直して知らせる) */
   onDone: (done: CsvLayoutImported[]) => void;
@@ -31,7 +34,11 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
 
-export function CsvLayoutRestoreDialog({ onClose, onDone }: Props) {
+export function CsvLayoutRestoreDialog<T extends Named>({
+  kind,
+  onClose,
+  onDone,
+}: Props<T>) {
   const [path, setPath] = useState<string | null>(null);
   const [entries, setEntries] = useState<CsvLayoutFileEntry[] | null>(null);
   /** 選んでいるもの (ファイルの中での名前) */
@@ -45,14 +52,14 @@ export function CsvLayoutRestoreDialog({ onClose, onDone }: Props) {
     const chosen = await open({
       multiple: false,
       filters: JSON_FILTER,
-      title: "固定長のお気に入りを復元",
+      title: `${kind.label}を復元`,
     }).catch(() => null);
     if (typeof chosen !== "string") return;
     setError(null);
     setEntries(null);
     setPath(chosen);
     try {
-      const list = await csvInspectLayoutFile(chosen);
+      const list = await kind.inspectFile(chosen);
       setEntries(list);
       setSel(new Set(list.map((e) => e.name)));
     } catch (e) {
@@ -66,6 +73,8 @@ export function CsvLayoutRestoreDialog({ onClose, onDone }: Props) {
     if (opened.current) return;
     opened.current = true;
     void pick();
+    // 開いたときに1回だけ選ばせる (種類 kind は開いている間に変わらない)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const groups = useMemo(() => restoreGroups(entries ?? []), [entries]);
@@ -77,7 +86,7 @@ export function CsvLayoutRestoreDialog({ onClose, onDone }: Props) {
     setBusy(true);
     setError(null);
     try {
-      onDone(await csvImportLayoutsAsNew(path, picked.map((e) => e.name)));
+      onDone(await kind.importAsNew(path, picked.map((e) => e.name)));
     } catch (e) {
       setError(String(e));
       setBusy(false);
@@ -110,7 +119,7 @@ export function CsvLayoutRestoreDialog({ onClose, onDone }: Props) {
         checked={sel.has(e.name)}
         onChange={() => setSel((s) => togglePick(s, e.name))}
       />
-      <LayoutIcon />
+      {kind.icon()}
       <span className="er-pick-text">
         <span className="pick-name">{e.name}</span>
         {e.saveAs !== e.name && (
@@ -120,7 +129,10 @@ export function CsvLayoutRestoreDialog({ onClose, onDone }: Props) {
           </span>
         )}
       </span>
-      <span className="er-pick-meta">{e.columns}桁</span>
+      <span className="er-pick-meta">
+        {e.columns}
+        {kind.unit}
+      </span>
     </label>
   );
 
@@ -133,7 +145,7 @@ export function CsvLayoutRestoreDialog({ onClose, onDone }: Props) {
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="modal-head">
-          <span className="modal-title">固定長のお気に入りを復元</span>
+          <span className="modal-title">{kind.label}を復元</span>
           <button className="modal-close" onClick={onClose} title="閉じる">
             ×
           </button>
@@ -159,7 +171,7 @@ export function CsvLayoutRestoreDialog({ onClose, onDone }: Props) {
 
           {entries && entries.length === 0 && (
             <span className="save-sql-note">
-              このファイルには固定長のお気に入りがありません
+              このファイルには{kind.label}がありません
             </span>
           )}
           {entries && entries.length > 0 && (

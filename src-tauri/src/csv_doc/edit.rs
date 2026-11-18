@@ -88,6 +88,15 @@ impl Edit {
         }
     }
 
+    /// 列名を変えるだけの操作か (まとめた操作なら、中身が全部そうか)
+    pub fn renames_only(&self) -> bool {
+        match self {
+            Edit::RenameCol { .. } => true,
+            Edit::Group { edits, .. } => edits.iter().all(Edit::renames_only),
+            _ => false,
+        }
+    }
+
     /// この操作の逆
     pub fn invert(&self) -> Edit {
         match self {

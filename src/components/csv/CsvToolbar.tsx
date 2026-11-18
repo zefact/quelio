@@ -7,8 +7,16 @@
  * 並ぶのは絵だけ。何をする所かは、載せたときに出る吹き出しで伝える
  */
 import { useMemo, useState } from "react";
-import type { CsvInfo, CsvLayoutNode, CsvSavedLayout } from "../../types";
+import type {
+  CsvInfo,
+  CsvLayoutNode,
+  CsvNameNode,
+  CsvNameSet,
+  CsvSavedLayout,
+} from "../../types";
 import { CsvFixedMenu } from "./CsvFixedMenu";
+import { CsvNamesMenu } from "./CsvNamesMenu";
+import { appliedNameSet } from "./csvNameSets";
 import { appliedLayoutName } from "./csvFixed";
 import { flatLayouts } from "./csvLayoutTree";
 import {
@@ -19,6 +27,7 @@ import {
   CompareIcon,
   ExcelIcon,
   FixedIcon,
+  NamesIcon,
   SplitIcon,
   SyncIcon,
 } from "./CsvToolbarIcons";
@@ -61,6 +70,20 @@ interface Props {
   onLayoutTransfer: (kind: "backup" | "restore") => void;
   /** 区切り文字として読み直す */
   onUseDelimiter: () => void;
+  /** 列名のお気に入り (見出しの無いCSVに付ける列名の並び。フォルダ分けと並び順のまま) */
+  nameSets: CsvNameNode[];
+  /** お気に入りの列名を今のファイルに付ける */
+  onUseNameSet: (s: CsvNameSet) => void;
+  /** 今の列名をお気に入りに保存する画面を開く */
+  onSaveNameSet: () => void;
+  /** 列名のお気に入りを削除する (確認の画面を出す) */
+  onDeleteNameSet: (s: CsvNameSet) => void;
+  /** 列名のお気に入りの削除の確認を出しているか */
+  deletingNameSet: boolean;
+  /** 列名のお気に入りの並び順やフォルダ分けを変えた結果を残す */
+  onSaveNameTree: (nodes: CsvNameNode[]) => void;
+  /** 列名のお気に入りのバックアップ・復元の画面を開く */
+  onNameTransfer: (kind: "backup" | "restore") => void;
 }
 
 export function CsvToolbar({
@@ -85,9 +108,21 @@ export function CsvToolbar({
   onLayoutTransfer,
   onEditFixed,
   onUseDelimiter,
+  nameSets,
+  onUseNameSet,
+  onSaveNameSet,
+  onDeleteNameSet,
+  deletingNameSet,
+  onSaveNameTree,
+  onNameTransfer,
 }: Props) {
   /** 固定長のメニューを開いているか */
   const [fixedOpen, setFixedOpen] = useState(false);
+  /** 列名のメニューを開いているか */
+  const [namesOpen, setNamesOpen] = useState(false);
+  const flatNames = useMemo(() => flatLayouts(nameSets), [nameSets]);
+  const appliedNames =
+    active && !active.hasHeader ? appliedNameSet(flatNames, active.labels) : null;
   /*
    * 読み方を変えられるのは、ファイルから開いたタブだけ。
    * お気に入りの整理はファイルが無くてもできるので、メニューそのものはいつでも開ける
@@ -177,6 +212,44 @@ export function CsvToolbar({
               onUseDelimiter();
             }}
             onClose={() => setFixedOpen(false)}
+          />
+        )}
+      </div>
+      <div className="csv-fixed-wrap">
+        <button
+          className={
+            "pane-icon-btn has-tooltip tooltip-left" + (appliedNames ? " on" : "")
+          }
+          data-tooltip={appliedNames ? `列名: ${appliedNames}` : "列名のお気に入り"}
+          onClick={() => setNamesOpen((v) => !v)}
+        >
+          <NamesIcon />
+        </button>
+        {namesOpen && (
+          <CsvNamesMenu
+            active={active}
+            nodes={nameSets}
+            onUse={(s) => {
+              setNamesOpen(false);
+              onUseNameSet(s);
+            }}
+            onSave={() => {
+              setNamesOpen(false);
+              onSaveNameSet();
+            }}
+            // 削除は確認の画面を挟む。どれを消すのか分かるよう、メニューは閉じない
+            onDelete={onDeleteNameSet}
+            confirming={deletingNameSet}
+            onSaveTree={onSaveNameTree}
+            onBackup={() => {
+              setNamesOpen(false);
+              onNameTransfer("backup");
+            }}
+            onRestore={() => {
+              setNamesOpen(false);
+              onNameTransfer("restore");
+            }}
+            onClose={() => setNamesOpen(false)}
           />
         )}
       </div>

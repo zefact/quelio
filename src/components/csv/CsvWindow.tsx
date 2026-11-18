@@ -20,6 +20,11 @@ import {
   csvOpen,
   csvRedo,
   csvRenameCol,
+  csvNameSets,
+  csvSaveNameSet,
+  csvDeleteNameSet,
+  csvSaveNameTree,
+  csvSetLabels,
   csvEdge,
   csvExportXlsx,
   csvSave,
@@ -53,6 +58,7 @@ import type {
   CsvDiffOverview,
   CsvFixedLayout,
   CsvLayoutNode,
+  CsvNameNode,
   CsvSavedLayout,
   CsvFormatPatch,
   CsvInfo,
@@ -71,6 +77,7 @@ import { CsvToolbar } from "./CsvToolbar";
 import { CsvFind } from "./CsvFind";
 import { CsvFilterMenu } from "./CsvFilterMenu";
 import { filterLabel, filterOf, isFiltered, withFilter } from "./csvFilter";
+import { appliedNameSet } from "./csvNameSets";
 import { CsvColumnMenu, CsvRowMenu } from "./CsvCellMenu";
 import { CsvNameDialog } from "./CsvNameDialog";
 import { CsvDiffSetup } from "./CsvDiffSetup";
@@ -78,7 +85,8 @@ import { CsvDiffView } from "./CsvDiffView";
 import { CsvEdgeRow } from "./CsvEdgeRow";
 import { CsvLayoutBackupDialog } from "./CsvLayoutBackupDialog";
 import { CsvLayoutRestoreDialog } from "./CsvLayoutRestoreDialog";
-import { layoutImportedNotice } from "./csvLayoutPick";
+import { importedNotice, layoutImportedNotice } from "./csvLayoutPick";
+import { LAYOUT_KIND, NAME_KIND } from "./csvFavKinds";
 import { CsvFixedDialog } from "./CsvFixedDialog";
 import { CsvFormatMenu } from "./CsvFormatMenu";
 import { formatLabel } from "./csvFormat";
@@ -226,6 +234,16 @@ export function CsvWindow() {
   const [fixedOpen, setFixedOpen] = useState(false);
   /** お気に入りに登録した固定長の桁設定 (ツールバーから選べるようにする) */
   const [layouts, setLayouts] = useState<CsvLayoutNode[]>([]);
+  /** 列名のお気に入り (見出しの無いCSVに付ける列名の並び。フォルダ分けと並び順のまま) */
+  const [nameSets, setNameSets] = useState<CsvNameNode[]>([]);
+  /** 今の列名をお気に入りに保存する画面を出しているか */
+  const [savingNames, setSavingNames] = useState(false);
+  /** 列名のお気に入りのバックアップ・復元の画面 */
+  const [nameTransfer, setNameTransfer] = useState<
+    "backup" | "restore" | null
+  >(null);
+  /** 削除しようとしている列名のお気に入り */
+  const [removingName, setRemovingName] = useState<string | null>(null);
   /** 固定長のお気に入りのバックアップ・復元の画面 */
   const [layoutTransfer, setLayoutTransfer] = useState<
     "backup" | "restore" | null
@@ -531,6 +549,51 @@ export function CsvWindow() {
         /* 読めなくてもツールバーが空になるだけ */
       });
   }, [fixedOpen]);
+
+  useEffect(() => {
+    void csvNameSets()
+      .then(setNameSets)
+      .catch(() => {
+        /* 読めなくてもメニューが空になるだけ */
+      });
+  }, []);
+
+  /** 列名のお気に入りの並び順やフォルダ分けを変えた結果を残す */
+  const saveNameTree = async (nodes: CsvNameNode[]) => {
+    // 先に画面へ映しておくと、掴んで放したときに待たされない
+    setNameSets(nodes);
+    try {
+      setNameSets(await csvSaveNameTree(nodes));
+    } catch (e) {
+      setError(String(e));
+      setNameSets(await csvNameSets());
+    }
+  };
+
+  /** 今の列名に名前を付けて、列名のお気に入りに残す */
+  const saveNameSet = async (name: string) => {
+    if (!active) return;
+    setSavingNames(false);
+    setError(null);
+    try {
+      setNameSets(await csvSaveNameSet(active.docId, name));
+      setNote(`列名を「${name}」として保存しました`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  /** 列名のお気に入りを消す */
+  const deleteNameSet = async (target: string) => {
+    setRemovingName(null);
+    setError(null);
+    try {
+      setNameSets(await csvDeleteNameSet(target));
+      setNote(`「${target}」を削除しました`);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
 
   /** お気に入りの桁設定で、開いているファイルを読み直す */
   const applySavedLayout = async (s: CsvSavedLayout) => {
@@ -1017,9 +1080,10 @@ export function CsvWindow() {
           1行目を見出しとして扱っていないファイルは、名前を持たないので変えない
         */
         onRename={
-          tab.hasHeader
-            ? (col, name) => void run(() => csvRenameCol(tab.docId, col, name))
-            : undefined
+          // 固定長は、桁設定で項目名を付ける
+          tab.format.fixed
+            ? undefined
+            : (col, name) => void run(() => csvRenameCol(tab.docId, col, name))
         }
         onFilter={(col, x, y, flipY) => {
           setActiveId(tab.docId);
@@ -1135,6 +1199,15 @@ export function CsvWindow() {
         onUseDelimiter={() =>
           void (active && run(() => csvSetFixed(active.docId, null)))
         }
+        nameSets={nameSets}
+        onUseNameSet={(s) =>
+          void (active && run(() => csvSetLabels(active.docId, s.columns)))
+        }
+        onSaveNameSet={() => setSavingNames(true)}
+        onDeleteNameSet={(s) => setRemovingName(s.name)}
+        deletingNameSet={removingName !== null}
+        onSaveNameTree={(nodes) => void saveNameTree(nodes)}
+        onNameTransfer={setNameTransfer}
       />
 
       {active && findOf(active.docId).open && (
@@ -1386,16 +1459,38 @@ export function CsvWindow() {
                   )
                 )
               }
-              onRename={() => {
-                setRenaming(menu.index);
-                setMenu(null);
-              }}
+              onRename={
+                active.format.fixed
+                  ? null
+                  : () => {
+                      setRenaming(menu.index);
+                      setMenu(null);
+                    }
+              }
               onDelete={(at, n) =>
                 shiftCols(at, -n, (id) => csvDeleteCol(id, at, n))
               }
             />
           )}
         </div>
+      )}
+
+      {savingNames && active && (
+        <CsvNameDialog
+          title="今の列名をお気に入りに保存"
+          initial={
+            (!active.hasHeader &&
+              appliedNameSet(flatLayouts(nameSets), active.labels)) ||
+            ""
+          }
+          note={(name) =>
+            flatLayouts(nameSets).some((s) => s.name === name)
+              ? "同じ名前のお気に入りを上書きします"
+              : null
+          }
+          onDecide={(name) => void saveNameSet(name)}
+          onCancel={() => setSavingNames(false)}
+        />
       )}
 
       {renaming !== null && active && (
@@ -1422,11 +1517,13 @@ export function CsvWindow() {
       {layoutTransfer === "backup" && (
         <CsvLayoutBackupDialog
           nodes={layouts}
+          kind={LAYOUT_KIND}
           onClose={() => setLayoutTransfer(null)}
         />
       )}
       {layoutTransfer === "restore" && (
         <CsvLayoutRestoreDialog
+          kind={LAYOUT_KIND}
           onClose={() => setLayoutTransfer(null)}
           onDone={(done) => {
             setLayoutTransfer(null);
@@ -1434,6 +1531,27 @@ export function CsvWindow() {
             // 取り込んだものを一覧に出す
             void csvLayouts()
               .then(setLayouts)
+              .catch((e) => setError(String(e)));
+          }}
+        />
+      )}
+      {nameTransfer === "backup" && (
+        <CsvLayoutBackupDialog
+          nodes={nameSets}
+          kind={NAME_KIND}
+          onClose={() => setNameTransfer(null)}
+        />
+      )}
+      {nameTransfer === "restore" && (
+        <CsvLayoutRestoreDialog
+          kind={NAME_KIND}
+          onClose={() => setNameTransfer(null)}
+          onDone={(done) => {
+            setNameTransfer(null);
+            setNote(importedNotice(NAME_KIND.label, done));
+            // 取り込んだものを一覧に出す
+            void csvNameSets()
+              .then(setNameSets)
               .catch((e) => setError(String(e)));
           }}
         />
@@ -1488,6 +1606,17 @@ export function CsvWindow() {
           onCancel={() => setRemovingLayout(null)}
         >
           保存した桁設定を削除します。開いているファイルには影響しません。
+        </ConfirmDialog>
+      )}
+      {removingName && (
+        <ConfirmDialog
+          title="列名のお気に入りを削除します"
+          target={removingName}
+          confirmLabel="削除"
+          onConfirm={() => void deleteNameSet(removingName)}
+          onCancel={() => setRemovingName(null)}
+        >
+          保存した列名の並びを削除します。開いているファイルの列名はそのままです。
         </ConfirmDialog>
       )}
 

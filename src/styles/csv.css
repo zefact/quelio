@@ -2032,3 +2032,34 @@ body.col-resizing {
   /* 滑っていくタブの上に重ねる */
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }
+
+/* ---------- 列名のお気に入り (見出しの無いCSV) ---------- */
+
+/* 列名の見本は長くなるので、右寄せで省略する */
+.csv-names-preview {
+  margin-left: auto;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * 今のファイルに付けられないとき (見出しにしているファイル・固定長) の行。
+ * 並べ替えはできるので押せなくはせず、薄くして分かるようにする
+ */
+.csv-names-menu .saved-item[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.csv-names-menu .saved-item[aria-disabled="true"]:hover {
+  background: transparent;
+}
+
+/* 名前を入れる画面の注意 (同じ名前を上書きする、など) */
+.csv-name-note {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--warn);
+}

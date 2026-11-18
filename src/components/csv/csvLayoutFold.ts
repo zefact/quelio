@@ -1,18 +1,20 @@
 /**
- * 固定長のお気に入りで、閉じているフォルダを覚えておく。
+ * お気に入り (固定長の桁設定・列名の並び) で、閉じているフォルダを覚えておく。
  *
  * メニューは開くたびに作り直されるので、ここに置いておかないと
  * 開くたびに全部のフォルダが開いた状態へ戻ってしまう。
  * 覚えるのは「閉じているもの」だけにする (新しく作ったフォルダは開いて出したい)
  */
 
-/** 覚えておく場所 */
-const KEY = "quelio.csvLayoutClosed";
+/** 覚えておく場所 (固定長のお気に入り) */
+export const LAYOUT_CLOSED_KEY = "quelio.csvLayoutClosed";
+/** 覚えておく場所 (列名のお気に入り。固定長とはフォルダが別なので分ける) */
+export const NAME_CLOSED_KEY = "quelio.csvNameClosed";
 
 /** 閉じているフォルダの名前を読む (初めて・読めないときは全部開いている) */
-export function loadClosed(): Set<string> {
+export function loadClosed(key: string = LAYOUT_CLOSED_KEY): Set<string> {
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(KEY) ?? "[]");
+    const raw: unknown = JSON.parse(localStorage.getItem(key) ?? "[]");
     if (!Array.isArray(raw)) return new Set();
     return new Set(raw.filter((v): v is string => typeof v === "string"));
   } catch {
@@ -22,9 +24,12 @@ export function loadClosed(): Set<string> {
 }
 
 /** 閉じているフォルダの名前を覚える */
-export function saveClosed(closed: ReadonlySet<string>): void {
+export function saveClosed(
+  closed: ReadonlySet<string>,
+  key: string = LAYOUT_CLOSED_KEY
+): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify([...closed]));
+    localStorage.setItem(key, JSON.stringify([...closed]));
   } catch {
     // 覚えられなくても開閉はできるので、何もしない
   }

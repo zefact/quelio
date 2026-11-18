@@ -50,8 +50,15 @@ pub struct CsvInfo {
     pub format: CsvFormat,
     /// 1行目をヘッダとして扱っているか
     pub has_header: bool,
-    /// 列名 (ヘッダとして扱っていなければ "1", "2", …)
+    /// 列名 (ヘッダとして扱っていなければ、付けた名前か "1", "2", …)
     pub columns: Vec<String>,
+    /**
+     * 1行目を見出しにしていないときに、画面でだけ付けた列名 (付けていない列は空)。
+     *
+     * ファイルには書かない。列名のお気に入りと見比べるのに使う。
+     * 見出しにしているときは空
+     */
+    pub labels: Vec<String>,
     /// 画面に出る行数 (絞り込み中は絞ったあとの数)
     pub row_count: usize,
     /// ファイル全体の行数 (絞り込みと関係なく数えた数)
@@ -108,7 +115,12 @@ pub struct CsvDoc {
     pub name: String,
     pub format: CsvFormat,
     pub has_header: bool,
-    /// 列名 (ヘッダとして扱っていないときは "1", "2", …)
+    /**
+     * 列名。
+     *
+     * 1行目を見出しにしているときは、その行 (保存すると1行目に書かれる)。
+     * 見出しにしていないときは、画面でだけ付けた名前 (付けていない列は空。保存しない)
+     */
     pub header: Vec<String>,
     /// データ行 (ヘッダは含まない)
     pub rows: Vec<Vec<String>>,
@@ -233,7 +245,7 @@ impl CsvDoc {
             format: loaded.format,
             // 固定長は見出しの行を持たないのが普通
             has_header: false,
-            header: numbered(width),
+            header: vec![String::new(); width],
             rows: loaded.rows,
             head: loaded.head,
             tail: loaded.tail,
@@ -346,6 +358,12 @@ impl CsvDoc {
             return self.header.clone();
         }
         let mut out = numbered(self.header.len());
+        // 見出しの無いファイルは、画面で付けた名前があればそれを使う
+        for (slot, label) in out.iter_mut().zip(&self.header) {
+            if !label.is_empty() {
+                *slot = label.clone();
+            }
+        }
         // 固定長は見出しの行を持たないので、レイアウトに付けた項目名を使う
         if let Some(layout) = &self.format.fixed {
             for (at, name) in layout.names().iter().enumerate() {
@@ -367,6 +385,11 @@ impl CsvDoc {
             format: self.format.clone(),
             has_header: self.has_header,
             columns: self.columns(),
+            labels: if self.has_header {
+                Vec::new()
+            } else {
+                self.header.clone()
+            },
             row_count: self.shown().len(),
             total_rows: self.rows.len(),
             filters: self.filters.clone(),
@@ -489,13 +512,13 @@ impl CsvDoc {
         if self.rows.len() != before {
             self.rebuild();
         }
+        self.mark_dirty(&e);
         self.undo.push(e);
         if self.undo.len() > UNDO_LIMIT {
             self.undo.remove(0);
         }
         // 新しく編集したら、やり直しの先は無くなる
         self.redo.clear();
-        self.dirty = true;
         Ok(())
     }
 
@@ -515,8 +538,8 @@ impl CsvDoc {
             self.rebuild();
         }
         let label = e.label().to_string();
+        self.mark_dirty(&e);
         self.redo.push(e);
-        self.dirty = true;
         Ok(Some(label))
     }
 
@@ -534,9 +557,56 @@ impl CsvDoc {
             self.rebuild();
         }
         let label = e.label().to_string();
+        self.mark_dirty(&e);
         self.undo.push(e);
-        self.dirty = true;
         Ok(Some(label))
+    }
+
+    /**
+     * 操作でファイルの中身が変わるなら「変更あり」にする。
+     *
+     * 見出しの無いファイルの列名は画面でだけ使う (保存しない) ので、
+     * 名前を付けただけでは「変更あり」にしない。閉じるときに保存を尋ねないため
+     */
+    fn mark_dirty(&mut self, e: &Edit) {
+        if self.has_header || !e.renames_only() {
+            self.dirty = true;
+        }
+    }
+
+    /**
+     * 見出しの無いファイルに、画面でだけ使う列名をまとめて付ける (列名のお気に入りから)。
+     *
+     * 名前が足りない列は名前を外し、余った名前は使わない。
+     * 取り消し1回で前の名前に戻る
+     */
+    pub fn set_labels(&mut self, names: &[String]) -> Result<(), String> {
+        if self.has_header {
+            return Err("1行目を見出しにしているファイルには使えません".into());
+        }
+        if self.format.fixed.is_some() {
+            return Err("固定長のファイルは、桁設定で項目名を付けてください".into());
+        }
+        let edits: Vec<Edit> = self
+            .header
+            .iter()
+            .enumerate()
+            .filter_map(|(at, before)| {
+                let after = names.get(at).cloned().unwrap_or_default();
+                (*before != after).then(|| Edit::RenameCol {
+                    at,
+                    before: before.clone(),
+                    after,
+                })
+            })
+            .collect();
+        if edits.is_empty() {
+            return Ok(());
+        }
+        self.apply(Edit::Group {
+            label: "列名の適用",
+            edits,
+        })
     }
 
     /**
@@ -554,6 +624,8 @@ impl CsvDoc {
         if on {
             // 先頭の行をヘッダへ持ち上げる
             if self.rows.is_empty() {
+                // 今見えている列名 (付けた名前か連番) を、そのまま見出しにする
+                self.header = self.columns();
                 self.has_header = true;
                 // 持ち上げる行が無いので、今の列名がそのまま1行目として書かれる
                 self.dirty = true;
@@ -561,9 +633,9 @@ impl CsvDoc {
             }
             self.header = self.rows.remove(0);
         } else {
-            // ヘッダを本文へ戻し、列名は連番にする
+            // ヘッダを本文へ戻し、列名は付けていない状態 (連番で出る) にする
             let w = self.header.len();
-            let head = std::mem::replace(&mut self.header, numbered(w));
+            let head = std::mem::replace(&mut self.header, vec![String::new(); w]);
             self.rows.insert(0, head);
         }
         self.has_header = on;

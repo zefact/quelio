@@ -13,6 +13,8 @@ mod memory;
 mod search;
 mod csv_job;
 mod csv_layouts;
+mod csv_names;
+mod fav_tree;
 /// ユーザーと権限のSQLを組み立てる
 mod dbuser;
 /// SQLに書かれたパスワードを、記録に残す前に伏せる
@@ -51,6 +53,8 @@ mod ssh_tunnel;
 mod storage;
 mod testdata;
 mod tools;
+#[cfg(target_os = "macos")]
+mod traffic_lights;
 mod uploads;
 mod workspace;
 
@@ -155,6 +159,13 @@ pub fn run() {
                     uploads::cleanup_old(&dir.join("uploads"));
                 }
             }
+            /*
+             * メインウィンドウを作る (tauri.conf.json では作らせていない)。
+             * macOS では先に閉じる・最小化ボタンの寸法を測り、版によらず同じ所へ置く
+             */
+            #[cfg(target_os = "macos")]
+            traffic_lights::measure();
+            commands::ensure_main(_app.handle())?;
             // メニューバーを日本語化 (macOSのみ)
             #[cfg(target_os = "macos")]
             {
@@ -286,6 +297,14 @@ pub fn run() {
             commands::csv_set_fixed,
             commands::csv_set_edge,
             commands::csv_layouts,
+            commands::csv_name_sets,
+            commands::csv_save_name_set,
+            commands::csv_delete_name_set,
+            commands::csv_save_name_tree,
+            commands::csv_export_name_subset,
+            commands::csv_inspect_name_file,
+            commands::csv_import_names_as_new,
+            commands::csv_set_labels,
             commands::csv_save_layout,
             commands::csv_delete_layout,
             commands::csv_save_layout_tree,

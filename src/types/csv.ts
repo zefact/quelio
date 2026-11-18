@@ -111,6 +111,14 @@ export interface CsvFixedSpec {
   layout?: CsvFixedLayout | null;
 }
 
+/** 名前を付けて残した列名の並び (見出しの無いCSV用) */
+export interface CsvNameSet {
+  name: string;
+  /** 左の列から順の名前 (名前を付けていない列は空) */
+  columns: string[];
+  updatedAtMs: number;
+}
+
 /** 名前を付けて残した桁の並び */
 export interface CsvSavedLayout {
   name: string;
@@ -119,16 +127,22 @@ export interface CsvSavedLayout {
 }
 
 /**
- * お気に入りの一覧に並ぶもの。
+ * お気に入りの一覧に並ぶもの (固定長の桁設定・列名の並びで共通の形)。
  *
  * フォルダは1階層まで (フォルダの中にフォルダは入らない)。
  * フォルダに入れていないお気に入りは、一番上の並びにそのまま置く
  */
-export type CsvLayoutNode =
-  | { kind: "folder"; name: string; items: CsvSavedLayout[] }
-  | ({ kind: "item" } & CsvSavedLayout);
+export type FavNode<T extends { name: string }> =
+  | { kind: "folder"; name: string; items: T[] }
+  | ({ kind: "item" } & T);
 
-/** 復元する前に見せる、ファイルの中の固定長のお気に入り1つ */
+/** 固定長のお気に入りの一覧に並ぶもの */
+export type CsvLayoutNode = FavNode<CsvSavedLayout>;
+
+/** 列名のお気に入りの一覧に並ぶもの */
+export type CsvNameNode = FavNode<CsvNameSet>;
+
+/** 復元する前に見せる、ファイルの中のお気に入り1つ (固定長・列名で共通) */
 export interface CsvLayoutFileEntry {
   /** ファイルの中での名前 */
   name: string;
@@ -138,7 +152,7 @@ export interface CsvLayoutFileEntry {
   saveAs: string;
   /** 取り込むときのフォルダ (同じ名前のフォルダがあれば番号付き) */
   saveFolder: string | null;
-  /** 桁の数 */
+  /** 大きさ (固定長は桁の数、列名は列の数) */
   columns: number;
 }
 
@@ -175,8 +189,13 @@ export interface CsvInfo {
   format: CsvFormat;
   /** 1行目をヘッダとして扱っているか */
   hasHeader: boolean;
-  /** 列名 (ヘッダとして扱っていなければ "1", "2", …) */
+  /** 列名 (ヘッダとして扱っていなければ、付けた名前か "1", "2", …) */
   columns: string[];
+  /**
+   * 1行目を見出しにしていないときに、画面でだけ付けた列名 (付けていない列は空)。
+   * ファイルには書かない。見出しにしているときは空
+   */
+  labels: string[];
   /** 画面に出る行数 (絞り込み中は絞ったあとの数) */
   rowCount: number;
   /** ファイル全体の行数 (絞り込みと関係なく数えた数) */

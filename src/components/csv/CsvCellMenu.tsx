@@ -73,7 +73,8 @@ interface ColProps {
   canDelete: (count: number) => boolean;
   onInsertLeft: (count: number) => void;
   onInsertRight: (count: number) => void;
-  onRename: () => void;
+  /** 列名を変えられないときは null (固定長は桁設定で名前を付ける) */
+  onRename: (() => void) | null;
   onDelete: (at: number, count: number) => void;
 }
 
@@ -108,9 +109,11 @@ export function CsvColumnMenu({
         </>
       )}
       <div className="context-sep" />
-      <button className="context-item" onClick={onRename}>
-        列名を変更...
-      </button>
+      {onRename && (
+        <button className="context-item" onClick={onRename}>
+          列名を変更...
+        </button>
+      )}
       <DeleteItem
         label={`「${name}」を削除`}
         can={canDelete(1)}

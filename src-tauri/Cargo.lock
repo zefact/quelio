@@ -4253,7 +4253,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "quelio"
-version = "0.9.16"
+version = "0.9.17"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -4267,6 +4267,9 @@ dependencies = [
  "futures-util",
  "keyring",
  "libc",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "redis",
  "regex",
  "rmcp",

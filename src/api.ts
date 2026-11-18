@@ -29,6 +29,7 @@ import type {
   CsvLayoutFileEntry,
   CsvLayoutImported,
   CsvLayoutNode,
+  CsvNameNode,
   CsvMatch,
   CsvOptions,
   CsvPage,
@@ -985,6 +986,53 @@ export function csvSetEdge(
   cells: string[],
 ): Promise<CsvInfo> {
   return call("csv_set_edge", { docId, trailer, cells });
+}
+
+/** 残してある列名のお気に入り (保存した順) */
+export function csvNameSets(): Promise<CsvNameNode[]> {
+  return call("csv_name_sets", {});
+}
+
+/** 開いているファイルの今の列名に名前を付けて残す (同じ名前は上書き) */
+export function csvSaveNameSet(docId: string, name: string): Promise<CsvNameNode[]> {
+  return call("csv_save_name_set", { docId, name });
+}
+
+/** 列名のお気に入りを消す */
+export function csvDeleteNameSet(name: string): Promise<CsvNameNode[]> {
+  return call("csv_delete_name_set", { name });
+}
+
+/** 列名のお気に入りの並べ替え・フォルダ分けの結果を残す */
+export function csvSaveNameTree(nodes: CsvNameNode[]): Promise<CsvNameNode[]> {
+  return call("csv_save_name_tree", { nodes });
+}
+
+/** 選んだ列名のお気に入りだけをファイルへ書き出す (書き出した件数を返す) */
+export function csvExportNameSubset(
+  path: string,
+  names: string[],
+  folders: string[],
+): Promise<number> {
+  return call("csv_export_name_subset", { path, names, folders });
+}
+
+/** 列名のお気に入りのファイルの中身と、取り込むときの名前を調べる */
+export function csvInspectNameFile(path: string): Promise<CsvLayoutFileEntry[]> {
+  return call("csv_inspect_name_file", { path });
+}
+
+/** ファイルから選んだ列名のお気に入りを取り込む (今あるものは上書きしない) */
+export function csvImportNamesAsNew(
+  path: string,
+  names: string[],
+): Promise<CsvLayoutImported[]> {
+  return call("csv_import_names_as_new", { path, names });
+}
+
+/** 見出しの無いファイルに列名をまとめて付ける (ファイルには書かない) */
+export function csvSetLabels(docId: string, names: string[]): Promise<CsvInfo> {
+  return call("csv_set_labels", { docId, names });
 }
 
 /** 残してある固定長のレイアウト (フォルダ分けと並び順のまま) */

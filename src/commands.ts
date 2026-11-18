@@ -28,6 +28,7 @@ import type {
   CsvLayoutFileEntry,
   CsvLayoutImported,
   CsvLayoutNode,
+  CsvNameNode,
   CsvInfo,
   CsvPage,
   CsvPreview,
@@ -147,6 +148,14 @@ export interface CommandResults {
   csv_set_fixed: CsvInfo;
   csv_set_edge: CsvInfo;
   csv_layouts: CsvLayoutNode[];
+  csv_name_sets: CsvNameNode[];
+  csv_save_name_set: CsvNameNode[];
+  csv_delete_name_set: CsvNameNode[];
+  csv_save_name_tree: CsvNameNode[];
+  csv_export_name_subset: number;
+  csv_inspect_name_file: CsvLayoutFileEntry[];
+  csv_import_names_as_new: CsvLayoutImported[];
+  csv_set_labels: CsvInfo;
   csv_save_layout: CsvLayoutNode[];
   csv_delete_layout: CsvLayoutNode[];
   csv_save_layout_tree: CsvLayoutNode[];
@@ -331,12 +340,14 @@ export const COMMAND_NAMES = [
   "csv_copy",
   "csv_delete_col",
   "csv_delete_layout",
+  "csv_delete_name_set",
   "csv_delete_rows",
   "csv_diff_next",
   "csv_diff_page",
   "csv_dirty_names",
   "csv_edge",
   "csv_export_layout_subset",
+  "csv_export_name_subset",
   "csv_export_status",
   "csv_export_xlsx",
   "csv_filter_values",
@@ -345,11 +356,14 @@ export const COMMAND_NAMES = [
   "csv_from_rows",
   "csv_guess_key",
   "csv_import_layouts_as_new",
+  "csv_import_names_as_new",
   "csv_info",
   "csv_insert_col",
   "csv_insert_rows",
   "csv_inspect_layout_file",
+  "csv_inspect_name_file",
   "csv_layouts",
+  "csv_name_sets",
   "csv_new",
   "csv_open",
   "csv_open_fixed",
@@ -362,12 +376,15 @@ export const COMMAND_NAMES = [
   "csv_save",
   "csv_save_layout",
   "csv_save_layout_tree",
+  "csv_save_name_set",
+  "csv_save_name_tree",
   "csv_set_cells",
   "csv_set_edge",
   "csv_set_filters",
   "csv_set_fixed",
   "csv_set_format",
   "csv_set_header",
+  "csv_set_labels",
   "csv_set_sort",
   "csv_summary",
   "csv_undo",

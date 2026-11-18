@@ -668,3 +668,87 @@ fn 窓を閉じたら預かった表をすべて手放す() {
     assert_ne!(c, a);
     assert!(docs.with(&c, |_| ()).is_ok());
 }
+
+// ---------- 見出しの無いファイルの列名 ----------
+
+/// 見出しの無いファイルとして開く
+fn open_plain(text: &str) -> CsvDoc {
+    let mut doc = open(text);
+    doc.set_has_header(false);
+    doc
+}
+
+#[test]
+fn 見出しの無いファイルにも列名を付けられ保存はされない() {
+    let mut doc = open_plain("1,2,3\n4,5,6\n");
+    let e = doc.sheet().rename_col(1, "金額").unwrap();
+    doc.apply(e).unwrap();
+    // 名前を付けた列だけ変わり、ほかは連番のまま
+    assert_eq!(doc.columns(), vec!["1", "金額", "3"]);
+    assert_eq!(doc.info("x").labels, vec!["", "金額", ""]);
+    // 画面でだけ使う名前なので、変更ありにせず、保存しても中身は変わらない
+    assert!(!doc.dirty);
+    assert_eq!(doc.to_bytes().unwrap(), "1,2,3\n4,5,6\n".as_bytes());
+    // 取り消すと連番に戻る (取り消しでも変更ありにならない)
+    doc.undo().unwrap();
+    assert_eq!(doc.columns(), vec!["1", "2", "3"]);
+    assert!(!doc.dirty);
+}
+
+#[test]
+fn 見出しにしているファイルの列名変更は変更ありになる() {
+    let mut doc = open("a,b\n1,2\n");
+    let e = doc.sheet().rename_col(0, "x").unwrap();
+    doc.apply(e).unwrap();
+    assert!(doc.dirty);
+    assert!(doc.info("x").labels.is_empty());
+}
+
+#[test]
+fn お気に入りの列名をまとめて付けられる() {
+    let mut doc = open_plain("1,2,3\n");
+    let names: Vec<String> = vec!["日付".into(), "".into(), "金額".into(), "余り".into()];
+    doc.set_labels(&names).unwrap();
+    // 余った名前は使わない。空の名前は連番で出る
+    assert_eq!(doc.columns(), vec!["日付", "2", "金額"]);
+    assert!(!doc.dirty);
+    // 足りないときは、残りの列の名前を外す
+    doc.set_labels(&["a".to_string()]).unwrap();
+    assert_eq!(doc.columns(), vec!["a", "2", "3"]);
+    // 取り消し1回で前の名前に戻る
+    doc.undo().unwrap();
+    assert_eq!(doc.columns(), vec!["日付", "2", "金額"]);
+}
+
+#[test]
+fn 見出しにしているファイルにはお気に入りの列名を当てない() {
+    let mut doc = open("a,b\n1,2\n");
+    assert!(doc.set_labels(&["x".to_string()]).is_err());
+    assert_eq!(doc.columns(), vec!["a", "b"]);
+}
+
+#[test]
+fn 列を足しても消しても名前は列についていく() {
+    let mut doc = open_plain("1,2\n");
+    let e = doc.sheet().rename_col(1, "金額").unwrap();
+    doc.apply(e).unwrap();
+    // 左に1列足すと、名前も1つ右へずれる
+    let e = doc.sheet().insert_cols(0, "", 1).unwrap();
+    doc.apply(e).unwrap();
+    assert_eq!(doc.columns(), vec!["1", "2", "金額"]);
+    let e = doc.sheet().delete_cols(0, 1).unwrap();
+    doc.apply(e).unwrap();
+    assert_eq!(doc.columns(), vec!["1", "金額"]);
+}
+
+#[test]
+fn 名前を付けた列を見出しにすると1行目が見出しになる() {
+    let mut doc = open_plain("a,b\n1,2\n");
+    doc.set_labels(&["x".to_string(), "y".to_string()]).unwrap();
+    // 見出しにすると、付けた名前ではなくファイルの1行目が見出しになる
+    doc.set_has_header(true);
+    assert_eq!(doc.columns(), vec!["a", "b"]);
+    // 戻すと、名前は付いていない状態から始まる
+    doc.set_has_header(false);
+    assert_eq!(doc.columns(), vec!["1", "2"]);
+}

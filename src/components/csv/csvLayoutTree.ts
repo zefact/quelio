@@ -1,10 +1,16 @@
 /**
- * 固定長のお気に入りを、フォルダ分けして並べるための計算。
+ * お気に入り (固定長の桁設定・列名の並び) を、フォルダ分けして並べるための計算。
  *
  * 画面から切り離してここに置いてあるので、そのまま試験できる。
- * フォルダは1階層まで。フォルダに入れていないものは一番上の並びにそのまま置く
+ * フォルダは1階層まで。フォルダに入れていないものは一番上の並びにそのまま置く。
+ * 中身が違っても並べ方は同じなので、名前を持つものなら何でも扱える
  */
-import type { CsvLayoutNode, CsvSavedLayout } from "../../types";
+import type { CsvSavedLayout, FavNode } from "../../types";
+
+/** 並べられるもの (名前で見分ける) */
+export interface Named {
+  name: string;
+}
 
 /** 入れる場所 (folder が null なら一番上の並び) */
 export interface LayoutSpot {
@@ -19,11 +25,11 @@ export type LayoutDrag =
   | { type: "folder"; name: string };
 
 /** 画面に出す1行 (フォルダの行か、お気に入りの行) */
-export type LayoutRow =
+export type LayoutRow<T extends Named = CsvSavedLayout> =
   | { type: "folder"; name: string; at: number; count: number }
   | {
       type: "item";
-      saved: CsvSavedLayout;
+      saved: T;
       /** 入っているフォルダの名前 (入れていなければ null) */
       folder: string | null;
       /** その並びの何番目か */
@@ -31,8 +37,8 @@ export type LayoutRow =
     };
 
 /** 木を、並んでいる順のお気に入りの一覧にする */
-export function flatLayouts(nodes: CsvLayoutNode[]): CsvSavedLayout[] {
-  const out: CsvSavedLayout[] = [];
+export function flatLayouts<T extends Named>(nodes: FavNode<T>[]): T[] {
+  const out: T[] = [];
   for (const n of nodes) {
     if (n.kind === "folder") out.push(...n.items);
     else out.push(savedOf(n));
@@ -41,13 +47,13 @@ export function flatLayouts(nodes: CsvLayoutNode[]): CsvSavedLayout[] {
 }
 
 /** フォルダの名前を、並んでいる順に */
-export function folderNames(nodes: CsvLayoutNode[]): string[] {
+export function folderNames<T extends Named>(nodes: FavNode<T>[]): string[] {
   return nodes.flatMap((n) => (n.kind === "folder" ? [n.name] : []));
 }
 
 /** 木を、画面に出す行の並びにする (フォルダの次にその中身) */
-export function rowsOf(nodes: CsvLayoutNode[]): LayoutRow[] {
-  const rows: LayoutRow[] = [];
+export function rowsOf<T extends Named>(nodes: FavNode<T>[]): LayoutRow<T>[] {
+  const rows: LayoutRow<T>[] = [];
   nodes.forEach((n, at) => {
     if (n.kind === "folder") {
       rows.push({ type: "folder", name: n.name, at, count: n.items.length });
@@ -66,11 +72,11 @@ export function rowsOf(nodes: CsvLayoutNode[]): LayoutRow[] {
  *
  * 掴んで動かすときの当たり判定も、この並び (画面に出ている行) で行う
  */
-export function visibleRows(
-  rows: LayoutRow[],
+export function visibleRows<T extends Named>(
+  rows: LayoutRow<T>[],
   /** 閉じているフォルダの名前 */
   closed: ReadonlySet<string>
-): LayoutRow[] {
+): LayoutRow<T>[] {
   return rows.filter(
     (r) => r.type === "folder" || r.folder === null || !closed.has(r.folder)
   );
@@ -82,8 +88,8 @@ export function visibleRows(
  * `upper` は行の上半分にいるかどうか。
  * お気に入りをフォルダの行へ放したときは、そのフォルダの中へ入れる
  */
-export function spotAt(
-  row: LayoutRow,
+export function spotAt<T extends Named>(
+  row: LayoutRow<T>,
   upper: boolean,
   drag: LayoutDrag
 ): LayoutSpot | null {
@@ -115,46 +121,46 @@ export function hitRow(
 }
 
 /** 一番下 (どのフォルダにも入れず、末尾へ) */
-export function endSpot(nodes: CsvLayoutNode[]): LayoutSpot {
+export function endSpot<T extends Named>(nodes: FavNode<T>[]): LayoutSpot {
   return { folder: null, index: nodes.length };
 }
 
 /** 掴んでいるものを、その場所へ動かす */
-export function applyMove(
-  nodes: CsvLayoutNode[],
+export function applyMove<T extends Named>(
+  nodes: FavNode<T>[],
   drag: LayoutDrag,
   spot: LayoutSpot
-): CsvLayoutNode[] {
+): FavNode<T>[] {
   return drag.type === "folder"
     ? moveFolder(nodes, drag.name, spot)
     : moveItem(nodes, drag.name, spot);
 }
 
 /** フォルダを作る (一番下へ) */
-export function addFolder(
-  nodes: CsvLayoutNode[],
+export function addFolder<T extends Named>(
+  nodes: FavNode<T>[],
   name: string
-): CsvLayoutNode[] {
+): FavNode<T>[] {
   return [...clone(nodes), { kind: "folder", name, items: [] }];
 }
 
 /** フォルダの名前を変える */
-export function renameFolder(
-  nodes: CsvLayoutNode[],
+export function renameFolder<T extends Named>(
+  nodes: FavNode<T>[],
   from: string,
   to: string
-): CsvLayoutNode[] {
+): FavNode<T>[] {
   return clone(nodes).map((n) =>
     n.kind === "folder" && n.name === from ? { ...n, name: to } : n
   );
 }
 
 /** フォルダを外す (中身はその場所へ出す。お気に入りは消さない) */
-export function removeFolder(
-  nodes: CsvLayoutNode[],
+export function removeFolder<T extends Named>(
+  nodes: FavNode<T>[],
   name: string
-): CsvLayoutNode[] {
-  const out: CsvLayoutNode[] = [];
+): FavNode<T>[] {
+  const out: FavNode<T>[] = [];
   for (const n of clone(nodes)) {
     if (n.kind === "folder" && n.name === name) {
       out.push(...n.items.map((saved) => item(saved)));
@@ -171,13 +177,13 @@ export function removeFolder(
  * 並びの場所と入っているフォルダは変えない。
  * 元の名前のものが無ければ null (一覧から消えていた、など)
  */
-export function replaceLayout(
-  nodes: CsvLayoutNode[],
+export function replaceLayout<T extends Named>(
+  nodes: FavNode<T>[],
   from: string,
-  saved: CsvSavedLayout
-): CsvLayoutNode[] | null {
+  saved: T
+): FavNode<T>[] | null {
   let done = false;
-  const out = clone(nodes).map((n): CsvLayoutNode => {
+  const out = clone(nodes).map((n): FavNode<T> => {
     if (n.kind === "folder") {
       const items = n.items.map((s) => {
         if (s.name !== from) return s;
@@ -194,8 +200,8 @@ export function replaceLayout(
 }
 
 /** その名前が既に使われているか (フォルダ名とお気に入り名は別々に見る) */
-export function usedName(
-  nodes: CsvLayoutNode[],
+export function usedName<T extends Named>(
+  nodes: FavNode<T>[],
   name: string,
   kind: "folder" | "item"
 ): boolean {
@@ -208,17 +214,19 @@ export function usedName(
 
 // ---------- ここから下は中で使うもの ----------
 
-function savedOf(node: CsvLayoutNode): CsvSavedLayout {
+/** 一番上の並びの節から、お気に入りそのものを取り出す (節の印 kind を外す) */
+function savedOf<T extends Named>(node: FavNode<T>): T {
   if (node.kind === "folder") throw new Error("フォルダにはお気に入りが入る");
-  const { name, layout, updatedAtMs } = node;
-  return { name, layout, updatedAtMs };
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { kind, ...saved } = node;
+  return saved as unknown as T;
 }
 
-function item(saved: CsvSavedLayout): CsvLayoutNode {
+function item<T extends Named>(saved: T): FavNode<T> {
   return { kind: "item", ...saved };
 }
 
-function clone(nodes: CsvLayoutNode[]): CsvLayoutNode[] {
+function clone<T extends Named>(nodes: FavNode<T>[]): FavNode<T>[] {
   return nodes.map((n) =>
     n.kind === "folder" ? { ...n, items: [...n.items] } : { ...n }
   );
@@ -228,13 +236,13 @@ function clamp(i: number, max: number): number {
   return Math.max(0, Math.min(i, max));
 }
 
-function moveItem(
-  nodes: CsvLayoutNode[],
+function moveItem<T extends Named>(
+  nodes: FavNode<T>[],
   name: string,
   spot: LayoutSpot
-): CsvLayoutNode[] {
+): FavNode<T>[] {
   const out = clone(nodes);
-  let saved: CsvSavedLayout | null = null;
+  let saved: T | null = null;
   let from: string | null = null;
   let at = -1;
 
@@ -271,11 +279,11 @@ function moveItem(
   return out;
 }
 
-function moveFolder(
-  nodes: CsvLayoutNode[],
+function moveFolder<T extends Named>(
+  nodes: FavNode<T>[],
   name: string,
   spot: LayoutSpot
-): CsvLayoutNode[] {
+): FavNode<T>[] {
   if (spot.folder !== null) return nodes;
   const out = clone(nodes);
   const at = out.findIndex((n) => n.kind === "folder" && n.name === name);

@@ -133,6 +133,90 @@ pub fn csv_set_fixed(
     docs.with(&doc_id, |d| d.info(&doc_id))
 }
 
+/// 残してある列名のお気に入り (フォルダ分けと並び順のまま)
+#[tauri::command]
+pub fn csv_name_sets(app: AppHandle) -> Result<Vec<crate::csv_names::NameNode>, String> {
+    crate::csv_names::tree(&app)
+}
+
+/**
+ * 開いているファイルの今の列名に、名前を付けてお気に入りに残す (同じ名前は上書き)。
+ *
+ * 見出しにしているファイルは見出しの名前を、していないファイルは画面で付けた名前を残す
+ * (連番のままの列は名前を付けていない扱い)
+ */
+#[tauri::command]
+pub fn csv_save_name_set(
+    app: AppHandle,
+    docs: State<'_, CsvDocuments>,
+    doc_id: String,
+    name: String,
+) -> Result<Vec<crate::csv_names::NameNode>, String> {
+    let columns = docs.with(&doc_id, |d| d.header.clone())?;
+    crate::csv_names::save(&app, &name, columns)
+}
+
+/// 残してある列名のお気に入りを消す
+#[tauri::command]
+pub fn csv_delete_name_set(
+    app: AppHandle,
+    name: String,
+) -> Result<Vec<crate::csv_names::NameNode>, String> {
+    crate::csv_names::delete(&app, &name)
+}
+
+/// 列名のお気に入りの並べ替えやフォルダ分けの結果を、そのまま入れ替えて残す
+#[tauri::command]
+pub fn csv_save_name_tree(
+    app: AppHandle,
+    nodes: Vec<crate::csv_names::NameNode>,
+) -> Result<Vec<crate::csv_names::NameNode>, String> {
+    crate::csv_names::save_tree(&app, nodes)
+}
+
+/// 列名のお気に入りのうち、選んだものだけをJSONファイルへ書き出す (件数を返す)
+#[tauri::command]
+pub fn csv_export_name_subset(
+    app: AppHandle,
+    path: String,
+    names: Vec<String>,
+    folders: Vec<String>,
+) -> Result<usize, String> {
+    crate::csv_names::export_subset(&app, &path, &names, &folders)
+}
+
+/// 列名のお気に入りのファイルの中身と、取り込むときの名前を返す
+#[tauri::command]
+pub fn csv_inspect_name_file(
+    app: AppHandle,
+    path: String,
+) -> Result<Vec<crate::fav_tree::FileEntry>, String> {
+    crate::csv_names::inspect_file(&app, &path)
+}
+
+/// ファイルから選んだ列名のお気に入りを取り込む (今あるものは上書きしない)
+#[tauri::command]
+pub fn csv_import_names_as_new(
+    app: AppHandle,
+    path: String,
+    names: Vec<String>,
+) -> Result<Vec<crate::fav_tree::Imported>, String> {
+    crate::csv_names::import_file(&app, &path, &names)
+}
+
+/// 見出しの無いファイルに、列名をまとめて付ける (お気に入りから。ファイルには書かない)
+#[tauri::command]
+pub fn csv_set_labels(
+    docs: State<'_, CsvDocuments>,
+    doc_id: String,
+    names: Vec<String>,
+) -> Result<CsvInfo, String> {
+    docs.with_mut(&doc_id, |d| {
+        d.set_labels(&names)?;
+        Ok(d.info(&doc_id))
+    })?
+}
+
 /// 残してある固定長のレイアウト (フォルダ分けと並び順のまま)
 #[tauri::command]
 pub fn csv_layouts(app: AppHandle) -> Result<Vec<crate::csv_layouts::LayoutNode>, String> {
@@ -482,6 +566,8 @@ pub fn csv_insert_col(
 ) -> Result<CsvInfo, String> {
     docs.with_mut(&doc_id, |d| {
         d.can_reshape()?;
+        // 見出しの無いファイルでは、足した列は名前を付けていない状態にする (連番で出る)
+        let name = if d.has_header { name } else { String::new() };
         let e = d.sheet().insert_cols(at, &name, count)?;
         d.apply(e)?;
         // 列の位置がずれるので、絞り込みは落とす

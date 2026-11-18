@@ -1,5 +1,5 @@
 /**
- * 固定長のお気に入りのバックアップ・復元で「どれを選ぶか」の判断。
+ * お気に入り (固定長の桁設定・列名の並び) のバックアップ・復元で「どれを選ぶか」の判断。
  *
  * 選んでいるものは、お気に入り ("i:<名前>") と、中身の無いフォルダ ("f:<名前>") で持つ。
  * 中身のあるフォルダは、中のお気に入りの選び方から「全部 / 一部 / なし」が決まるので持たない
@@ -7,17 +7,14 @@
  *
  * 画面から切り離しておくと、チェックの付き方だけを試せる
  */
-import type {
-  CsvLayoutFileEntry,
-  CsvLayoutImported,
-  CsvLayoutNode,
-} from "../../types";
+import type { CsvLayoutFileEntry, CsvLayoutImported, FavNode } from "../../types";
+import type { Named } from "./csvLayoutTree";
 
 /** チェックボックスの状態 */
 export type PickState = "all" | "some" | "none";
 
 /** そのフォルダで選べるもの (中身が無ければフォルダ自身) */
-function leavesOf(node: CsvLayoutNode): string[] {
+function leavesOf<T extends Named>(node: FavNode<T>): string[] {
   if (node.kind !== "folder") return [`i:${node.name}`];
   return node.items.length > 0
     ? node.items.map((s) => `i:${s.name}`)
@@ -25,13 +22,13 @@ function leavesOf(node: CsvLayoutNode): string[] {
 }
 
 /** すべて選んだ状態 (開いたときの既定) */
-export function pickAll(nodes: CsvLayoutNode[]): Set<string> {
+export function pickAll<T extends Named>(nodes: FavNode<T>[]): Set<string> {
   return new Set(nodes.flatMap(leavesOf));
 }
 
 /** フォルダのチェックボックスの状態 */
-export function folderPick(
-  node: CsvLayoutNode,
+export function folderPick<T extends Named>(
+  node: FavNode<T>,
   sel: ReadonlySet<string>
 ): PickState {
   const leaves = leavesOf(node);
@@ -44,8 +41,8 @@ export function folderPick(
  * フォルダの印を切り替える。
  * 全部選ばれていれば全部外し、そうでなければ全部選ぶ (一部のときも全部選ぶ)
  */
-export function toggleFolderPick(
-  node: CsvLayoutNode,
+export function toggleFolderPick<T extends Named>(
+  node: FavNode<T>,
   sel: ReadonlySet<string>
 ): Set<string> {
   const next = new Set(sel);
@@ -85,10 +82,15 @@ export function exportPick(sel: ReadonlySet<string>): {
   return { names, folders };
 }
 
-/** バックアップの既定のファイル名 (設定画面のバックアップと同じ形) */
-export function layoutBackupFileName(d: Date): string {
+/** バックアップの既定のファイル名 (`<頭>_20261005.json`) */
+export function backupFileName(prefix: string, d: Date): string {
   const p2 = (v: number) => String(v).padStart(2, "0");
-  return `quelio_csv_layouts_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}.json`;
+  return `${prefix}_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}.json`;
+}
+
+/** 固定長のお気に入りのバックアップの既定のファイル名 (設定画面のバックアップと同じ形) */
+export function layoutBackupFileName(d: Date): string {
+  return backupFileName("quelio_csv_layouts", d);
 }
 
 /** 復元の一覧に出すまとまり (取り込み先のフォルダごと。並びはファイルの順) */
@@ -120,12 +122,17 @@ export function restoreGroups(entries: CsvLayoutFileEntry[]): RestoreGroup[] {
   return groups;
 }
 
-/** 取り込んだあとの知らせ */
+/** 固定長のお気に入りを取り込んだあとの知らせ */
 export function layoutImportedNotice(done: CsvLayoutImported[]): string {
+  return importedNotice("固定長のお気に入り", done);
+}
+
+/** 取り込んだあとの知らせ (label は「固定長のお気に入り」「列名のお気に入り」) */
+export function importedNotice(label: string, done: CsvLayoutImported[]): string {
   if (done.length === 0) return "取り込んだお気に入りはありません";
   const renamed = done.filter((d) => d.savedAs !== d.name).length;
   return (
-    `固定長のお気に入りを${done.length}件取り込みました` +
+    `${label}を${done.length}件取り込みました` +
     (renamed > 0 ? ` (同じ名前の${renamed}件は番号を付けて追加)` : "")
   );
 }
