@@ -113,14 +113,15 @@ pub fn check_params(
     Ok(())
 }
 
-/// パラメータ名の1文字目に使える文字 (画面側の sqlParams.ts と揃える)
+/// パラメータ名の1文字目に使える文字 (画面側の sqlParams.ts と揃える)。
+/// 文字 (日本語を含む) と `_` だけ。`「` `、` `。` などの記号は名前にしない
 fn name_start(c: char) -> bool {
-    c.is_ascii_alphabetic() || c == '_' || (c as u32) >= 0xC0
+    c.is_alphabetic() || c == '_'
 }
 
-/// パラメータ名の2文字目以降に使える文字
+/// パラメータ名の2文字目以降に使える文字 (文字・数字・`_`)
 fn name_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_' || (c as u32) >= 0xC0
+    c.is_alphanumeric() || c == '_'
 }
 
 /// コードの字句の中でパラメータを置き換える

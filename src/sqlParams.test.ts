@@ -46,6 +46,45 @@ describe("extractParams", () => {
   });
 });
 
+describe("extractParams の接続先ごとの読み方", () => {
+  it("PostgreSQL では $タグ$ … $タグ$ の中を拾わない", () => {
+    const sql =
+      "UPDATE t SET v = replace(v, $q$判別しにくい場合は書く。$q$, " +
+      "$q$書く（例:「通路の右側に段ボールが2箱」）。$q$) WHERE k = :k";
+    expect(extractParams(sql, "postgresql")).toEqual(["k"]);
+    expect(extractParams("SELECT $$ :a $$, :b", "postgresql")).toEqual(["b"]);
+    // 閉じていないドル引用符は末尾まで文字列
+    expect(extractParams("SELECT :b, $x$ :a", "postgresql")).toEqual(["b"]);
+  });
+
+  it("$1 や a$b$ はドル引用符ではない", () => {
+    expect(extractParams("SELECT $1, :a, $2", "postgresql")).toEqual(["a"]);
+    expect(extractParams("SELECT a$b$ :c", "postgresql")).toEqual(["c"]);
+  });
+
+  it("MySQL では $ は引用符ではなく、# はコメント", () => {
+    expect(extractParams("SELECT '$q$', :a # :b", "mysql")).toEqual(["a"]);
+  });
+
+  it("PostgreSQL では # はコメントではなく、\\ は文字列を逃がさない", () => {
+    expect(extractParams("SELECT 1 # :a", "postgresql")).toEqual(["a"]);
+    expect(extractParams("SELECT 'C:\\', :a", "postgresql")).toEqual(["a"]);
+  });
+
+  it("MySQL の -- は直後に空白が要る (1--2 は引き算)", () => {
+    expect(extractParams("SELECT 1--:a", "mysql")).toEqual(["a"]);
+    expect(extractParams("SELECT 1 -- :a", "mysql")).toEqual([]);
+  });
+
+  it("「 や 、 などの記号は名前に含めない", () => {
+    expect(extractParams("SELECT :名前、:a")).toEqual(["名前", "a"]);
+    expect(extractParams("SELECT '例:「通路」'")).toEqual([]);
+    expect(extractParams("SELECT 1 WHERE x = 例:「通路」")).toEqual([]);
+    // サロゲートペアの字も名前に使える
+    expect(extractParams("SELECT :𠮷野")).toEqual(["𠮷野"]);
+  });
+});
+
 describe("guessParamColumn", () => {
   it("比較の相手のカラム名を返す (前後どちらでも)", () => {
     expect(guessParamColumn("WHERE u.code = :code", "code")).toBe("code");

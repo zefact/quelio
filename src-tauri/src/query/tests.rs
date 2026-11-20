@@ -308,6 +308,22 @@ fn 文字列とコメントの中は置き換えない() {
 }
 
 #[test]
+fn ドル引用符の中と記号は名前にしない() {
+    let d = Dialect::POSTGRESQL;
+    let v = vals(&[("a", "x", "auto"), ("名前", "y", "auto")]);
+    // $q$ … $q$ の中の `例:「…」` は文字列の一部
+    assert_eq!(
+        substitute_params(d, "SELECT $q$例:「通路」$q$, :a", &v),
+        "SELECT $q$例:「通路」$q$, 'x'"
+    );
+    // 日本語の名前は使えるが、`「` などの記号から後ろは名前に含めない
+    assert_eq!(
+        substitute_params(d, "SELECT :名前、:a", &v),
+        "SELECT 'y'、'x'"
+    );
+}
+
+#[test]
 fn 値は実行される文を増やせない() {
     /*
      * 埋め込みの前に分割と読み取り専用の判定を済ませる、という順番の要。

@@ -1581,7 +1581,8 @@ function App() {
         scope: tab.profile.id,
         offset,
         sql,
-        params: extractParams(sql),
+        // 文字列やコメントの読み方は接続先で違う ($q$ … $q$ は PostgreSQL だけ)
+        params: extractParams(sql, tab.profile.dbType),
         transaction,
         explain,
       },
