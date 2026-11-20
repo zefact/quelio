@@ -14,6 +14,8 @@ interface Props {
   /** このデータベースのスキーマ (読むまでは null) */
   schemas: string[] | null;
   schemaError: string | null;
+  /** 本番の接続か (作成の確認に本番の1行を足す) */
+  prod?: boolean;
   busy: boolean;
   onBusyChange: (busy: boolean) => void;
   /** 所有者を変える画面を開く */
@@ -27,8 +29,8 @@ interface Props {
 /**
  * 「選択中のデータベース」タブ (PostgreSQLのみ)。
  *
- * 今つないでいるデータベース1つに対する操作 (所有者の変更・スキーマの作成と削除) をまとめる。
- * このデータベース自体は、つないでいる間は削除できない
+ * 今接続しているデータベース1つに対する操作 (所有者の変更・スキーマの作成と削除) をまとめる。
+ * このデータベース自体は、接続している間は削除できない
  */
 export function CurrentDatabasePanel({
   sessionId,
@@ -39,6 +41,7 @@ export function CurrentDatabasePanel({
   system,
   schemas,
   schemaError,
+  prod,
   busy,
   onBusyChange,
   onChangeOwner,
@@ -54,6 +57,7 @@ export function CurrentDatabasePanel({
         {ownerError && (
           <div className="result-banner ng">
             <span className="dot" aria-hidden />
+            <strong>エラー</strong>
             <span className="result-detail">
               所有者を読めませんでした: {ownerError}
             </span>
@@ -87,6 +91,7 @@ export function CurrentDatabasePanel({
           dbType={dbType}
           kind="スキーマ"
           withEncoding={false}
+          prod={prod}
           disabled={busy}
           onBusyChange={onBusyChange}
           onCreate={onCreateSchema}
@@ -94,6 +99,7 @@ export function CurrentDatabasePanel({
         {schemaError && (
           <div className="result-banner ng">
             <span className="dot" aria-hidden />
+            <strong>エラー</strong>
             <span className="result-detail">{schemaError}</span>
           </div>
         )}
@@ -117,7 +123,7 @@ export function CurrentDatabasePanel({
           )}
           {schemas === null && !schemaError && (
             <li className="faint">
-              <span className="spinner accent" /> 読み込み中...
+              <span className="spinner accent" /> 読み込み中…
             </li>
           )}
         </ul>
@@ -125,7 +131,7 @@ export function CurrentDatabasePanel({
 
       <p className="db-admin-hint">
         {"public スキーマを消すと、このデータベースはほぼ使えなくなります。" +
-          "このデータベース自体は、つないでいる間は削除できません (削除は「すべてのデータベース」から、別のデータベースを選んだ状態で行います)。"}
+          "このデータベース自体は、接続している間は削除できません (削除は「すべてのデータベース」から、別のデータベースを選んだ状態で行います)。"}
       </p>
     </>
   );

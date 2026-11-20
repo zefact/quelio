@@ -64,8 +64,8 @@ export function HistoryList({
               </span>
             </button>
             <button
-              className="saved-del"
-              title="この履歴を消す"
+              className="saved-del has-tooltip"
+              data-tooltip="この履歴を消す"
               aria-label="この履歴を消す"
               onClick={() => onDelete(h.sql)}
             >

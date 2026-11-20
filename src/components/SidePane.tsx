@@ -7,11 +7,63 @@
  */
 import type { ReactNode } from "react";
 
+/** 矢印キー1回で動かす幅 (Shiftを押しているときは大きく動かす) */
+const NUDGE = 16;
+const NUDGE_BIG = 64;
+
+/**
+ * 幅を変えるつまみ (ペインの右端の縦線)。
+ *
+ * マウスで引っぱるだけでなく、フォーカスして ← → でも動かせるようにする
+ * (読み上げでは「区切り」として、いまの幅も伝わる)
+ */
+export function PaneSplitter({
+  width,
+  onStartResize,
+  onNudge,
+  label,
+}: {
+  width: number;
+  onStartResize: (e: React.MouseEvent) => void;
+  /** 幅を足し引きする (無ければキーボードでは動かせない) */
+  onNudge?: (delta: number) => void;
+  /** 何の幅か (読み上げ用) */
+  label: string;
+}) {
+  return (
+    <div
+      className="pane-splitter"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      aria-valuenow={width}
+      tabIndex={onNudge ? 0 : undefined}
+      onMouseDown={onStartResize}
+      onKeyDown={
+        onNudge
+          ? (e) => {
+              const step = e.shiftKey ? NUDGE_BIG : NUDGE;
+              if (e.key === "ArrowLeft") {
+                e.preventDefault();
+                onNudge(-step);
+              } else if (e.key === "ArrowRight") {
+                e.preventDefault();
+                onNudge(step);
+              }
+            }
+          : undefined
+      }
+    />
+  );
+}
+
 export function SidePane({
   /** 幅 (px)。つまみのドラッグで変わる */
   width,
   /** つまみを押したときに呼ぶ (useResizableWidth が返すもの) */
   onStartResize,
+  /** 矢印キーで幅を変える (useResizableWidth の3つ目) */
+  onNudge,
   /** 追加のclass (Valkeyのキー一覧など) */
   className,
   /** ペイン自身でキー操作を受けるか (⌘Aの全選択に使う) */
@@ -21,6 +73,7 @@ export function SidePane({
 }: {
   width: number;
   onStartResize: (e: React.MouseEvent) => void;
+  onNudge?: (delta: number) => void;
   className?: string;
   focusable?: boolean;
   onKeyDown?: (e: React.KeyboardEvent) => void;
@@ -38,8 +91,13 @@ export function SidePane({
       >
         {children}
       </aside>
-      {/* 右端のつまみ (ドラッグで幅を変える) */}
-      <div className="pane-splitter" onMouseDown={onStartResize} />
+      {/* 右端のつまみ (ドラッグか、フォーカスして ← → で幅を変える) */}
+      <PaneSplitter
+        width={width}
+        onStartResize={onStartResize}
+        onNudge={onNudge}
+        label="一覧の幅"
+      />
     </>
   );
 }

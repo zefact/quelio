@@ -87,7 +87,28 @@ export function CsvFixedMenu({
       className={"csv-fixed-menu" + (confirming ? " behind" : "")}
       ref={ref}
     >
-      <div className="csv-key-head csv-fav-head">お気に入り</div>
+      {/* このファイルの読み方 (設定) を先に、お気に入りの一覧をその下に置く */}
+      <button className="context-item" onClick={onEdit}>
+        {!canApply
+          ? "桁設定を新しく登録…"
+          : fixed
+            ? "桁設定を変更…"
+            : "固定長の桁を設定…"}
+      </button>
+      {!canApply && (
+        <div className="csv-empty-hint csv-fav-hint">
+          ファイルから開いたタブでは、お気に入りを選んで読み直せます
+        </div>
+      )}
+      {fixed && (
+        <button className="context-item" onClick={onUseDelimiter}>
+          区切り文字として読み直す
+        </button>
+      )}
+
+      <div className="context-sep" />
+
+      <div className="csv-key-head csv-fav-head">固定長のお気に入り</div>
 
       <CsvFavTree<CsvSavedLayout>
         nodes={nodes}
@@ -95,7 +116,7 @@ export function CsvFixedMenu({
         onSaveTree={onSaveTree}
         onBackup={onBackup}
         onRestore={onRestore}
-        emptyHint="登録されていません。桁設定のダイアログから保存できます"
+        emptyHint="まだありません。桁設定のダイアログから保存できます"
         renderItem={(saved, { inFolder, mark, tap, hold }) => (
           <CsvFavItemRow
             saved={saved}
@@ -111,26 +132,6 @@ export function CsvFixedMenu({
           />
         )}
       />
-
-      <div className="context-sep" />
-
-      <button className="context-item" onClick={onEdit}>
-        {!canApply
-          ? "桁設定を新しく登録..."
-          : fixed
-            ? "桁設定を変更..."
-            : "固定長の桁を設定..."}
-      </button>
-      {!canApply && (
-        <div className="csv-empty-hint csv-fav-hint">
-          ファイルから開いたタブでは、お気に入りを選んで読み直せます
-        </div>
-      )}
-      {fixed && (
-        <button className="context-item" onClick={onUseDelimiter}>
-          区切り文字として読み直す
-        </button>
-      )}
     </div>
   );
 }

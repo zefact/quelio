@@ -23,16 +23,23 @@ export function ColorSwatches({
     return (
       <div className="er-frame-colors">
         <button
-          className={"er-frame-color transparent" + (!value ? " checked" : "")}
-          title="透明"
+          className={
+            "er-frame-color transparent has-tooltip tooltip-left" +
+            (!value ? " checked" : "")
+          }
+          data-tooltip="透明"
+          aria-label="透明"
           onClick={() => onSelect(undefined)}
         />
         {FRAME_COLORS.slice(1).map((color) => (
           <button
             key={color}
-            className={"er-frame-color" + (value === color ? " checked" : "")}
+            className={
+              "er-frame-color has-tooltip" + (value === color ? " checked" : "")
+            }
             style={{ background: color }}
-            title={color}
+            data-tooltip={color}
+            aria-label={color}
             onClick={() => onSelect(color)}
           />
         ))}
@@ -46,9 +53,10 @@ export function ColorSwatches({
         return (
           <button
             key={color || "default"}
-            className={"er-frame-color" + (checked ? " checked" : "")}
+            className={"er-frame-color has-tooltip" + (checked ? " checked" : "")}
             style={{ background: color || defaultColor }}
-            title={color || defaultTitle}
+            data-tooltip={color || defaultTitle}
+            aria-label={color || defaultTitle}
             onClick={() => onSelect(color || undefined)}
           />
         );

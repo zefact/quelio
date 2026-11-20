@@ -110,12 +110,12 @@ export function KvSearchPanel({
           }}
         />
         <input
-          className="text-field mono db-admin-opt"
+          className="text-field mono db-admin-opt has-tooltip"
           value={pattern}
           spellCheck={false}
           disabled={!!job}
           placeholder="キーのパターン (例: user:*)"
-          title="探す範囲を絞ります。空欄なら全キーが対象です"
+          data-tooltip="探す範囲を絞ります。空欄なら全キーが対象です"
           onChange={(e) => setPattern(e.target.value)}
         />
         <button

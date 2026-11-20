@@ -106,9 +106,9 @@ export function SheetTabMenu({
       onContextMenu={(e) => e.preventDefault()}
     >
       <button
-        className="context-item"
+        className="context-item has-tooltip"
         disabled={running || sheets.length <= 1}
-        title={busy ?? (sheets.length <= 1 ? "最後の1枚は閉じられません" : undefined)}
+        data-tooltip={busy ?? (sheets.length <= 1 ? "最後の1枚は閉じられません" : undefined)}
         onClick={() => {
           onClose(sheet.id);
           onDismiss();
@@ -117,17 +117,17 @@ export function SheetTabMenu({
         閉じる
       </button>
       <button
-        className="context-item"
+        className="context-item has-tooltip"
         disabled={running || others.length === 0}
-        title={busy}
+        data-tooltip={busy}
         onClick={() => ask("others", others)}
       >
         その他を閉じる ({others.length})
       </button>
       <button
-        className="context-item danger"
+        className="context-item danger has-tooltip"
         disabled={running}
-        title={busy}
+        data-tooltip={busy}
         onClick={() => ask("all", sheets)}
       >
         すべて閉じる
@@ -136,15 +136,15 @@ export function SheetTabMenu({
       <div className="context-sep" aria-hidden />
 
       <button
-        className="context-item"
+        className="context-item has-tooltip"
         disabled={empty}
-        title={empty ? "書いてあるSQLがありません" : undefined}
+        data-tooltip={empty ? "書いてあるSQLがありません" : undefined}
         onClick={() => {
           onSaveFile(sheet.id);
           onDismiss();
         }}
       >
-        「{label(sheet)}」をファイルに保存...
+        「{label(sheet)}」をファイルに書き出す…
       </button>
     </div>
   );

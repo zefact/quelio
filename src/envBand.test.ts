@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { envBandText, tabEnvMark } from "./envBand";
+import { envBandText, isMarkedEnv, tabEnvMark } from "./envBand";
 
 describe("tabEnvMark", () => {
   it("本番の接続タブには印を付ける", () => {
     expect(tabEnvMark("prod", true)).toEqual({ label: "本番", env: "prod" });
   });
 
-  it("本番以外と未設定には付けない (本番だけを目立たせる)", () => {
-    expect(tabEnvMark("staging", true)).toBeNull();
+  it("ステージングにも付ける (帯と同じ決まり)", () => {
+    expect(tabEnvMark("staging", true)).toEqual({
+      label: "ステージング",
+      env: "staging",
+    });
+  });
+
+  it("開発と未設定には付けない (目立つ印は間違えると困る環境だけ)", () => {
     expect(tabEnvMark("dev", true)).toBeNull();
     expect(tabEnvMark(undefined, true)).toBeNull();
   });
@@ -39,5 +45,14 @@ describe("envBandText", () => {
 
   it("接続名が空でも読める", () => {
     expect(envBandText("prod", "  ")?.text).toBe("本番環境 — (無名)");
+  });
+});
+
+describe("isMarkedEnv", () => {
+  it("帯とタブの印を付けるのは本番とステージングだけ", () => {
+    expect(isMarkedEnv("prod")).toBe(true);
+    expect(isMarkedEnv("staging")).toBe(true);
+    expect(isMarkedEnv("dev")).toBe(false);
+    expect(isMarkedEnv(undefined)).toBe(false);
   });
 });

@@ -2,13 +2,15 @@ import { useCallback, useRef, useState } from "react";
 
 /**
  * ドラッグで横幅を変えられるペイン用のフック。
- * 返り値: [現在の幅, スプリッタのonMouseDownに渡すハンドラ]
+ * 返り値: [現在の幅, スプリッタのonMouseDownに渡すハンドラ, 幅を足し引きする関数]
+ *
+ * 3つ目はキーボード (矢印キー) で幅を変えるときに使う
  */
 export function useResizableWidth(
   initial: number,
   min: number,
   max: number
-): [number, (e: React.MouseEvent) => void] {
+): [number, (e: React.MouseEvent) => void, (delta: number) => void] {
   const [width, setWidth] = useState(initial);
   const widthRef = useRef(width);
   widthRef.current = width;
@@ -35,5 +37,12 @@ export function useResizableWidth(
     [min, max]
   );
 
-  return [width, startDrag];
+  /** 幅を delta だけ変える (上限・下限の中に収める) */
+  const nudge = useCallback(
+    (delta: number) =>
+      setWidth((w) => Math.min(max, Math.max(min, w + delta))),
+    [min, max]
+  );
+
+  return [width, startDrag, nudge];
 }

@@ -11,7 +11,6 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { SavedSqlEntry } from "../../types";
-import { useModal } from "../../hooks/useModal";
 import { MOD } from "../../keyLabel";
 import {
   canImport,
@@ -19,6 +18,7 @@ import {
   folderNameError,
   newFolderPath,
 } from "../../savedSqlForm";
+import { ModalFrame } from "../ModalFrame";
 import { FolderPicker } from "./FolderPicker";
 import { imeBusy } from "../../ime";
 
@@ -59,10 +59,8 @@ export function SaveSqlDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Escで閉じる・枠へのフォーカスは共通の作法にそろえる
-  const boxRef = useModal(onClose, !busy);
   const nameRef = useRef<HTMLInputElement>(null);
-  // useModal が枠へフォーカスした後に、名前の欄へ移す (開いたときだけ)
+  // 枠 (ModalFrame) がフォーカスした後に、名前の欄へ移す (開いたときだけ)
   useEffect(() => {
     nameRef.current?.focus();
   }, []);
@@ -107,128 +105,38 @@ export function SaveSqlDialog({
   };
 
   return (
-    <div
-      className="modal-overlay"
+    <ModalFrame
+      title={editing ? "お気に入りを編集" : `${contentLabel}をお気に入りに保存`}
+      onClose={onClose}
+      closable={!busy}
       // 何か変えたあとは、背景のクリックで閉じない (直した内容が消えるため)
-      onMouseDown={() => !dirty && !busy && onClose()}
-    >
-      <div
-        className="modal save-sql-modal"
-        ref={boxRef}
-        tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            {editing ? "お気に入りを編集" : `${contentLabel}をお気に入りに保存`}
-          </span>
-          <button className="modal-close" onClick={onClose} title="閉じる">
-            ×
-          </button>
-        </div>
-
-        <div className="save-sql-body">
-          <label className="save-sql-label">
-            名前
-            <input
-              ref={nameRef}
-              className="save-sql-input"
-              value={name}
-              placeholder="例: 受払一覧 (店舗別)"
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                // 変換中のEnterは拾わない (確定の操作のため)
-                if (imeBusy(e)) return;
-                if (e.key === "Enter") void submit();
-              }}
-            />
-          </label>
-
-          {/* SelectMenu は独自部品なので label では包まない */}
-          <div className="save-sql-label">
-            フォルダ
-            <FolderPicker
-              folders={folders}
-              value={folder}
-              onChange={setFolder}
-              creating={creating}
-              onCreatingChange={setCreating}
-            />
-          </div>
-
-          <div className="save-sql-label">
-            <div className="save-sql-field-head">
-              <span>{contentLabel}</span>
+      closeOnBackdrop={!dirty}
+      className="save-sql-modal"
+      footerNote={
+        editing && (
+          <span className="save-sql-foot-left">
+            {onDelete && (
               <button
                 type="button"
-                className="btn-ghost save-sql-import"
-                disabled={!canImport(currentSql, sql)}
-                title={importTitle}
-                onClick={() => setSql(currentSql)}
+                className="btn-ghost danger"
+                disabled={busy}
+                onClick={onDelete}
               >
-                エディタの内容を取り込む
+                削除…
               </button>
-            </div>
-            <textarea
-              className="save-sql-text mono"
-              value={sql}
-              spellCheck={false}
-              onChange={(e) => setSql(e.target.value)}
-              onKeyDown={(e) => {
-                if (imeBusy(e)) return;
-                // 欄の中のEnterは改行。保存は ⌘/Ctrl+Enter
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  void submit();
-                }
-              }}
-            />
-            <div className="save-sql-status">
-              {editing === null ? (
-                <span>
-                  今エディタにある{contentLabel}を入れています。ここで直してから保存できます
-                </span>
-              ) : sqlChanged ? (
-                <>
-                  <span className="save-sql-changed">
-                    保存済みの内容から変えています
-                  </span>
-                  <button
-                    type="button"
-                    className="save-sql-revert"
-                    onClick={() => setSql(editing.sql)}
-                  >
-                    元に戻す
-                  </button>
-                </>
-              ) : (
-                <span>保存済みの内容です</span>
-              )}
-            </div>
-          </div>
-
-          {error && <div className="save-sql-error">{error}</div>}
-        </div>
-
-        <div className="modal-actions save-sql-actions">
-          {editing && onDelete && (
-            <button
-              type="button"
-              className="btn-ghost danger"
-              disabled={busy}
-              onClick={onDelete}
-            >
-              削除
-            </button>
-          )}
-          {editing && editing.updatedAtMs > 0 && (
-            <span className="save-sql-updated">
-              更新 {fmtUpdated(editing.updatedAtMs)}
-            </span>
-          )}
-          <span className="toolbar-spacer" />
+            )}
+            {editing.updatedAtMs > 0 && (
+              <span className="save-sql-updated">
+                更新 {fmtUpdated(editing.updatedAtMs)}
+              </span>
+            )}
+          </span>
+        )
+      }
+      footer={
+        <>
           <span className="save-sql-keyhint">{MOD}Enter で保存</span>
-          <button className="btn-secondary" onClick={onClose}>
+          <button className="btn-secondary" onClick={onClose} disabled={busy}>
             キャンセル
           </button>
           <button
@@ -236,10 +144,98 @@ export function SaveSqlDialog({
             disabled={!canSave}
             onClick={() => void submit()}
           >
-            {editing ? "変更を保存" : "保存"}
+            {editing ? "変更を保存する" : "保存する"}
           </button>
+        </>
+      }
+    >
+      <div className="save-sql-body">
+        <label className="save-sql-label">
+          名前
+          <input
+            ref={nameRef}
+            className="save-sql-input"
+            value={name}
+            placeholder="例: 受払一覧 (店舗別)"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              // 変換中のEnterは拾わない (確定の操作のため)
+              if (imeBusy(e)) return;
+              if (e.key === "Enter") void submit();
+            }}
+          />
+        </label>
+
+        {/* SelectMenu は独自部品なので label では包まない */}
+        <div className="save-sql-label">
+          フォルダ
+          <FolderPicker
+            folders={folders}
+            value={folder}
+            onChange={setFolder}
+            creating={creating}
+            onCreatingChange={setCreating}
+          />
         </div>
+
+        <div className="save-sql-label">
+          <div className="save-sql-field-head">
+            <span>{contentLabel}</span>
+            <button
+              type="button"
+              className="btn-ghost save-sql-import has-tooltip"
+              disabled={!canImport(currentSql, sql)}
+              data-tooltip={importTitle}
+              onClick={() => setSql(currentSql)}
+            >
+              エディタの内容で置き換える
+            </button>
+          </div>
+          <textarea
+            className="save-sql-text mono"
+            value={sql}
+            spellCheck={false}
+            onChange={(e) => setSql(e.target.value)}
+            onKeyDown={(e) => {
+              if (imeBusy(e)) return;
+              // 欄の中のEnterは改行。保存は ⌘/Ctrl+Enter
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+          />
+          <div className="save-sql-status">
+            {editing === null ? (
+              <span>
+                今エディタにある{contentLabel}を入れています。ここで直してから保存できます
+              </span>
+            ) : sqlChanged ? (
+              <>
+                <span className="save-sql-changed">
+                  保存済みの内容から変えています
+                </span>
+                <button
+                  type="button"
+                  className="save-sql-revert"
+                  onClick={() => setSql(editing.sql)}
+                >
+                  元に戻す
+                </button>
+              </>
+            ) : (
+              <span>保存済みの内容です</span>
+            )}
+          </div>
+        </div>
+
+        {error && (
+          <div className="result-banner ng">
+            <span className="dot" aria-hidden />
+            <span className="result-detail">{error}</span>
+          </div>
+        )}
       </div>
-    </div>
+    </ModalFrame>
   );
 }

@@ -6,6 +6,8 @@ interface Props {
   dbType: DbType;
   /** 所有者に選べるロール (PostgreSQLのときだけ渡す) */
   owners?: DatabaseOwners | null;
+  /** 本番の接続か (作成の確認に本番の1行を足す) */
+  prod?: boolean;
   busy: boolean;
   onBusyChange: (busy: boolean) => void;
   /** データベースを作る。失敗したら例外を投げること */
@@ -18,7 +20,7 @@ interface Props {
 }
 
 /**
- * 「新規作成」タブ: 新しいデータベースを作る。
+ * 「新しいデータベース」タブ: 新しいデータベースを作成する。
  *
  * 今あるデータベースへの操作は、ほかのタブに分けてある
  */
@@ -26,6 +28,7 @@ export function NewDatabasePanel({
   sessionId,
   dbType,
   owners,
+  prod,
   busy,
   onBusyChange,
   onCreate,
@@ -38,12 +41,13 @@ export function NewDatabasePanel({
         kind="データベース"
         withEncoding
         owners={owners}
+        prod={prod}
         disabled={busy}
         onBusyChange={onBusyChange}
         onCreate={onCreate}
       />
       <p className="db-admin-hint">
-        「作成」を押すと、実行するSQLを確かめてから作ります。
+        「作成する」を押すと、実行するSQLを確かめてから作成します。
       </p>
     </section>
   );

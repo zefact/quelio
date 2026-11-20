@@ -31,7 +31,7 @@ export function EdgeMenu({
   return (
     <>
       <button className="context-item" onClick={onOpenPanel}>
-        カラムの対応を編集... (ダブルクリックでも可)
+        カラムの対応を編集… (ダブルクリックでも可)
       </button>
       <div className="context-sep" />
       <div className="context-caption">線種</div>

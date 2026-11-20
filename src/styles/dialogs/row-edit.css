@@ -12,7 +12,7 @@
   border-bottom: none;
   border-radius: var(--radius-md) var(--radius-md) 0 0;
   background: rgba(99, 102, 241, 0.08);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
 }
 
 .ddl-bar-text {
@@ -42,7 +42,7 @@
   margin-top: 2px;
   max-width: 720px;
   color: var(--text-faint);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -64,7 +64,7 @@
   border-radius: 5px;
   background: var(--bg-panel);
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-dim);
 }
@@ -80,7 +80,7 @@
   border-radius: 50%;
   background: var(--danger);
   color: #fff;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 800;
 }
 
@@ -91,7 +91,7 @@
   border-radius: 7px;
   background: var(--bg-panel);
   color: var(--text-dim);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   cursor: pointer;
 }
@@ -215,7 +215,7 @@
 }
 
 .grid tr.row-new .row-num {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   color: #16a34a;
 }
@@ -234,7 +234,7 @@
   background: var(--input-bg);
   box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--fs-md);
 }
 
 .cell-input.right {
@@ -355,14 +355,14 @@ body.row-dragging * {
 }
 
 .index-help-list dt {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--accent);
 }
 
 .index-help-list dd {
   margin: 3px 0 0;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.7;
   color: var(--text-dim);
 }

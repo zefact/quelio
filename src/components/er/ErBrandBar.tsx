@@ -7,8 +7,10 @@
  */
 import { emitAppEvent, FIND_EVENT } from "../../appEvents";
 import { isBetaVersion, useAppVersion } from "../../hooks/useAppVersion";
+import { MOD } from "../../keyLabel";
 import { DbIcon } from "../DbIcon";
 import { ErIcon } from "../ErIcon";
+import { IconButton } from "../IconButton";
 
 interface Props {
   /** DBのウィンドウを前に出す (閉じていれば開き直す) */
@@ -32,9 +34,9 @@ export function ErBrandBar({ onOpenDb, onOpenSettings }: Props) {
       <span className="er-brandbar-drag" data-tauri-drag-region />
 
       {/* 右端のアイコンはDB・CSVのウィンドウと同じ並び */}
-      <button
-        className="console-btn has-tooltip"
-        data-tooltip="画面内を検索 (⌘F)"
+      <IconButton
+        className="console-btn"
+        label={`画面内を検索 (${MOD}F)`}
         onClick={() => emitAppEvent(FIND_EVENT)}
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -46,17 +48,17 @@ export function ErBrandBar({ onOpenDb, onOpenSettings }: Props) {
             strokeLinecap="round"
           />
         </svg>
-      </button>
-      <button
-        className="console-btn has-tooltip"
-        data-tooltip="QuelioDB (閉じていれば開き直します)"
+      </IconButton>
+      <IconButton
+        className="console-btn"
+        label="Quelio のメインウィンドウを開く (閉じていれば開き直します)"
         onClick={onOpenDb}
       >
         <DbIcon />
-      </button>
-      <button
-        className="console-btn has-tooltip"
-        data-tooltip="設定"
+      </IconButton>
+      <IconButton
+        className="console-btn"
+        label="設定"
         onClick={onOpenSettings}
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -68,7 +70,7 @@ export function ErBrandBar({ onOpenDb, onOpenSettings }: Props) {
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </IconButton>
     </div>
   );
 }

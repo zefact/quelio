@@ -204,18 +204,40 @@ pub fn parse(text: &str) -> Result<SavedSqlStore, String> {
  */
 pub fn merge(app: &AppHandle, incoming: SavedSqlStore) -> Result<(usize, usize), String> {
     let mut store = load(app)?;
+    let (added, overwritten) = merge_into(&mut store, incoming);
+    save_all(app, &mut store)?;
+    Ok((added, overwritten.len()))
+}
+
+/**
+ * 取り込んだら何件増えて、どれが上書きされるかを数える (書き込まない)。
+ *
+ * 判定は `merge` と同じ `merge_into` を、読んだ中身に当てて求める。
+ * 返すのは (追加数, 上書きされるお気に入りの今の名前)
+ */
+pub fn preview_merge(
+    app: &AppHandle,
+    incoming: SavedSqlStore,
+) -> Result<(usize, Vec<String>), String> {
+    let mut store = load(app)?;
+    Ok(merge_into(&mut store, incoming))
+}
+
+/// 今の保存へ取り込む内容を混ぜる (同じIDは上書き)。
+/// (追加数, 上書きしたお気に入りの、上書き前の名前) を返す
+fn merge_into(store: &mut SavedSqlStore, incoming: SavedSqlStore) -> (usize, Vec<String>) {
     for f in incoming.folders {
         if !store.folders.iter().any(|x| x == &f) {
             store.folders.push(f);
         }
     }
     let mut added = 0;
-    let mut updated = 0;
+    let mut overwritten = Vec::new();
     for item in incoming.items {
         match store.items.iter_mut().find(|x| x.id == item.id) {
             Some(x) => {
+                overwritten.push(std::mem::take(&mut x.name));
                 *x = item;
-                updated += 1;
             }
             None => {
                 store.items.push(item);
@@ -223,8 +245,7 @@ pub fn merge(app: &AppHandle, incoming: SavedSqlStore) -> Result<(usize, usize),
             }
         }
     }
-    save_all(app, &mut store)?;
-    Ok((added, updated))
+    (added, overwritten)
 }
 
 /// 旧形式 (項目だけ) からフォルダを組み立てる
@@ -491,6 +512,22 @@ mod tests {
         let back = parse(old).unwrap();
         assert_eq!(back.items.len(), 1);
         assert_eq!(back.folders, vec!["集計"]);
+    }
+
+    #[test]
+    fn 取り込みは同じidを上書きとして数え上書き前の名前を返す() {
+        let mut now = store(&["集計"], &[("a", "集計"), ("b", "")]);
+        now.items[0].name = "月次".into();
+        let mut incoming = store(&["集計", "新規"], &[("a", "集計"), ("c", "新規")]);
+        incoming.items[0].name = "月次 (改)".into();
+        let (added, overwritten) = merge_into(&mut now, incoming);
+        assert_eq!(added, 1);
+        assert_eq!(overwritten, vec!["月次"]);
+        // 上書きしたものは取り込んだ側の中身になる
+        assert_eq!(now.items[0].name, "月次 (改)");
+        assert_eq!(now.items.len(), 3);
+        // 無かったフォルダは足し、あるものは重ねない
+        assert_eq!(now.folders, vec!["集計", "新規"]);
     }
     use super::*;
 

@@ -30,8 +30,9 @@ export function CellText({ value, clip, onOpen }: Props) {
         {value}
       </span>
       <button
-        className="cell-more"
-        title={`全${clip.total.toLocaleString()}文字。押すと全文を表示します`}
+        className="cell-more has-tooltip"
+        data-tooltip={`全${clip.total.toLocaleString()}文字。押すと全文を表示します`}
+        aria-label={`全${clip.total.toLocaleString()}文字。押すと全文を表示します`}
         onClick={(e) => {
           e.stopPropagation();
           onOpen?.(value);

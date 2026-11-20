@@ -263,8 +263,9 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
             </HoverTip>
           </span>
           <span
-            className="plan-col-resizer"
-            title="ドラッグで操作カラムの幅を変更 / ダブルクリックで自動に戻す"
+            className="plan-col-resizer has-tooltip"
+            data-tooltip="ドラッグで操作カラムの幅を変更 / ダブルクリックで自動に戻す"
+            aria-label="ドラッグで操作カラムの幅を変更 / ダブルクリックで自動に戻す"
             onMouseDown={startOpResize}
             onDoubleClick={() => setOpWidth(null)}
           />
@@ -306,8 +307,9 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
                 </span>
                 {hasChildren ? (
                   <button
-                    className="plan-toggle"
-                    title={isCollapsed ? "配下を展開" : "配下を折りたたむ"}
+                    className="plan-toggle has-tooltip tooltip-left"
+                    data-tooltip={isCollapsed ? "配下を展開" : "配下を折りたたむ"}
+                    aria-label={isCollapsed ? "配下を展開" : "配下を折りたたむ"}
                     onClick={() => toggleCollapse(i)}
                   >
                     {isCollapsed ? "▸" : "▾"}
@@ -323,8 +325,8 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
                 </span>
                 {isCollapsed && (
                   <span
-                    className="plan-chip dim"
-                    title="折りたたみ中の配下ノード数"
+                    className="plan-chip dim has-tooltip"
+                    data-tooltip="折りたたみ中の配下ノード数"
                   >
                     +{descendantCount(i)}
                   </span>
@@ -338,8 +340,8 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
               <div className="plan-row-metrics mono">
                 {gap !== null && (
                   <span
-                    className="plan-badge warn"
-                    title={`行数の予測(${fmtRows(n.estRows!)})と実測(${fmtRows(
+                    className="plan-badge warn has-tooltip"
+                    data-tooltip={`行数の予測(${fmtRows(n.estRows!)})と実測(${fmtRows(
                       n.actRows!
                     )})が約${gap}倍ずれています。統計情報が古い可能性`}
                   >
@@ -352,8 +354,8 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
                 <span className="plan-col rows">
                   {n.actRows !== undefined ? (
                     <span
-                      className="plan-chip"
-                      title={
+                      className="plan-chip has-tooltip"
+                      data-tooltip={
                         n.estRows !== undefined
                           ? `実測${fmtRows(n.actRows)}行 (予測${fmtRows(n.estRows)}行)`
                           : "実測行数"
@@ -362,7 +364,7 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
                       {fmtRows(n.actRows)}行
                     </span>
                   ) : n.estRows !== undefined ? (
-                    <span className="plan-chip" title="予測行数">
+                    <span className="plan-chip has-tooltip" data-tooltip="予測行数">
                       予測{fmtRows(n.estRows)}行
                     </span>
                   ) : null}
@@ -370,7 +372,7 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
                 {hasActual && (
                   <span className="plan-col loops">
                     {(n.loops ?? 1) > 1 && (
-                      <span className="plan-chip" title="繰り返し回数">
+                      <span className="plan-chip has-tooltip" data-tooltip="繰り返し回数">
                         ×{fmtLoops(n.loops!)}
                       </span>
                     )}
@@ -379,10 +381,10 @@ function PrettyPlan({ nodes }: { nodes: PlanNode[] }) {
                 {hasActual && (
                   <span
                     className={
-                      "plan-col time plan-time" +
+                      "plan-col time plan-time has-tooltip" +
                       (hot ? " hot" : warm ? " warm" : "")
                     }
-                    title={
+                    data-tooltip={
                       n.inclusiveMs !== undefined
                         ? `このノード以下の合計時間 (自身: ${fmtMs(n.selfMs ?? 0)})`
                         : undefined

@@ -125,12 +125,12 @@ function ErNodeViewInner({
                */
               style={colStyle(c.color)}
               className={
-                "er-col-name" +
+                "er-col-name has-tooltip" +
                 (c.isPk ? " pk" : "") +
                 (highlighted.has(c.name) ? " hl" : "") +
                 (selectedColumn === c.name ? " sel" : "")
               }
-              title={
+              data-tooltip={
                 c.name +
                 (c.isPk
                   ? " (主キー)"
@@ -172,9 +172,10 @@ function ErNodeViewInner({
               (["left", "right"] as const).map((side) => (
                 <div
                   key={side}
-                  className={`er-link-handle ${side}`}
+                  className={`er-link-handle ${side} has-tooltip`}
                   style={{ top: NODE_HEAD_H + i * ROW_H + ROW_H / 2 - 5.5 }}
-                  title="ドラッグして相手のカラムへ線をつなぐ"
+                  data-tooltip="ドラッグして相手のカラムへ線をつなぐ"
+                  aria-label="ドラッグして相手のカラムへ線をつなぐ"
                   onMouseDown={(e) => onHandleMouseDown(e, n.name, c.name)}
                 />
               ))}
@@ -182,8 +183,9 @@ function ErNodeViewInner({
         ))}
       </div>
       <div
-        className="er-node-resize"
-        title="ドラッグで幅を調整 (右クリックメニューで自動に戻せます)"
+        className="er-node-resize has-tooltip"
+        data-tooltip="ドラッグで幅を調整 (右クリックメニューで自動に戻せます)"
+        aria-label="ドラッグで幅を調整 (右クリックメニューで自動に戻せます)"
         onMouseDown={(e) => onResizeMouseDown(e, n.name)}
       />
     </div>

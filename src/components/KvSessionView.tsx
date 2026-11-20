@@ -3,6 +3,7 @@ import {
   addSqlHistory,
   checkKvDestructive,
   kvApply,
+  kvCancel,
   kvExec,
   kvKeyDetail,
   kvScan,
@@ -20,11 +21,17 @@ import type {
   StatementResult,
   WorkTab,
 } from "../types";
-import { activeSheetOf, envColor } from "../types";
+import { activeSheetOf } from "../types";
 import { EnvBand } from "./EnvBand";
-import { ProdNote } from "./ProdBadge";
 import { afterKvCheck } from "../kvGuard";
+import { kvChangeWhat, prodActionText } from "../prodConfirm";
+import { useAskConfirm } from "../hooks/useAskConfirm";
+import { IconButton } from "./IconButton";
+import { MOD } from "../keyLabel";
 import { KvCommandEditor } from "./KvCommandEditor";
+import { ElapsedTimer } from "./ElapsedTimer";
+import { ConnLostBanner } from "./ConnLostBanner";
+import { useConnLost } from "../hooks/useConnLost";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { KvValueGrid } from "./KvValueGrid";
 import { SelectMenu } from "./SelectMenu";
@@ -48,7 +55,9 @@ interface Props {
   onKvBrowse: (state: KvBrowseState) => void;
 }
 
-/** 破壊的なため実行前に確認するコマンド */
+/** 「中止」で止めたときの文言 (kv.rs の CANCELLED_MSG と対。エラーとして赤く出さない) */
+const KV_CANCELLED = "中止しました";
+
 /** TTLの表示 (-1: 無期限) */
 function ttlLabel(ttl: number): string {
   if (ttl < 0) return "∞";
@@ -123,6 +132,10 @@ export function KvSessionView({
   const command = activeSheetOf(tab.editor).sql;
   const results = tab.kv.results ?? [];
   const execError = tab.kv.execError ?? null;
+  // 自分で押した「中止」の結果はエラーではないので、赤い帯にしない
+  const execCancelled = !!execError?.startsWith(KV_CANCELLED);
+  /** 操作が「接続が切れた」エラーで失敗したか (帯は ConnLostBanner が出す) */
+  const lost = useConnLost(tab.key);
 
   // ---------- キーブラウザ ----------
   // タブを離れて戻ってきたときは、前回の一覧・選択をそのまま復元する
@@ -181,6 +194,11 @@ export function KvSessionView({
 
   // ---------- コンソール ----------
   const [running, setRunning] = useState(false);
+  /** 実行しているタブ (この部品はValkeyのタブ同士で使い回すので、中止の宛先を控える) */
+  const runningKey = useRef<string | null>(null);
+  /** 「中止」を押して、止まるのを待っているか */
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   /** 確認待ちの破壊的コマンド (複数行のときは全部出す) */
   const [confirmCmd, setConfirmCmd] = useState<string[] | null>(null);
   /** 複数コマンド実行時に表示中の結果タブ */
@@ -358,8 +376,36 @@ export function KvSessionView({
     return () => window.removeEventListener("keydown", onKey);
   }, [keyDraft, ttlDraft, newKey]);
 
-  /** キーへの変更を実行する (失敗したらエラーを表示して何もしない) */
-  const applyKey = async (change: KvChange): Promise<boolean> => {
+  /** 本番での画面操作 (キー名・TTL・新規作成・要素) の前に出す確認 */
+  const [ask, askDialog] = useAskConfirm();
+  /** 確認の1行に出す「どこで」 */
+  const kvWhere = `${profile.name} (DB ${db})`;
+
+  /**
+   * キーへの変更を実行する (失敗したらエラーを表示して何もしない)。
+   * 本番では実行の前に確認する。`confirmed` はすでに確認ダイアログを通したか
+   */
+  const applyKey = async (
+    change: KvChange,
+    confirmed = false
+  ): Promise<boolean> => {
+    if (prod && !confirmed) {
+      const ok = await ask({
+        title: "本番環境の Valkey を変更します",
+        target: change.key,
+        confirmLabel:
+          change.kind === "createKey"
+            ? "作成する"
+            : change.kind === "deleteKey"
+              ? "削除する"
+              : "変更する",
+        tone: change.kind === "deleteKey" ? "danger" : "primary",
+        prodNote: prodActionText(kvWhere, kvChangeWhat(change)),
+        body: "すぐに書き込まれ、元に戻せません。",
+      });
+      // やめたときは入力をそのまま残す
+      if (!ok) return false;
+    }
     try {
       await kvApply(tab.key, db, change);
       setKeyError(null);
@@ -405,7 +451,8 @@ export function KvSessionView({
 
   /** キーを削除する (確認モーダルから呼ばれる) */
   const commitDelete = async (key: string) => {
-    const ok = await applyKey({ kind: "deleteKey", key });
+    // 削除の確認ダイアログを通っているので、ここでは聞き直さない
+    const ok = await applyKey({ kind: "deleteKey", key }, true);
     // 失敗したら閉じない (消えていないのに消えたように見せない)。
     // 投げた文字列は確認ダイアログがそのまま表示する
     if (!ok) throw lastKeyError.current ?? "削除できませんでした";
@@ -456,6 +503,8 @@ export function KvSessionView({
     }
     addSqlHistory(text, true).catch(() => {});
     setRunning(true);
+    runningKey.current = tab.key;
+    setCancelError(null);
     setCaptureMsg(null);
     try {
       const out = await kvExec(tab.key, db, lines, confirmed);
@@ -463,7 +512,7 @@ export function KvSessionView({
       setActiveIdx(0);
       // キャプチャON: SQLと同じcanvas描画で全結果をPNG保存する
       if (captureOn && out.statements.length > 0) {
-        setCaptureMsg("キャプチャ保存中...");
+        setCaptureMsg("キャプチャ保存中…");
         captureResults(toStatementResults(out.statements))
           .then((paths) =>
             setCaptureMsg(`キャプチャ保存: ${paths.length}件 → 保存先フォルダ`)
@@ -474,9 +523,29 @@ export function KvSessionView({
       onKvOutput([], String(e));
     } finally {
       setRunning(false);
+      setCancelling(false);
+      runningKey.current = null;
       requestAnimationFrame(() => {
         outRef.current?.scrollTo({ top: 0 });
       });
+    }
+  };
+
+  /**
+   * 実行中のコマンドを中止する。
+   * 応答を待つのをやめて接続を捨てる (次の操作の前にバックエンドが張り直す)。
+   * 止まると実行の結果が「中止しました」で返ってくる
+   */
+  const cancelRun = async () => {
+    const key = runningKey.current;
+    if (!key || cancelling) return;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      await kvCancel(key);
+    } catch (e) {
+      setCancelError(`中止できませんでした: ${e}`);
+      setCancelling(false);
     }
   };
 
@@ -490,17 +559,11 @@ export function KvSessionView({
 
   return (
     <div className="session">
-      {/* ツールバー */}
-      {/* 環境を決めてある接続は、ツールバーの上端をその色で塗る */}
+      {/* ツールバー (環境はすぐ下の帯で示す。SQLの画面と同じ) */}
       <div
-        className={"session-toolbar" + (profile.env ? " has-env" : "")}
+        className="session-toolbar"
         // ページ内検索の対象外 (接続名・DB名・サーバー情報)
         data-find-skip
-        style={
-          profile.env
-            ? ({ "--env-color": envColor(profile.env) } as React.CSSProperties)
-            : undefined
-        }
       >
         <ConnectionChip profile={profile} />
 
@@ -518,8 +581,8 @@ export function KvSessionView({
 
         <span className="toolbar-spacer" />
         <button
-          className={"sql-btn" + (consoleOpen ? " active" : "")}
-          title="コマンドコンソール (⌘+Enterで実行)"
+          className={"sql-btn has-tooltip" + (consoleOpen ? " active" : "")}
+          data-tooltip={`コマンドコンソール (${MOD}Enter で実行)`}
           onClick={() => onSetConsole(!consoleOpen)}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -539,6 +602,9 @@ export function KvSessionView({
       {/* 本番 (とステージング) は、作業中ずっと分かるように帯を出す */}
       <EnvBand env={profile.env} connection={profile.name} />
 
+      {/* 接続が切れたときは「接続し直す」を出す */}
+      <ConnLostBanner sessionId={tab.key} />
+
       {/* 本体 */}
       <div className="session-body">
         {/* 左ペイン: キーブラウザ */}
@@ -552,9 +618,10 @@ export function KvSessionView({
             count={`${keys.length}${dbsize >= 0 ? ` / ${dbsize}` : ""}`}
           >
             {/* テーブル一覧と同じ位置に再読み込みを置く (先頭からSCANし直す) */}
-            <button
-              className="pane-icon-btn has-tooltip tooltip-left"
-              data-tooltip={
+            <IconButton
+              className="pane-icon-btn"
+              tipLeft
+              label={
                 readOnly
                   ? "読み取り専用の接続では作成できません"
                   : "キーを新規作成"
@@ -573,24 +640,22 @@ export function KvSessionView({
                   strokeLinecap="round"
                 />
               </svg>
-            </button>
-            <button
-              className="pane-icon-btn has-tooltip tooltip-left"
-              data-tooltip="値の検索とキーの一括削除"
-              aria-label="キーの検索・一括削除"
+            </IconButton>
+            <IconButton
+              className="pane-icon-btn"
+              tipLeft
+              label="値の検索とキーの一括削除"
               onClick={() => setShowBulk(true)}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
                 <circle cx="11" cy="11" r="6" stroke="currentColor" strokeWidth="2" />
                 <path d="M15.5 15.5L20 20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
-            </button>
-            <button
-              className={
-                "pane-icon-btn has-tooltip tooltip-left" +
-                (scanning ? " spinning" : "")
-              }
-              data-tooltip="キー一覧を再読み込み"
+            </IconButton>
+            <IconButton
+              className={"pane-icon-btn" + (scanning ? " spinning" : "")}
+              tipLeft
+              label="キー一覧を再読み込み"
               disabled={scanning}
               onClick={() => scan(true)}
             >
@@ -603,7 +668,7 @@ export function KvSessionView({
                   strokeLinejoin="round"
                 />
               </svg>
-            </button>
+            </IconButton>
             {/* 余白を右側に寄せて、見出し・件数・アイコンを左揃えにする */}
             <span className="toolbar-spacer" />
           </PaneHead>
@@ -678,11 +743,18 @@ export function KvSessionView({
               />
               <div className="kv-new-key-foot">
                 <span className="ddl-bar-text">
-                  <kbd>Enter</kbd> で作成 / <kbd>Esc</kbd> で取り消し
+                  <kbd>Enter</kbd> で作成 / <kbd>Esc</kbd> でキャンセル
                 </span>
                 <span className="toolbar-spacer" />
-                <button className="sql-btn" onClick={() => void commitCreate()}>
-                  作成
+                <button
+                  className="btn-primary kv-create-btn has-tooltip"
+                  disabled={newKey.key.trim() === ""}
+                  data-tooltip={
+                    newKey.key.trim() === "" ? "キー名を入れてください" : undefined
+                  }
+                  onClick={() => void commitCreate()}
+                >
+                  作成する
                 </button>
               </div>
               {keyError && <p className="new-table-error">{keyError}</p>}
@@ -712,9 +784,9 @@ export function KvSessionView({
           <div className="kv-pane-foot">
             {/* 続きの読み込み専用 (先頭から取り直すのは見出し横の再読み込みボタン) */}
             <button
-              className="btn-secondary kv-more-btn"
+              className="btn-secondary kv-more-btn has-tooltip"
               disabled={scanning || done}
-              title={
+              data-tooltip={
                 done
                   ? "この条件のキーはすべて読み込み済みです"
                   : "続きのキーを読み込みます"
@@ -723,7 +795,7 @@ export function KvSessionView({
             >
               {scanning ? (
                 <>
-                  <span className="spinner" /> 読み込み中...
+                  <span className="spinner" /> 読み込み中…
                 </>
               ) : done ? (
                 "すべて読み込み済み"
@@ -735,7 +807,7 @@ export function KvSessionView({
         </SidePane>
 
         <main className="session-content kv-content">
-          {error && (
+          {error && error !== lost?.message && (
             <div className="result-banner ng">
               <span className="dot" aria-hidden />
               <strong>エラー</strong>
@@ -759,19 +831,28 @@ export function KvSessionView({
                 />
               </div>
               <div className="query-actions">
-                <button
-                  className="btn-primary"
-                  disabled={running || !command.trim()}
-                  onClick={() => runCommands()}
-                >
-                  {running ? (
-                    <>
-                      <span className="spinner light" /> 実行中...
-                    </>
-                  ) : (
-                    "実行"
-                  )}
-                </button>
+                {/*
+                  実行中は、実行ボタンの位置に「中止」を出す (SQLの画面と同じ)
+                */}
+                {running ? (
+                  <button
+                    className="btn-secondary cancel-query-btn run-cancel-btn has-tooltip tooltip-left"
+                    disabled={cancelling}
+                    data-tooltip="実行中のコマンドを中止します (応答を待たずに接続を張り直します)"
+                    onClick={() => void cancelRun()}
+                  >
+                    <span className="spinner accent" /> 中止
+                  </button>
+                ) : (
+                  <button
+                    className="btn-primary has-tooltip tooltip-left"
+                    disabled={!command.trim()}
+                    data-tooltip={`書いてあるコマンドを上から順に実行します (${MOD}Enter)`}
+                    onClick={() => runCommands()}
+                  >
+                    実行する
+                  </button>
+                )}
                 <SqlLibraryMenu
                   currentSql={command}
                   onSelect={onChangeSql}
@@ -795,18 +876,30 @@ export function KvSessionView({
                     {captureMsg}
                   </span>
                 )}
+                {cancelError && (
+                  <span className="capture-msg mono" title={cancelError}>
+                    {cancelError}
+                  </span>
+                )}
+                {running && (
+                  <ElapsedTimer
+                    className="query-meta mono running-elapsed"
+                    startedAt={null}
+                  />
+                )}
               </div>
               <div
-                className="row-splitter"
-                title="ドラッグで高さを変更"
+                className="row-splitter has-tooltip"
+                data-tooltip="ドラッグで高さを変更"
+                aria-label="ドラッグで高さを変更"
                 onMouseDown={startResize}
               >
                 <span className="grip" aria-hidden />
               </div>
               {execError && (
-                <div className="result-banner ng">
+                <div className={"result-banner" + (execCancelled ? "" : " ng")}>
                   <span className="dot" aria-hidden />
-                  <strong>エラー</strong>
+                  {!execCancelled && <strong>エラー</strong>}
                   <span className="result-detail">{execError}</span>
                 </div>
               )}
@@ -873,8 +966,8 @@ export function KvSessionView({
                   />
                 ) : (
                   <span
-                    className="kv-detail-key mono"
-                    title={
+                    className="kv-detail-key mono has-tooltip tooltip-left"
+                    data-tooltip={
                       readOnly
                         ? "読み取り専用の接続のため変更できません"
                         : "ダブルクリックでキー名を変更"
@@ -890,22 +983,30 @@ export function KvSessionView({
                 )}
                 {typeBadge(detail.type)}
                 <span className="toolbar-spacer" />
+                {/* 表示を切り替えるだけ (値は書き換えない)。SQLの「整形」とは別物 */}
                 <button
-                  className={"sql-btn kv-fmt-btn" + (pretty ? " active" : "")}
-                  title="JSONやPHPシリアライズの値を見やすく整形して表示"
+                  className={
+                    "sql-btn kv-fmt-btn has-tooltip" + (pretty ? " active" : "")
+                  }
+                  data-tooltip="JSONやPHPシリアライズの値を、改行と字下げを入れて表示します (値は書き換えません)"
+                  aria-pressed={pretty}
                   onClick={() => setPretty(!pretty)}
                 >
-                  整形
+                  見やすく表示
                 </button>
-                {!readOnly && (
-                  <button
-                    className="sql-btn danger"
-                    title="このキーを削除します"
-                    onClick={() => setDeleting(detail.key)}
-                  >
-                    キーを削除
-                  </button>
-                )}
+                {/* 読み取り専用でも隠さず、押せなくして理由を出す */}
+                <button
+                  className="sql-btn danger has-tooltip"
+                  data-tooltip={
+                    readOnly
+                      ? "読み取り専用の接続では削除できません"
+                      : "このキーを削除します"
+                  }
+                  disabled={readOnly}
+                  onClick={() => setDeleting(detail.key)}
+                >
+                  キーを削除
+                </button>
               </div>
               <div className="kv-detail-meta mono">
                 <span>
@@ -936,8 +1037,10 @@ export function KvSessionView({
                     </span>
                   ) : (
                     <span
-                      className={readOnly ? "" : "kv-editable"}
-                      title={
+                      className={
+                        "has-tooltip tooltip-left" + (readOnly ? "" : " kv-editable")
+                      }
+                      data-tooltip={
                         readOnly
                           ? "読み取り専用の接続のため変更できません"
                           : "ダブルクリックで変更 (秒。0で無期限に戻します)"
@@ -961,7 +1064,7 @@ export function KvSessionView({
               </div>
               {loadingDetail ? (
                 <div className="content-placeholder dim-center">
-                  <span className="spinner accent" /> 読み込み中...
+                  <span className="spinner accent" /> 読み込み中…
                 </div>
               ) : (
                 <>
@@ -977,6 +1080,8 @@ export function KvSessionView({
                     detail={detail}
                     pretty={pretty}
                     readOnly={tab.profile.readOnly ?? false}
+                    prod={prod}
+                    connectionLabel={kvWhere}
                     onReload={() => {
                       void openKey(detail.key);
                       void scan(true);
@@ -996,7 +1101,7 @@ export function KvSessionView({
             <div className="content-placeholder dim-center">
               {loadingDetail ? (
                 <>
-                  <span className="spinner accent" /> 読み込み中...
+                  <span className="spinner accent" /> 読み込み中…
                 </>
               ) : (
                 "左の一覧からキーを選択してください"
@@ -1013,11 +1118,17 @@ export function KvSessionView({
       {deleting && (
         <ConfirmDialog
           title="キーを削除します"
+          confirmLabel="削除する"
           target={deleting}
+          prodNote={
+            prod
+              ? prodActionText(kvWhere, `キー ${deleting} を削除します`)
+              : undefined
+          }
           onCancel={() => setDeleting(null)}
           onConfirm={() => commitDelete(deleting)}
         >
-          値はすべて失われます。取り消しはできません。
+          値はすべて失われ、元に戻せません。
         </ConfirmDialog>
       )}
 
@@ -1027,14 +1138,19 @@ export function KvSessionView({
           title={
             prod ? "本番環境の Valkey へ書き込みます" : "このコマンドを実行します"
           }
+          target={kvWhere}
           confirmLabel="実行する"
+          prodNote={
+            prod ? prodActionText(kvWhere, "コマンドを実行します") : undefined
+          }
+          // データを消しうるので、本番でなくてもフォーカスは「キャンセル」に置く
+          defaultFocus="cancel"
           onCancel={() => setConfirmCmd(null)}
           onConfirm={() => {
             setConfirmCmd(null);
             runCommands(true);
           }}
         >
-          {prod && <ProdNote>本番環境のデータを変更します。</ProdNote>}
           データの削除や高負荷につながる可能性があります。
           <ul className="column-warn-list">
             {confirmCmd.map((c) => (
@@ -1045,6 +1161,8 @@ export function KvSessionView({
           </ul>
         </ConfirmDialog>
       )}
+
+      {askDialog}
 
       {showBulk && (
         <KvBulkDialog

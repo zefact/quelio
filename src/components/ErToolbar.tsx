@@ -109,6 +109,15 @@ export function ErToolbar({
           <span className="er-diag-name">{diagName ?? "(未保存の図)"}</span>{" "}
           <span className="er-opts-caret">▾</span>
         </button>
+        {/* 図は変えるたびに自動で保存される (書き出しとは別) */}
+        {diagName && (
+          <span
+            className="er-autosave has-tooltip tooltip-left"
+            data-tooltip={`変更は「${diagName}」に自動で保存されます`}
+          >
+            自動保存
+          </span>
+        )}
         {diagOpen && (
           <div className="er-opts-pop er-diag-pop">
             {diagList.length > 0 ? (
@@ -148,7 +157,7 @@ export function ErToolbar({
                 setDiagOpen(false);
               }}
             >
-              名前を付けて保存...
+              名前を付けて保存…
             </button>
             {diagName && (
               <button
@@ -158,7 +167,7 @@ export function ErToolbar({
                   setDiagOpen(false);
                 }}
               >
-                名前を変更...
+                図の名前を変更…
               </button>
             )}
             {diagName && (
@@ -181,7 +190,7 @@ export function ErToolbar({
                 setDiagOpen(false);
               }}
             >
-              バックアップ...
+              バックアップ…
             </button>
             <button
               className="context-item"
@@ -190,7 +199,7 @@ export function ErToolbar({
                 setDiagOpen(false);
               }}
             >
-              復元...
+              復元 (今ある図に追加)…
             </button>
           </div>
         )}
@@ -229,7 +238,7 @@ export function ErToolbar({
       >
         {loading ? (
           <>
-            <span className="spinner light" /> リバース中...
+            <span className="spinner light" /> リバース中…
           </>
         ) : (
           "リバース"

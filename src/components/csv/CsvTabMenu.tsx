@@ -3,12 +3,13 @@
  *
  * まとめて閉じると保存していない編集が消えるので、
  * その中に未保存のタブが混ざるときだけ確認を挟む
+ * (確認では、保存してから閉じることもできる)
  */
 import { useState } from "react";
 import type { CsvInfo } from "../../types";
 import { useDismiss } from "../../hooks/useDismiss";
 import { usePopupPosition } from "../../hooks/usePopupPosition";
-import { ConfirmDialog } from "../ConfirmDialog";
+import { CsvUnsavedDialog } from "./CsvUnsavedDialog";
 import { CLOSE_LABEL, CloseKind, closeTargets, unsaved } from "./csvTabClose";
 
 interface Props {
@@ -20,6 +21,8 @@ interface Props {
   y: number;
   /** まとめて閉じる (確認が要るものは済ませてから呼ぶ) */
   onCloseMany: (targets: CsvInfo[]) => void;
+  /** 未保存のものを保存する (保存できなかったら false) */
+  onSaveMany: (targets: CsvInfo[]) => Promise<boolean>;
   onDismiss: () => void;
 }
 
@@ -28,7 +31,15 @@ function short(name: string): string {
   return name.length > 16 ? `${name.slice(0, 16)}…` : name;
 }
 
-export function CsvTabMenu({ tab, tabs, x, y, onCloseMany, onDismiss }: Props) {
+export function CsvTabMenu({
+  tab,
+  tabs,
+  x,
+  y,
+  onCloseMany,
+  onSaveMany,
+  onDismiss,
+}: Props) {
   /** 確認してから閉じる相手 */
   const [confirm, setConfirm] = useState<CloseKind | null>(null);
   const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(x, y);
@@ -56,21 +67,22 @@ export function CsvTabMenu({ tab, tabs, x, y, onCloseMany, onDismiss }: Props) {
   if (confirm) {
     const targets = closeTargets(tabs, tab, confirm);
     const lost = unsaved(targets);
+    const close = () => {
+      onCloseMany(targets);
+      onDismiss();
+    };
     return (
-      <ConfirmDialog
-        title="保存していない変更があります"
+      <CsvUnsavedDialog
         target={lost.map((t) => short(t.name)).join("、")}
-        confirmLabel="保存せずに閉じる"
-        onConfirm={() => {
-          onCloseMany(targets);
-          onDismiss();
+        many={lost.length > 1}
+        onSave={async () => {
+          const ok = await onSaveMany(lost);
+          if (ok) close();
+          return ok;
         }}
+        onDiscard={close}
         onCancel={onDismiss}
-      >
-        {lost.length > 1
-          ? "これらのファイルへの変更は失われます。"
-          : "このファイルへの変更は失われます。"}
-      </ConfirmDialog>
+      />
     );
   }
 
@@ -86,17 +98,17 @@ export function CsvTabMenu({ tab, tabs, x, y, onCloseMany, onDismiss }: Props) {
         {CLOSE_LABEL.self}
       </button>
       <button
-        className="context-item"
+        className="context-item has-tooltip tooltip-left"
         disabled={right.length === 0}
-        title={right.length === 0 ? "右側にタブがありません" : undefined}
+        data-tooltip={right.length === 0 ? "右側にタブがありません" : undefined}
         onClick={() => ask("right")}
       >
         {CLOSE_LABEL.right} ({right.length})
       </button>
       <button
-        className="context-item"
+        className="context-item has-tooltip tooltip-left"
         disabled={others.length === 0}
-        title={others.length === 0 ? "他にタブがありません" : undefined}
+        data-tooltip={others.length === 0 ? "他にタブがありません" : undefined}
         onClick={() => ask("others")}
       >
         {CLOSE_LABEL.others} ({others.length})

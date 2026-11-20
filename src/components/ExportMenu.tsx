@@ -8,19 +8,20 @@ import {
   rememberExportTarget,
 } from "../exportFormat";
 import type { ExportTarget } from "../exportFormat";
+import { QUERY_PAGE_SIZE } from "../types";
 
 interface Props {
-  /** 出力中は押せなくする */
+  /** 書き出し中は押せなくする */
   disabled: boolean;
-  /** 出力中の表示に切り替える */
+  /** 書き出し中の表示に切り替える */
   running: boolean;
   /** 実行計画を表示中か (説明の文言が変わる) */
   explainKind: "explain" | "analyze" | null;
-  /** 選んだ持ち出し先で実行する */
+  /** 選んだ書き出し先で実行する */
   onRun: (target: ExportTarget) => void;
 }
 
-/** 選べる持ち出し先 (並び順はそのままメニューの並びになる) */
+/** 選べる書き出し先 (並び順はそのままメニューの並びになる) */
 const TARGETS: { value: ExportTarget; note: string }[] = [
   { value: "csv", note: "他のツールへ渡すとき" },
   { value: "xlsx", note: "見出し・絞り込み付き" },
@@ -30,7 +31,7 @@ const TARGETS: { value: ExportTarget; note: string }[] = [
 /**
  * 結果の持ち出しボタン。
  *
- * 持ち出し先は人によってほぼ決まっているので、毎回選ばせない。
+ * 書き出し先は人によってほぼ決まっているので、毎回選ばせない。
  * ボタンを押すと前に選んだ先へそのまま出し、
  * 「▾」で先を選び直せる形にする。
  * ▾ で選んでもその場では動かさない (選ぶ操作と、動かす操作を分ける)
@@ -38,7 +39,7 @@ const TARGETS: { value: ExportTarget; note: string }[] = [
 export function ExportMenu({ disabled, running, explainKind, onRun }: Props) {
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState({ x: 0, y: 0, top: 0 });
-  /** 今選んでいる持ち出し先 (前に選んだものから始める) */
+  /** 今選んでいる書き出し先 (前に選んだものから始める) */
   const [target, setTarget] = useState<ExportTarget>(lastExportTarget);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
@@ -53,10 +54,10 @@ export function ExportMenu({ disabled, running, explainKind, onRun }: Props) {
   });
 
   const tip = explainKind
-    ? "画面に出ている実行計画を保存します\n(SQLは実行し直しません)"
+    ? "画面に出ている実行計画を書き出します\n(SQLは実行し直しません)"
     : target === "editor"
       ? "この結果タブのSQLを全件取り出して、CSVエディタのタブとして開きます"
-      : "この結果タブのSQLを全件保存します\n1000行を超えても全行出力します";
+      : `この結果タブのSQLを全件書き出します\n${QUERY_PAGE_SIZE.toLocaleString()}行を超えても全行書き出します`;
 
   const openMenu = () => {
     const r = wrapRef.current?.getBoundingClientRect();
@@ -64,7 +65,7 @@ export function ExportMenu({ disabled, running, explainKind, onRun }: Props) {
     setOpen((v) => !v);
   };
 
-  /** 持ち出し先を選ぶ (ここでは動かさない) */
+  /** 書き出し先を選ぶ (ここでは動かさない) */
   const pick = (value: ExportTarget) => {
     setOpen(false);
     setTarget(value);
@@ -86,16 +87,16 @@ export function ExportMenu({ disabled, running, explainKind, onRun }: Props) {
         {running ? (
           <>
             <span className="spinner accent" />{" "}
-            {target === "editor" ? "取得中..." : "出力中..."}
+            {target === "editor" ? "読み込み中…" : "書き出し中…"}
           </>
         ) : (
           TARGET_LABEL[target]
         )}
       </button>
       <button
-        className="btn-secondary csv-btn export-caret"
-        title="持ち出し先を選ぶ"
-        aria-label="持ち出し先を選ぶ"
+        className="btn-secondary csv-btn export-caret has-tooltip"
+        data-tooltip="書き出し先を選ぶ"
+        aria-label="書き出し先を選ぶ"
         disabled={disabled}
         onClick={openMenu}
         onMouseDown={(e) => e.stopPropagation()}

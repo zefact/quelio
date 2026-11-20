@@ -42,6 +42,17 @@ import type {
   TableTab,
 } from "../types";
 import { useImeGuard } from "../hooks/useImeGuard";
+import { useAskConfirm } from "../hooks/useAskConfirm";
+import { ApplyCancelled } from "../hooks/useEditableGrid";
+import {
+  columnChangeWhat,
+  foreignKeyChangeWhat,
+  indexChangeWhat,
+  needsStructureConfirm,
+  prodActionText,
+  tableNameWhat,
+} from "../prodConfirm";
+import { IconButton } from "./IconButton";
 import { joinComment } from "./columnDraft";
 import { DdlDialog } from "./DdlDialog";
 import { DropColumnConfirm } from "./DropColumnConfirm";
@@ -155,8 +166,60 @@ export function TableView({
   /** Enterとフォーカスアウトで二重に実行しないためのガード */
   const nameBusy = useRef(false);
 
-  /** カラムの変更をそのまま実行する (失敗は呼び出し元へ投げ返す) */
-  const applyDdl = async (change: ColumnChange) => {
+  /** 構造の変更の前に出す確認 */
+  const [ask, askDialog] = useAskConfirm();
+  /**
+   * 構造タブの変更を、実行の前に確認するか。
+   * 本番は必ず。それ以外は設定「定義の変更も確認する」に従う (SQLエディタの ALTER と同じ)
+   */
+  const structConfirm = needsStructureConfirm(
+    prod,
+    settings?.confirmAlter ?? true
+  );
+
+  /**
+   * 構造の変更を確認する。キャンセルなら ApplyCancelled を投げる
+   * (編集中の行はそのまま残り、エラーも出ない)。
+   *
+   * `confirmed` は、呼び出し元の画面ですでに確認ダイアログを通したか
+   * (削除の確認など。同じ操作で2回聞かない)
+   */
+  const confirmStructure = async (
+    what: string,
+    confirmLabel: string,
+    opts: {
+      confirmed?: boolean;
+      danger?: boolean;
+      /** 実行するSQLを組み立てる (確認を出すときだけ呼ぶ) */
+      sql?: () => Promise<string[]>;
+    } = {}
+  ) => {
+    if (opts.confirmed || !structConfirm) return;
+    const ok = await ask({
+      title: "テーブルの定義を変更します",
+      target: fullTableName,
+      confirmLabel,
+      tone: opts.danger ? "danger" : "primary",
+      prodNote: prod ? prodActionText(fullTableName, what) : undefined,
+      body: prod
+        ? "実行すると、すぐにデータベースの定義が変わります。"
+        : `${what}。`,
+      sql: opts.sql?.(),
+    });
+    if (!ok) throw new ApplyCancelled();
+  };
+
+  /** 変更の種類ごとの実行ボタンの文字 */
+  const verbOf = (kind: "add" | "drop" | "modify", add = "追加する") =>
+    kind === "add" ? add : kind === "drop" ? "削除する" : "変更する";
+
+  /** カラムの変更を実行する (失敗は呼び出し元へ投げ返す) */
+  const applyDdl = async (change: ColumnChange, confirmed?: boolean) => {
+    await confirmStructure(columnChangeWhat(change), verbOf(change.kind), {
+      confirmed,
+      danger: change.kind === "drop",
+      sql: () => previewColumnDdl(sessionId, table.schema, table.name, change),
+    });
     await applyColumnDdl(sessionId, database, table.schema, table.name, change);
     onReloadDetail();
   };
@@ -169,14 +232,34 @@ export function TableView({
   const previewIndex = (change: IndexChange) =>
     previewIndexDdl(sessionId, table.schema, table.name, change);
 
-  /** インデックスの変更をそのまま実行する */
-  const applyIndex = async (change: IndexChange) => {
+  /** インデックスの変更を実行する */
+  const applyIndex = async (change: IndexChange, confirmed?: boolean) => {
+    await confirmStructure(
+      indexChangeWhat(change),
+      change.kind === "modify" ? "作り直す" : verbOf(change.kind, "作成する"),
+      {
+        confirmed,
+        danger: change.kind === "drop",
+        sql:
+          change.kind === "drop"
+            ? undefined
+            : () =>
+                previewIndexDdl(sessionId, table.schema, table.name, change),
+      }
+    );
     await applyIndexDdl(sessionId, database, table.schema, table.name, change);
     onReloadDetail();
   };
 
   /** 外部キーの追加・削除を実行し、定義を取得し直す */
-  const applyForeignKey = async (change: ForeignKeyChange) => {
+  const applyForeignKey = async (
+    change: ForeignKeyChange,
+    confirmed?: boolean
+  ) => {
+    await confirmStructure(foreignKeyChangeWhat(change), verbOf(change.kind), {
+      confirmed,
+      danger: change.kind === "drop",
+    });
     await applyForeignKeyDdl(
       sessionId,
       database,
@@ -189,6 +272,11 @@ export function TableView({
 
   /** CREATE文の表示中か */
   const [showDdl, setShowDdl] = useState(false);
+  /**
+   * データタブで行を編集中か。
+   * 編集中に再読み込みすると入力が消えるので、そのあいだは押せなくする
+   */
+  const [dataEditing, setDataEditing] = useState(false);
 
   /*
    * データタブ (TableDataView) は React.memo で包んであるので、
@@ -299,13 +387,13 @@ export function TableView({
   const split = settings?.structureCommentMode === "split";
   const delim = settings?.commentDelimiter ?? "（";
 
-  /** データタブのヘッダに出すカラム説明 (論理名・補足・型) */
+  /** データタブのヘッダに出すカラム説明 (日本語名・補足・型) */
   const columnTips = useMemo(
     () => buildColumnTips(detail?.columns ?? [], delim),
     [detail, delim]
   );
 
-  /** データタブのヘッダに出す日本語名 (論理名だけ) */
+  /** データタブのヘッダに出す日本語名 (補足は含めない) */
   const columnLabels = useMemo(
     () => buildColumnLabels(detail?.columns ?? [], delim),
     [detail, delim]
@@ -321,11 +409,11 @@ export function TableView({
     });
   };
 
-  /** テーブルコメントの論理名 (split時に英字テーブル名の横へ出す) */
+  /** テーブルコメントの日本語名 (split時に英字テーブル名の横へ出す) */
   const tableComment =
     detail?.info.find(([label]) => label === "コメント")?.[1] ?? "";
   const [tableLogical, tableNote] = parseComment(tableComment, delim);
-  /** 見出しに出す日本語名 (分割表示なら論理名だけ、それ以外はコメント全体) */
+  /** 見出しに出す日本語名 (分割表示なら日本語名だけ、それ以外はコメント全体) */
   const displayName = split ? tableLogical : tableComment;
 
   /** 日本語名の編集を始める */
@@ -335,7 +423,10 @@ export function TableView({
     setNameDraft(displayName);
   };
 
-  /** 入力された日本語名をテーブルコメントとして保存する (確認は挟まない) */
+  /**
+   * 入力された日本語名をテーブルコメントとして保存する。
+   * 本番 (と設定で定義の変更を確認するとき) は、確定の前に確認を出す
+   */
   const saveName = async () => {
     if (nameBusy.current || nameDraft === null) return;
     const next = nameDraft.trim();
@@ -349,6 +440,7 @@ export function TableView({
     nameBusy.current = true;
     setNameError(null);
     try {
+      await confirmStructure(tableNameWhat(next), "変更する");
       await setTableComment(
         sessionId,
         database,
@@ -359,7 +451,8 @@ export function TableView({
       setNameDraft(null);
       onReloadDetail();
     } catch (e) {
-      setNameError(String(e));
+      // 確認でやめたときは、入力をそのまま残す
+      if (!(e instanceof ApplyCancelled)) setNameError(String(e));
     } finally {
       nameBusy.current = false;
     }
@@ -383,7 +476,7 @@ export function TableView({
         </h2>
         {nameDraft !== null ? (
           <input
-            className="table-logical-input"
+            className="table-logical-input has-tooltip"
             autoFocus
             value={nameDraft}
             placeholder="日本語名 (テーブルコメント)"
@@ -401,7 +494,7 @@ export function TableView({
                 setNameError(null);
               }
             }}
-            title="Enterで確定 / Escで取消"
+            data-tooltip="Enter で保存 / Esc で破棄"
             /*
              * 別の場所をクリックしても確定も破棄もしない。
              * 以前はここで ALTER TABLE … COMMENT を実行していたため、
@@ -410,19 +503,19 @@ export function TableView({
           />
         ) : null}
         {nameDraft !== null ? (
-          <button
+          <IconButton
             className="inline-apply-btn"
-            title="この日本語名にする (Enter)"
+            label="保存する (Enter)"
             onMouseDown={(e) => e.preventDefault()}
             onClick={saveName}
           >
             ✓
-          </button>
+          </IconButton>
         ) : null}
         {nameDraft !== null ? (
-          <button
+          <IconButton
             className="inline-apply-btn"
-            title="やめる (Esc)"
+            label="変更を破棄 (Esc)"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               setNameDraft(null);
@@ -430,13 +523,16 @@ export function TableView({
             }}
           >
             ✕
-          </button>
+          </IconButton>
         ) : displayName ? (
           <span
-            className={"table-logical" + (canName ? " editable" : "")}
-            title={
-              canName ? `${tableComment}\n(ダブルクリックで変更)` : tableComment
+            className={
+              "table-logical" + (canName ? " editable has-tooltip tooltip-wide" : "")
             }
+            // 変えられるときは操作の説明を添えるので data-tooltip にする。
+            // 変えられないときは名前の全体を見せるだけなので title のまま
+            title={canName ? undefined : tableComment}
+            data-tooltip={canName ? `${tableComment}\n(ダブルクリックで変更)` : undefined}
             onDoubleClick={startEditName}
           >
             {displayName}
@@ -444,7 +540,7 @@ export function TableView({
         ) : (
           canName && (
             <button className="table-logical-add" onClick={startEditName}>
-              ＋ 日本語名
+              + 日本語名
             </button>
           )
         )}
@@ -455,21 +551,23 @@ export function TableView({
          * 最新にしたいときはここから取り直す
          */}
         <button
-          className="btn-ghost table-ddl-btn"
+          className="btn-ghost table-ddl-btn has-tooltip"
           onClick={refresh}
-          disabled={loadingDetail || dataPane.loading}
-          title={
-            "定義とデータを取得し直す\n" +
-            "(画面を切り替えても取り直さないので、最新にしたいときに押します)"
+          disabled={loadingDetail || dataPane.loading || dataEditing}
+          data-tooltip={
+            dataEditing
+              ? "データタブで編集中の行があります。保存するか破棄してから再読み込みしてください"
+              : "定義とデータを再読み込みします\n" +
+                "(画面を切り替えても取り直さないので、最新にしたいときに押します)"
           }
         >
           ↻ 再読み込み
         </button>
         {/* 定義を人に渡すとき用。表示するだけで実行はしない */}
         <button
-          className="btn-ghost table-ddl-btn"
+          className="btn-ghost table-ddl-btn has-tooltip"
           onClick={() => setShowDdl(true)}
-          title="CREATE 文を表示してコピーする"
+          data-tooltip="CREATE 文を表示してコピーする"
         >
           CREATE 文
         </button>
@@ -499,6 +597,8 @@ export function TableView({
             delim={delim}
             canEdit={canEdit}
             dbType={dbType}
+            prod={prod}
+            tableLabel={fullTableName}
             resetKey={`${table.schema ?? ""}.${table.name}`}
             onApplyDdl={applyDdl}
             onPreviewDdl={previewDdl}
@@ -506,6 +606,7 @@ export function TableView({
             onApplyIndexDdl={applyIndex}
             onPreviewIndexDdl={previewIndex}
             onApplyForeignKeyDdl={applyForeignKey}
+            onSendToEditor={onSendToEditor}
             types={types}
             collations={collations}
           />
@@ -534,6 +635,7 @@ export function TableView({
             tableLabel={fullTableName}
             onApplyRow={applyRow}
             onFetchCell={fetchFullCell}
+            onEditingChange={setDataEditing}
             filterSlot={{
               session: sessionId,
               database: database ?? "",
@@ -552,6 +654,7 @@ export function TableView({
             tableDdl(sessionId, database, table.schema, table.name)
           }
           onClose={() => setShowDdl(false)}
+          onSendToEditor={onSendToEditor}
         />
       )}
 
@@ -568,6 +671,8 @@ export function TableView({
           onSendToEditor={onSendToEditor}
         />
       )}
+
+      {askDialog}
     </div>
   );
 }

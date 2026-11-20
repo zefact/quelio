@@ -36,13 +36,13 @@ describe("入れた内容の確かめ", () => {
 
   it("列が1つも無ければ断る", () => {
     expect(checkErTable(emptyErTable(), [])).toContain("テーブル名");
-    expect(checkErTable(spec({ columns: [] }), [])).toContain("列を1つ以上");
+    expect(checkErTable(spec({ columns: [] }), [])).toContain("カラムを1つ以上");
   });
 
   it("同じ名前の列は断る", () => {
     const s = spec();
     const dup = spec({ columns: [s.columns[0], { ...s.columns[1], name: "USER_ID" }] });
-    expect(checkErTable(dup, [])).toContain("同じ名前の列");
+    expect(checkErTable(dup, [])).toContain("同じ名前のカラム");
   });
 });
 

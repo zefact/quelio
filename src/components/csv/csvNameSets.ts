@@ -29,7 +29,7 @@ export function applyBlocked(info: CsvInfo | null): string | null {
   if (!info) return "ファイルを開いてください";
   if (info.format.fixed) return "固定長のファイルは、固定長設定で項目名を付けます";
   if (info.hasHeader) {
-    return "1行目をヘッダとして扱っているファイルには当てられません (書式メニューで切り替えられます)";
+    return "1行目を見出し行として扱っているファイルには当てられません (右下の書式のボタンで切り替えられます)";
   }
   return null;
 }

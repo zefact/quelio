@@ -74,10 +74,13 @@ export function CsvMapping({
                 <td
                   key={ci}
                   className={
-                    (mapping[ci] ?? null) === null ? "csv-map-skip" : undefined
+                    "has-tooltip" +
+                    ((mapping[ci] ?? null) === null ? " csv-map-skip" : "")
                   }
                   /* 列が足りない行は空欄と区別が付かないので、印を残す */
-                  title={ci >= row.length ? "この行にはこの列がありません" : undefined}
+                  data-tooltip={
+                    ci >= row.length ? "この行にはこの列がありません" : undefined
+                  }
                 >
                   <span className="mono">
                     {ci < row.length ? row[ci] : "—"}

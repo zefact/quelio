@@ -13,7 +13,7 @@ interface Props {
   onSchema: () => void;
   onRoutines: () => void;
   onProcesses: () => void;
-  /** ヘルプ (照合順序などの説明) */
+  /** ヘルプ (実行計画・インデックス・照合順序・ショートカットの説明) */
   onHelp: () => void;
   /** 出せる説明が1つも無い接続では、ヘルプを出さない */
   hasHelp: boolean;
@@ -31,12 +31,24 @@ interface Tool {
   run: () => void;
 }
 
+/**
+ * 名前で探す。
+ *
+ * タブバーの「画面内を検索」(虫眼鏡だけ) と見分けられるよう、
+ * 一覧の行に虫眼鏡を重ねた絵にする
+ */
 function SearchIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="2" />
       <path
-        d="M16 16l4.5 4.5"
+        d="M3 5h12M3 10h7M3 15h5"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <circle cx="15.5" cy="14.5" r="4" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M18.5 17.5l2.5 2.5"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
@@ -190,7 +202,7 @@ export function SessionTools({
     {
       key: "schema",
       label: "スキーマ",
-      note: "テーブル・カラムの一覧と定義書の出力",
+      note: "テーブル・カラムの一覧と、定義書の書き出し",
       icon: <SchemaIcon />,
       blocked: noDb,
       run: onSchema,
@@ -207,7 +219,7 @@ export function SessionTools({
     {
       key: "search",
       label: "名前で探す",
-      note: "テーブル名・カラム名・コメントを探す",
+      note: "テーブル名・カラム名・コメントをデータベースの中から探す",
       icon: <SearchIcon />,
       blocked: noDb,
       run: onSearch,
@@ -231,7 +243,7 @@ export function SessionTools({
     tools.push({
       key: "help",
       label: "ヘルプ",
-      note: "照合順序などの説明",
+      note: "実行計画・インデックス・照合順序・ショートカットの説明",
       icon: <HelpIcon />,
       blocked: null,
       run: onHelp,
@@ -254,7 +266,11 @@ export function SessionTools({
     <div className="tools-wrap" ref={wrapRef}>
       <button
         className={"sql-btn" + (open ? "" : " has-tooltip")}
-        data-tooltip="検索・ER図・スキーマ・関数の定義・プロセス一覧"
+        data-tooltip={
+          "この接続・データベースで使う道具\n" +
+          "(スキーマ・関数・名前で探す・プロセス一覧" +
+          (hasHelp ? "・ヘルプ)" : ")")
+        }
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggle}
@@ -274,13 +290,18 @@ export function SessionTools({
           style={menuStyle}
           onMouseDown={(e) => e.stopPropagation()}
         >
+          {/*
+            * ここは「この接続・データベース」の道具。
+            * CSVエディタ・ER図など、接続によらないものはタブバーの右にある
+            */}
+          <div className="context-group">この接続・データベース</div>
           {tools.map((t) => (
             <button
               key={t.key}
               role="menuitem"
-              className="context-item tools-menu-item"
+              className="context-item tools-menu-item has-tooltip"
               disabled={!!t.blocked}
-              title={t.blocked ?? undefined}
+              data-tooltip={t.blocked ?? undefined}
               onClick={() => pick(t)}
             >
               <span className="tools-menu-icon" aria-hidden>

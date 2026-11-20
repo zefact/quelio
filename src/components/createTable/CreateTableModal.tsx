@@ -5,8 +5,8 @@ import {
   listColumnTypes,
   previewCreateTable,
 } from "../../api";
-import { useModal } from "../../hooks/useModal";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { ModalFrame } from "../ModalFrame";
 import { SelectMenu } from "../SelectMenu";
 import { ColumnRows } from "./ColumnRows";
 import { DraftColumn, firstColumns, toNewTable, validateDraft } from "./newTable";
@@ -57,7 +57,6 @@ export function CreateTableModal({
   const [error, setError] = useState<string | null>(null);
   /** 確認中の内容 (実行するSQL) */
   const [pending, setPending] = useState<string | null>(null);
-  const boxRef = useModal(onClose, !busy);
 
   const isMysql = dbType === "mysql";
   const isPg = dbType === "postgresql";
@@ -158,28 +157,25 @@ export function CreateTableModal({
   );
 
   return (
-    <div className="modal-overlay" onMouseDown={busy ? undefined : onClose}>
-      <div
-        className="modal create-table-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
+    <>
+      <ModalFrame
+        title="テーブルを作成"
+        target={database}
+        onClose={onClose}
+        closable={!busy}
+        className="create-table-modal"
+        footerNote="作成する前に、実行するSQLを確認できます"
+        footer={
+          <>
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>
+              キャンセル
+            </button>
+            <button className="btn-primary" disabled={busy} onClick={ask}>
+              {busy ? "作成中…" : "作成する…"}
+            </button>
+          </>
+        }
       >
-        <div className="modal-head">
-          <span className="modal-title">
-            テーブルを作成
-            <span className="column-modal-target mono">{database}</span>
-          </span>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={busy}
-            title="閉じる (Esc)"
-          >
-            ×
-          </button>
-        </div>
-
         <div className="ct-body">
           <div className="db-admin-opts-row">
             {isPg && (
@@ -272,33 +268,21 @@ export function CreateTableModal({
             <span className="result-detail">{error}</span>
           </div>
         )}
+      </ModalFrame>
 
-        <div className="modal-actions column-modal-actions">
-          <span className="ct-foot-hint">
-            作成する前に、実行するSQLを確認できます
-          </span>
-          <span className="toolbar-spacer" />
-          <button className="btn-secondary" onClick={onClose} disabled={busy}>
-            キャンセル
-          </button>
-          <button className="btn-primary" disabled={busy} onClick={ask}>
-            {busy ? "作成中..." : "作成"}
-          </button>
-        </div>
-
-        {pending && (
-          <ConfirmDialog
-            title="テーブルを作成します"
-            target={name.trim()}
-            confirmLabel="作成する"
-            onConfirm={run}
-            onCancel={() => setPending(null)}
-          >
-            <p>次のSQLを実行します。</p>
-            <pre className="mono confirm-sql">{pending}</pre>
-          </ConfirmDialog>
-        )}
-      </div>
-    </div>
+      {pending && (
+        <ConfirmDialog
+          title="テーブルを作成します"
+          target={name.trim()}
+          confirmLabel="作成する"
+          tone="primary"
+          onConfirm={run}
+          onCancel={() => setPending(null)}
+        >
+          <p>次のSQLを実行します。</p>
+          <pre className="mono confirm-sql">{pending}</pre>
+        </ConfirmDialog>
+      )}
+    </>
   );
 }

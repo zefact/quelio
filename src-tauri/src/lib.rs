@@ -62,6 +62,16 @@ mod workspace;
 #[cfg(target_os = "macos")]
 const ABOUT_MENU_ID: &str = "about";
 
+/// メニューのIDと、押されたときにフロントへ送るイベント名の組。
+/// 画面を開くのはフロントの仕事なので、ここでは知らせるだけにする
+#[cfg(target_os = "macos")]
+const MENU_EVENTS: &[(&str, &str)] = &[
+    (ABOUT_MENU_ID, "show-about"),
+    ("settings", "show-settings"),
+    ("help", "show-help"),
+    ("shortcuts", "show-shortcuts"),
+];
+
 /// macOS用の日本語メニューバーを構築する
 #[cfg(target_os = "macos")]
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
@@ -70,6 +80,18 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
     // OS標準のAboutパネルではなく、アプリ内の「Quelioについて」を出す
     // (アイコン・説明・リリース日・サイトのリンクまで同じ見た目で見せるため)
     let about = MenuItem::with_id(app, ABOUT_MENU_ID, "Quelioについて", true, None::<&str>)?;
+    // macOS の決まりどおり「設定…」はアプリ名のメニューに置き、⌘, で開く
+    let settings = MenuItem::with_id(app, "settings", "設定…", true, Some("CmdOrCtrl+,"))?;
+    let help = MenuItem::with_id(app, "help", "Quelioヘルプ", true, None::<&str>)?;
+    // ⌘/ は画面の側で開け閉めしているので、ここではキーを割り当てない
+    // (割り当てると、画面にキーが届かず閉じられなくなる)
+    let shortcuts = MenuItem::with_id(
+        app,
+        "shortcuts",
+        "キーボードショートカット",
+        true,
+        None::<&str>,
+    )?;
 
     let app_menu = Submenu::with_items(
         app,
@@ -77,6 +99,8 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
         true,
         &[
             &about,
+            &PredefinedMenuItem::separator(app)?,
+            &settings,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::services(app, Some("サービス"))?,
             &PredefinedMenuItem::separator(app)?,
@@ -115,17 +139,19 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::
 
     let window = Submenu::with_items(
         app,
-        "ウインドウ",
+        "ウィンドウ",
         true,
         &[
             &PredefinedMenuItem::minimize(app, Some("しまう"))?,
             &PredefinedMenuItem::maximize(app, Some("拡大/縮小"))?,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::close_window(app, Some("ウインドウを閉じる"))?,
+            &PredefinedMenuItem::close_window(app, Some("ウィンドウを閉じる"))?,
         ],
     )?;
 
-    Menu::with_items(app, &[&app_menu, &edit, &view, &window])
+    let help_menu = Submenu::with_items(app, "ヘルプ", true, &[&help, &shortcuts])?;
+
+    Menu::with_items(app, &[&app_menu, &edit, &view, &window, &help_menu])
 }
 
 /// `--mcp-stdio` で起動されたときの入口。
@@ -173,10 +199,15 @@ pub fn run() {
                 let menu = build_menu(_app.handle())?;
                 _app.set_menu(menu)?;
                 _app.on_menu_event(|app, event| {
-                    if event.id() == ABOUT_MENU_ID {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.emit("show-about", ());
-                        }
+                    let Some((_, name)) =
+                        MENU_EVENTS.iter().find(|(id, _)| event.id() == *id)
+                    else {
+                        return;
+                    };
+                    if let Some(w) = app.get_webview_window("main") {
+                        // CSVエディタなど別の窓から選んだときも、開く先のメイン窓を前に出す
+                        let _ = w.set_focus();
+                        let _ = w.emit(name, ());
                     }
                 });
             }
@@ -280,12 +311,14 @@ pub fn run() {
             commands::run_query,
             commands::preview_sql,
             commands::cancel_query,
+            commands::check_connection,
             commands::get_txn_state,
             commands::end_txn,
             commands::cancel_schema_load,
             commands::kv_scan,
             commands::kv_key_detail,
             commands::kv_exec,
+            commands::kv_cancel,
             commands::check_kv_destructive,
             commands::kv_apply,
             commands::export_schema_csv,
@@ -397,12 +430,15 @@ pub fn run() {
             commands::export_er_diagrams,
             commands::export_saved_sql,
             commands::import_saved_sql,
+            commands::preview_saved_sql_import,
             commands::export_saved_sql_subset,
             commands::inspect_saved_sql_file,
             commands::import_saved_sql_into,
             commands::export_csv_layouts,
             commands::import_csv_layouts,
+            commands::preview_csv_layouts_import,
             commands::import_er_diagrams,
+            commands::preview_er_diagrams_import,
             commands::export_er_diagram_subset,
             commands::inspect_er_diagram_file,
             commands::import_er_diagrams_as_new,

@@ -51,9 +51,10 @@ export function TestDataColumnList({
               <td className="gen-pick">
                 <input
                   type="checkbox"
+                  className="has-tooltip tooltip-left"
                   checked={picked.has(c.name)}
                   disabled={disabled || c.auto}
-                  title={
+                  data-tooltip={
                     c.auto ? "自動採番の列なので値を入れません" : undefined
                   }
                   onChange={() => onToggle(c.name)}

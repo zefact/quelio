@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Notify } from "../notify";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { open } from "@tauri-apps/plugin-dialog";
+import { pickExportPath } from "../exportDir";
 import {
   checkConfigFiles,
   exportCsvLayouts,
@@ -11,10 +12,25 @@ import {
   inspectConnectionsFile,
   importErDiagrams,
   importSavedSql,
+  previewCsvLayoutsImport,
+  previewErDiagramsImport,
+  previewSavedSqlImport,
   quarantineConfigFile,
 } from "../api";
-import type { ConfigFile, ConnectionsFileInfo, ImportCounts } from "../types";
+import type {
+  ConfigFile,
+  ConnectionsFileInfo,
+  ImportCounts,
+  RestorePreview,
+} from "../types";
+import {
+  fileNameOf,
+  overwrittenNames,
+  restoreCounts,
+} from "../restorePreview";
 import { SettingRow } from "./SettingRow";
+import { RevealButton } from "./RevealButton";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { ConnectionExportDialog } from "./backup/ConnectionExportDialog";
 import { ConnectionImportDialog } from "./backup/ConnectionImportDialog";
 
@@ -71,23 +87,34 @@ export function SettingsBackup({ notify, onImported }: Props) {
     }
   };
 
-  /** バックアップ共通処理: 保存先を選んで書き出す */
+  /**
+   * 最後に書き出したもの。その欄の下に結果と「フォルダを開く」を出す
+   * (次の書き出しか、設定を閉じるまで残す)
+   */
+  const [exported, setExported] = useState<{
+    label: string;
+    count: number;
+    path: string;
+  } | null>(null);
+
+  /** バックアップ共通処理: 書き出し先を選んで書き出す */
   const doExport = async (
     defaultName: string,
     run: (path: string) => Promise<number>,
     label: string
   ) => {
     if (busy) return;
-    const path = await save({
-      defaultPath: defaultName,
+    // ほかの書き出しと同じフォルダから選ぶ
+    const path = await pickExportPath({
+      fileName: defaultName,
       filters: JSON_FILTER,
       title: `${label}をバックアップ`,
-    }).catch(() => null);
+    });
     if (!path) return;
     setBusy(true);
     try {
       const count = await run(path);
-      notify(`${label}を${count}件バックアップしました`);
+      setExported({ label, count, path });
     } catch (e) {
       notify(String(e), "error");
     } finally {
@@ -95,24 +122,74 @@ export function SettingsBackup({ notify, onImported }: Props) {
     }
   };
 
-  /** 復元の共通処理: ファイルを選んで取り込む */
-  const doImport = async (
-    run: (path: string) => Promise<ImportCounts>,
-    label: string,
-    reloadAfter: boolean
-  ) => {
-    if (busy) return;
+  /** その欄で書き出した結果 (書き出していなければ何も出さない) */
+  const exportedBanner = (label: string) =>
+    exported?.label === label ? (
+      <div className="result-banner ok set-export-result">
+        <span className="dot" aria-hidden />
+        <span className="result-detail">
+          {label}を{exported.count}件バックアップしました。
+        </span>
+        <RevealButton path={exported.path} />
+      </div>
+    ) : null;
+
+  /** 復元するファイルを選ぶ (選ばなければ null) */
+  const pickRestoreFile = async (label: string): Promise<string | null> => {
     const path = await open({
       multiple: false,
       filters: JSON_FILTER,
       title: `${label}を復元`,
     }).catch(() => null);
-    if (typeof path !== "string") return;
+    return typeof path === "string" ? path : null;
+  };
+
+  /**
+   * 復元する前の確認。
+   * 選んだファイルを書き込まずに数えた、追加と上書きの件数と、上書きされるものの名前を出す
+   */
+  const [askRestore, setAskRestore] = useState<{
+    label: string;
+    /** 上書きがあるときに添える、何が置き換わるかの説明 */
+    note: string;
+    path: string;
+    preview: RestorePreview;
+    /** 「復元する」で取り込む。失敗したら例外を投げる (ダイアログに出す) */
+    run: () => Promise<void>;
+  } | null>(null);
+
+  /**
+   * 復元 (ER図・お気に入り): ファイルを選び、件数を数えてから確認を出す。
+   * 中身が無いファイルなら、確認を出さずにそう知らせる
+   */
+  const startRestore = async (spec: {
+    label: string;
+    note: string;
+    preview: (path: string) => Promise<RestorePreview>;
+    run: (path: string) => Promise<ImportCounts>;
+  }) => {
+    if (busy) return;
+    const path = await pickRestoreFile(spec.label);
+    if (!path) return;
     setBusy(true);
     try {
-      const r = await run(path);
-      notify(`${label}を取り込みました (追加${r.added}件 / 上書き${r.updated}件)`);
-      if (reloadAfter) onImported();
+      const preview = await spec.preview(path);
+      if (preview.added + preview.updated === 0) {
+        notify(`選んだファイルに${spec.label}が入っていません`, "warning");
+        return;
+      }
+      setAskRestore({
+        label: spec.label,
+        note: spec.note,
+        path,
+        preview,
+        run: async () => {
+          const r = await spec.run(path);
+          notify(
+            `${spec.label}を復元しました (追加${r.added}件 / 上書き${r.updated}件)`
+          );
+        },
+      });
     } catch (e) {
       notify(String(e), "error");
     } finally {
@@ -133,7 +210,7 @@ export function SettingsBackup({ notify, onImported }: Props) {
         ? `外部コマンドの場所 (${r.commandPathsDropped}件)`
         : null,
     ].filter((s): s is string => s !== null);
-    const done = `接続一覧を取り込みました (追加${r.added}件 / 上書き${r.updated}件${secrets})`;
+    const done = `接続一覧を復元しました (追加${r.added}件 / 上書き${r.updated}件${secrets})`;
     if (skipped.length === 0) {
       notify(done);
     } else {
@@ -149,15 +226,13 @@ export function SettingsBackup({ notify, onImported }: Props) {
    * 接続一覧の復元。
    *
    * パスワードが入ったファイルなら、取り込む前にバックアップのパスワードを聞く
+   * (件数はそのダイアログに出す)。
+   * 入っていなければ、件数を見せる確認を出してから取り込む
    */
   const importConns = async () => {
     if (busy) return;
-    const path = await open({
-      multiple: false,
-      filters: JSON_FILTER,
-      title: "接続一覧を復元",
-    }).catch(() => null);
-    if (typeof path !== "string") return;
+    const path = await pickRestoreFile("接続一覧");
+    if (!path) return;
     setBusy(true);
     try {
       const info = await inspectConnectionsFile(path);
@@ -165,7 +240,17 @@ export function SettingsBackup({ notify, onImported }: Props) {
         setImportingConns({ path, info });
         return;
       }
-      connsImported(await importConnections(path));
+      if (info.preview.added + info.preview.updated === 0) {
+        notify("選んだファイルに接続先が入っていません", "warning");
+        return;
+      }
+      setAskRestore({
+        label: "接続一覧",
+        note: "同じ接続先は、ファイルの中身で上書きされます (保存してあるパスワードはそのまま残ります)。",
+        path,
+        preview: info.preview,
+        run: async () => connsImported(await importConnections(path)),
+      });
     } catch (e) {
       notify(String(e), "error");
     } finally {
@@ -186,7 +271,7 @@ export function SettingsBackup({ notify, onImported }: Props) {
               <br />
               パスワードとSSHのパスフレーズは、選んだときだけ含めます
               (含めるときは、決めたパスワードで暗号化します。復元のときにそのパスワードを入れます)。
-              同じIDの接続先は上書きされます。
+              復元では今の接続先は消えません。同じIDの接続先は上書きし、無いものを足します。
             </>
           }
         >
@@ -203,11 +288,39 @@ export function SettingsBackup({ notify, onImported }: Props) {
               disabled={busy}
               onClick={() => void importConns()}
             >
-              復元
+              復元 (同じものは上書き)
             </button>
           </div>
         </SettingRow>
       </section>
+
+      {askRestore && (
+        <ConfirmDialog
+          title={`${askRestore.label}を復元します`}
+          target={fileNameOf(askRestore.path)}
+          confirmLabel="復元する"
+          // 上書きはあっても、今あるものを消す操作ではないので赤にしない
+          tone="primary"
+          onCancel={() => setAskRestore(null)}
+          onConfirm={async () => {
+            await askRestore.run();
+            setAskRestore(null);
+          }}
+        >
+          <div>
+            <strong>{restoreCounts(askRestore.preview)}</strong>
+          </div>
+          {askRestore.preview.updated > 0 && (
+            <div>
+              上書きされるもの: {overwrittenNames(askRestore.preview.updatedNames)}
+            </div>
+          )}
+          <div>
+            {askRestore.preview.updated > 0 && askRestore.note}
+            今あるもののうち、ファイルに無いものは消えずに残ります。
+          </div>
+        </ConfirmDialog>
+      )}
 
       {exportingConns && (
         <ConnectionExportDialog
@@ -259,12 +372,20 @@ export function SettingsBackup({ notify, onImported }: Props) {
             <button
               className="btn-secondary"
               disabled={busy}
-              onClick={() => doImport(importErDiagrams, "ER図", false)}
+              onClick={() =>
+                void startRestore({
+                  label: "ER図",
+                  note: "同じ名前のER図は、ファイルの中身で上書きされます (配置・注釈も置き換わります)。",
+                  preview: previewErDiagramsImport,
+                  run: importErDiagrams,
+                })
+              }
             >
-              復元
+              復元 (同じものは上書き)
             </button>
           </div>
         </SettingRow>
+        {exportedBanner("ER図")}
       </section>
 
       <section className="set-section">
@@ -299,13 +420,19 @@ export function SettingsBackup({ notify, onImported }: Props) {
               className="btn-secondary"
               disabled={busy}
               onClick={() =>
-                doImport(importSavedSql, "SQLのお気に入り", false)
+                void startRestore({
+                  label: "SQLのお気に入り",
+                  note: "同じお気に入りは、ファイルの中身で上書きされます。",
+                  preview: previewSavedSqlImport,
+                  run: importSavedSql,
+                })
               }
             >
-              復元
+              復元 (同じものは上書き)
             </button>
           </div>
         </SettingRow>
+        {exportedBanner("SQLのお気に入り")}
       </section>
 
       <section className="set-section">
@@ -343,13 +470,19 @@ export function SettingsBackup({ notify, onImported }: Props) {
               className="btn-secondary"
               disabled={busy}
               onClick={() =>
-                doImport(importCsvLayouts, "固定長のお気に入り", false)
+                void startRestore({
+                  label: "固定長のお気に入り",
+                  note: "同じ名前のお気に入りは、桁設定がファイルの中身で上書きされます。",
+                  preview: previewCsvLayoutsImport,
+                  run: importCsvLayouts,
+                })
               }
             >
-              復元
+              復元 (同じものは上書き)
             </button>
           </div>
         </SettingRow>
+        {exportedBanner("固定長のお気に入り")}
       </section>
 
       <section className="set-section">
@@ -373,7 +506,7 @@ export function SettingsBackup({ notify, onImported }: Props) {
               disabled={busy}
               onClick={reloadFiles}
             >
-              調べ直す
+              再読み込み
             </button>
           </div>
         </SettingRow>

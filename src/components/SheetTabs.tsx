@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { IconButton } from "./IconButton";
 import type { QuerySheet } from "../types";
 import { HoverTip } from "./HoverTip";
 import { MAX_SHEETS } from "../workspace";
 import { SheetTabMenu } from "./SheetTabMenu";
 import { autoTitle } from "./sheetTitle";
-import { FormatIcon, FunctionsIcon } from "./SqlToolIcons";
+import { FunctionsIcon } from "./SqlToolIcons";
 import { MOD, SHIFT } from "../keyLabel";
 import { imeBusy } from "../ime";
 
@@ -24,12 +26,8 @@ interface Props {
   onRename: (id: string, title: string) => void;
   /** そのシートのSQLをファイルに保存する */
   onSaveFile: (id: string) => void;
-  /** 書いてあるSQLを整形する */
-  onFormat: () => void;
   /** 関数リファレンスを開く */
   onFunctions: () => void;
-  /** 整形できるSQLが書いてあるか */
-  canFormat: boolean;
 }
 
 /**
@@ -49,9 +47,7 @@ export function SheetTabs({
   onCloseAll,
   onRename,
   onSaveFile,
-  onFormat,
   onFunctions,
-  canFormat,
 }: Props) {
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(
     null
@@ -61,6 +57,17 @@ export function SheetTabs({
     null
   );
   const menuSheet = sheets.find((s) => s.id === menu?.id) ?? null;
+  /** 閉じる前の確認中のシート (書きかけのSQLがあるときだけ確認する) */
+  const [closing, setClosing] = useState<QuerySheet | null>(null);
+  const closingLive = sheets.find((s) => s.id === closing?.id) ?? null;
+
+  /** シートを閉じる。空白以外が書いてあれば、消える前に確認する */
+  const requestClose = (id: string) => {
+    const sheet = sheets.find((s) => s.id === id);
+    if (!sheet) return;
+    if (sheet.sql.trim() === "") onClose(id);
+    else setClosing(sheet);
+  };
   const full = sheets.length >= MAX_SHEETS;
 
   // 表示中のシートは必ず一覧にいる (emptyTab / workspace で1枚は用意する)
@@ -116,32 +123,44 @@ export function SheetTabs({
                 : "ダブルクリックで名前を変えられます"
             }
           >
-          <button
-            className={"sheet-tab" + (active ? " active" : "")}
-            disabled={running && !active}
-            onClick={() => onSelect(s.id)}
-            onDoubleClick={() => setEditing({ id: s.id, value: s.title })}
+          {/*
+            タブ本体と × は別のボタンにする
+            (ボタンの中にボタンは置けず、× にキーボードで移れなくなるため)
+          */}
+          <span
+            className={
+              "sheet-tab" +
+              (active ? " active" : "") +
+              (running && !active ? " disabled" : "")
+            }
             onContextMenu={(e) => {
               e.preventDefault();
               setMenu({ id: s.id, x: e.clientX, y: e.clientY });
             }}
           >
-            <span className="sheet-name">{label(s)}</span>
+            <button
+              className="sheet-tab-main"
+              disabled={running && !active}
+              aria-pressed={active}
+              onClick={() => onSelect(s.id)}
+              onDoubleClick={() => setEditing({ id: s.id, value: s.title })}
+            >
+              <span className="sheet-name">{label(s)}</span>
+            </button>
             {list.length > 1 && !running && (
-              <span
+              <button
                 className="sheet-close"
-                role="button"
-                aria-label="このシートを閉じる"
+                aria-label={`シート「${label(s)}」を閉じる`}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
-                  onClose(s.id);
+                  requestClose(s.id);
                 }}
               >
                 ×
-              </span>
+              </button>
             )}
-          </button>
+          </span>
           </HoverTip>
         );
       })}
@@ -164,23 +183,18 @@ export function SheetTabs({
       </HoverTip>
       </div>
 
-      {/* 書くときに使う道具は、シート列の右端にまとめる */}
+      {/*
+        書くときに使う道具は、シート列の右端にまとめる。
+        整形は実行ボタンの並びの「…」と右クリックにある (入口を増やしすぎない)
+      */}
       <div className="sheet-tools">
-        <button
-          className="pane-icon-btn has-tooltip tooltip-wrap"
-          data-tooltip={`SQLを見やすく整形する (${MOD}${SHIFT}F)\nキーワードを大文字にし、カンマを行の先頭に置きます`}
-          disabled={running || !canFormat}
-          onClick={onFormat}
-        >
-          <FormatIcon />
-        </button>
-        <button
-          className="pane-icon-btn has-tooltip tooltip-wrap"
-          data-tooltip={`関数リファレンス (${MOD}${SHIFT}H)\n名前を覚えていなくても「切り捨て」「前ゼロ」「月末」などの言葉で探せます`}
+        <IconButton
+          className="pane-icon-btn tooltip-wrap"
+          label={`関数リファレンス (${MOD}${SHIFT}H)\n名前を覚えていなくても「切り捨て」「前ゼロ」「月末」などの言葉で探せます`}
           onClick={onFunctions}
         >
           <FunctionsIcon />
-        </button>
+        </IconButton>
       </div>
 
       {menu && menuSheet && (
@@ -190,12 +204,27 @@ export function SheetTabs({
           x={menu.x}
           y={menu.y}
           running={running}
-          onClose={onClose}
+          onClose={requestClose}
           onCloseOthers={onCloseOthers}
           onCloseAll={onCloseAll}
           onSaveFile={onSaveFile}
           onDismiss={() => setMenu(null)}
         />
+      )}
+
+      {closing && closingLive && (
+        <ConfirmDialog
+          title="シートを閉じます"
+          target={label(closingLive)}
+          confirmLabel="閉じる"
+          onConfirm={() => {
+            onClose(closingLive.id);
+            setClosing(null);
+          }}
+          onCancel={() => setClosing(null)}
+        >
+          書きかけのSQLは元に戻せません。
+        </ConfirmDialog>
       )}
     </div>
   );

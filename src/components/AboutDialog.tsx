@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { useModal } from "../hooks/useModal";
 import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { ModalShell } from "./ModalShell";
 import {
   APP_NAME,
   APP_TAGLINE_LINES,
@@ -50,66 +50,66 @@ export function AboutDialog({ onClose }: Props) {
       .catch(() => {});
   }, []);
 
-  // Escで閉じる・初期フォーカスは共通の作法にそろえる
-  const boxRef = useModal<HTMLDivElement>(onClose);
-
   const isBeta = version.startsWith("0.");
   const released = releaseDateOf(version);
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className="modal about-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        {/* アプリのアイコン (public/quelio.svg = ビルドで使うアイコンの元データ) */}
-        <img className="about-icon" src="/quelio.svg" width={76} height={76} alt="" />
-        <div className="about-name">
-          {APP_NAME}
-          {isBeta && <span className="beta-badge">β</span>}
-        </div>
-        <div className="about-desc">
-          {APP_TAGLINE_LINES.map((line) => (
-            <div key={line}>{line}</div>
-          ))}
-        </div>
-
-        <dl className="about-meta">
-          <div className="about-meta-row">
-            <dt>バージョン</dt>
-            <dd className="mono">
-              {version ? version : "-"}
-              {isBeta && <span className="about-beta-note">ベータ版</span>}
-            </dd>
-          </div>
-          {released && (
-            <div className="about-meta-row">
-              <dt>リリース日</dt>
-              <dd>{formatDate(released)}</dd>
-            </div>
-          )}
-          <div className="about-meta-row">
-            <dt>サイト</dt>
-            <dd>
-              <button
-                className="about-link"
-                onClick={() => openUrl(SITE_URL).catch(() => {})}
-                title={`${SITE_URL} をブラウザで開く`}
-              >
-                {SITE_LABEL}
-                <ExternalIcon />
-              </button>
-            </dd>
-          </div>
-        </dl>
-
-        <div className="about-copy">{COPYRIGHT}</div>
-        <button className="btn-secondary about-close" onClick={onClose}>
-          閉じる
-        </button>
+    <ModalShell
+      label="Quelioについて"
+      onClose={onClose}
+      className="about-modal"
+    >
+      {/* アプリのアイコン (public/quelio.svg = ビルドで使うアイコンの元データ) */}
+      <img
+        className="about-icon"
+        src="/quelio.svg"
+        width={76}
+        height={76}
+        alt=""
+      />
+      <div className="about-name">
+        {APP_NAME}
+        {isBeta && <span className="beta-badge">β</span>}
       </div>
-    </div>
+      <div className="about-desc">
+        {APP_TAGLINE_LINES.map((line) => (
+          <div key={line}>{line}</div>
+        ))}
+      </div>
+
+      <dl className="about-meta">
+        <div className="about-meta-row">
+          <dt>バージョン</dt>
+          <dd className="mono">
+            {version ? version : "-"}
+            {isBeta && <span className="about-beta-note">ベータ版</span>}
+          </dd>
+        </div>
+        {released && (
+          <div className="about-meta-row">
+            <dt>リリース日</dt>
+            <dd>{formatDate(released)}</dd>
+          </div>
+        )}
+        <div className="about-meta-row">
+          <dt>サイト</dt>
+          <dd>
+            <button
+              className="about-link has-tooltip"
+              onClick={() => openUrl(SITE_URL).catch(() => {})}
+              data-tooltip={`${SITE_URL} をブラウザで開く`}
+            >
+              {SITE_LABEL}
+              <ExternalIcon />
+            </button>
+          </dd>
+        </div>
+      </dl>
+
+      <div className="about-copy">{COPYRIGHT}</div>
+      <button className="btn-secondary about-close" onClick={onClose}>
+        閉じる
+      </button>
+    </ModalShell>
   );
 }

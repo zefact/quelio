@@ -6,7 +6,7 @@ const ITEMS: [mode: HeaderLabelMode, label: string, tip: string][] = [
   [
     "logical",
     "日本語名",
-    "カラムコメントの日本語名 (論理名) だけを出します\n" +
+    "カラムコメントの日本語名だけを出します\n" +
       "コメントが無いカラムは英語名のままです",
   ],
   ["both", "両方", "英語名の下に日本語名を並べて出します"],
@@ -31,8 +31,8 @@ export function HeaderLabelPicker({ mode, onChange }: Props) {
         {ITEMS.map(([m, label, tip]) => (
           <button
             key={m}
-            className={"segment" + (mode === m ? " active" : "")}
-            title={tip}
+            className={"segment has-tooltip" + (mode === m ? " active" : "")}
+            data-tooltip={tip}
             onClick={() => onChange(m)}
           >
             {label}

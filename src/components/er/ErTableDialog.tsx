@@ -3,10 +3,11 @@
  *
  * DBには作らないので、型は自由に書ける (空でもよい)。
  * 「何を持つテーブルにするか」を描いておくための画面なので、
- * 決めるのはテーブル名・日本語名と、列の名前・型・主キーだけにしてある
+ * 決めるのはテーブル名・日本語名と、カラムの名前・型・主キーだけにしてある
  */
-import { useState } from "react";
-import { useModal } from "../../hooks/useModal";
+import { useEffect, useRef, useState } from "react";
+import { IconButton } from "../IconButton";
+import { ModalFrame } from "../ModalFrame";
 import {
   checkErTable,
   emptyErColumn,
@@ -26,8 +27,15 @@ interface Props {
 export function ErTableDialog({ initial, taken, onDecide, onCancel }: Props) {
   const [spec, setSpec] = useState<ErTableSpec>(initial ?? emptyErTable());
   const [error, setError] = useState<string | null>(null);
-  const boxRef = useModal(onCancel);
   const editing = initial !== undefined;
+  /*
+   * 開いたらテーブル名の欄へフォーカスする。
+   * 共通の枠が開いたときに枠へフォーカスするので、そのあとで当て直す
+   */
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    nameRef.current?.focus();
+  }, []);
 
   const put = (v: Partial<ErTableSpec>) => setSpec((s) => ({ ...s, ...v }));
 
@@ -47,7 +55,7 @@ export function ErTableDialog({ initial, taken, onDecide, onCancel }: Props) {
       return { ...s, columns: columns.length > 0 ? columns : [emptyErColumn()] };
     });
 
-  /** 列の並べ替え (上下に1つずつ) */
+  /** カラムの並べ替え (上下に1つずつ) */
   const moveCol = (i: number, d: -1 | 1) =>
     setSpec((s) => {
       const to = i + d;
@@ -67,101 +75,91 @@ export function ErTableDialog({ initial, taken, onDecide, onCancel }: Props) {
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={onCancel}>
-      <div
-        className="modal er-table-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            {editing ? "テーブルを直す" : "テーブルを図に追加"}
-            <span className="column-modal-target">
-              {editing ? "図の上だけを直します (DBは変わりません)" : "DBには作りません"}
-            </span>
-          </span>
-          <button className="modal-close" onClick={onCancel} title="閉じる (Esc)">
-            ×
-          </button>
-        </div>
-
-        <div className="form-grid">
-          <label className="form-field">
-            <span className="field-label">テーブル名</span>
-            <input
-              className="text-field mono"
-              autoFocus
-              value={spec.name}
-              spellCheck={false}
-              placeholder="m_user"
-              onChange={(e) => put({ name: e.target.value })}
-            />
-          </label>
-          <label className="form-field">
-            <span className="field-label">
-              日本語名 <em>任意</em>
-            </span>
-            <input
-              className="text-field"
-              value={spec.logical}
-              placeholder="利用者"
-              onChange={(e) => put({ logical: e.target.value })}
-            />
-          </label>
-        </div>
-
-        <div className="er-table-cols">
-          <div className="er-table-head">
-            <span className="field-label">列</span>
-            <button className="btn-ghost" onClick={addCol}>
-              列を足す
-            </button>
-          </div>
-
-          <div className="er-table-grid">
-            <span className="er-table-th">名前</span>
-            <span className="er-table-th">型</span>
-            <span className="er-table-th">日本語名</span>
-            <span className="er-table-th center">主キー</span>
-            <span className="er-table-th center">NOT NULL</span>
-            <span className="er-table-th" />
-            {spec.columns.map((c, i) => (
-              <Row
-                key={i}
-                col={c}
-                first={i === 0}
-                last={i === spec.columns.length - 1}
-                onChange={(v) => putCol(i, v)}
-                onUp={() => moveCol(i, -1)}
-                onDown={() => moveCol(i, 1)}
-                onDrop={() => dropCol(i)}
-              />
-            ))}
-          </div>
-        </div>
-
-        {error && (
-          <div className="result-banner ng">
-            <span className="dot" aria-hidden />
-            <span className="result-detail">{error}</span>
-          </div>
-        )}
-
-        <div className="form-actions">
+    <ModalFrame
+      title={editing ? "テーブルを編集" : "テーブルを図に追加"}
+      target={
+        editing ? "図の上だけを変えます (DBは変わりません)" : "DBには作りません"
+      }
+      onClose={onCancel}
+      className="er-table-modal"
+      footer={
+        <>
           <button className="btn-secondary" onClick={onCancel}>
-            やめる
+            キャンセル
           </button>
           <button className="btn-primary" onClick={go}>
-            {editing ? "直す" : "追加する"}
+            {editing ? "保存する" : "追加する"}
+          </button>
+        </>
+      }
+    >
+
+      <div className="form-grid">
+        <label className="form-field">
+          <span className="field-label">テーブル名</span>
+          <input
+            className="text-field mono"
+            ref={nameRef}
+            value={spec.name}
+            spellCheck={false}
+            placeholder="m_user"
+            onChange={(e) => put({ name: e.target.value })}
+          />
+        </label>
+        <label className="form-field">
+          <span className="field-label">
+            日本語名 <em>任意</em>
+          </span>
+          <input
+            className="text-field"
+            value={spec.logical}
+            placeholder="利用者"
+            onChange={(e) => put({ logical: e.target.value })}
+          />
+        </label>
+      </div>
+
+      <div className="er-table-cols">
+        <div className="er-table-head">
+          <span className="field-label">カラム</span>
+          <button className="btn-ghost" onClick={addCol}>
+            カラムを追加
           </button>
         </div>
+
+        <div className="er-table-grid">
+          <span className="er-table-th">名前</span>
+          <span className="er-table-th">型</span>
+          <span className="er-table-th">日本語名</span>
+          <span className="er-table-th center">主キー</span>
+          <span className="er-table-th center">NOT NULL</span>
+          <span className="er-table-th" />
+          {spec.columns.map((c, i) => (
+            <Row
+              key={i}
+              col={c}
+              first={i === 0}
+              last={i === spec.columns.length - 1}
+              onChange={(v) => putCol(i, v)}
+              onUp={() => moveCol(i, -1)}
+              onDown={() => moveCol(i, 1)}
+              onDrop={() => dropCol(i)}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+
+      {error && (
+        <div className="result-banner ng">
+          <span className="dot" aria-hidden />
+          <span className="result-detail">{error}</span>
+        </div>
+      )}
+    </ModalFrame>
   );
 }
 
-/** 列1行ぶんの入力 */
+/** カラム1行ぶんの入力 */
 function Row({
   col,
   first,
@@ -220,25 +218,29 @@ function Row({
         />
       </span>
       <span className="er-table-cell er-table-ops">
-        <button
+        <IconButton
           className="btn-ghost"
-          title="上へ"
+          label="上へ"
           disabled={first}
           onClick={onUp}
         >
           ↑
-        </button>
-        <button
+        </IconButton>
+        <IconButton
           className="btn-ghost"
-          title="下へ"
+          label="下へ"
           disabled={last}
           onClick={onDown}
         >
           ↓
-        </button>
-        <button className="btn-ghost danger" title="この列を消す" onClick={onDrop}>
+        </IconButton>
+        <IconButton
+          className="btn-ghost danger"
+          label="このカラムを削除"
+          onClick={onDrop}
+        >
           ×
-        </button>
+        </IconButton>
       </span>
     </>
   );

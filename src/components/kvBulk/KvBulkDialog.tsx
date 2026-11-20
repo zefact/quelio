@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useModal } from "../../hooks/useModal";
+import { ModalFrame } from "../ModalFrame";
 import { KvDeletePanel } from "./KvDeletePanel";
 import { KvSearchPanel } from "./KvSearchPanel";
 
@@ -31,31 +31,15 @@ export function KvBulkDialog({
   const [tab, setTab] = useState<Tab>("search");
   /** 実行中は閉じさせない (中止する手立てを画面に残しておく) */
   const [busy, setBusy] = useState(false);
-  const boxRef = useModal(onClose, !busy);
 
   return (
-    <div className="modal-overlay" onMouseDown={busy ? undefined : onClose}>
-      <div
-        className="modal kv-bulk-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            キーの検索・一括削除
-            <span className="column-modal-target mono">DB {database}</span>
-          </span>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={busy}
-            title={busy ? "処理中は閉じられません" : "閉じる (Esc)"}
-          >
-            ×
-          </button>
-        </div>
-
+    <ModalFrame
+      title="キーの検索・一括削除"
+      target={`DB ${database}`}
+      onClose={onClose}
+      closable={!busy}
+      className="kv-bulk-modal"
+    >
         <div className="kv-bulk-tabs">
           <button
             className={"kv-bulk-tab" + (tab === "search" ? " active" : "")}
@@ -99,7 +83,6 @@ export function KvBulkDialog({
             onBusyChange={setBusy}
           />
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }

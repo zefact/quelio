@@ -51,8 +51,8 @@ export function LibrarySearch({
       />
       {value && (
         <button
-          className="lib-search-clear"
-          title="探す語を消す"
+          className="lib-search-clear has-tooltip"
+          data-tooltip="探す語を消す"
           aria-label="探す語を消す"
           onClick={() => {
             onChange("");

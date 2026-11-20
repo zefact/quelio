@@ -34,3 +34,31 @@ export async function installUpdate(
   });
   await relaunch();
 }
+
+/** 再起動すると失われる作業 (未確定のトランザクション・実行中のSQL) がある接続 */
+export interface UpdateRisk {
+  /** その接続の名前 */
+  names: string[];
+  /** 実行中のSQLがあって、トランザクションの状態を読めない接続が混ざっているか */
+  busy: boolean;
+}
+
+/** 確かめ方 (タブの状態を持っている App が登録する) */
+let riskCheck: (() => Promise<UpdateRisk>) | null = null;
+
+/** 再起動の前に確かめる方法を登録する */
+export function setUpdateRiskCheck(fn: (() => Promise<UpdateRisk>) | null) {
+  riskCheck = fn;
+}
+
+/**
+ * 更新して再起動する前に、失われる作業があるか確かめる。
+ * 読めなかったときは止めない (更新できなくなるのを避ける)
+ */
+export async function checkUpdateRisk(): Promise<UpdateRisk> {
+  try {
+    return riskCheck ? await riskCheck() : { names: [], busy: false };
+  } catch {
+    return { names: [], busy: false };
+  }
+}

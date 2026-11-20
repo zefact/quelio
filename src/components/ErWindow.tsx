@@ -38,7 +38,24 @@ import { fileStamp, type ErDrawInput } from "../er/drawing";
 import { toMermaid, toPlantUml } from "../er/exportText";
 import { usePolling } from "../hooks/usePolling";
 import { useDismiss } from "../hooks/useDismiss";
-import { useErPersistence } from "../hooks/useErPersistence";
+import {
+  useErPersistence,
+  type ErPageSnapshot,
+} from "../hooks/useErPersistence";
+import {
+  emptyHistory,
+  recordHistory,
+  redoHistory,
+  sameErDoc,
+  toErDoc,
+  undoHistory,
+  type ErDoc,
+} from "../er/erHistory";
+import { MOD, SHIFT } from "../keyLabel";
+import { CloseMark } from "./CloseMark";
+import { ErrorBand } from "./ErrorBand";
+import { IconButton } from "./IconButton";
+import { RevealButton } from "./RevealButton";
 import {
   ErDialogs,
   type ErConfirm,
@@ -102,7 +119,42 @@ import {
 /** 表示を動かし終えてから保存するまでの待ち時間 (ミリ秒) */
 const VIEW_SAVE_DELAY_MS = 1500;
 
-/** ER図ウィンドウ (DB全体のテーブルとリレーションを描画・PNG出力) */
+/**
+ * 右上のトースト。
+ * 成功 (ok)・失敗 (ng)・ただのお知らせ (info) で印と色を変える
+ */
+interface ErToast {
+  text: string;
+  tone: "ok" | "ng" | "info";
+  /** 「元に戻す」ボタンを出す (消したあとなど) */
+  undo?: boolean;
+  /** 書き出したファイル (「フォルダを開く」を出す) */
+  path?: string;
+  /** 出すたびに変える (同じ文をもう一度出したときも、出し直して見せるため) */
+  id: number;
+}
+
+/** 保存したページの内容を、履歴に積む形にする (無い項目は既定で埋める) */
+function pageToDoc(d: ErPageData): ErDoc {
+  return toErDoc({
+    entries: d.entries,
+    fks: d.fks ?? [],
+    positions: new Map(Object.entries(d.positions ?? {})),
+    options: d.options ?? { allCols: true, showLogical: true, showTypes: true },
+    removedEdges: new Set(d.removedEdges ?? []),
+    removedTables: new Set(d.removedTables ?? []),
+    manualTables: new Set(d.manualTables ?? []),
+    tableWidths: d.tableWidths ?? {},
+    customEdges: d.customEdges ?? [],
+    anchors: d.anchors ?? {},
+    edgeColumns: d.edgeColumns ?? {},
+    edgeStyles: d.edgeStyles ?? {},
+    columnColors: d.columnColors ?? {},
+    frames: d.frames ?? [],
+  });
+}
+
+/** ER図ウィンドウ (DB全体のテーブルとリレーションを描画・ファイルへ書き出す) */
 export function ErWindow() {
   const params = new URLSearchParams(window.location.search);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -112,14 +164,23 @@ export function ErWindow() {
   });
   const [entries, setEntries] = useState<SchemaEntry[] | null>(null);
   const [fks, setFks] = useState<FkInfo[]>([]);
-  // 表示オプション (新規作成時の既定は全てON。保存済みの図を開くと上書きされる)
+  // 表示オプション (新規作成時の既定はすべてON。保存済みの図を開くと上書きされる)
   const [allCols, setAllCols] = useState(true);
   const [showLogical, setShowLogical] = useState(true);
   const [showTypes, setShowTypes] = useState(true);
-  /** 論理名の区切り文字 (設定から読み込む) */
+  /** 日本語名の区切り文字 (設定から読み込む) */
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<ErToast | null>(null);
+  /** トーストを出す (null で消す)。失敗は tone を "ng" にする */
+  const setNotice = (
+    text: string | null,
+    tone: ErToast["tone"] = "ok",
+    extra?: Pick<ErToast, "undo" | "path">
+  ) =>
+    setToast(text === null ? null : { text, tone, ...extra, id: Date.now() });
+  /** 操作の説明 (「?」で開く) */
+  const [helpOpen, setHelpOpen] = useState(false);
   /** 設定を開いているか */
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -165,7 +226,8 @@ export function ErWindow() {
     existing: Set<string>;
     loading: boolean;
   } | null>(null);
-  /** 削除確認ダイアログ (タブ・テーブル・線・枠などの削除前に出す)。
+  /** 確認ダイアログ (ページ・テーブル・図の削除や、上書きの前に出す)。
+   * 線や枠の削除は元に戻せるので確認しない。
    * subを指定するとサブテキストを差し替えられる (既定は「元に戻せません」) */
   const [confirm, setConfirm] = useState<ErConfirm | null>(null);
   /** 図のバックアップ / 復元の画面 */
@@ -267,63 +329,143 @@ export function ErWindow() {
     edgePanel?.y ?? 0
   );
 
-  /** ページの内容を各stateへ反映する */
-  const applyPageData = (d: ErPageData) => {
-    posRef.current = new Map(Object.entries(d.positions ?? {}));
-    if (d.options) {
-      setAllCols(d.options.allCols);
-      setShowLogical(d.options.showLogical);
-      setShowTypes(d.options.showTypes);
-    } else {
-      setAllCols(true);
-      setShowLogical(true);
-      setShowTypes(true);
-    }
-    setRemovedEdges(new Set(d.removedEdges ?? []));
-    setRemovedTables(new Set(d.removedTables ?? []));
-    setManualTables(new Set(d.manualTables ?? []));
-    setTableWidths(d.tableWidths ?? {});
-    setCustomEdges(d.customEdges ?? []);
-    setAnchors(d.anchors ?? {});
-    setEdgeCols(d.edgeColumns ?? {});
-    setEdgeStyles(d.edgeStyles ?? {});
-    setColumnColors(d.columnColors ?? {});
-    setFrames(d.frames ?? []);
-    setEntries(d.entries.length > 0 ? d.entries : null);
-    setFks(d.fks ?? []);
+  /*
+   * 元に戻す / やり直すの履歴。
+   *
+   * 図を変えて保存するたびに、変える前の中身を積む (committed が「今保存されている中身」)。
+   * 履歴はページごと。ページを切り替えたり別の図を開いたりしたら捨てる
+   */
+  const historyRef = useRef(emptyHistory<ErDoc>());
+  // 最初は空の図 (はじめてのリバースも元に戻せるように)
+  const committedRef = useRef<ErDoc | null>(
+    pageToDoc({ id: "", name: "", entries: [], fks: [], positions: {} })
+  );
+  /** 戻せるか・やり直せるかの表示を描き直すための目印 */
+  const [, setHistoryTick] = useState(0);
+  const bumpHistory = () => setHistoryTick((t) => t + 1);
+
+  /** 図の中身を各stateへ戻す (表示位置はそのまま) */
+  const applyDoc = (doc: ErDoc) => {
+    posRef.current = new Map(Object.entries(doc.positions));
+    setAllCols(doc.options.allCols);
+    setShowLogical(doc.options.showLogical);
+    setShowTypes(doc.options.showTypes);
+    setRemovedEdges(doc.removedEdges);
+    setRemovedTables(doc.removedTables);
+    setManualTables(doc.manualTables);
+    setTableWidths(doc.tableWidths);
+    setCustomEdges(doc.customEdges);
+    setAnchors(doc.anchors);
+    setEdgeCols(doc.edgeColumns);
+    setEdgeStyles(doc.edgeStyles);
+    setColumnColors(doc.columnColors);
+    setFrames(doc.frames);
+    setEntries(doc.entries.length > 0 ? doc.entries : null);
+    setFks(doc.fks);
     clearSelection();
     setRev((r) => r + 1);
   };
 
+  /** ページの内容を各stateへ反映する (履歴はここで捨てる) */
+  const applyPageData = (d: ErPageData) => {
+    // 同じ値を state と履歴の両方に入れる (同じものかどうかで変更を見分けるため)
+    const doc = pageToDoc(d);
+    applyDoc(doc);
+    committedRef.current = doc;
+    historyRef.current = emptyHistory();
+    bumpHistory();
+  };
+
+  /** 表示中のページの内容を集める (保存の直前に呼ぶ) */
+  const snapshot = (): ErPageSnapshot => ({
+    entries: entriesRef.current ?? [],
+    fks: fksRef.current,
+    positions: posRef.current,
+    options: { allCols, showLogical, showTypes },
+    removedEdges,
+    removedTables,
+    manualTables,
+    tableWidths,
+    customEdges,
+    anchors,
+    edgeColumns: edgeCols,
+    edgeStyles,
+    columnColors,
+    frames,
+    view: viewRef.current,
+  });
+
   /*
-   * 保存・読み込みとページ (タブ) の管理はフックへ出してある。
+   * 保存・読み込みとページの管理はフックへ出してある。
    * 表示中のページの内容はここのstateにあるので、
    * 保存の直前に snapshot() で集めてもらい、読み込んだら apply() で戻す
    */
   const store = useErPersistence({
-    snapshot: () => ({
-      entries: entriesRef.current ?? [],
-      fks: fksRef.current,
-      positions: posRef.current,
-      options: { allCols, showLogical, showTypes },
-      removedEdges,
-      removedTables,
-      manualTables,
-      tableWidths,
-      customEdges,
-      anchors,
-      edgeColumns: edgeCols,
-      edgeStyles,
-      columnColors,
-      frames,
-      view: viewRef.current,
-    }),
+    snapshot,
     apply: applyPageData,
-    onNotice: setNotice,
+    onNotice: (text, tone) => setNotice(text, tone),
     onFit: () => setFitTick((t) => t + 1),
     onView: restoreView,
   });
-  const { persist, diagName, diagList, pages, pageId } = store;
+  const { diagName, diagList, pages, pageId } = store;
+
+  /**
+   * 表示中のページを自動保存する。
+   *
+   * 図の中身が変わっていたら、変える前の中身を履歴に積む
+   * (表示を動かしただけの保存では積まない)。
+   * @param override まだstateに反映していない値があればここで差し替える
+   */
+  const persist = (override?: Partial<ErPageSnapshot>) => {
+    const next = toErDoc({ ...snapshot(), ...override });
+    const prev = committedRef.current;
+    if (prev && !sameErDoc(prev, next)) {
+      historyRef.current = recordHistory(historyRef.current, prev);
+      bumpHistory();
+    }
+    committedRef.current = next;
+    store.persist(override);
+  };
+
+  /** 履歴から取り出した中身を画面へ戻して保存する */
+  const restoreDoc = (doc: ErDoc) => {
+    applyDoc(doc);
+    committedRef.current = doc;
+    store.persist({ ...doc, positions: new Map(Object.entries(doc.positions)) });
+    bumpHistory();
+  };
+
+  /** 1つ前の図に戻す (⌘Z) */
+  const undo = () => {
+    const cur = committedRef.current;
+    const r = cur ? undoHistory(historyRef.current, cur) : null;
+    if (!r) {
+      setNotice("元に戻せる操作はありません", "info");
+      return;
+    }
+    historyRef.current = r.history;
+    restoreDoc(r.state);
+    setNotice(`元に戻しました (やり直すには ${SHIFT}${MOD}Z)`, "info");
+  };
+
+  /** 戻したものをやり直す (⇧⌘Z) */
+  const redo = () => {
+    const cur = committedRef.current;
+    const r = cur ? redoHistory(historyRef.current, cur) : null;
+    if (!r) {
+      setNotice("やり直せる操作はありません", "info");
+      return;
+    }
+    historyRef.current = r.history;
+    restoreDoc(r.state);
+    setNotice("やり直しました", "info");
+  };
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
+  const redoRef = useRef(redo);
+  redoRef.current = redo;
+  const canUndo = historyRef.current.past.length > 0;
+  const canRedo = historyRef.current.future.length > 0;
 
   /*
    * 動かした表示 (位置・拡大率) も保存しておく。
@@ -363,24 +505,28 @@ export function ErWindow() {
     store.openDiagram(name);
   };
 
-  /** タブの削除は確認してから (フック側は確認しない) */
+  /** ページの削除は確認してから (フック側は確認しない。元に戻せないため) */
   const askDeletePage = (id: string) => {
     if (pages.length <= 1) return;
     const name = pages.find((p) => p.id === id)?.name ?? id;
     setConfirm({
-      title: "タブを削除",
-      message: `タブ「${name}」とその内容を削除しますか？この操作は元に戻せません。`,
+      title: "ページを削除",
+      message: `ページ「${name}」とその中の図を削除しますか？`,
       action: () => store.deletePage(id),
     });
   };
 
-
-  // 通知は右上のトーストとして表示し、5秒で自動的に消す
+  /*
+   * 通知は右上のトーストとして出す。
+   * 成功・お知らせは5秒 (元に戻すボタン付きは8秒) で消す。
+   * 失敗と、書き出した知らせ (「フォルダを開く」付き) は × で閉じるまで残す
+   */
   useEffect(() => {
-    if (!notice) return;
-    const t = setTimeout(() => setNotice(null), 5000);
+    if (!toast || toast.tone === "ng" || toast.path) return;
+    const ms = toast.undo ? 8000 : 5000;
+    const t = setTimeout(() => setToast(null), ms);
     return () => clearTimeout(t);
-  }, [notice]);
+  }, [toast]);
 
   // ページ内検索 (⌘F) がER図内の一致へ移動するとき、キャンバスをパンして
   // 一致位置を中央に表示する (ズームは変えない)
@@ -417,13 +563,55 @@ export function ErWindow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, sel.database, diagList, diagName]);
 
+  /*
+   * 保存済みの図を開いたら、その図を作った接続・データベースに選択を合わせる。
+   * 接続していなければ合わせられないので、リバースの前に確かめる (askReverse)
+   */
+  const source = store.source;
+  const alignedRef = useRef<typeof source>(null);
+  useEffect(() => {
+    if (!source || alignedRef.current === source) return;
+    const s =
+      sessions.find((x) => source.profileId && x.profileId === source.profileId) ??
+      sessions.find((x) => x.name === source.connection);
+    if (!s || !s.databases.includes(source.database)) return;
+    alignedRef.current = source;
+    if (s.sessionId !== sel.sessionId || source.database !== sel.database) {
+      setSel({ sessionId: s.sessionId, database: source.database });
+    }
+    // 図を開いたとき (と、その接続が一覧に出てきたとき) だけ合わせる。
+    // あとから選び直したものは上書きしない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, sessions]);
+
+  /** 今選んでいる接続・データベースが、図を作ったものと違うか */
+  const sourceMismatch = (): boolean => {
+    if (!source || !entriesRef.current) return false;
+    const sameConn = source.profileId
+      ? source.profileId === session?.profileId
+      : source.connection === session?.name;
+    return !sameConn || source.database !== sel.database;
+  };
+
   /** 名前ダイアログの確定 (名前を付けて保存 / 名前変更) */
   const commitNameDialog = () => {
     if (!nameDialog) return;
     const name = nameDialog.value.trim();
     if (!name) return;
+    const mode = nameDialog.mode;
     setNameDialog(null);
-    store.saveAs(name, nameDialog.mode);
+    // 同じ名前の別の図があれば、黙って上書きしない
+    if (name !== diagName && diagList.includes(name)) {
+      setConfirm({
+        title: "同じ名前の図があります",
+        message: `「${name}」はすでに保存されています。上書きすると、今ある「${name}」の中身は消えます。`,
+        sub: "上書きした図は元に戻せません",
+        confirmLabel: "上書きする",
+        action: () => store.saveAs(name, mode),
+      });
+      return;
+    }
+    store.saveAs(name, mode);
   };
 
   /** 現在の図の削除を確認してから実行する */
@@ -431,7 +619,7 @@ export function ErWindow() {
     if (!diagName) return;
     setConfirm({
       title: "図を削除",
-      message: `「${diagName}」を全てのタブごと削除しますか？この操作は元に戻せません。`,
+      message: `「${diagName}」をすべてのページごと削除しますか？`,
       action: () => store.deleteDiagram(),
     });
   };
@@ -442,6 +630,7 @@ export function ErWindow() {
    * (更新では、チェックしたものだけをDBから読み直す) */
   const openPicker = async () => {
     if (!sel.sessionId || !sel.database) return;
+    setError(null);
     const keep = new Set(entriesRef.current?.map((e) => e.table.name) ?? []);
     const none = new Set<string>();
     setPicker({ tables: [], initial: none, existing: keep, loading: true });
@@ -457,6 +646,29 @@ export function ErWindow() {
       setPicker(null);
       setError(String(e));
     }
+  };
+
+  /**
+   * リバースを始める。
+   * 図を作ったときと違う接続・データベースを選んでいたら、先に確かめる
+   * (別のDBのテーブルが図に混ざらないように)
+   */
+  const askReverse = () => {
+    if (source && sourceMismatch()) {
+      setConfirm({
+        title: "別のデータベースからリバースします",
+        message:
+          `この図は「${source.connection} / ${source.database}」から作りました。` +
+          `今選んでいるのは「${session?.name ?? "(未接続)"} / ${sel.database}」です。` +
+          "このまま続けると、別のデータベースのテーブルが図に混ざります。",
+        sub: `混ざったときは ${MOD}Z で元に戻せます`,
+        confirmLabel: "このままリバースする",
+        tone: "primary",
+        action: () => void openPicker(),
+      });
+      return;
+    }
+    void openPicker();
   };
 
   /** リバース: 選んだテーブルをDBから読み込んでER図を作成/更新する。
@@ -534,6 +746,16 @@ export function ErWindow() {
       const savedName = store.ensureName(
         `${session?.name ?? "ER図"}/${sel.database}`
       );
+      // どの接続・データベースから作ったかを図に覚えておく (次に開いたとき合わせる)
+      if (session) {
+        const src = {
+          connection: session.name,
+          profileId: session.profileId,
+          database: sel.database,
+        };
+        alignedRef.current = src;
+        store.setSource(src);
+      }
       persist({
         entries: snap,
         fks: fk,
@@ -762,7 +984,7 @@ export function ErWindow() {
         e.toColumn === toC
     );
     if (dup) {
-      setNotice("同じ対応の線が既にあります");
+      setNotice("同じ対応の線がすでにあります", "info");
       return;
     }
     const c: ErCustomEdge = {
@@ -946,7 +1168,7 @@ export function ErWindow() {
     } else if (objs.length > 0) {
       parts.push(`${objs.length}本の線`);
     }
-    setNotice(`${parts.join("と")}を削除しました`);
+    setNotice(`${parts.join("と")}を削除しました`, "ok", { undo: true });
     persist({
       entries: ents,
       removedEdges: removed,
@@ -959,32 +1181,22 @@ export function ErWindow() {
       columnColors: nextColors,
     });
   };
-  const deleteEdgesByIdx = (idxs: number[]) => deleteSelection(idxs, []);
-  /** 線の削除を確認してから実行する */
-  const askDeleteEdges = (idxs: number[]) => {
-    const objs = idxs.map((i) => edges[i]).filter(Boolean);
-    if (objs.length === 0) return;
-    setConfirm({
-      title: "線を削除",
-      message:
-        objs.length === 1
-          ? `${objs[0].from} → ${objs[0].to} の線を削除しますか？`
-          : `選択中の${objs.length}本の線を削除しますか？`,
-      action: () => deleteEdgesByIdx(idxs),
-    });
-  };
+  /**
+   * 線を削除する。
+   * 元に戻せる (⌘Z・トーストの「元に戻す」) ので、確認は出さない
+   */
+  const askDeleteEdges = (idxs: number[]) => deleteSelection(idxs, []);
 
-  /** テーブルの削除を確認してから実行する */
+  /** テーブルの削除を確認してから実行する (消えるものが大きいので確認は残す) */
   const askDeleteTables = (names: string[]) => {
     if (names.length === 0) return;
     setConfirm({
       title: "テーブルを図から削除",
       message:
-        (names.length === 1
+        names.length === 1
           ? `${names[0]} を図から削除しますか？`
-          : `選択中の${names.length}テーブルを図から削除しますか？`) +
-        " (戻したい場合は、リバースでそのテーブルを選び直します)",
-      sub: "DBからは削除されません",
+          : `選択中の${names.length}テーブルを図から削除しますか？`,
+      sub: `DBからは削除されません。削除したあとも ${MOD}Z で元に戻せます`,
       action: () => removeTables(names),
     });
   };
@@ -999,10 +1211,8 @@ export function ErWindow() {
     if (edgeIdxs.length > 0 && tableNames.length > 0) {
       setConfirm({
         title: "選択中の要素を削除",
-        message:
-          `${tableNames.length}テーブルと${edgeIdxs.length}本の線を削除しますか？` +
-          " (テーブルは、リバースで選び直せば戻せます)",
-        sub: "DBからは削除されません",
+        message: `${tableNames.length}テーブルと${edgeIdxs.length}本の線を削除しますか？`,
+        sub: `DBからは削除されません。削除したあとも ${MOD}Z で元に戻せます`,
         action: () => deleteSelection(edgeIdxs, tableNames),
       });
     } else if (edgeIdxs.length > 0) {
@@ -1012,7 +1222,7 @@ export function ErWindow() {
     }
   };
 
-  /** テーブルコピー用の内部クリップボード (タブ間の貼り付けに使う) */
+  /** テーブルコピー用の内部クリップボード (ページ間の貼り付けに使う) */
   const tableClipRef = useRef<{
     entries: SchemaEntry[];
     positions: Record<string, { x: number; y: number }>;
@@ -1023,7 +1233,7 @@ export function ErWindow() {
   /** ⌘/Ctrl+C: 選択中のテーブルをコピー (無ければカラム行の内容をコピー) */
   const copySelectedRef = useRef(() => {});
   copySelectedRef.current = () => {
-    // テーブル選択中はテーブルをコピー (⌘Vで別タブへ貼り付けられる)
+    // テーブル選択中はテーブルをコピー (⌘Vで別のページへ貼り付けられる)
     if (selNodes.size > 0 && entriesRef.current) {
       const ents = entriesRef.current.filter((e) =>
         selNodes.has(e.table.name)
@@ -1042,9 +1252,7 @@ export function ErWindow() {
           (f) => selNodes.has(f.table) && selNodes.has(f.refTable)
         ),
       };
-      setNotice(
-        `${ents.length}テーブルをコピーしました (⌘/Ctrl+Vで貼り付け)`
-      );
+      setNotice(`${ents.length}テーブルをコピーしました (${MOD}V で貼り付け)`);
       return;
     }
     if (!selCol || !entriesRef.current) return;
@@ -1061,7 +1269,7 @@ export function ErWindow() {
     );
   };
 
-  /** ⌘/Ctrl+V: コピーしたテーブルを現在のタブへ貼り付ける */
+  /** ⌘/Ctrl+V: コピーしたテーブルを表示中のページへ貼り付ける */
   const pasteRef = useRef(() => {});
   pasteRef.current = () => {
     const clip = tableClipRef.current;
@@ -1070,7 +1278,7 @@ export function ErWindow() {
     const existing = new Set(cur.map((e) => e.table.name));
     const add = clip.entries.filter((e) => !existing.has(e.table.name));
     if (add.length === 0) {
-      setNotice("コピーしたテーブルは全てこのタブに存在します");
+      setNotice("コピーしたテーブルはすべてこのページにあります", "info");
       return;
     }
     const ents = [...cur, ...add];
@@ -1120,11 +1328,27 @@ export function ErWindow() {
     });
   };
 
-  // Delete/Backspaceで選択中の線を削除、Escで選択・追加モードを解除
+  // Delete/Backspaceで選択中の線を削除、Escで選択・追加モードを解除、
+  // ⌘Z / ⇧⌘Z (Windows は Ctrl+Y も) で元に戻す / やり直す
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
+      // ダイアログが開いているあいだは、後ろの図を変えない
+      if (e.key !== "Escape" && document.querySelector(".modal-overlay")) return;
+      const mod = e.metaKey || e.ctrlKey;
+      const k = e.key.toLowerCase();
+      if (mod && k === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redoRef.current();
+        else undoRef.current();
+        return;
+      }
+      if (e.ctrlKey && !e.metaKey && k === "y") {
+        e.preventDefault();
+        redoRef.current();
+        return;
+      }
       if (e.key === "Delete" || e.key === "Backspace") {
         deleteSelectedRef.current();
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "c") {
@@ -1163,6 +1387,13 @@ export function ErWindow() {
     inside: ".context-menu",
   });
 
+  // 操作の説明は外側をクリックしたら閉じる
+  useDismiss(helpOpen, () => setHelpOpen(false), {
+    capture: true,
+    inside: ".er-help",
+    escape: true,
+  });
+
   // 線の編集パネルは外側をクリックしたら閉じる
   useDismiss(!!edgePanel, () => setEdgePanel(null), {
     capture: true,
@@ -1194,11 +1425,11 @@ export function ErWindow() {
     }
     if (!linkSrc) {
       setLinkSrc({ table, column });
-      setNotice(`接続元: ${table}.${column} — 接続先のカラムをクリック`);
+      setNotice(`接続元: ${table}.${column} — 接続先のカラムをクリック`, "info");
       return;
     }
     if (linkSrc.table === table) {
-      setNotice("別のテーブルのカラムを選択してください");
+      setNotice("別のテーブルのカラムを選択してください", "info");
       return;
     }
     const c: ErCustomEdge = {
@@ -1318,7 +1549,7 @@ export function ErWindow() {
     setNotice(
       before === null
         ? `${entry.table.name} を図に追加しました`
-        : `${entry.table.name} を直しました`
+        : `${entry.table.name} を変更しました`
     );
     persist({
       entries: ents,
@@ -1609,7 +1840,7 @@ export function ErWindow() {
           selN.add(n.name);
         }
       }
-      // 矩形にかかった線を選択 (一部でも重なればOK。線分は全て直交なので
+      // 矩形にかかった線を選択 (一部でも重なればOK。線分はすべて直交なので
       // 各線分のバウンディングボックスと矩形の重なりで判定できる)
       const selE = new Set<number>();
       edgeGeoms.forEach((pts, i) => {
@@ -1631,7 +1862,8 @@ export function ErWindow() {
       setBand(null);
       if (selN.size + selE.size > 0) {
         setNotice(
-          `${selN.size}テーブル / ${selE.size}本の線を選択しました (Deleteで削除)`
+          `${selN.size}テーブル / ${selE.size}本の線を選択しました (Deleteで削除)`,
+          "info"
         );
       }
     };
@@ -1763,34 +1995,34 @@ export function ErWindow() {
   const exportPng = async () => {
     if (nodes.length === 0) return;
     try {
-      setNotice("PNG生成中...");
+      setNotice("PNGを作っています…", "info");
       const base64 = drawErPng(drawInput());
       const ts = fileStamp();
       const path = await saveCapture(`quelio_er_${sel.database}_${ts}.png`, base64);
-      setNotice(`保存しました → ${path}`);
+      setNotice(`PNGで書き出しました → ${path}`, "ok", { path });
     } catch (e) {
-      setNotice(`PNG保存に失敗: ${e}`);
+      setNotice(`PNGで書き出せませんでした: ${e}`, "ng");
     }
   };
 
-  /** Excel出力 (テーブルと線をExcelの図形として描く) */
+  /** Excelへ書き出す (テーブルと線をExcelの図形として描く) */
   const exportXlsx = async () => {
     if (nodes.length === 0) return;
     try {
-      setNotice("Excel生成中...");
+      setNotice("Excelを作っています…", "info");
       const sheet = buildErSheet(drawInput(), canvasMeasure());
       const path = await saveErXlsx(
         `quelio_er_${sel.database}_${fileStamp()}.xlsx`,
         sheet
       );
-      setNotice(`保存しました → ${path}`);
+      setNotice(`Excelで書き出しました → ${path}`, "ok", { path });
     } catch (e) {
-      setNotice(`Excel保存に失敗: ${e}`);
+      setNotice(`Excelで書き出せませんでした: ${e}`, "ng");
     }
   };
 
   /**
-   * テキスト形式で書き出す (コピー / 保存)。
+   * テキスト形式で書き出す (コピー / ファイル)。
    *
    * 図の見た目 (型や日本語名を隠す指定) に関わらず、テキストには全部入れる。
    * 幅の制約が無く、Mermaidは型が無いと書けないため。
@@ -1821,13 +2053,16 @@ export function ErWindow() {
         `quelio_er_${sel.database}_${ts}.${ext}`,
         text
       );
-      setNotice(`保存しました → ${path}`);
+      setNotice(`${formatLabel(format)}で書き出しました → ${path}`, "ok", { path });
     } catch (e) {
-      setNotice(`書き出しに失敗: ${e}`);
+      setNotice(
+        `${formatLabel(format)}を${save ? "書き出せ" : "コピーでき"}ませんでした: ${e}`,
+        "ng"
+      );
     }
   };
 
-  /** 選んだ形式で保存する (ツールバーの保存ボタン) */
+  /** 選んだ形式でファイルへ書き出す (ツールバーの「書き出す ▾」) */
   const saveAs = (format: ErExportFormat) => {
     if (format === "png") return exportPng();
     if (format === "xlsx") return exportXlsx();
@@ -1862,7 +2097,7 @@ export function ErWindow() {
       <ErBrandBar
         onOpenDb={() =>
           void openMainWindow().catch((e) =>
-            setError(`DBの画面を開けませんでした: ${e}`)
+            setError(`メインウィンドウを開けませんでした: ${e}`)
           )
         }
         onOpenSettings={() => setSettingsOpen(true)}
@@ -1877,7 +2112,7 @@ export function ErWindow() {
         onNewDiagram={() => {
           flushViewSave();
           store.clearDiagram();
-          setNotice("新しい図です。「リバース」でDBから読み込んでください");
+          setNotice("新しい図です。「リバース」でDBから読み込んでください", "info");
         }}
         onSaveAs={() =>
           setNameDialog({
@@ -1903,7 +2138,7 @@ export function ErWindow() {
         }}
         onChangeDatabase={(v) => setSel({ ...sel, database: v })}
         loading={loading}
-        onReverse={() => void openPicker()}
+        onReverse={askReverse}
         options={{ allCols, showLogical, showTypes }}
         onToggleOption={toggleOpt}
         onSave={(f) => void saveAs(f)}
@@ -1917,7 +2152,7 @@ export function ErWindow() {
       />
 
 
-      {/* ページ (タブ) バー: 1つの保存ファイルに複数のER図を持てる */}
+      {/* ページの並び: 1つの保存ファイルに複数のER図を持てる */}
       <ErPageTabs
         pages={pages}
         activeId={pageId}
@@ -1929,24 +2164,58 @@ export function ErWindow() {
         onReorderEnd={store.saveAfterReorder}
       />
 
-      {/* 右上の通知トースト (5秒で自動的に消える) */}
-      {notice && (
-        <div className="er-toast" key={notice}>
-          <span className="er-toast-icon">✓</span>
-          {notice}
+      {/* 右上の通知トースト (成功は自動で消える。失敗と書き出した知らせは × で閉じるまで残す) */}
+      {toast && (
+        <div
+          className={
+            `er-toast ${toast.tone}` +
+            (toast.tone === "ng" || toast.path ? " sticky" : toast.undo ? " long" : "")
+          }
+          key={toast.id}
+          role={toast.tone === "ng" ? "alert" : "status"}
+        >
+          {toast.tone !== "info" && (
+            <span className="er-toast-icon" aria-hidden>
+              {toast.tone === "ng" ? "!" : "✓"}
+            </span>
+          )}
+          <span className="er-toast-text">{toast.text}</span>
+          {toast.undo && (
+            <button
+              className="er-toast-action has-tooltip"
+              data-tooltip={`元に戻す (${MOD}Z)`}
+              onClick={() => {
+                setToast(null);
+                undo();
+              }}
+            >
+              元に戻す
+            </button>
+          )}
+          {toast.path && <RevealButton path={toast.path} />}
+          {(toast.tone === "ng" || toast.undo || toast.path) && (
+            <IconButton
+              className="er-toast-close"
+              label="閉じる"
+              onClick={() => setToast(null)}
+            >
+              <CloseMark size={10} />
+            </IconButton>
+          )}
         </div>
       )}
 
       {error && (
-        <div
-          className={`result-banner ${isCancelled(error) ? "ok" : "ng"} er-error`}
-        >
-          {error}
-        </div>
+        <ErrorBand
+          message={error}
+          tone={isCancelled(error) ? "ok" : "ng"}
+          className="er-error"
+          onClose={() => setError(null)}
+        />
       )}
       {loading && (
         <LoadingWithCancel
-          label="スキーマを読み込み中..."
+          label="スキーマを読み込み中…"
           sessionIds={[sel.sessionId]}
           dbTypes={[sessions.find((s) => s.sessionId === sel.sessionId)?.dbType]}
         />
@@ -2082,33 +2351,93 @@ export function ErWindow() {
               />
             )}
           </div>
-          <div className="er-legend mono">
-            ● = NOT NULL / ○ = NULL可 (色付き● = 主キー) ・
-            線の右クリックで削除 / カラムの右クリックで線を追加 /
-            線を選択して端点をドラッグで接続位置を変更 ・
-            背景ドラッグで範囲選択 / スクロール・Shift+ドラッグでパン /
-            ⌘(Ctrl)+スクロール・ピンチでズーム
+          {/* 操作の説明は「?」で開く (いつも出しておくと図に重なるため) */}
+          <div className="er-help" onMouseDown={(e) => e.stopPropagation()}>
+            <IconButton
+              className="er-help-btn"
+              label="操作の説明"
+              tipLeft
+              aria-expanded={helpOpen}
+              onClick={() => setHelpOpen((v) => !v)}
+            >
+              ?
+            </IconButton>
+            {helpOpen && (
+              <div className="er-help-pop" role="dialog" aria-label="操作の説明">
+                <div className="er-help-head">
+                  <span>操作の説明</span>
+                  <IconButton
+                    className="er-help-close"
+                    label="閉じる"
+                    onClick={() => setHelpOpen(false)}
+                  >
+                    <CloseMark size={10} />
+                  </IconButton>
+                </div>
+                <ul>
+                  <li>● = NOT NULL / ○ = NULL可 (色付きの ● = 主キー)</li>
+                  <li>カラムの ● からドラッグ、またはカラムの右クリックで線を追加</li>
+                  <li>線の右クリックで線種・色・削除。線を選んで端をドラッグすると、つなぐ位置を変えられます</li>
+                  <li>背景のドラッグで範囲を選択。Delete で選んだものを削除</li>
+                  <li>スクロール・Shift+ドラッグで図を動かす。{MOD}+スクロール・ピンチで拡大縮小</li>
+                  <li>
+                    {MOD}Z で元に戻す / {SHIFT}
+                    {MOD}Z でやり直す
+                  </li>
+                  <li>背景の右クリックでテーブル・枠・テキストを追加</li>
+                </ul>
+              </div>
+            )}
           </div>
           <div
             className="er-zoom-controls"
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <button title="拡大" onClick={() => zoomBy(1.25)}>
+            <button
+              className="has-tooltip"
+              data-tooltip={`元に戻す (${MOD}Z)`}
+              aria-label="元に戻す"
+              disabled={!canUndo}
+              onClick={undo}
+            >
+              ↶
+            </button>
+            <button
+              className="er-redo has-tooltip"
+              data-tooltip={`やり直す (${SHIFT}${MOD}Z)`}
+              aria-label="やり直す"
+              disabled={!canRedo}
+              onClick={redo}
+            >
+              ↷
+            </button>
+            <button
+              className="has-tooltip"
+              data-tooltip="拡大"
+              aria-label="拡大"
+              onClick={() => zoomBy(1.25)}
+            >
               ＋
             </button>
             <button
-              className="zoom-pct mono"
-              title="100%に戻す"
+              className="zoom-pct mono has-tooltip"
+              data-tooltip="100%に戻す"
+              aria-label={`表示倍率 ${Math.round(view.scale * 100)}% (押すと100%に戻す)`}
               onClick={() => zoomBy(1 / view.scale)}
             >
               {Math.round(view.scale * 100)}%
             </button>
-            <button title="縮小" onClick={() => zoomBy(1 / 1.25)}>
+            <button
+              className="has-tooltip"
+              data-tooltip="縮小"
+              aria-label="縮小"
+              onClick={() => zoomBy(1 / 1.25)}
+            >
               −
             </button>
             <button
-              className="fit"
-              title="全体を画面に収める"
+              className="fit has-tooltip"
+              data-tooltip="全体を画面に収める"
               onClick={() => setFitTick((t) => t + 1)}
             >
               Fit
@@ -2216,13 +2545,14 @@ export function ErWindow() {
                     setCtxMenu(null);
                   }}
                   onDelete={() => {
+                    // 元に戻せるので確認は出さず、トーストで知らせる
                     setCtxMenu(null);
-                    setConfirm({
-                      title: f.kind === "text" ? "テキストを削除" : "枠を削除",
-                      message: `「${f.label}」を削除しますか？`,
-                      action: () =>
-                        updateFrames(frames.filter((x) => x.id !== f.id)),
-                    });
+                    updateFrames(frames.filter((x) => x.id !== f.id));
+                    setNotice(
+                      `${f.kind === "text" ? "テキスト" : "枠"}「${f.label}」を削除しました`,
+                      "ok",
+                      { undo: true }
+                    );
                   }}
                 />
               );
@@ -2247,7 +2577,8 @@ export function ErWindow() {
                 setLinkMode(true);
                 setLinkSrc({ table: ctxMenu.table, column: ctxMenu.column });
                 setNotice(
-                  `接続元: ${ctxMenu.table}.${ctxMenu.column} — 接続先のカラムをクリック (右クリックでも可)`
+                  `接続元: ${ctxMenu.table}.${ctxMenu.column} — 接続先のカラムをクリック (右クリックでも可)`,
+                  "info"
                 );
                 setCtxMenu(null);
               }}
@@ -2286,10 +2617,12 @@ export function ErWindow() {
                   {e.from} → {e.to}
                 </span>
                 <button
-                  className="modal-close"
+                  className="modal-close has-tooltip"
+                  data-tooltip="閉じる (Esc)"
+                  aria-label="閉じる"
                   onClick={() => setEdgePanel(null)}
                 >
-                  ×
+                  <CloseMark size={12} />
                 </button>
               </div>
               <div className="er-edge-panel-cap">
@@ -2311,14 +2644,16 @@ export function ErWindow() {
                           <label
                             key={c.name}
                             className={
-                              "er-edge-panel-item" +
+                              "er-edge-panel-item has-tooltip" +
                               (isPrimary ? " primary" : "")
                             }
-                            title={
+                            // 代表カラムは外せない理由を説明に、それ以外は名前の全体を title で出す
+                            data-tooltip={
                               isPrimary
                                 ? "線の代表カラム (外せません)"
-                                : c.name
+                                : undefined
                             }
+                            title={isPrimary ? undefined : c.name}
                           >
                             <input
                               type="checkbox"

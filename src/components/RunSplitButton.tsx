@@ -17,9 +17,9 @@ interface Props<T extends string> {
   caretClass?: string;
   /** 外枠に足すclass */
   wrapClass?: string;
-  /** 主ボタンの説明 (title属性) */
+  /** 主ボタンの説明。tooltip と同じく自前ツールチップで出す (両方あれば tooltip を使う) */
   title?: string;
-  /** 主ボタンの説明 (自前ツールチップ。titleの代わり) */
+  /** 主ボタンの説明 (自前ツールチップ) */
   tooltip?: string;
   disabled?: boolean;
   onClick: () => void;
@@ -67,21 +67,32 @@ export function RunSplitButton<T extends string>({
   useDismiss(open, () => setOpen(false), { capture: true, ref: wrapRef });
 
   const hasMenu = !!options && options.length > 0;
+  // 主ボタンの説明。title で渡されても、ブラウザの title ではなく自前ツールチップで出す
+  const mainTip = tooltip ?? title;
+  const needTipClass =
+    !!mainTip && !mainClass.split(" ").includes("has-tooltip");
 
   return (
     <div className={"run-split" + (wrapClass ? ` ${wrapClass}` : "")} ref={wrapRef}>
       <button
-        className={mainClass + (hasMenu ? " run-main" : "")}
+        className={
+          mainClass +
+          (hasMenu ? " run-main" : "") +
+          (needTipClass ? " has-tooltip" : "")
+        }
         onClick={onClick}
         disabled={disabled}
-        title={title}
-        data-tooltip={tooltip}
+        data-tooltip={mainTip}
       >
         {children}
       </button>
       {hasMenu && (
         <button
-          className={(caretClass ?? mainClass) + " run-caret"}
+          className={
+            (caretClass ?? mainClass) +
+            " run-caret" +
+            (caretTitle ? " has-tooltip" : "")
+          }
           ref={caretRef}
           onClick={() => {
             const el = caretRef.current;
@@ -93,7 +104,11 @@ export function RunSplitButton<T extends string>({
           }}
           onMouseDown={(e) => e.stopPropagation()}
           disabled={caretDisabled}
-          title={caretTitle}
+          // 絵だけのボタンなので、読み上げの名前も付ける
+          data-tooltip={caretTitle}
+          aria-label={caretTitle}
+          aria-haspopup="menu"
+          aria-expanded={open}
         >
           <CaretIcon />
         </button>

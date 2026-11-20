@@ -64,10 +64,10 @@ export function CsvFavFolderRow({
       onPointerDown={onHold}
     >
       <div
-        className="context-item saved-folder csv-fav-folder"
+        className="context-item saved-folder csv-fav-folder has-tooltip"
         role="button"
         aria-expanded={open}
-        title="クリックで開閉 / ドラッグで移動"
+        data-tooltip="クリックで開閉 / ドラッグで移動"
         // 名前を書き換えている間は、欄を押しても開閉しない
         onClick={() => !editing && onToggle()}
       >
@@ -92,8 +92,8 @@ export function CsvFavFolderRow({
         <span className="saved-folder-count">{count}</span>
       </div>
       <button
-        className="saved-edit"
-        title="フォルダ名を変更"
+        className="saved-edit has-tooltip"
+        data-tooltip="フォルダ名を変更"
         aria-label="フォルダ名を変更"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onRename}
@@ -101,8 +101,8 @@ export function CsvFavFolderRow({
         ✎
       </button>
       <button
-        className="saved-del"
-        title="フォルダを外す (中のお気に入りは残ります)"
+        className="saved-del has-tooltip"
+        data-tooltip="フォルダを外す (中のお気に入りは残ります)"
         aria-label="フォルダを外す"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onRemove}

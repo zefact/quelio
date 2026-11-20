@@ -54,10 +54,10 @@ export function checkErTable(
     return `「${name}」はもう図にあります`;
   }
   const cols = spec.columns.filter((c) => c.name.trim() !== "");
-  if (cols.length === 0) return "列を1つ以上入れてください";
+  if (cols.length === 0) return "カラムを1つ以上入れてください";
   const names = cols.map((c) => c.name.trim().toLowerCase());
   if (new Set(names).size !== names.length) {
-    return "同じ名前の列があります";
+    return "同じ名前のカラムがあります";
   }
   return null;
 }

@@ -52,6 +52,17 @@ pub async fn kv_exec(
     sessions::kv_exec(&state, &qlog, &session_id, &database, commands, confirmed).await
 }
 
+/// Valkey: 実行中のコマンドを中止する。
+/// 応答を待つのをやめて接続を捨てる (次の操作の前に張り直す)
+#[tauri::command]
+pub async fn kv_cancel(
+    cancel: State<'_, CancelRegistry>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+) -> Result<(), String> {
+    sessions::kv_cancel(&cancel, &qlog, &session_id)
+}
+
 /// 実行前に確認したいValkeyコマンド (FLUSHALL・CONFIG SET等) を返す。
 /// 実際の実行はせず、画面の確認ダイアログ用に使う。
 ///

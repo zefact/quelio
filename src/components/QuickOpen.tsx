@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useModal } from "../hooks/useModal";
+import { ModalShell } from "./ModalShell";
 import { badgeStyle, dbBadgeLabel, profileColor } from "../colors";
 import { filterActions } from "../quickActions";
 import type { QuickAction } from "../quickActions";
@@ -39,7 +39,6 @@ export function QuickOpen({
   const [index, setIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const boxRef = useModal(onClose);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -50,7 +49,7 @@ export function QuickOpen({
     const list = connections.filter((c) => {
       if (!q) return true;
       return [c.name, c.host, c.database ?? "", c.user, c.dbType].some((v) =>
-        v.toLowerCase().includes(q)
+        v.toLowerCase().includes(q),
       );
     });
     return list.slice(0, 50);
@@ -58,7 +57,7 @@ export function QuickOpen({
 
   const actionHits = useMemo(
     () => filterActions(actions, query),
-    [actions, query]
+    [actions, query],
   );
 
   /** ↑↓ で動かすための通し番号 (接続先 → アクションの順) */
@@ -88,121 +87,114 @@ export function QuickOpen({
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className="modal quick-open"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <input
-          ref={inputRef}
-          className="quick-input"
-          value={query}
-          placeholder="接続先やアクションを名前で探す"
-          spellCheck={false}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setIndex(0);
-          }}
-          onKeyDown={(e) => {
-            if (imeBusy(e)) return;
-            if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setIndex((i) => Math.min(i + 1, total - 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setIndex((i) => Math.max(i - 1, 0));
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              choose(at);
-            }
-          }}
-        />
+    <ModalShell label="名前で探す" onClose={onClose} className="quick-open">
+      <input
+        ref={inputRef}
+        className="quick-input"
+        value={query}
+        placeholder="接続先やアクションを名前で探す"
+        aria-label="接続先やアクションを名前で探す"
+        spellCheck={false}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setIndex(0);
+        }}
+        onKeyDown={(e) => {
+          if (imeBusy(e)) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            setIndex((i) => Math.min(i + 1, total - 1));
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            setIndex((i) => Math.max(i - 1, 0));
+          } else if (e.key === "Enter") {
+            e.preventDefault();
+            choose(at);
+          }
+        }}
+      />
 
-        {total === 0 ? (
-          <div className="quick-empty">
-            {connections.length === 0
-              ? "保存された接続先がありません"
-              : "該当する接続先・アクションがありません"}
-          </div>
-        ) : (
-          <div className="quick-list" ref={listRef}>
-            {hits.length > 0 && (
-              <>
-                {query.trim() !== "" && (
-                  <div className="quick-group">接続先</div>
-                )}
-                {hits.map((c, i) => {
-                  const path = folderName(folders, c.folderId);
-                  return (
-                    <button
-                      key={c.id}
-                      data-at={i}
-                      className={"quick-item" + (i === at ? " selected" : "")}
-                      onMouseEnter={() => setIndex(i)}
-                      onClick={() => choose(i)}
-                    >
-                      <span
-                        className="db-badge mini"
-                        style={badgeStyle(profileColor(c))}
-                      >
-                        {dbBadgeLabel(c.dbType)}
-                      </span>
-                      <span className="quick-name">
-                        {c.name || `${c.host}:${c.port}`}
-                      </span>
-                      <span className="quick-sub mono">
-                        {c.dbType === "sqlite"
-                          ? (c.database ?? "")
-                          : `${c.user}@${c.host}:${c.port}${c.database ? ` / ${c.database}` : ""}`}
-                      </span>
-                      {path && <span className="quick-folder">{path}</span>}
-                    </button>
-                  );
-                })}
-              </>
-            )}
-
-            {actionHits.length > 0 && (
-              <>
-                <div className="quick-group">アクション</div>
-                {actionHits.map((a, i) => {
-                  const n = hits.length + i;
-                  return (
-                    <button
-                      key={a.id}
-                      data-at={n}
-                      className={
-                        "quick-item quick-action" + (n === at ? " selected" : "")
-                      }
-                      disabled={a.disabledReason !== undefined}
-                      title={a.disabledReason}
-                      onMouseEnter={() => setIndex(n)}
-                      onClick={() => choose(n)}
-                    >
-                      <span className="quick-action-icon" aria-hidden>
-                        ▸
-                      </span>
-                      <span className="quick-name">{a.label}</span>
-                      <span className="quick-sub">
-                        {a.disabledReason ?? a.hint ?? ""}
-                      </span>
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        )}
-
-        <div className="quick-foot">
-          <span className="faint">
-            ↑↓ で選択 / Enter で実行 / Esc で閉じる ・
-            設定やER図などのアクションも名前で探せます
-          </span>
+      {total === 0 ? (
+        <div className="quick-empty">
+          {connections.length === 0
+            ? "保存された接続先がありません"
+            : "該当する接続先・アクションがありません"}
         </div>
+      ) : (
+        <div className="quick-list" ref={listRef}>
+          {hits.length > 0 && (
+            <>
+              {query.trim() !== "" && <div className="quick-group">接続先</div>}
+              {hits.map((c, i) => {
+                const path = folderName(folders, c.folderId);
+                return (
+                  <button
+                    key={c.id}
+                    data-at={i}
+                    className={"quick-item" + (i === at ? " selected" : "")}
+                    onMouseEnter={() => setIndex(i)}
+                    onClick={() => choose(i)}
+                  >
+                    <span
+                      className="db-badge mini"
+                      style={badgeStyle(profileColor(c))}
+                    >
+                      {dbBadgeLabel(c.dbType)}
+                    </span>
+                    <span className="quick-name">
+                      {c.name || `${c.host}:${c.port}`}
+                    </span>
+                    <span className="quick-sub mono">
+                      {c.dbType === "sqlite"
+                        ? (c.database ?? "")
+                        : `${c.user}@${c.host}:${c.port}${c.database ? ` / ${c.database}` : ""}`}
+                    </span>
+                    {path && <span className="quick-folder">{path}</span>}
+                  </button>
+                );
+              })}
+            </>
+          )}
+
+          {actionHits.length > 0 && (
+            <>
+              <div className="quick-group">アクション</div>
+              {actionHits.map((a, i) => {
+                const n = hits.length + i;
+                return (
+                  <button
+                    key={a.id}
+                    data-at={n}
+                    className={
+                      "quick-item quick-action has-tooltip" +
+                      (n === at ? " selected" : "")
+                    }
+                    disabled={a.disabledReason !== undefined}
+                    data-tooltip={a.disabledReason}
+                    onMouseEnter={() => setIndex(n)}
+                    onClick={() => choose(n)}
+                  >
+                    <span className="quick-action-icon" aria-hidden>
+                      ▸
+                    </span>
+                    <span className="quick-name">{a.label}</span>
+                    <span className="quick-sub">
+                      {a.disabledReason ?? a.hint ?? ""}
+                    </span>
+                  </button>
+                );
+              })}
+            </>
+          )}
+        </div>
+      )}
+
+      <div className="quick-foot">
+        <span className="faint">
+          ↑↓ で選択 / Enter で実行 / Esc で閉じる ・
+          設定やER図などのアクションも名前で探せます
+        </span>
       </div>
-    </div>
+    </ModalShell>
   );
 }

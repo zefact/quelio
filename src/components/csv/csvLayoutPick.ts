@@ -132,7 +132,7 @@ export function importedNotice(label: string, done: CsvLayoutImported[]): string
   if (done.length === 0) return "取り込んだお気に入りはありません";
   const renamed = done.filter((d) => d.savedAs !== d.name).length;
   return (
-    `${label}を${done.length}件取り込みました` +
+    `${label}を${done.length}件追加しました` +
     (renamed > 0 ? ` (同じ名前の${renamed}件は番号を付けて追加)` : "")
   );
 }

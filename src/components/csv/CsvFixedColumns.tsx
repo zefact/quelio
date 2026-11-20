@@ -117,8 +117,8 @@ export function CsvFixedColumns({ columns, unit, onChange }: Props) {
             />
             <button
               type="button"
-              className="csv-fixed-x"
-              title="この桁を削除"
+              className="csv-fixed-x has-tooltip"
+              data-tooltip="この桁を削除"
               aria-label="この桁を削除"
               disabled={columns.length <= 1}
               onClick={() => put(columns.filter((_, at) => at !== i))}

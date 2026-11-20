@@ -53,6 +53,29 @@ pub struct ConnectionsFileInfo {
     pub connections: usize,
     /// パスワード・パスフレーズが (暗号化して) 入っているか
     pub has_secrets: bool,
+    /// 取り込んだら何件増えて、どれが上書きされるか
+    pub preview: RestorePreview,
+}
+
+/// 復元する前に見せる見込み (書き込まずに数えた、追加数と上書きされるものの名前)
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct RestorePreview {
+    pub added: usize,
+    pub updated: usize,
+    /// 上書きされるものの、今の名前
+    pub updated_names: Vec<String>,
+}
+
+impl RestorePreview {
+    /// (追加数, 上書きされるものの名前) から作る
+    fn from_counts((added, updated_names): (usize, Vec<String>)) -> Self {
+        RestorePreview {
+            added,
+            updated: updated_names.len(),
+            updated_names,
+        }
+    }
 }
 
 /// ファイルの中で、暗号化した秘匿値を置く場所
@@ -163,12 +186,24 @@ fn parse_connections(text: &str) -> Result<(ConnectionStore, Option<SecretBox>),
     Ok((store, sealed))
 }
 
-/// 取り込む前に、ファイルの中身を確かめる (パスワードが入っているか)
-pub fn inspect_connections_file(path: &str) -> Result<ConnectionsFileInfo, String> {
-    let (store, sealed) = read_connections_file(path)?;
+/**
+ * 取り込む前に、ファイルの中身を確かめる
+ * (パスワードが入っているか、取り込んだら何件増えて、どれが上書きされるか)。
+ *
+ * 数えるだけなので、今の接続一覧はパスワードを復号せずに読み、何も書き込まない
+ */
+pub fn inspect_connections_file(
+    app: &AppHandle,
+    path: &str,
+) -> Result<ConnectionsFileInfo, String> {
+    let (incoming, sealed) = read_connections_file(path)?;
+    let connections = incoming.connections.len();
+    let mut store = storage::load_without_secrets(app)?;
+    let merged = merge_connections(&mut store, incoming, &Secrets::new());
     Ok(ConnectionsFileInfo {
-        connections: store.connections.len(),
+        connections,
         has_secrets: sealed.is_some(),
+        preview: RestorePreview::from_counts((merged.result.added, merged.overwritten)),
     })
 }
 
@@ -191,13 +226,41 @@ pub fn import_connections(
         (Some(sealed), Some(pw)) => secrets::open(&sealed, pw)?,
         _ => Secrets::new(),
     };
-    let mut secret_count = 0;
 
     let mut store = storage::load(app)?;
     // 取り込みでAIへの公開が変わることがある (前後の姿を見比べる)
     let before = crate::commands::ai_visible_list(&store);
-    let mut added = 0;
-    let mut updated = 0;
+    let merged = merge_connections(&mut store, incoming, &secrets);
+
+    storage::save(app, &store)?;
+    // 保存や削除と同じく、見える一覧が変わったらクライアントへ知らせる
+    if crate::commands::ai_visible_list(&store) != before {
+        crate::commands::notify_ai_list_changed(app);
+    }
+    Ok(merged.result)
+}
+
+/// `merge_connections` の結果
+struct MergedConnections {
+    result: ImportResult,
+    /// 上書きした接続先の、上書き前の名前
+    overwritten: Vec<String>,
+}
+
+/**
+ * 今の接続一覧へ、取り込む接続一覧を混ぜる (書き込みはしない)。
+ *
+ * 取り込み (`import_connections`) と、取り込む前の件数の見込み
+ * (`inspect_connections_file`) の両方がこれを使う。
+ * 同じIDのものは上書きし、IDが無いものと今に無いものは足す
+ */
+fn merge_connections(
+    store: &mut ConnectionStore,
+    incoming: ConnectionStore,
+    secrets: &Secrets,
+) -> MergedConnections {
+    let mut result = ImportResult::default();
+    let mut overwritten = Vec::new();
 
     for f in incoming.folders {
         if let Some(existing) = store.folders.iter_mut().find(|x| x.id == f.id) {
@@ -207,21 +270,19 @@ pub fn import_connections(
         }
     }
 
-    let mut ai_kept_local = 0;
-    let mut command_paths_dropped = 0;
     for mut c in incoming.connections {
         // ファイルに入っていたパスワード・パスフレーズを戻す (IDを振り直す前に引く)
         let secret = secrets.get(&c.id);
         if apply_secret(&mut c, secret) {
-            secret_count += 1;
+            result.secrets += 1;
         }
         if c.id.is_empty() {
             c.id = uuid::Uuid::new_v4().to_string();
         }
         let local = store.connections.iter().find(|x| x.id == c.id).cloned();
         let kept = keep_local_settings(&mut c, local.as_ref());
-        ai_kept_local += usize::from(kept.ai_access);
-        command_paths_dropped += usize::from(kept.command_path);
+        result.ai_kept_local += usize::from(kept.ai_access);
+        result.command_paths_dropped += usize::from(kept.command_path);
         if let Some(existing) = store.connections.iter_mut().find(|x| x.id == c.id) {
             // エクスポートには秘匿情報が入っていないため、
             // 未設定のパスワード・パスフレーズは既存の値を引き継ぐ
@@ -233,26 +294,17 @@ pub fn import_connections(
                     ssh_new.passphrase = ssh_old.passphrase.clone();
                 }
             }
-            *existing = c;
-            updated += 1;
+            overwritten.push(std::mem::replace(existing, c).name);
+            result.updated += 1;
         } else {
             store.connections.push(c);
-            added += 1;
+            result.added += 1;
         }
     }
-
-    storage::save(app, &store)?;
-    // 保存や削除と同じく、見える一覧が変わったらクライアントへ知らせる
-    if crate::commands::ai_visible_list(&store) != before {
-        crate::commands::notify_ai_list_changed(app);
+    MergedConnections {
+        result,
+        overwritten,
     }
-    Ok(ImportResult {
-        added,
-        updated,
-        secrets: secret_count,
-        ai_kept_local,
-        command_paths_dropped,
-    })
 }
 
 /// `keep_local_settings` で、ファイルの値を取り込まなかった項目
@@ -329,16 +381,26 @@ pub fn export_er_diagrams(app: &AppHandle, path: &str) -> Result<usize, String> 
 
 /// JSONファイルからER図を取り込む (同名の図は上書き)
 pub fn import_er_diagrams(app: &AppHandle, path: &str) -> Result<ImportResult, String> {
-    let text =
-        std::fs::read_to_string(path).map_err(|e| format!("ファイルを読み込めません: {e}"))?;
-    let incoming: HashMap<String, Value> =
-        serde_json::from_str(&text).map_err(|e| format!("ER図のJSON形式が不正です: {e}"))?;
+    let incoming = read_er_diagrams_file(path)?;
     let (added, updated) = er_store::merge(app, incoming)?;
     Ok(ImportResult {
         added,
         updated,
         ..Default::default()
     })
+}
+
+/// ER図のファイルを取り込んだら何件増えて、どれが上書きされるかを数える (書き込まない)
+pub fn preview_er_diagrams(app: &AppHandle, path: &str) -> Result<RestorePreview, String> {
+    let incoming = read_er_diagrams_file(path)?;
+    er_store::preview_merge(app, incoming).map(RestorePreview::from_counts)
+}
+
+/// ER図のバックアップファイルを読む
+fn read_er_diagrams_file(path: &str) -> Result<HashMap<String, Value>, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("ファイルを読み込めません: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("ER図のJSON形式が不正です: {e}"))
 }
 
 /// 保存SQL (お気に入り) をJSONファイルへ書き出す
@@ -352,15 +414,26 @@ pub fn export_saved_sql(app: &AppHandle, path: &str) -> Result<usize, String> {
 
 /// JSONファイルから保存SQLを取り込む (同じIDのものは上書き)
 pub fn import_saved_sql(app: &AppHandle, path: &str) -> Result<ImportResult, String> {
-    let text =
-        std::fs::read_to_string(path).map_err(|e| format!("ファイルを読み込めません: {e}"))?;
-    let incoming = saved_sql::parse(&text)?;
+    let incoming = read_saved_sql_file(path)?;
     let (added, updated) = saved_sql::merge(app, incoming)?;
     Ok(ImportResult {
         added,
         updated,
         ..Default::default()
     })
+}
+
+/// 保存SQLのファイルを取り込んだら何件増えて、どれが上書きされるかを数える (書き込まない)
+pub fn preview_saved_sql(app: &AppHandle, path: &str) -> Result<RestorePreview, String> {
+    let incoming = read_saved_sql_file(path)?;
+    saved_sql::preview_merge(app, incoming).map(RestorePreview::from_counts)
+}
+
+/// 保存SQLのバックアップファイルを読む
+fn read_saved_sql_file(path: &str) -> Result<saved_sql::SavedSqlStore, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("ファイルを読み込めません: {e}"))?;
+    saved_sql::parse(&text)
 }
 
 /// 固定長のお気に入りをJSONファイルへ書き出す (フォルダ分けごと)
@@ -374,15 +447,27 @@ pub fn export_csv_layouts(app: &AppHandle, path: &str) -> Result<usize, String> 
 
 /// JSONファイルから固定長のお気に入りを取り込む (同じ名前のものは上書き)
 pub fn import_csv_layouts(app: &AppHandle, path: &str) -> Result<ImportResult, String> {
-    let text =
-        std::fs::read_to_string(path).map_err(|e| format!("ファイルを読み込めません: {e}"))?;
-    let incoming = csv_layouts::parse(&text)?;
+    let incoming = read_csv_layouts_file(path)?;
     let (added, updated) = csv_layouts::merge(app, incoming)?;
     Ok(ImportResult {
         added,
         updated,
         ..Default::default()
     })
+}
+
+/// 固定長のお気に入りのファイルを取り込んだら何件増えて、どれが上書きされるかを数える
+/// (書き込まない)
+pub fn preview_csv_layouts(app: &AppHandle, path: &str) -> Result<RestorePreview, String> {
+    let incoming = read_csv_layouts_file(path)?;
+    csv_layouts::preview_merge(app, incoming).map(RestorePreview::from_counts)
+}
+
+/// 固定長のお気に入りのバックアップファイルを読む
+fn read_csv_layouts_file(path: &str) -> Result<Vec<csv_layouts::LayoutNode>, String> {
+    let text =
+        std::fs::read_to_string(path).map_err(|e| format!("ファイルを読み込めません: {e}"))?;
+    csv_layouts::parse(&text)
 }
 
 #[cfg(test)]
@@ -487,6 +572,40 @@ mod tests {
         let (store, sealed) = parse_connections(&file(false)).unwrap();
         assert_eq!(store.connections.len(), 1);
         assert!(sealed.is_none());
+    }
+
+    #[test]
+    fn 取り込みは同じidを上書きとして数え上書き前の名前を返す() {
+        let mut store = ConnectionStore {
+            connections: vec![
+                profile(serde_json::json!({"id": "a", "name": "本番 (旧)"})),
+                profile(serde_json::json!({"id": "b", "name": "検証"})),
+            ],
+            ..Default::default()
+        };
+        let incoming = ConnectionStore {
+            connections: vec![
+                profile(serde_json::json!({"id": "a", "name": "本番"})),
+                profile(serde_json::json!({"id": "c", "name": "開発"})),
+                // IDの無いものは、いつも追加になる
+                profile(serde_json::json!({"id": "", "name": "手入力"})),
+            ],
+            ..Default::default()
+        };
+        let merged = merge_connections(&mut store, incoming, &Secrets::new());
+        assert_eq!(merged.result.added, 2);
+        assert_eq!(merged.result.updated, 1);
+        assert_eq!(merged.overwritten, vec!["本番 (旧)"]);
+        assert_eq!(store.connections.len(), 4);
+        assert_eq!(store.connections[0].name, "本番");
+        assert_eq!(
+            RestorePreview::from_counts((merged.result.added, merged.overwritten)),
+            RestorePreview {
+                added: 2,
+                updated: 1,
+                updated_names: vec!["本番 (旧)".into()],
+            }
+        );
     }
 
     #[test]

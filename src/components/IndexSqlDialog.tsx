@@ -5,8 +5,8 @@
  * 打ち直さず写せるようにするためのもの
  */
 import { useState } from "react";
-import { useModal } from "../hooks/useModal";
-import { writeClipboard } from "../gridCopy";
+import { ModalFrame } from "./ModalFrame";
+import { SqlDialogButtons } from "./SqlTextDialog";
 
 interface Props {
   /** どのインデックスのものか (見出しに出す) */
@@ -16,60 +16,53 @@ interface Props {
   /** 組み立てられなかったときの理由 */
   error: string | null;
   onClose: () => void;
+  /** 渡すと「SQLエディタへ送る」を出す */
+  onSendToEditor?: (sql: string) => void;
 }
 
-export function IndexSqlDialog({ name, sql, error, onClose }: Props) {
-  const boxRef = useModal(onClose);
-  const [copied, setCopied] = useState(false);
-  const text = (sql ?? []).join(";\n");
-
-  const copy = async () => {
-    if (!text) return;
-    await writeClipboard(`${text};`);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
-  };
+export function IndexSqlDialog({
+  name,
+  sql,
+  error,
+  onClose,
+  onSendToEditor,
+}: Props) {
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const body = (sql ?? []).join(";\n");
+  /** コピー・送るときは文の終わりに ; を付ける */
+  const text = body ? `${body};` : "";
+  const shownError = error ?? copyError;
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className="modal ddl-confirm"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            CREATE INDEX 文
-            <span className="column-modal-target mono">{name}</span>
-          </span>
-          <button className="modal-close" onClick={onClose} title="閉じる (Esc)">
-            ×
-          </button>
-        </div>
-
-        {error ? (
-          <div className="result-banner ng">
-            <span className="dot" aria-hidden />
-            <span className="result-detail">{error}</span>
-          </div>
-        ) : sql === null ? (
+    <ModalFrame
+      title="CREATE INDEX 文"
+      target={name}
+      onClose={onClose}
+      className="ddl-confirm"
+      footer={
+        <SqlDialogButtons
+          text={text}
+          onClose={onClose}
+          onSendToEditor={onSendToEditor}
+          onError={setCopyError}
+        />
+      }
+    >
+      <div className="column-modal-body">
+        {sql === null && !error ? (
           <div className="routine-empty">
-            <span className="spinner accent" /> 組み立てています...
+            <span className="spinner accent" /> 組み立てています…
           </div>
         ) : (
-          <pre className="column-sql mono">{text}</pre>
+          sql !== null && <pre className="column-sql mono">{body}</pre>
         )}
-
-        <div className="form-actions">
-          <button className="btn-secondary" onClick={onClose}>
-            閉じる
-          </button>
-          <button className="btn-primary" onClick={() => void copy()} disabled={!text}>
-            {copied ? "コピーしました" : "コピー"}
-          </button>
-        </div>
+        {shownError && (
+          <div className="result-banner ng column-error">
+            <span className="dot" aria-hidden />
+            <span className="result-detail">{shownError}</span>
+          </div>
+        )}
       </div>
-    </div>
+    </ModalFrame>
   );
 }

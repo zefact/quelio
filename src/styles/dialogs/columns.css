@@ -28,7 +28,7 @@
   border-radius: var(--radius-xs);
   background: var(--bg-card);
   color: var(--text-dim);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   white-space: normal;
   word-break: break-all;
@@ -51,7 +51,7 @@
   border-radius: 50%;
   background: rgba(99, 102, 241, 0.18);
   color: var(--accent);
-  font-size: 9.5px;
+  font-size: var(--fs-2xs);
   font-weight: 700;
 }
 
@@ -68,7 +68,7 @@
   background: var(--input-bg);
   box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -113,7 +113,7 @@
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-btn);
   color: var(--text-faint);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
 }
 
 /* 選択済み (順序どおり) */
@@ -142,13 +142,13 @@
   flex: none;
   width: 18px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .index-cols-name {
   flex: 1;
   min-width: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -172,7 +172,7 @@
   border-radius: var(--radius-sm);
   background: var(--bg-card);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   cursor: pointer;
 }
 
@@ -183,7 +183,7 @@
 
 .index-cols-type {
   color: var(--text-faint);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
 }
 
 /* 型名の候補ドロップダウン (セルの外に出すので幅で切れない) */
@@ -195,7 +195,7 @@
 
 .type-suggest .context-item {
   padding: 5px 10px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 /* セルいっぱいに広がる選択欄 (MySQLの属性) */
@@ -210,7 +210,7 @@
   background: var(--input-bg);
   box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   cursor: pointer;
 }
 
@@ -258,7 +258,7 @@
   border-radius: var(--radius-sm);
   background: rgba(var(--ink), 0.05);
   color: var(--text-dim);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   letter-spacing: normal;
   text-transform: none;

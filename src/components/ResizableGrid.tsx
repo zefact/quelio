@@ -198,7 +198,7 @@ const SORT_ITEMS: [SortDir, string][] = [
 /** ダブルクリックfit時の最大幅 */
 const FIT_MAX = 700;
 
-/** 幅の自動フィットで計測する最大行数 (1000行を全て測ると重いため) */
+/** 幅の自動フィットで計測する最大行数 (1000行をすべて測ると重いため) */
 const FIT_SAMPLE = 200;
 
 /** 列が多い場合の下限サンプル行数 */
@@ -830,7 +830,7 @@ export function ResizableGrid({
                 key={c.id}
                 className={
                   (c.align ?? "") +
-                  (canSort ? " sortable" : "") +
+                  (canSort ? " sortable has-tooltip" : "") +
                   (c.cellClass ? ` ${c.cellClass}` : "")
                 }
                 /*
@@ -850,7 +850,15 @@ export function ResizableGrid({
                       }
                     : undefined
                 }
-                title={canSort ? "右クリックで並び替え" : undefined}
+                /*
+                 * 列の説明 (HoverTip) がある列では出さない (2つの説明が重なるため)。
+                 * 並べ替えメニューを開いている間も出さない
+                 */
+                data-tooltip={
+                  canSort && !c.description && sortMenu?.id !== c.id
+                    ? "右クリックか ▾ で並べ替え"
+                    : undefined
+                }
               >
                 {/* ソートメニューを開いている列はツールチップを出さない (メニューと重なるため) */}
                 <HoverTip
@@ -865,8 +873,16 @@ export function ResizableGrid({
                     {/* 並び替え中の列だけ、方向を矢印で示す */}
                     {sort?.id === c.id && (
                       <span
-                        className="sort-arrow"
-                        title={sort.dir === "asc" ? "昇順" : "降順"}
+                        className="sort-arrow has-tooltip"
+                        // 列の説明 (HoverTip) がある列では、重ならないように出さない
+                        data-tooltip={
+                          c.description
+                            ? undefined
+                            : sort.dir === "asc"
+                              ? "昇順"
+                              : "降順"
+                        }
+                        aria-label={sort.dir === "asc" ? "昇順" : "降順"}
                       >
                         {sort.dir === "asc" ? "▲" : "▼"}
                       </span>
@@ -875,9 +891,29 @@ export function ResizableGrid({
                   {/* 2段目 (日本語名)。1段目より小さく、控えめな色で出す */}
                   {c.subLabel && <span className="th-sub">{c.subLabel}</span>}
                 </HoverTip>
+                {/*
+                 * 並べ替え (と絞り込み) は右クリックだけだと気づかれないので、
+                 * 押して開ける ▾ も置く
+                 */}
+                {canSort && (
+                  <button
+                    type="button"
+                    className="th-menu-btn"
+                    aria-label={`${c.label} の並べ替え`}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const r = e.currentTarget.getBoundingClientRect();
+                      setSortMenu({ id: c.id, x: r.left, y: r.bottom + 2 });
+                    }}
+                  >
+                    ▾
+                  </button>
+                )}
                 <span
-                  className="col-resizer"
-                  title="ドラッグで幅変更 / ダブルクリックで内容にフィット"
+                  className="col-resizer has-tooltip"
+                  data-tooltip="ドラッグで幅変更 / ダブルクリックで内容にフィット"
+                  aria-label="ドラッグで幅変更 / ダブルクリックで内容にフィット"
                   onMouseDown={(e) => startResize(c.id, e)}
                   onClick={(e) => e.stopPropagation()}
                   onDoubleClick={(e) => {
@@ -1036,9 +1072,13 @@ export function ResizableGrid({
               {items.map((it) => (
                 <button
                   key={it.label}
-                  className={"context-item" + (it.danger ? " danger" : "")}
+                  className={
+                    "context-item" +
+                    (it.danger ? " danger" : "") +
+                    (it.title ? " has-tooltip" : "")
+                  }
                   disabled={it.disabled}
-                  title={it.title}
+                  data-tooltip={it.title}
                   onClick={() => {
                     setRowMenu(null);
                     it.onSelect();
@@ -1069,23 +1109,23 @@ export function ResizableGrid({
                     ヘッダー付きでコピー
                   </button>
                   <button
-                    className="context-item"
-                    title="1行1オブジェクトの配列。NULLは null になります"
+                    className="context-item has-tooltip"
+                    data-tooltip="1行1オブジェクトの配列。NULLは null になります"
                     onClick={() => copyRows("json")}
                   >
                     JSONでコピー
                   </button>
                   <button
-                    className="context-item"
-                    title="Markdownの表。改行は <br> に置き換えます"
+                    className="context-item has-tooltip"
+                    data-tooltip="Markdownの表。改行は <br> に置き換えます"
                     onClick={() => copyRows("markdown")}
                   >
                     Markdownの表でコピー
                   </button>
                   {insertTable && (
                     <button
-                      className="context-item"
-                      title="値はすべて文字列リテラルにします (型はDB側が解釈します)"
+                      className="context-item has-tooltip"
+                      data-tooltip="値はすべて文字列リテラルにします (型はDB側が解釈します)"
                       onClick={() => copyRows("insert")}
                     >
                       INSERT文でコピー

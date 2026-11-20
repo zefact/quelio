@@ -83,13 +83,15 @@ export function SqlLibraryMenu({
   const [query, setQuery] = useState("");
   const [histEntries, setHistEntries] = useState<SqlHistoryEntry[]>([]);
   const [store, setStore] = useState<SavedSqlStore>(EMPTY);
-  /** 開いているフォルダパス (既定は全て閉じた状態) */
+  /** 開いているフォルダパス (既定はすべて閉じた状態) */
   const [opened, setOpened] = useState<Set<string>>(new Set());
   /** 確認ダイアログ (項目の削除 / フォルダの削除 / 履歴の全消し) */
   const [confirm, setConfirm] = useState<
     | { kind: "item"; entry: SavedSqlEntry }
     | { kind: "folder"; path: string }
     | { kind: "history" }
+    /** 書きかけの内容を、選んだ履歴・お気に入りで置き換える */
+    | { kind: "replace"; sql: string; name: string }
     | null
   >(null);
   /** 保存/編集ダイアログ (editing = null なら新規保存) */
@@ -130,6 +132,20 @@ export function SqlLibraryMenu({
    * 出したままだとダイアログに被ってしまう。
    * open は残しておくので、ダイアログを閉じると同じ場所に戻る
    */
+  /**
+   * 選んだ履歴・お気に入りをエディタへ入れる。
+   * 書きかけ (空白以外) があり、中身も違うときは、置き換える前に確認する
+   */
+  const pick = (sql: string, name: string) => {
+    const cur = currentSql.trim();
+    if (cur !== "" && cur !== sql.trim()) {
+      setConfirm({ kind: "replace", sql, name });
+      return;
+    }
+    onSelect(sql);
+    setOpen(false);
+  };
+
   const dialogOpen =
     !!confirm || !!saveDialog || !!folderDialog || transfer !== null;
 
@@ -161,7 +177,7 @@ export function SqlLibraryMenu({
       setNotice(null);
       // 開くたびに、探していた語は消しておく
       setQuery("");
-      // 開くたびにフォルダは全て閉じた状態から始める
+      // 開くたびにフォルダはすべて閉じた状態から始める
       setOpened(new Set());
       // ボタン位置からfixed配置の座標を決める。
       // 親 (query-actions等) のoverflowにクリップされないようにするため
@@ -294,36 +310,36 @@ export function SqlLibraryMenu({
             {mode === "saved" && (
               <div className="lib-saved-actions">
                 <button
-                  className="lib-action"
+                  className="lib-action has-tooltip tooltip-left"
                   disabled={!currentSql.trim()}
-                  title={
+                  data-tooltip={
                     currentSql.trim()
-                      ? `今エディタにある${contentLabel}をお気に入りに保存します`
+                      ? `今エディタにある${contentLabel}をお気に入りに追加します`
                       : `エディタが空です`
                   }
                   onClick={() => openSaveDialog()}
                 >
-                  ＋ 今の{contentLabel}を保存
+                  + 今の{contentLabel}をお気に入りに追加
                 </button>
                 <button
                   className="lib-action"
                   onClick={() => setFolderDialog({ target: null })}
                 >
-                  ＋ フォルダ
+                  + フォルダ
                 </button>
                 <span className="toolbar-spacer" />
                 {/* 選んだものだけ書き出す / 新しいフォルダへ取り込む */}
                 <button
-                  className="lib-action"
+                  className="lib-action has-tooltip"
                   disabled={store.items.length + store.folders.length === 0}
-                  title="選んだお気に入りをファイルへ書き出します"
+                  data-tooltip="選んだお気に入りをファイルへ書き出します"
                   onClick={() => setTransfer("backup")}
                 >
                   バックアップ
                 </button>
                 <button
-                  className="lib-action"
-                  title="ファイルのお気に入りを、新しいフォルダを作ってその中へ取り込みます"
+                  className="lib-action has-tooltip"
+                  data-tooltip="ファイルのお気に入りを、新しいフォルダを作ってその中へ取り込みます"
                   onClick={() => setTransfer("restore")}
                 >
                   復元
@@ -339,10 +355,7 @@ export function SqlLibraryMenu({
               entries={shownHistory}
               total={histEntries.length}
               query={query}
-              onPick={(sql) => {
-                onSelect(sql);
-                setOpen(false);
-              }}
+              onPick={(sql) => pick(sql, "実行履歴")}
               onDelete={(sql) => {
                 deleteSqlHistory(sql)
                   .then(setHistEntries)
@@ -355,10 +368,7 @@ export function SqlLibraryMenu({
               {searching ? (
                 <SavedSearchList
                   entries={foundSaved}
-                  onPick={(it) => {
-                    onSelect(it.sql);
-                    setOpen(false);
-                  }}
+                  onPick={(it) => pick(it.sql, it.name)}
                   onEdit={(it) => openSaveDialog(it)}
                 />
               ) : (
@@ -366,10 +376,7 @@ export function SqlLibraryMenu({
                   store={store}
                   opened={opened}
                   onToggleFolder={toggleFolder}
-                  onPickItem={(it) => {
-                    onSelect(it.sql);
-                    setOpen(false);
-                  }}
+                  onPickItem={(it) => pick(it.sql, it.name)}
                   onEditItem={(it) => openSaveDialog(it)}
                   onRenameFolder={(path) => setFolderDialog({ target: path })}
                   onMove={handleMove}
@@ -379,7 +386,7 @@ export function SqlLibraryMenu({
           )}
           {/* 選ぶとエディタの中身が入れ替わる (実行はしない) ことを添える */}
           <div className="lib-foot">
-            クリックでエディタに読み込みます (今の内容と置き換わります)
+            クリックでエディタに入れます (書きかけがあるときは、置き換える前に確認します)
           </div>
         </div>
       )}
@@ -451,7 +458,7 @@ export function SqlLibraryMenu({
             setMode("saved");
             setQuery("");
             setError(null);
-            setNotice(`「${r.folder}」フォルダに${r.added}件を取り込みました`);
+            setNotice(`「${r.folder}」フォルダに${r.added}件を追加しました`);
             setTransfer(null);
           }}
         />
@@ -460,6 +467,7 @@ export function SqlLibraryMenu({
       {confirm?.kind === "item" && (
         <ConfirmDialog
           title="お気に入りを削除します"
+          confirmLabel="削除する"
           target={confirm.entry.name}
           onCancel={() => setConfirm(null)}
           onConfirm={async () => {
@@ -469,13 +477,14 @@ export function SqlLibraryMenu({
             setSaveDialog(null);
           }}
         >
-          このお気に入りを削除します。取り消しはできません。
+          このお気に入りを削除します。元に戻せません。
         </ConfirmDialog>
       )}
 
       {confirm?.kind === "folder" && (
         <ConfirmDialog
           title="フォルダを中身ごと削除します"
+          confirmLabel="削除する"
           target={confirm.path}
           onCancel={() => setConfirm(null)}
           onConfirm={async () => {
@@ -491,14 +500,32 @@ export function SqlLibraryMenu({
               ? "空のフォルダを削除します。"
               : `中のお気に入り${n.items}件` +
                   (n.folders > 0 ? ` とフォルダ${n.folders}個` : "") +
-                  " も一緒に削除します。取り消しはできません。";
+                  " も一緒に削除します。元に戻せません。";
           })()}
+        </ConfirmDialog>
+      )}
+
+      {confirm?.kind === "replace" && (
+        <ConfirmDialog
+          title={`エディタの${contentLabel}を置き換えます`}
+          target={confirm.name}
+          confirmLabel="置き換える"
+          tone="primary"
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => {
+            onSelect(confirm.sql);
+            setConfirm(null);
+            setOpen(false);
+          }}
+        >
+          今エディタに書いてある{contentLabel}は、選んだものと入れ替わります。
         </ConfirmDialog>
       )}
 
       {confirm?.kind === "history" && (
         <ConfirmDialog
           title="実行履歴をすべて消します"
+          confirmLabel="すべて消す"
           target={`${histEntries.length}件`}
           onCancel={() => setConfirm(null)}
           onConfirm={async () => {
@@ -510,7 +537,7 @@ export function SqlLibraryMenu({
             setConfirm(null);
           }}
         >
-          保存したお気に入りは消えません。取り消しはできません。
+          保存したお気に入りは消えません。元に戻せません。
         </ConfirmDialog>
       )}
 

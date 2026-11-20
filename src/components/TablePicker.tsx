@@ -104,7 +104,7 @@ export function TablePicker({
         <div className="table-pick-head">
           <input
             className="table-pick-filter mono"
-            placeholder="絞り込み..."
+            placeholder="絞り込み…"
             value={filter}
             autoFocus
             onChange={(e) => setFilter(e.target.value)}
@@ -119,7 +119,7 @@ export function TablePicker({
 
         {loading ? (
           <div className="table-pick-empty">
-            <span className="spinner accent" /> テーブル一覧を読み込み中...
+            <span className="spinner accent" /> テーブル一覧を読み込み中…
           </div>
         ) : shown.length === 0 ? (
           <div className="table-pick-empty">

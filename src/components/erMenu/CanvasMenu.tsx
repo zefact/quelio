@@ -9,7 +9,7 @@ export function CanvasMenu({ onAddTable, onAddFrame, onAddText }: Props) {
   return (
     <>
       <button className="context-item" onClick={onAddTable}>
-        ここにテーブルを追加...
+        ここにテーブルを追加…
       </button>
       <div className="context-sep" />
       <button className="context-item" onClick={onAddFrame}>

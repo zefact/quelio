@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
 import { RevealButton } from "./RevealButton";
+import { CloseMark } from "./CloseMark";
+import { ErrorBand } from "./ErrorBand";
+import { IconButton } from "./IconButton";
 import {
   exportSchemaCsv,
   exportSchemaXlsx,
@@ -46,7 +49,7 @@ const COLUMN_COLS: GridColumn[] = [
   { id: "table", label: "テーブル名", width: 180, minWidth: 90 },
   { id: "tcomment", label: "テーブルコメント", width: 150, minWidth: 80 },
   { id: "no", label: "No", width: 46, minWidth: 40, align: "right" },
-  { id: "logical", label: "論理名", width: 150, minWidth: 80 },
+  { id: "logical", label: "日本語名", width: 150, minWidth: 80 },
   { id: "name", label: "カラム名", width: 180, minWidth: 90 },
   { id: "type", label: "型", width: 100, minWidth: 60 },
   { id: "size", label: "サイズ", width: 70, minWidth: 50, align: "right" },
@@ -78,7 +81,7 @@ export function SchemaWindow() {
   const [entries, setEntries] = useState<SchemaEntry[] | null>(null);
   const [view, setView] = useState<"tables" | "columns" | "indexes">("columns");
   const [filter, setFilter] = useState("");
-  /** 論理名と補足の区切り文字 (設定から読み込む) */
+  /** 日本語名と補足の区切り文字 (設定から読み込む) */
   const [delim, setDelim] = useState("（");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,9 +142,8 @@ export function SchemaWindow() {
         connName,
         tables
       );
-      setNotice(`${path.split("/").pop()} を保存しました: ${path}`);
+      setNotice(`${path.split(/[\\/]/).pop()} を書き出しました: ${path}`);
       setSavedPath(path);
-      setTimeout(() => setNotice(null), 10000);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -156,10 +158,9 @@ export function SchemaWindow() {
     setError(null);
     try {
       const paths = await exportSchemaCsv(sel.sessionId, sel.database);
-      const names = paths.map((p) => p.split("/").pop()).join(" / ");
-      setNotice(`${names} を保存しました: ${paths[0] ?? ""}`);
+      const names = paths.map((p) => p.split(/[\\/]/).pop()).join(" / ");
+      setNotice(`${names} を書き出しました: ${paths[0] ?? ""}`);
       setSavedPath(paths[0] ?? null);
-      setTimeout(() => setNotice(null), 10000);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -308,6 +309,10 @@ export function SchemaWindow() {
   return (
     <div className="schema-window">
       <div className="diff-toolbar" data-tauri-drag-region>
+        {/* 何の窓かを示す (macOS ではタイトルバーを隠しているため) */}
+        <span className="window-title" data-tauri-drag-region>
+          スキーマ一覧
+        </span>
         {/* 開いた画面で選択済みの接続/DBを対象にするため、ここでは変更できない */}
         <div className="diff-side-sel schema-target">
           <span className="schema-target-name">{connName}</span>
@@ -317,69 +322,88 @@ export function SchemaWindow() {
 
         <input
           className="filter-input mono schema-filter"
-          placeholder="絞り込み (テーブル / カラム / コメント)..."
+          placeholder="絞り込み (テーブル / カラム / コメント)…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
 
         <button
-          className="btn-secondary diff-compare"
+          className="btn-secondary diff-compare has-tooltip"
           onClick={() => setPicking(true)}
           disabled={exporting || !entries}
-          title="表紙・テーブル一覧・テーブルごとのシートを作ります"
+          data-tooltip="表紙・テーブル一覧・テーブルごとのシートを作ります"
         >
-          Excel定義書
+          Excel定義書…
         </button>
 
         <button
-          className="btn-primary diff-compare"
+          className="btn-primary diff-compare has-tooltip tooltip-wrap"
+          data-tooltip={
+            "テーブル・カラム・インデックスの一覧をCSVで書き出します\n" +
+            "絞り込みに関係なく、すべてのテーブルを書き出します"
+          }
           onClick={handleExport}
           disabled={exporting || !entries}
         >
           {exporting ? (
             <>
-              <span className="spinner light" /> 出力中...
+              <span className="spinner light" /> 書き出し中…
             </>
           ) : (
-            "CSVダウンロード"
+            "CSV で書き出す"
           )}
         </button>
       </div>
 
       {error && (
-        <div
-          className={`result-banner ${isCancelled(error) ? "ok" : "ng"} diff-error`}
-        >
-          <span className="dot" aria-hidden />
-          <strong>{isCancelled(error) ? "中止" : "エラー"}</strong>
-          <span className="result-detail">{error}</span>
-        </div>
+        <ErrorBand
+          message={`${isCancelled(error) ? "中止" : "エラー"}: ${error}`}
+          tone={isCancelled(error) ? "ok" : "ng"}
+          className="diff-error"
+          onClose={() => setError(null)}
+        />
       )}
+      {/* 書き出した結果は、読んで閉じるまで残す */}
       {notice && (
-        <div className="result-banner ok diff-error">
+        <div className="result-banner ok diff-error error-band">
           <span className="dot" aria-hidden />
-          <strong>出力</strong>
           <span className="result-detail">{notice}</span>
-          {savedPath && (
-            <>
-              <span className="toolbar-spacer" />
-              <RevealButton path={savedPath} />
-            </>
-          )}
+          {savedPath && <RevealButton path={savedPath} />}
+          <IconButton
+            className="error-band-close"
+            label="閉じる"
+            onClick={() => setNotice(null)}
+          >
+            <CloseMark size={11} />
+          </IconButton>
         </div>
       )}
 
       {loading ? (
         <LoadingWithCancel
-          label="スキーマを読み込み中..."
+          label="スキーマを読み込み中…"
           sessionIds={[sel.sessionId]}
           dbTypes={[sessions.find((s) => s.sessionId === sel.sessionId)?.dbType]}
         />
       ) : !entries ? (
         <div className="content-placeholder dim-center">
-          {sessions.length === 0
-            ? "開いている接続がありません (メイン画面でデータベースに接続してください)"
-            : "上の選択欄から接続とデータベースを選ぶと、一覧を読み込みます"}
+          {sessions.length === 0 ? (
+            "開いている接続がありません (メインウィンドウでデータベースに接続してください)"
+          ) : !sel.sessionId || !sel.database ? (
+            "メインウィンドウでデータベースを選んでから、スキーマ一覧を開いてください"
+          ) : !error ? (
+            "読み込み中…"
+          ) : (
+            <>
+              一覧を読み込めませんでした。{" "}
+              <button
+                className="btn-secondary"
+                onClick={() => void load(sel.sessionId, sel.database)}
+              >
+                再読み込み
+              </button>
+            </>
+          )}
         </div>
       ) : (
         <div className="schema-body">
@@ -432,7 +456,7 @@ export function SchemaWindow() {
           initial={new Set(entries.map((e) => e.table.name))}
           existing={new Set()}
           title="定義書に入れるテーブルを選ぶ"
-          submitLabel={(n) => (n > 0 ? `${n}件で出力` : "出力")}
+          submitLabel={(n) => (n > 0 ? `${n}件を書き出す` : "書き出す")}
           note="選んだテーブルごとに1シートを作ります。表紙とテーブル一覧は必ず付きます"
           target={`${connName} / ${sel.database}`}
           loading={false}

@@ -47,8 +47,8 @@ export function FolderPicker({
         />
         <button
           type="button"
-          className="btn-ghost folder-pick-add"
-          title="選んでいるフォルダの中に、新しいフォルダを作ります"
+          className="btn-ghost folder-pick-add has-tooltip"
+          data-tooltip="選んでいるフォルダの中に、新しいフォルダを作ります"
           onClick={() => onCreatingChange("")}
         >
           ＋ 新しいフォルダ
@@ -74,7 +74,10 @@ export function FolderPicker({
       <div className="folder-pick">
         {/* どこに作るのかを、入力欄の前に添える */}
         {value && (
-          <span className="folder-pick-parent mono" title="この中に作ります">
+          <span
+            className="folder-pick-parent mono has-tooltip tooltip-left"
+            data-tooltip="この中に作ります"
+          >
             {folderLabel(value)} /
           </span>
         )}
@@ -90,7 +93,7 @@ export function FolderPicker({
           className="btn-ghost folder-pick-add"
           onClick={() => onCreatingChange(null)}
         >
-          やめる
+          キャンセル
         </button>
       </div>
       <span className={"save-sql-note" + (error ? " error" : "")}>{note}</span>

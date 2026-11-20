@@ -104,12 +104,13 @@ export function ColumnRows({
             }
           />
           <input
-            className="text-field mono ct-args"
+            className="text-field mono ct-args has-tooltip"
             value={c.args}
             spellCheck={false}
             disabled={disabled}
             placeholder="100"
-            title="括弧の中に書く指定 (varcharの長さ、numericの精度、enumの値など)"
+            aria-label="括弧の中に書く指定 (varcharの長さ、numericの精度、enumの値など)"
+            data-tooltip="括弧の中に書く指定 (varcharの長さ、numericの精度、enumの値など)"
             onChange={(e) => patch(c.id, { args: e.target.value })}
           />
           <label className="ct-check">
@@ -131,19 +132,22 @@ export function ColumnRows({
           <label className="ct-check">
             <input
               type="checkbox"
+              className="has-tooltip"
               checked={c.autoIncrement}
               disabled={disabled}
-              title="主キーの整数カラムを自動で採番します"
+              aria-label="主キーの整数カラムを自動で採番します"
+              data-tooltip="主キーの整数カラムを自動で採番します"
               onChange={(e) => patch(c.id, { autoIncrement: e.target.checked })}
             />
           </label>
           <input
-            className="text-field mono"
+            className="text-field mono has-tooltip"
             value={c.default}
             spellCheck={false}
             disabled={disabled}
             placeholder="例: 0"
-            title="デフォルト値の式 (0 や 'unknown'、CURRENT_TIMESTAMP など)"
+            aria-label="デフォルト値の式 (0 や 'unknown'、CURRENT_TIMESTAMP など)"
+            data-tooltip="デフォルト値の式 (0 や 'unknown'、CURRENT_TIMESTAMP など)"
             onChange={(e) => patch(c.id, { default: e.target.value })}
           />
           {withComment && (
@@ -157,26 +161,29 @@ export function ColumnRows({
           )}
           <div className="ct-ops">
             <button
-              className="ct-op-btn"
+              className="ct-op-btn has-tooltip"
               disabled={disabled || i === 0}
-              title="上へ"
+              aria-label="上へ"
+              data-tooltip="上へ"
               onClick={() => onChange(moveColumn(columns, i, -1))}
             >
               <Arrow up />
             </button>
             <button
-              className="ct-op-btn"
+              className="ct-op-btn has-tooltip"
               disabled={disabled || i === columns.length - 1}
-              title="下へ"
+              aria-label="下へ"
+              data-tooltip="下へ"
               onClick={() => onChange(moveColumn(columns, i, 1))}
             >
               <Arrow up={false} />
             </button>
             <button
-              className="ct-op-btn danger"
+              className="ct-op-btn danger has-tooltip"
               // 全部消せてしまうと足す手立てが無くなるので、1行は残す
               disabled={disabled || columns.length === 1}
-              title="この行を消す"
+              aria-label="この行を消す"
+              data-tooltip="この行を消す"
               onClick={() => onChange(columns.filter((x) => x.id !== c.id))}
             >
               ×

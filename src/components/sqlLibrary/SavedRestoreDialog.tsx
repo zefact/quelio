@@ -10,10 +10,10 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { SavedSqlImported, SavedSqlSummary } from "../../types";
 import { importSavedSqlInto, inspectSavedSqlFile } from "../../api";
-import { useModal } from "../../hooks/useModal";
 import { folderNameError } from "../../savedSqlForm";
 import { restoreFolderName } from "../../savedSelection";
 import { imeBusy } from "../../ime";
+import { ModalFrame } from "../ModalFrame";
 
 const JSON_FILTER = [{ name: "JSON", extensions: ["json"] }];
 
@@ -34,7 +34,6 @@ export function SavedRestoreDialog({ onClose, onDone }: Props) {
   const [name, setName] = useState(() => restoreFolderName(new Date()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const boxRef = useModal(onClose, !busy);
 
   /** ファイルを選んで、中身の数を確かめる */
   const pick = async () => {
@@ -85,83 +84,85 @@ export function SavedRestoreDialog({ onClose, onDone }: Props) {
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={() => !busy && onClose()}>
-      <div
-        className="modal saved-restore-modal"
-        ref={boxRef}
-        tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <span className="modal-title">お気に入りを復元</span>
-          <button className="modal-close" onClick={onClose} title="閉じる">
-            ×
+    <ModalFrame
+      title="お気に入りを復元 (今あるものに追加)"
+      onClose={onClose}
+      closable={!busy}
+      className="saved-restore-modal"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose} disabled={busy}>
+            キャンセル
           </button>
-        </div>
-
-        <div className="saved-transfer-body">
-          <div className="save-sql-label">
-            ファイル
-            <div className="restore-file">
-              <span className="restore-file-name mono" title={path ?? ""}>
-                {path ? baseName(path) : "(選んでいません)"}
-              </span>
-              <button
-                type="button"
-                className="btn-ghost folder-pick-add"
-                disabled={busy}
-                onClick={() => void pick()}
-              >
-                {path ? "選び直す…" : "ファイルを選ぶ…"}
-              </button>
-            </div>
-            {summary && (
-              <span className="save-sql-note">
-                {empty
-                  ? "このファイルにはお気に入りがありません"
-                  : `お気に入り${summary.items}件` +
-                    (summary.folders > 0 ? ` / フォルダ${summary.folders}個` : "")}
-              </span>
-            )}
-          </div>
-
-          <label className="save-sql-label">
-            入れるフォルダ
-            <input
-              className="save-sql-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                // 変換中のEnterは拾わない (確定の操作のため)
-                if (imeBusy(e)) return;
-                if (e.key === "Enter") void run();
-              }}
-            />
-            <span className={"save-sql-note" + (nameError ? " error" : "")}>
-              {nameError ??
-                "このフォルダを一覧のいちばん下に新しく作り、その中に入れます。同じ名前があるときは番号を付けます"}
+          <button
+            className="btn-primary"
+            disabled={!canRun}
+            onClick={() => void run()}
+          >
+            {summary && summary.items > 0
+              ? `${summary.items}件を追加する`
+              : "追加する"}
+          </button>
+        </>
+      }
+    >
+      <div className="saved-transfer-body">
+        <div className="save-sql-label">
+          ファイル
+          <div className="restore-file">
+            <span className="restore-file-name mono" title={path ?? ""}>
+              {path ? baseName(path) : "(選んでいません)"}
             </span>
-          </label>
-
-          <p className="restore-safe">
-            今あるお気に入りは変わりません (上書きも削除もしません)。
-          </p>
-
-          {error && <div className="save-sql-error">{error}</div>}
-          <div className="save-sql-actions">
-            <button className="btn-secondary" onClick={onClose}>
-              キャンセル
-            </button>
             <button
-              className="btn-primary"
-              disabled={!canRun}
-              onClick={() => void run()}
+              type="button"
+              className="btn-ghost folder-pick-add"
+              disabled={busy}
+              onClick={() => void pick()}
             >
-              取り込む
+              {path ? "選び直す…" : "ファイルを選ぶ…"}
             </button>
           </div>
+          {summary && (
+            <span className="save-sql-note">
+              {empty
+                ? "このファイルにはお気に入りがありません"
+                : `お気に入り${summary.items}件` +
+                  (summary.folders > 0 ? ` / フォルダ${summary.folders}個` : "")}
+            </span>
+          )}
         </div>
+
+        <label className="save-sql-label">
+          追加先のフォルダ
+          <input
+            className="save-sql-input"
+            value={name}
+            disabled={busy}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              // 変換中のEnterは拾わない (確定の操作のため)
+              if (imeBusy(e)) return;
+              if (e.key === "Enter") void run();
+            }}
+          />
+          <span className={"save-sql-note" + (nameError ? " error" : "")}>
+            {nameError ??
+              "このフォルダを一覧のいちばん下に新しく作り、その中に追加します。同じ名前があるときは番号を付けます"}
+          </span>
+        </label>
+
+        <p className="restore-safe">
+          今あるお気に入りは変わりません (上書きも削除もしません)。
+        </p>
+
+        {error && (
+          <div className="result-banner ng">
+            <span className="dot" aria-hidden />
+            <strong>エラー</strong>
+            <span className="result-detail">{error}</span>
+          </div>
+        )}
       </div>
-    </div>
+    </ModalFrame>
   );
 }

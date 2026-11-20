@@ -7,6 +7,7 @@
  */
 import type { HelpSection, HelpTopic } from "./helpTypes";
 import { SHORTCUTS } from "../../shortcuts";
+import { MOD } from "../../keyLabel";
 
 /** まとまり1つを、そのまま「キー / すること」の表にする */
 function toSection(group: (typeof SHORTCUTS)[number]): HelpSection {
@@ -29,7 +30,7 @@ export const SHORTCUT: HelpTopic = {
       title: "見方",
       lines: [
         "キーの書き方は使っているOSに合わせて出しています (macOS は記号、Windows・Linux は Ctrl+ などの文字)。",
-        "「タブ・ウィンドウ」「SQLエディタ」「結果グリッド」のぶんは、⌘ (Ctrl) + / でいつでも呼び出せます。",
+        `「タブ・ウィンドウ」「SQLエディタ」「結果グリッド」のぶんは、${MOD}/ でいつでも呼び出せます。`,
       ],
     },
     ...SHORTCUTS.map(toSection),

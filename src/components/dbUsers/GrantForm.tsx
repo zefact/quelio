@@ -15,9 +15,10 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { listSchemas, listTables } from "../../api";
-import { useModal } from "../../hooks/useModal";
+import { ModalFrame } from "../ModalFrame";
 import { SelectMenu } from "../SelectMenu";
 import { noteFor } from "./dbUserHelp";
+import { GRANT_PRESETS, matchPreset, presetPrivileges } from "./dbUserView";
 import type {
   DbGrantSpec,
   DbGrantTarget,
@@ -29,7 +30,7 @@ interface Props {
   sessionId: string;
   /** PostgreSQL か */
   pg: boolean;
-  /** 今つないでいるデータベース (対象の初期値に使う) */
+  /** 今接続しているデータベース (対象の初期値に使う) */
   database: string;
   /** 接続先のデータベース一覧 (対象を選ばせるのに使う) */
   databases: string[];
@@ -41,7 +42,7 @@ interface Props {
    *
    * `database` は、そのSQLを流すデータベース。
    * PostgreSQLはスキーマやテーブルへの権限を
-   * 「そのデータベースへ繋いだ状態」でしか付けられないため一緒に渡す
+   * 「そのデータベースへ接続した状態」でしか付けられないため一緒に渡す
    */
   onDecide: (spec: DbGrantSpec, database: string) => void;
   onCancel: () => void;
@@ -95,9 +96,12 @@ export function GrantForm({
   const [found, setFound] = useState<Loaded<TableInfo>>(LOADING);
   const [picked, setPicked] = useState<string[]>([]);
   const [grantable, setGrantable] = useState(false);
-  const boxRef = useModal(onCancel);
+  /** 権限を1つずつ選ぶ欄を開いているか */
+  const [detail, setDetail] = useState(false);
 
   const privileges = choices[scope];
+  /** 今の選び方がどのまとめ選びに当たるか */
+  const preset = matchPreset(picked, privileges);
 
   /** スキーマの一覧を引く先 (要らない場面では空) */
   const schemaFrom = pg && scope === "schema" ? db : "";
@@ -202,125 +206,180 @@ export function GrantForm({
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={onCancel}>
-      <div
-        className="modal dbusers-form"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            権限を付ける
-            <span className="column-modal-target mono">{who}</span>
-          </span>
-          <button className="modal-close" onClick={onCancel} title="閉じる (Esc)">
-            ×
+    <ModalFrame
+      title="権限を付ける"
+      target={who}
+      onClose={onCancel}
+      className="dbusers-form"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onCancel}>
+            キャンセル
           </button>
+          <button
+            className="btn-primary has-tooltip"
+            onClick={go}
+            disabled={!ready}
+            data-tooltip={
+              picked.length === 0
+                ? "付ける権限を選んでください"
+                : !ready
+                  ? "対象を選んでください"
+                  : undefined
+            }
+          >
+            次へ
+          </button>
+        </>
+      }
+    >
+      <div className="form-grid">
+        <div className="form-field span2">
+          <span className="field-label">範囲</span>
+          <SelectMenu
+            // モーダルは中でスクロールするので、選択肢が切られないよう窓基準で出す
+            popFixed
+            className="select-field"
+            value={scope}
+            options={usable.map((s) => ({ value: s.value, label: s.label }))}
+            onChange={pickScope}
+          />
         </div>
 
-        <div className="form-grid">
-          <div className="form-field span2">
-            <span className="field-label">範囲</span>
-            <SelectMenu
-              // モーダルは中でスクロールするので、選択肢が切られないよう窓基準で出す
-              popFixed
-              className="select-field"
-              value={scope}
-              options={usable.map((s) => ({ value: s.value, label: s.label }))}
-              onChange={pickScope}
+        {scope !== "server" && (
+          <div
+            className={
+              "form-field" + (scope === "database" ? " span2" : "")
+            }
+          >
+            <span className="field-label">データベース</span>
+            <Picker
+              value={db}
+              loaded={dbList}
+              placeholder="データベース名"
+              onChange={(v) => {
+                setDb(v);
+                setSchema("");
+                setTable("");
+              }}
             />
           </div>
+        )}
 
-          {scope !== "server" && (
-            <div
-              className={
-                "form-field" + (scope === "database" ? " span2" : "")
-              }
-            >
-              <span className="field-label">データベース</span>
-              <Picker
-                value={db}
-                loaded={dbList}
-                placeholder="データベース名"
-                onChange={(v) => {
-                  setDb(v);
-                  setSchema("");
-                  setTable("");
-                }}
-              />
-            </div>
-          )}
+        {pg && (scope === "schema" || scope === "table") && (
+          <div className="form-field">
+            <span className="field-label">スキーマ</span>
+            <Picker
+              value={schema}
+              loaded={scope === "schema" ? schemas : tableSchemaList}
+              placeholder="スキーマ名"
+              onChange={(v) => {
+                setSchema(v);
+                setTable("");
+              }}
+            />
+          </div>
+        )}
 
-          {pg && (scope === "schema" || scope === "table") && (
-            <div className="form-field">
-              <span className="field-label">スキーマ</span>
-              <Picker
-                value={schema}
-                loaded={scope === "schema" ? schemas : tableSchemaList}
-                placeholder="スキーマ名"
-                onChange={(v) => {
-                  setSchema(v);
-                  setTable("");
-                }}
-              />
-            </div>
-          )}
-
-          {scope === "table" && (
-            <div className="form-field span2">
-              <span className="field-label">テーブル</span>
-              <Picker
-                value={table}
-                loaded={{
-                  items: found.items ? tableNames : null,
-                  failed: found.failed,
-                }}
-                placeholder="テーブル名"
-                onChange={setTable}
-              />
-            </div>
-          )}
-
+        {scope === "table" && (
           <div className="form-field span2">
-            <div className="dbusers-privs-head">
-              <span className="field-label">権限</span>
-              <span className="dbusers-pick-all">
+            <span className="field-label">テーブル</span>
+            <Picker
+              value={table}
+              loaded={{
+                items: found.items ? tableNames : null,
+                failed: found.failed,
+              }}
+              placeholder="テーブル名"
+              onChange={setTable}
+            />
+          </div>
+        )}
+
+        <div className="form-field span2">
+          <span className="field-label">権限</span>
+          {/* SQL の権限名を知らなくても選べるよう、まとめ選びを先に出す */}
+          <div className="dbusers-presets" role="radiogroup" aria-label="権限のまとめ選び">
+            {GRANT_PRESETS.map((p, i) => {
+              const list = presetPrivileges(p.value, privileges);
+              // 前のまとめ選びと同じ中身になる範囲では、押しても変わらないので押せなくする
+              const dup =
+                i > 0 &&
+                GRANT_PRESETS.slice(0, i).some((q) => {
+                  const prev = presetPrivileges(q.value, privileges);
+                  return prev.length === list.length && prev.every((x) => list.includes(x));
+                });
+              return (
                 <button
-                  className="btn-ghost"
-                  disabled={picked.length === privileges.length}
-                  onClick={() => setPicked([...privileges])}
+                  key={p.value}
+                  role="radio"
+                  aria-checked={preset === p.value}
+                  className={
+                    "dbusers-preset has-tooltip tooltip-left" +
+                    (preset === p.value ? " on" : "")
+                  }
+                  data-tooltip={
+                    list.length === 0
+                      ? "この範囲には当たる権限がありません"
+                      : dup
+                        ? "この範囲では「読むだけ」と同じです"
+                        : `${p.hint}\n${list.join(" / ")}`
+                  }
+                  disabled={list.length === 0 || dup}
+                  onClick={() => setPicked(list)}
                 >
-                  すべて選ぶ
+                  {p.label}
                 </button>
-                <button
-                  className="btn-ghost"
-                  disabled={picked.length === 0}
-                  onClick={() => setPicked([])}
-                >
-                  すべて外す
-                </button>
-              </span>
-            </div>
-            <div className="dbusers-checks wide">
-              {privileges.map((p) => (
-                <label
-                  className="dbusers-check"
-                  key={p}
-                  title={noteFor(p, pg) || undefined}
-                >
-                  <input
-                    type="checkbox"
-                    checked={picked.includes(p)}
-                    onChange={() => toggle(p)}
-                  />
-                  <span className="mono">{p}</span>
-                </label>
-              ))}
-            </div>
+              );
+            })}
+          </div>
+          <span className="field-note">
+            {picked.length === 0
+              ? "まとめて選ぶか、下の「1つずつ選ぶ」から選んでください"
+              : `選んでいる権限: ${picked.join(" / ")}`}
+          </span>
+        </div>
+
+        <details
+          className="dbusers-more span2"
+          open={detail}
+          onToggle={(e) => setDetail(e.currentTarget.open)}
+        >
+          <summary className="dbusers-more-summary">
+            1つずつ選ぶ
+            {picked.length > 0 && !preset && (
+              <span className="faint"> ({picked.length} 個)</span>
+            )}
+          </summary>
+          <div className="dbusers-privs-head">
+            <span className="dbusers-pick-all">
+              <button
+                className="btn-ghost"
+                disabled={picked.length === 0}
+                onClick={() => setPicked([])}
+              >
+                すべて外す
+              </button>
+            </span>
+          </div>
+          <div className="dbusers-checks wide">
+            {privileges.map((p) => (
+              <label
+                className="dbusers-check has-tooltip tooltip-left"
+                key={p}
+                data-tooltip={noteFor(p, pg) || undefined}
+              >
+                <input
+                  type="checkbox"
+                  checked={picked.includes(p)}
+                  onChange={() => toggle(p)}
+                />
+                <span className="mono">{p}</span>
+              </label>
+            ))}
           </div>
 
-          <label className="dbusers-check span2">
+          <label className="dbusers-check">
             <input
               type="checkbox"
               checked={grantable}
@@ -328,26 +387,17 @@ export function GrantForm({
             />
             この権限を他の人へ渡せるようにする (WITH GRANT OPTION)
           </label>
-        </div>
-
-        {pg && scope !== "server" && scope !== "database" && db !== database && (
-          <p className="field-note">
-            「{db}」へ接続し直してから実行します
-            (PostgreSQLは、そのデータベースに繋いだ状態でないと
-            スキーマやテーブルへの権限を付けられません)
-          </p>
-        )}
-
-        <div className="form-actions">
-          <button className="btn-secondary" onClick={onCancel}>
-            やめる
-          </button>
-          <button className="btn-primary" onClick={go} disabled={!ready}>
-            次へ
-          </button>
-        </div>
+        </details>
       </div>
-    </div>
+
+      {pg && scope !== "server" && scope !== "database" && db !== database && (
+        <p className="field-note">
+          「{db}」へ接続し直してから実行します
+          (PostgreSQLは、そのデータベースに接続した状態でないと
+          スキーマやテーブルへの権限を付けられません)
+        </p>
+      )}
+    </ModalFrame>
   );
 }
 
@@ -386,7 +436,7 @@ function Picker({
       popFixed
       className="select-field mono"
       value={value}
-      placeholder={loaded.items ? placeholder : "読み込み中..."}
+      placeholder={loaded.items ? placeholder : "読み込み中…"}
       disabled={!loaded.items}
       options={(loaded.items ?? []).map((v) => ({ value: v, label: v }))}
       onChange={onChange}

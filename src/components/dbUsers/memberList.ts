@@ -12,7 +12,7 @@ export function roleMembers(role: DbUser, users: DbUser[]): DbUser[] {
  * そのロールに足せるユーザー。
  *
  * まだ属していないもの。サーバーが用意したものは出さないが、
- * 今つないでいるユーザー自身は出す (自分を足す使い方があるため)。
+ * 今接続しているユーザー自身は出す (自分を足す使い方があるため)。
  * 自分自身を一番上に置く
  */
 export function memberCandidates(role: DbUser, users: DbUser[]): DbUser[] {

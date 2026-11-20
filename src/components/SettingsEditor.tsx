@@ -1,6 +1,6 @@
 import { useAppSettings } from "../hooks/useAppSettings";
 import type { Notify } from "../notify";
-import { isMac } from "../platform";
+import { IS_MAC as isMac } from "../keyLabel";
 import { SettingRow } from "./SettingRow";
 import { SettingsSqlFormat } from "./SettingsSqlFormat";
 import { imeBusy } from "../ime";

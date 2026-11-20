@@ -111,7 +111,7 @@ export function CsvColumnMenu({
       <div className="context-sep" />
       {onRename && (
         <button className="context-item" onClick={onRename}>
-          列名を変更...
+          列名を変更…
         </button>
       )}
       <DeleteItem
@@ -142,9 +142,9 @@ function DeleteItem({
 }) {
   return (
     <button
-      className="context-item danger"
+      className="context-item danger has-tooltip"
       disabled={!can}
-      title={can ? undefined : "最後の1列は消せません"}
+      data-tooltip={can ? undefined : "最後の1列は消せません"}
       onClick={onClick}
     >
       {label}

@@ -32,8 +32,8 @@ export function CsvFixedKindPart({ kind, unit, onChange, onRemove }: Props) {
 
       <button
         type="button"
-        className="btn-ghost danger csv-fixed-kind-del"
-        title="この種別をやめる"
+        className="btn-ghost danger csv-fixed-kind-del has-tooltip"
+        data-tooltip="この種別をやめる"
         onClick={onRemove}
       >
         種別を削除

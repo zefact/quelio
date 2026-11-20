@@ -41,6 +41,8 @@ import { ConnectionPicker } from "./components/ConnectionPicker";
 import { QuickOpen } from "./components/QuickOpen";
 import type { QuickAction } from "./quickActions";
 import { ShortcutHelp } from "./components/ShortcutHelp";
+import { HelpDialog } from "./components/help/HelpDialog";
+import { MOD } from "./keyLabel";
 import { KvSessionView } from "./components/KvSessionView";
 import { SessionView } from "./components/SessionView";
 import { TabBar } from "./components/TabBar";
@@ -48,6 +50,8 @@ import { SettingsModal } from "./components/SettingsModal";
 import { SqlParamModal } from "./components/SqlParamModal";
 import { DangerousSqlConfirm } from "./components/DangerousSqlConfirm";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { setUpdateRiskCheck } from "./updater";
+import type { UpdateRisk } from "./updater";
 import { extractParams, guessParamColumn, isNumericType } from "./sqlParams";
 import type { ParamKind, ParamValue } from "./sqlParams";
 import { createReqSeq } from "./reqSeq";
@@ -143,6 +147,8 @@ function App() {
   const [quickOpen, setQuickOpen] = useState(false);
   /** ショートカット一覧 (⌘/) を出しているか */
   const [showShortcuts, setShowShortcuts] = useState(false);
+  /** ヘルプ (⌘K・ホーム・メニューバーから開く) を出しているか */
+  const [showHelp, setShowHelp] = useState(false);
   /**
    * SSH踏み台の初回接続。
    * ホスト鍵を見せて確認してもらい、承諾されたら記録して接続し直す
@@ -489,6 +495,10 @@ function App() {
       } else if (mod && e.key === "/") {
         e.preventDefault();
         setShowShortcuts((v) => !v);
+      } else if (mod && !e.altKey && !e.shiftKey && e.key === ",") {
+        // 設定 (macOS はメニューバーの「設定…」からも同じものが開く)
+        e.preventDefault();
+        setShowSettings(true);
       } else if (mod && !e.altKey && !e.shiftKey && key === "s") {
         // SQLエディタを開いていれば、お気に入りへの保存ダイアログを出す
         // (既定の動作は上で止めてある)
@@ -514,11 +524,16 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs, activeKey, showShortcuts]);
 
-  // ネイティブメニューからの「Quelioについて」
+  // ネイティブメニュー (macOS のメニューバー) から開く画面
   useEffect(() => {
-    const un = listen("show-about", () => setShowAbout(true));
+    const uns = [
+      listen("show-about", () => setShowAbout(true)),
+      listen("show-settings", () => setShowSettings(true)),
+      listen("show-help", () => setShowHelp(true)),
+      listen("show-shortcuts", () => setShowShortcuts(true)),
+    ];
     return () => {
-      un.then((f) => f()).catch(() => {});
+      for (const un of uns) un.then((f) => f()).catch(() => {});
     };
   }, []);
 
@@ -787,6 +802,32 @@ function App() {
     }
   };
 
+  /**
+   * 更新して再起動する前に確かめること。
+   * 未確定のトランザクションか実行中のSQLがある接続の名前を返す
+   * (再起動で接続が切れ、確定していない変更は取り消されるため)
+   */
+  const updateRisk = async (): Promise<UpdateRisk> => {
+    const names: string[] = [];
+    let busy = false;
+    for (const t of tabsRef.current) {
+      if (!t.connected) continue;
+      const risk = await closeRisk(t.key);
+      if (risk) {
+        names.push(t.profile.name || t.profile.host);
+        busy ||= risk === "busy";
+      }
+    }
+    return { names, busy };
+  };
+
+  // 更新の画面 (帯と設定) から呼べるように登録しておく (中で見るのは ref なので一度でよい)
+  useEffect(() => {
+    setUpdateRiskCheck(updateRisk);
+    return () => setUpdateRiskCheck(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** タブを閉じる。未確定の変更が残っていれば先に確認する */
   const requestCloseTab = async (key: string) => {
     const tab = tabOf(key);
@@ -909,6 +950,23 @@ function App() {
       error: null,
       newConnForm: false,
     });
+    await reload();
+  };
+
+  /**
+   * 一覧の右クリックから接続先を削除する (失敗は呼び出し元の確認ダイアログに出す)。
+   * 編集中のものを消したときは、入力画面ではなくホームへ戻す
+   */
+  const handleDeleteById = async (key: string, id: string) => {
+    await deleteConnection(id);
+    if (tabOf(key)?.profile.id === id) {
+      updateTab(key, {
+        profile: emptyProfile(),
+        testResult: null,
+        error: null,
+        newConnForm: false,
+      });
+    }
     await reload();
   };
 
@@ -1385,7 +1443,7 @@ function App() {
     const tab = tabOf(key);
     if (!tab?.selectedDb) return;
     const sql = buildTableSelect(tab.profile.dbType, table, where);
-    const run = () => runTableData(key, sql, offset, orderBy, orderDir);
+    const run = () => runTableData(key, sql, where, offset, orderBy, orderDir);
     // 条件が空なら、SQLはこちらで組み立てたSELECTだけなので確かめる必要がない
     if (where.trim() === "") return run();
     /** 調べられなかったときは null (扱いは afterDangerCheck が決める) */
@@ -1403,10 +1461,14 @@ function App() {
     return run();
   };
 
-  /** データタブの取得の本体 (確認を通ったあとに呼ぶ) */
+  /**
+   * データタブの取得の本体 (確認を通ったあとに呼ぶ)。
+   * `where` はこの取得に使った条件 (取れたら「適用済みの条件」として持つ)
+   */
   const runTableData = async (
     key: string,
     sql: string,
+    where: string,
     offset: number,
     orderBy?: string,
     orderDir?: string,
@@ -1440,6 +1502,7 @@ function App() {
         loading: false,
         error: null,
         fetchedAt: Date.now(),
+        appliedWhere: where,
       });
     } catch (e) {
       if (!isLatestReq(scope, seq)) return;
@@ -1462,7 +1525,11 @@ function App() {
     key: string,
     offset: number | "keep",
     order?: { by: string | null; dir: "asc" | "desc" },
-    /** 絞り込み条件の差し替え (画面の状態が反映される前に使う) */
+    /**
+     * 使う絞り込み条件 (「絞り込む」のとき)。
+     * 渡さなければ、表示中のデータを取った条件 (適用済み) で取り直す
+     * (ページ送りや並べ替えで、入力途中の条件が黙って効かないように)
+     */
     whereOverride?: string,
   ) => {
     const tab = tabOf(key);
@@ -1474,7 +1541,7 @@ function App() {
     return loadTableData(
       key,
       table,
-      whereOverride ?? tab.tableData.where,
+      whereOverride ?? tab.tableData.appliedWhere ?? tab.tableData.where,
       offset === "keep" ? (cur?.offset ?? 0) : offset,
       by,
       dir,
@@ -1762,14 +1829,14 @@ function App() {
     {
       id: "new-tab",
       label: "新しいタブ",
-      hint: "⌘T",
+      hint: `${MOD}T`,
       keywords: "new tab connection",
       run: addTab,
     },
     {
       id: "close-tab",
       label: "このタブを閉じる",
-      hint: "⌘W",
+      hint: `${MOD}W`,
       keywords: "close tab",
       run: () => void requestCloseTab(activeKeyNow),
     },
@@ -1827,7 +1894,7 @@ function App() {
     },
     {
       id: "reload-tables",
-      label: "テーブル一覧を読み直す",
+      label: "テーブル一覧を再読み込み",
       keywords: "reload refresh tables",
       disabledReason: activeTab.selectedDb
         ? undefined
@@ -1844,20 +1911,27 @@ function App() {
     {
       id: "settings",
       label: "設定を開く",
+      hint: `${MOD},`,
       keywords: "settings preferences config",
       run: () => setShowSettings(true),
     },
     {
+      id: "help",
+      label: "ヘルプ",
+      keywords: "help explain index collation shortcut 実行計画 インデックス 照合順序 使い方",
+      run: () => setShowHelp(true),
+    },
+    {
       id: "shortcuts",
       label: "ショートカット一覧",
-      hint: "⌘/",
+      hint: `${MOD}/`,
       keywords: "shortcut help key",
       run: () => setShowShortcuts(true),
     },
     {
       id: "about",
-      label: "バージョン情報",
-      keywords: "about version",
+      label: "Quelioについて",
+      keywords: "about version バージョン情報",
       run: () => setShowAbout(true),
     },
   ];
@@ -1882,8 +1956,14 @@ function App() {
           where,
         );
       },
+      // 「絞り込む」は入力欄の条件で取る (それ以外は適用済みの条件で取り直す)
       onApplyWhere: (where) =>
-        reloadTableData(activeKeyNow, 0, undefined, where),
+        reloadTableData(
+          activeKeyNow,
+          0,
+          undefined,
+          where ?? tabOf(activeKeyNow)?.tableData.where ?? "",
+        ),
       onReload: () => reloadTableData(activeKeyNow, "keep"),
       onPage: (offset) => reloadTableData(activeKeyNow, offset),
       onSort: (by, dir) => reloadTableData(activeKeyNow, 0, { by, dir }),
@@ -2010,6 +2090,8 @@ function App() {
           ).catch((e) => setWinError(`ER図を開けませんでした: ${e}`))
         }
         onOpenSettings={() => setShowSettings(true)}
+        onOpenHelp={() => setShowHelp(true)}
+        onOpenShortcuts={() => setShowShortcuts(true)}
         onReorder={(from, to) => dispatch({ type: "move", from, to })}
       />
 
@@ -2065,11 +2147,22 @@ function App() {
         <ShortcutHelp onClose={() => setShowShortcuts(false)} />
       )}
 
+      {showHelp && (
+        <HelpDialog
+          // 接続中ならそのDB向けの説明を、未接続なら選べるようにして出す
+          dbType={activeTab.connected ? activeTab.profile.dbType : undefined}
+          onClose={() => setShowHelp(false)}
+        />
+      )}
+
       {prodConfirm && (
         <ConfirmDialog
           title="本番環境へ接続します"
           target={prodConfirm.profile.name || prodConfirm.profile.host}
           confirmLabel="接続する"
+          // 接続そのものは何も壊さないので赤にはしない (フォーカスは本番なので「キャンセル」)
+          tone="primary"
+          defaultFocus="cancel"
           onCancel={() => setProdConfirm(null)}
           onConfirm={async () => {
             const req = prodConfirm;
@@ -2129,7 +2222,9 @@ function App() {
         <ConfirmDialog
           title="SSH踏み台への初回接続です"
           target={`${sshTrust.host}:${sshTrust.port}`}
-          confirmLabel="信頼して接続"
+          confirmLabel="信頼して接続する"
+          tone="primary"
+          defaultFocus="cancel"
           onConfirm={async () => {
             await trustSshHost(
               sshTrust.host,
@@ -2234,6 +2329,15 @@ function App() {
             tab={activeTab}
             store={store}
             onOpenSample={() => void openSampleDb(activeTab.key)}
+            onOpenHelp={() => setShowHelp(true)}
+            onGoHome={() =>
+              updateTab(activeTab.key, {
+                profile: emptyProfile(),
+                testResult: null,
+                error: null,
+                newConnForm: false,
+              })
+            }
             onSetConnPinned={(id, pinned) =>
               void handleSetConnPinned(id, pinned)
             }
@@ -2262,6 +2366,27 @@ function App() {
             }
             onSave={() => handleSave(activeTab.key)}
             onDelete={() => handleDelete(activeTab.key)}
+            onDuplicate={(p) =>
+              updateTab(activeTab.key, {
+                // 保存していない新しい接続先として開く。パスワードは持ち越さない
+                profile: {
+                  ...structuredClone(p),
+                  id: "",
+                  name: p.name ? `${p.name} のコピー` : "",
+                  password: "",
+                  passwordSaved: false,
+                  passphraseSaved: false,
+                  passwordLocked: false,
+                  pinned: false,
+                  lastUsedAt: undefined,
+                  ssh: p.ssh ? { ...p.ssh, passphrase: "" } : p.ssh,
+                },
+                testResult: null,
+                error: null,
+                newConnForm: true,
+              })
+            }
+            onDeleteConnection={(id) => handleDeleteById(activeTab.key, id)}
             onTest={() => handleTest(activeTab.key)}
             onConnect={(p) => requestConnect(activeTab.key, p)}
           />

@@ -12,6 +12,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   showRowNumbers: true,
   queryTimeoutSecs: 60,
   downloadDir: "",
+  exportDirMode: "",
   autocompleteEnabled: true,
   autocompleteDelayMs: 100,
   confirmAlter: true,

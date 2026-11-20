@@ -35,7 +35,7 @@ html body .cm-tooltip.cm-tooltip-autocomplete > ul {
   max-width: none;
   overflow: auto;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 /* 候補は「名前 / PK / テーブル名 / 日本語名 / 型」の5列。
@@ -69,7 +69,7 @@ html body .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {
   flex: 0 0 auto;
   white-space: nowrap;
   color: var(--text-dim);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
 }
 
 html body .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionCell {

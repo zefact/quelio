@@ -55,7 +55,7 @@ export interface ErFrame {
 /** ER図の1ページ (タブ) 分の内容 */
 export interface ErPageData {
   id: string;
-  /** タブに表示する名前 */
+  /** ページの見出しに出す名前 */
   name: string;
   entries: SchemaEntry[];
   fks: FkInfo[];
@@ -95,13 +95,27 @@ export interface ErPageData {
   view?: { x: number; y: number; scale: number };
 }
 
+/**
+ * 図を作った接続とデータベース。
+ * リバースしたときに覚える (これより前に保存した図には無い)
+ */
+export interface ErDiagramSource {
+  /** 接続先の名前 */
+  connection: string;
+  /** 接続先のID (名前を変えても見分けられるように) */
+  profileId?: string;
+  database: string;
+}
+
 /** 保存されるER図データ (1ファイル = 複数ページ) */
 export interface ErDiagramData {
   savedAtMs: number;
-  /** ページ (タブ) 一覧。旧形式のデータには無い */
+  /** ページ一覧。旧形式のデータには無い */
   pages?: ErPageData[];
   /** 最後に開いていたページのindex */
   activePage?: number;
+  /** 最後にリバースした接続とデータベース (無ければ分からない) */
+  source?: ErDiagramSource;
   // ---- 以下は旧形式 (単一ページ) のフィールド。読み込み時の移行用 ----
   entries?: SchemaEntry[];
   fks?: FkInfo[];

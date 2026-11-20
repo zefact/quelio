@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { killProcess, listProcesses } from "../api";
-import { useModal } from "../hooks/useModal";
+import { ModalFrame } from "./ModalFrame";
 import { usePolling } from "../hooks/usePolling";
 import { ConfirmDialog } from "./ConfirmDialog";
 import {
@@ -64,14 +64,7 @@ export function ProcessDialog({
   const [onlyActive, setOnlyActive] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const boxRef = useModal(onClose, !pending);
-
-  // 実行結果の表示は数秒で消す (押した操作の確認なので残し続けない)
-  useEffect(() => {
-    if (!notice) return;
-    const t = window.setTimeout(() => setNotice(null), 5000);
-    return () => window.clearTimeout(t);
-  }, [notice]);
+  // 操作の結果 (notice) は、次の操作をするまで残す
 
   /** 取得中か (前の取得が終わる前に次を投げない) */
   const fetching = useRef(false);
@@ -170,12 +163,18 @@ export function ProcessDialog({
         label: "実行中のSQLを中止 (接続は残す)",
         disabled: !target.query.trim(),
         title: target.query.trim() ? undefined : "SQLを実行していません",
-        onSelect: () => setPending({ target, action: "cancel" }),
+        onSelect: () => {
+          setNotice(null);
+          setPending({ target, action: "cancel" });
+        },
       },
       {
         label: "接続を切る",
         danger: true,
-        onSelect: () => setPending({ target, action: "terminate" }),
+        onSelect: () => {
+          setNotice(null);
+          setPending({ target, action: "terminate" });
+        },
       },
     ];
   };
@@ -213,104 +212,106 @@ export function ProcessDialog({
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className="modal process-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            プロセス一覧
-            <span className="column-modal-target mono">{database}</span>
-          </span>
-          <button className="modal-close" onClick={onClose} title="閉じる (Esc)">
-            ×
-          </button>
-        </div>
-
-        <div className="process-toolbar">
+    <ModalFrame
+      title="プロセス一覧"
+      target={database}
+      onClose={onClose}
+      closable={!pending}
+      className="process-modal"
+      footer={
+        <button className="btn-secondary" onClick={onClose}>
+          閉じる
+        </button>
+      }
+    >
+      <div className="process-toolbar">
+        <input
+          className="routine-filter"
+          value={filter}
+          placeholder="絞り込み (ユーザー / 接続元 / SQL)"
+          spellCheck={false}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <label className="switch">
           <input
-            className="routine-filter"
-            value={filter}
-            placeholder="絞り込み (ユーザー / 接続元 / SQL)"
-            spellCheck={false}
-            onChange={(e) => setFilter(e.target.value)}
+            type="checkbox"
+            checked={onlyActive}
+            onChange={(e) => setOnlyActive(e.target.checked)}
           />
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={onlyActive}
-              onChange={(e) => setOnlyActive(e.target.checked)}
-            />
-            <span className="track" aria-hidden />
-            <span className="switch-label">実行中のみ</span>
-          </label>
-          <span className="query-meta mono">{shown.length} 件</span>
-          <button className="btn-secondary" onClick={() => reload(true)}>
-            更新
-          </button>
-        </div>
+          <span className="track" aria-hidden />
+          <span className="switch-label">実行中のみ</span>
+        </label>
+        <span className="query-meta mono">{shown.length} 件</span>
+        <button className="btn-secondary" onClick={() => reload(true)}>
+          再読み込み
+        </button>
+      </div>
 
-        {error && (
-          <div className="result-banner ng">
-            <span className="dot" aria-hidden />
-            <span className="result-detail">{error}</span>
+      {error && (
+        <div className="result-banner ng">
+          <span className="dot" aria-hidden />
+          <strong>エラー</strong>
+          <span className="result-detail">{error}</span>
+        </div>
+      )}
+      {notice && (
+        <div className="result-banner ok">
+          <span className="dot" aria-hidden />
+          <span className="result-detail">{notice}</span>
+        </div>
+      )}
+
+      <div className="process-body">
+        {list === null && !error ? (
+          <div className="routine-empty">
+            <span className="spinner accent" /> 読み込み中…
           </div>
-        )}
-        {notice && <div className="process-notice">{notice}</div>}
-
-        <div className="process-body">
-          {list === null && !error ? (
-            <div className="routine-empty">
-              <span className="spinner accent" /> 読み込み中...
-            </div>
-          ) : (
-            <ResizableGrid
-              columns={COLS}
-              rows={rows}
-              selectable
-              stableRowKeys
-              rowMenuItems={rowMenuItems}
-              emptyText={
-                (list ?? []).length === 0
-                  ? "表示できる接続がありません (権限が足りない場合もあります)"
-                  : "絞り込みに一致する接続がありません"
-              }
-            />
-          )}
-        </div>
-
-        <p className="process-hint">
-          行を右クリックすると、そのSQLの中止・接続の切断ができます。
-          ほかのユーザーのSQLを見るには、接続先で権限
-          (MySQLはPROCESS、PostgreSQLはpg_read_all_stats等) が要ります。
-        </p>
-
-        {pending && (
-          <ConfirmDialog
-            title={
-              pending.action === "cancel"
-                ? "実行中のSQLを中止します"
-                : "接続を切ります"
+        ) : (
+          <ResizableGrid
+            columns={COLS}
+            rows={rows}
+            selectable
+            stableRowKeys
+            rowMenuItems={rowMenuItems}
+            emptyText={
+              (list ?? []).length === 0
+                ? "表示できる接続がありません (権限が足りない場合もあります)"
+                : "絞り込みに一致する接続がありません"
             }
-            target={`ID ${pending.target.id} (${pending.target.user})`}
-            confirmLabel={pending.action === "cancel" ? "中止する" : "切断する"}
-            onCancel={() => setPending(null)}
-            onConfirm={run}
-          >
-            {pending.action === "cancel"
-              ? "実行中のSQLだけを止めます。接続は残るので、相手はそのまま操作を続けられます。"
-              : "接続ごと切ります。実行中だったSQLは取り消され、相手は接続が切れたと表示されます。"}
-            {pending.target.query.trim() && (
-              <span className="process-target mono">
-                {pending.target.query}
-              </span>
-            )}
-          </ConfirmDialog>
+          />
         )}
       </div>
-    </div>
+
+      <p className="process-hint">
+        行を右クリックすると、そのSQLの中止・接続の切断ができます。
+        ほかのユーザーのSQLを見るには、接続先で権限
+        (MySQLはPROCESS、PostgreSQLはpg_read_all_stats等) が要ります。
+      </p>
+
+      {pending && (
+        <ConfirmDialog
+          title={
+            pending.action === "cancel"
+              ? "実行中のSQLを中止します"
+              : "接続を切ります"
+          }
+          target={`ID ${pending.target.id} (${pending.target.user})`}
+          confirmLabel={pending.action === "cancel" ? "中止する" : "切断する"}
+          // SQLの中止は接続を残すので赤くしない
+          tone={pending.action === "cancel" ? "primary" : "danger"}
+          onCancel={() => setPending(null)}
+          onConfirm={run}
+        >
+          {pending.action === "cancel"
+            ? "実行中のSQLだけを止めます。接続は残るので、相手はそのまま操作を続けられます。"
+            : "接続ごと切ります。実行中だったSQLは止まり (確定していない変更は元に戻ります)、相手は接続が切れたと表示されます。"}
+          {pending.target.query.trim() && (
+            <span className="process-target mono">
+              {pending.target.query}
+            </span>
+          )}
+        </ConfirmDialog>
+      )}
+    </ModalFrame>
   );
 }

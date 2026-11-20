@@ -79,11 +79,11 @@ function RenameRow({
       <div className="rename-table-row">
         <span className={`type-chip mini ${badge.cls}`}>{badge.label}</span>
         <input
-          className="mono"
+          className="mono has-tooltip tooltip-left"
           autoFocus
           value={value}
           onChange={(e) => onInput(e.target.value)}
-          title="Enterで確定 / Escで取消"
+          data-tooltip="Enterで変更 / Escでキャンセル"
           {...ime.props}
           onKeyDown={(e) => {
             // 日本語入力の変換を確定したEnter/Escは拾わない
@@ -104,16 +104,18 @@ function RenameRow({
         />
         {/* 確定と取消 (押しても入力欄からフォーカスを外さない) */}
         <button
-          className="inline-apply-btn"
-          title="この名前に変更する (Enter)"
+          className="inline-apply-btn has-tooltip"
+          data-tooltip="この名前に変更する (Enter)"
+          aria-label="この名前に変更する"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onCommit(table)}
         >
           ✓
         </button>
         <button
-          className="inline-apply-btn"
-          title="やめる (Esc)"
+          className="inline-apply-btn has-tooltip"
+          data-tooltip="キャンセル (Esc)"
+          aria-label="キャンセル"
           onMouseDown={(e) => e.preventDefault()}
           onClick={onCancel}
         >
@@ -160,6 +162,10 @@ function TableRow({
       title={table.schema ? `${table.schema}.${table.name}` : table.name}
     >
       <span className={`type-chip mini ${badge.cls}`}>{badge.label}</span>
+      {/*
+        中の印と件数の説明は title のままにする。
+        外の button に名前の title があるので、data-tooltip にすると両方が重なって出る
+      */}
       {pinned && (
         <span className="side-table-pin" title="ピン留め中" aria-hidden>
           ★

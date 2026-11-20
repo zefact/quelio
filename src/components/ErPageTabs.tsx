@@ -1,12 +1,16 @@
 /**
- * ER図のページ (タブ) バー。
+ * ER図のページの見出しの並び。
  *
- * 1つの保存ファイルに複数の図を持てるので、その切り替えと並べ替え。
- * 図の中身とは関係のない操作なので、ErWindow から分けている
+ * 1つの保存ファイルに複数の図 (ページ) を持てるので、その切り替えと並べ替え。
+ * 図の中身とは関係のない操作なので、ErWindow から分けている。
+ *
+ * ページの削除は元に戻せないので、見出しの × では消さず、
+ * 右クリックのメニュー (「ページを削除…」) から確認してから消す
  */
 import { useState } from "react";
 import { TAB_MARK, useTabReorder } from "../hooks/useTabReorder";
-import { CloseMark } from "./CloseMark";
+import { useDismiss } from "../hooks/useDismiss";
+import { usePopupPosition } from "../hooks/usePopupPosition";
 import { imeBusy } from "../ime";
 
 export interface ErPage {
@@ -36,14 +40,34 @@ export function ErPageTabs({
   onRename: (id: string, name: string) => void;
   onReorderEnd: () => void;
 }) {
-  /** 名前を変更中のタブ */
+  /** 名前を変更中のページ */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  /** 右クリックのメニュー */
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(
+    null
+  );
+  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
+    menu?.x ?? 0,
+    menu?.y ?? 0
+  );
+  useDismiss(!!menu, () => setMenu(null), {
+    capture: true,
+    inside: ".er-page-menu",
+    escape: true,
+    resize: true,
+  });
   /*
    * ドラッグで並べ替える。
    * 動かし終わったときだけ保存する (掴んだだけでは書かない)
    */
   const drag = useTabReorder({ onMove: onReorder, onEnd: onReorderEnd });
+
+  /** 名前の変更を始める */
+  const startRename = (p: ErPage) => {
+    setEditingId(p.id);
+    setEditText(p.name);
+  };
 
   /** 名前の変更を確定する (空にはできない) */
   const commitRename = () => {
@@ -60,21 +84,23 @@ export function ErPageTabs({
           key={p.id}
           {...{ [TAB_MARK]: i }}
           className={
-            "er-tab" +
+            "er-tab has-tooltip" +
             (p.id === activeId ? " active" : "") +
             (drag.dragging === i ? " dragging" : "")
           }
           style={drag.styleOf(i)}
-          title="クリックで切替 / ダブルクリックで名前変更 / ドラッグで並べ替え"
+          data-tooltip={`${p.name}\nダブルクリックで名前を変更 / ドラッグで並べ替え / 右クリックでメニュー`}
           onMouseDown={(e) => {
             // 名前を打っている最中は、掴ませない
             if (e.button !== 0 || editingId === p.id) return;
             drag.start(i, e);
             if (p.id !== activeId) onSwitch(p.id);
           }}
-          onDoubleClick={() => {
-            setEditingId(p.id);
-            setEditText(p.name);
+          onDoubleClick={() => startRename(p)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (p.id !== activeId) onSwitch(p.id);
+            setMenu({ id: p.id, x: e.clientX, y: e.clientY });
           }}
         >
           {editingId === p.id ? (
@@ -93,25 +119,65 @@ export function ErPageTabs({
               onBlur={commitRename}
             />
           ) : (
-            <>
-              <span className="er-tab-name">{p.name}</span>
-              {pages.length > 1 && (
-                <span
-                  className="er-tab-close"
-                  title="タブを削除"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => onDelete(p.id)}
-                >
-                  <CloseMark size={10} />
-                </span>
-              )}
-            </>
+            <span className="er-tab-name">{p.name}</span>
           )}
         </div>
       ))}
-      <button className="er-tab-add" title="タブを追加" onClick={onAdd}>
+      <button
+        className="er-tab-add has-tooltip"
+        data-tooltip="ページを追加"
+        aria-label="ページを追加"
+        onClick={onAdd}
+      >
         ＋
       </button>
+
+      {menu &&
+        (() => {
+          const p = pages.find((x) => x.id === menu.id);
+          if (!p) return null;
+          const last = pages.length <= 1;
+          return (
+            <div
+              className="context-menu er-page-menu"
+              ref={menuRef}
+              style={menuStyle}
+              onMouseDown={(e) => e.stopPropagation()}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <button
+                className="context-item"
+                onClick={() => {
+                  setMenu(null);
+                  startRename(p);
+                }}
+              >
+                ページの名前を変更
+              </button>
+              <button
+                className="context-item"
+                onClick={() => {
+                  setMenu(null);
+                  onAdd();
+                }}
+              >
+                ページを追加
+              </button>
+              <div className="context-sep" aria-hidden />
+              <button
+                className="context-item danger has-tooltip"
+                disabled={last}
+                data-tooltip={last ? "最後の1ページは削除できません" : undefined}
+                onClick={() => {
+                  setMenu(null);
+                  onDelete(p.id);
+                }}
+              >
+                ページを削除…
+              </button>
+            </div>
+          );
+        })()}
     </div>
   );
 }

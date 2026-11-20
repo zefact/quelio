@@ -26,7 +26,7 @@ interface Props {
 export function FrameMenu({ frame: f, onPatch, onEdit, onDelete }: Props) {
   const editBtn = (
     <button className="context-item" onClick={onEdit}>
-      テキストを編集...
+      テキストを編集…
     </button>
   );
 

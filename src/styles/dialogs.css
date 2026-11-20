@@ -4,6 +4,8 @@
  * 1つのファイルでは追いにくくなったので、ダイアログごとに分けてある。
  * 読み込む順は元の並びのまま (後から書いたものが勝つ指定があるため)
  */
+/* もとは settings.css にあったので、ほかのダイアログより先に読む */
+@import "./dialogs/transfer.css";
 @import "./dialogs/sqlparams.css";
 @import "./dialogs/kv.css";
 @import "./dialogs/create-table.css";

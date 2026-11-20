@@ -22,7 +22,6 @@ import { applyRoute, ROUTES, routeOf } from "../connectRoute";
 import { viaTunnel } from "../tlsWarning";
 import type { ConnectRoute } from "../connectRoute";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ProdNote } from "./ProdBadge";
 import {
   envFieldNote,
   PROD_SAVE_NOTE,
@@ -147,8 +146,9 @@ export function ConnectionForm({
         />
         <button
           type="button"
-          className="browse-btn"
-          title={`${label}を選択`}
+          className="browse-btn has-tooltip"
+          data-tooltip={`${label}を選択`}
+          aria-label={`${label}を選択`}
           onClick={() => pickCert(`${label}を選択`, apply)}
         >
           <svg
@@ -226,8 +226,9 @@ export function ConnectionForm({
                 />
                 <button
                   type="button"
-                  className="browse-btn"
-                  title="SQLiteのデータベースファイルを選択"
+                  className="browse-btn has-tooltip"
+                  data-tooltip="SQLiteのデータベースファイルを選択"
+                  aria-label="SQLiteのデータベースファイルを選択"
                   onClick={async () => {
                     const selected = await open({
                       multiple: false,
@@ -380,7 +381,7 @@ export function ConnectionForm({
                         途中で差し替えられても気づけません。
                         {viaTunnel(profile)
                           ? " (この接続はSSH / SSM経由なので、経路そのものは守られます)"
-                          : " 社内・クラウドのDBへ直接つなぐ場合は「必須 + CA証明書とホスト名を検証」を選んでください"}
+                          : " 社内・クラウドのDBへ直接接続する場合は「必須 + CA証明書とホスト名を検証」を選んでください"}
                       </span>
                     )}
                   </div>
@@ -506,11 +507,11 @@ export function ConnectionForm({
                     <button
                       key={value}
                       className={
-                        "segment" +
+                        "segment has-tooltip" +
                         (profile.aiAccess === value ? " active" : "")
                       }
                       disabled={blocked}
-                      title={
+                      data-tooltip={
                         blocked
                           ? "本番環境ではAIからの更新を許可できません"
                           : desc
@@ -590,8 +591,9 @@ export function ConnectionForm({
                   />
                   <button
                     type="button"
-                    className="browse-btn"
-                    title="秘密鍵ファイルを選ぶ"
+                    className="browse-btn has-tooltip"
+                    data-tooltip="秘密鍵ファイルを選ぶ"
+                    aria-label="秘密鍵ファイルを選ぶ"
                     onClick={async () => {
                       // ~/.ssh は不可視フォルダのため、絶対パスに解決して
                       // 初期フォルダに指定する (無ければホームディレクトリ)。
@@ -654,20 +656,16 @@ export function ConnectionForm({
         </section>
       )}
 
-      <div className="form-actions">
-        <button
-          className="btn-primary"
-          onClick={onConnect}
-          disabled={connecting || saving}
-        >
-          {connecting ? (
-            <>
-              <span className="spinner light" /> 接続中...
-            </>
-          ) : (
-            "接続"
-          )}
-        </button>
+      {/*
+        * ボタンは右寄せで、主ボタン (接続する) をいちばん右に置く (ダイアログと同じ並び)。
+        * 取り消せない「削除」だけは左端に離しておく
+        */}
+      <div className="form-actions conn-form-actions">
+        {profile.id && (
+          <button className="btn-danger conn-form-delete" onClick={() => setConfirmDelete(true)}>
+            削除
+          </button>
+        )}
         <button
           className="btn-secondary btn-ok"
           onClick={onTest}
@@ -675,7 +673,7 @@ export function ConnectionForm({
         >
           {testing ? (
             <>
-              <span className="spinner" /> テスト中...
+              <span className="spinner" /> テスト中…
             </>
           ) : (
             "接続テスト"
@@ -687,13 +685,21 @@ export function ConnectionForm({
           onClick={() => (prodWrite ? setConfirmSave(true) : onSave())}
           disabled={saving || connecting}
         >
-          {saving ? "保存中..." : "保存"}
+          {saving ? "保存中…" : "保存"}
         </button>
-        {profile.id && (
-          <button className="btn-danger" onClick={() => setConfirmDelete(true)}>
-            削除
-          </button>
-        )}
+        <button
+          className="btn-primary"
+          onClick={onConnect}
+          disabled={connecting || saving}
+        >
+          {connecting ? (
+            <>
+              <span className="spinner light" /> 接続中…
+            </>
+          ) : (
+            "接続する"
+          )}
+        </button>
       </div>
 
       {confirmSave && (
@@ -701,13 +707,15 @@ export function ConnectionForm({
           title="この設定で保存します"
           target={profile.name || `${profile.host}:${profile.port}`}
           confirmLabel="保存する"
+          // 保存は何も壊さないので赤にしない (本番なのでフォーカスは「キャンセル」)
+          tone="primary"
+          prodNote={PROD_SAVE_NOTE}
           onCancel={() => setConfirmSave(false)}
           onConfirm={() => {
             setConfirmSave(false);
             onSave();
           }}
         >
-          <ProdNote>{PROD_SAVE_NOTE}</ProdNote>
           読み取り専用にしておくと、更新系の操作をすべて拒否します。
         </ConfirmDialog>
       )}
@@ -715,6 +723,7 @@ export function ConnectionForm({
       {confirmDelete && (
         <ConfirmDialog
           title="接続先を削除します"
+          confirmLabel="削除する"
           target={profile.name || `${profile.host}:${profile.port}`}
           onCancel={() => setConfirmDelete(false)}
           onConfirm={async () => {

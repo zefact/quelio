@@ -70,7 +70,8 @@ export const PATTERN_TOKENS: { token: string; label: string; main?: boolean }[] 
   { token: "conn", label: "接続名", main: true },
   { token: "date", label: "日付 (20261116)", main: true },
   { token: "time", label: "時刻 (142233)", main: true },
-  { token: "mode", label: "内容 (full / schema / data)", main: true },
+  // 名前には英字のまま入る。schema は「定義のみ」のこと (PostgreSQL のスキーマではない)
+  { token: "mode", label: "内容 (full=定義+データ / schema=定義のみ / data)", main: true },
   { token: "table", label: "テーブル名 (1つのときだけ。複数なら入れない)", main: true },
   { token: "yyyy", label: "年" },
   { token: "MM", label: "月" },

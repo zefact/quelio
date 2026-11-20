@@ -9,7 +9,8 @@ import {
   listSchemas,
   systemDatabases,
 } from "../../api";
-import { useModal } from "../../hooks/useModal";
+import { DialogWhere } from "../DialogWhere";
+import { ModalFrame } from "../ModalFrame";
 import { AllDatabasesPanel } from "./AllDatabasesPanel";
 import { CurrentDatabasePanel } from "./CurrentDatabasePanel";
 import { DropNameConfirm } from "./DropNameConfirm";
@@ -29,9 +30,16 @@ interface Pending {
 interface Props {
   sessionId: string;
   dbType: DbType;
-  /** 今つないでいるデータベース (これは削除できない) */
+  /** 今接続しているデータベース (これは削除できない) */
   currentDb: string | null;
   databases: string[];
+  /** 接続名 (見出しの下に出す) */
+  connName?: string;
+  /**
+   * 本番の接続か。
+   * 見出しにバッジを出し、作成・削除・所有者の変更の確認に本番の1行を足す
+   */
+  prod?: boolean;
   onClose: () => void;
   /** データベースの一覧が変わったときに呼ばれる */
   onDatabasesChanged: (list: string[]) => void;
@@ -41,7 +49,7 @@ interface Props {
  * データベースとスキーマの作成・変更・削除。
  *
  * 何に対する操作かでタブを分ける (同じ並びに置くと、どれが何の操作か分かりにくい)。
- * - 新規作成: 新しいデータベースを作る
+ * - 新しいデータベース: 新しいデータベースを作る
  * - 選択中のデータベース: つないでいるデータベース1つ (所有者・スキーマ。PostgreSQLのみ)
  * - すべてのデータベース: サーバーにあるもの全部 (所有者の変更・削除)
  * 作成は実行するSQLを見せてから、削除は名前を打ち込ませてから実行する。
@@ -53,6 +61,8 @@ export function DbAdminDialog({
   dbType,
   currentDb,
   databases,
+  connName,
+  prod = false,
   onClose,
   onDatabasesChanged,
 }: Props) {
@@ -60,6 +70,7 @@ export function DbAdminDialog({
   const [pending, setPending] = useState<Pending | null>(null);
   const [schemas, setSchemas] = useState<string[] | null>(null);
   const [schemaError, setSchemaError] = useState<string | null>(null);
+  /** 最後にした操作の結果 (次の操作を始めるまで残す) */
   const [notice, setNotice] = useState<string | null>(null);
   /** 作成の実行中か (途中で閉じるとエラー表示ごと消えてしまう) */
   const [busy, setBusy] = useState(false);
@@ -83,7 +94,6 @@ export function DbAdminDialog({
    */
   const hasCurrent = isPg && !!currentDb;
   const view = picked === "current" && !hasCurrent ? "new" : picked;
-  const boxRef = useModal(onClose, !pending && !busy && !changing);
 
   /** データベース名から所有者を引く */
   const ownerOf = useMemo(
@@ -141,13 +151,6 @@ export function DbAdminDialog({
     };
   }, [isPg, sessionId, currentDb]);
 
-  /** 実行結果の表示は数秒で消す */
-  useEffect(() => {
-    if (!notice) return;
-    const t = window.setTimeout(() => setNotice(null), 6000);
-    return () => window.clearTimeout(t);
-  }, [notice]);
-
   const runDrop = async (cascade: boolean) => {
     if (!pending) return;
     if (pending.kind === "データベース") {
@@ -162,136 +165,146 @@ export function DbAdminDialog({
     setPending(null);
   };
 
+  /** 削除の確認を開く (前の結果の表示はここで消す) */
+  const askDrop = (next: Pending) => {
+    setNotice(null);
+    setPending(next);
+  };
+
+  /** 所有者の変更を開く */
+  const askOwner = (name: string) => {
+    setNotice(null);
+    setChanging(name);
+  };
+
   return (
-    <div
-      className="modal-overlay"
-      onMouseDown={pending || busy || changing ? undefined : onClose}
+    // 実行中・確認中は Esc・背景クリック・× で閉じない
+    <ModalFrame
+      title="データベースの管理"
+      prod={prod}
+      onClose={onClose}
+      closable={!pending && !busy && !changing}
+      className="db-admin-modal"
+      footer={
+        <button className="btn-secondary" onClick={onClose} disabled={busy}>
+          閉じる
+        </button>
+      }
     >
-      <div
-        className="modal db-admin-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">データベースの管理</span>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={busy}
-            title={busy ? "処理中は閉じられません" : "閉じる (Esc)"}
-          >
-            ×
-          </button>
-        </div>
+      <DialogWhere connName={connName} database={currentDb} dbType={dbType} />
 
-        {notice && (
-          <div className="result-banner ok">
-            <span className="dot" aria-hidden />
-            <span className="result-detail">{notice}</span>
-          </div>
+      {notice && (
+        <div className="result-banner ok">
+          <span className="dot" aria-hidden />
+          <span className="result-detail">{notice}</span>
+        </div>
+      )}
+
+      {/*
+        何に対する操作かで面を分ける。
+        切り替えても書きかけの名前が消えないよう、面は隠すだけにする
+      */}
+      <div className="result-tabs db-admin-tabs" role="tablist">
+        <Tab on={view === "new"} onClick={() => setPicked("new")}>
+          新しいデータベース
+        </Tab>
+        {hasCurrent && (
+          <Tab on={view === "current"} onClick={() => setPicked("current")}>
+            選択中のデータベース
+            <span className="mono db-admin-tab-db">{currentDb}</span>
+          </Tab>
         )}
+        <Tab on={view === "all"} onClick={() => setPicked("all")}>
+          すべてのデータベース
+        </Tab>
+      </div>
 
-        {/*
-          何に対する操作かで面を分ける。
-          切り替えても書きかけの名前が消えないよう、面は隠すだけにする
-        */}
-        <div className="result-tabs db-admin-tabs" role="tablist">
-          <Tab on={view === "new"} onClick={() => setPicked("new")}>
-            新規作成
-          </Tab>
-          {hasCurrent && (
-            <Tab on={view === "current"} onClick={() => setPicked("current")}>
-              選択中のデータベース
-              <span className="mono db-admin-tab-db">{currentDb}</span>
-            </Tab>
-          )}
-          <Tab on={view === "all"} onClick={() => setPicked("all")}>
-            すべてのデータベース
-          </Tab>
-        </div>
+      <div hidden={view !== "new"}>
+        <NewDatabasePanel
+          sessionId={sessionId}
+          dbType={dbType}
+          owners={isPg ? owners : undefined}
+          prod={prod}
+          busy={busy}
+          onBusyChange={setBusy}
+          onCreate={async (name, encoding, collation, owner) => {
+            setNotice(null);
+            onDatabasesChanged(
+              await createDatabase(sessionId, name, encoding, collation, owner)
+            );
+            setNotice(`データベース ${name} を作成しました`);
+          }}
+        />
+      </div>
 
-        <div hidden={view !== "new"}>
-          <NewDatabasePanel
+      {hasCurrent && currentDb && (
+        <div hidden={view !== "current"}>
+          <CurrentDatabasePanel
             sessionId={sessionId}
             dbType={dbType}
-            owners={isPg ? owners : undefined}
-            busy={busy}
-            onBusyChange={setBusy}
-            onCreate={async (name, encoding, collation, owner) => {
-              onDatabasesChanged(
-                await createDatabase(sessionId, name, encoding, collation, owner)
-              );
-              setNotice(`データベース ${name} を作成しました`);
-            }}
-          />
-        </div>
-
-        {hasCurrent && currentDb && (
-          <div hidden={view !== "current"}>
-            <CurrentDatabasePanel
-              sessionId={sessionId}
-              dbType={dbType}
-              database={currentDb}
-              owners={owners}
-              ownerError={ownerError}
-              system={system.has(currentDb.toLowerCase())}
-              schemas={schemas}
-              schemaError={schemaError}
-              busy={busy}
-              onBusyChange={setBusy}
-              onChangeOwner={() => setChanging(currentDb)}
-              onCreateSchema={async (name) => {
-                setSchemas(
-                  await changeSchema(sessionId, currentDb, name, false, false)
-                );
-                setNotice(`スキーマ ${name} を作成しました`);
-              }}
-              onDropSchema={(name) => setPending({ kind: "スキーマ", name })}
-            />
-          </div>
-        )}
-
-        <div hidden={view !== "all"}>
-          <AllDatabasesPanel
-            isPg={isPg}
-            databases={databases}
-            currentDb={currentDb}
+            database={currentDb}
             owners={owners}
             ownerError={ownerError}
-            system={system}
+            system={system.has(currentDb.toLowerCase())}
+            schemas={schemas}
+            schemaError={schemaError}
+            prod={prod}
             busy={busy}
-            onChangeOwner={setChanging}
-            onDrop={(name) => setPending({ kind: "データベース", name })}
+            onBusyChange={setBusy}
+            onChangeOwner={() => askOwner(currentDb)}
+            onCreateSchema={async (name) => {
+              setNotice(null);
+              setSchemas(
+                await changeSchema(sessionId, currentDb, name, false, false)
+              );
+              setNotice(`スキーマ ${name} を作成しました`);
+            }}
+            onDropSchema={(name) => askDrop({ kind: "スキーマ", name })}
           />
         </div>
+      )}
 
-        {changing && owners && (
-          <OwnerDialog
-            dbType={dbType}
-            name={changing}
-            current={ownerOf.get(changing) ?? ""}
-            roles={owners.roles}
-            onCancel={() => setChanging(null)}
-            onConfirm={async (owner) => {
-              setOwners(await changeDatabaseOwner(sessionId, changing, owner));
-              setNotice(`データベース ${changing} の所有者を ${owner} に変更しました`);
-              setChanging(null);
-            }}
-          />
-        )}
-
-        {pending && (
-          <DropNameConfirm
-            kind={pending.kind}
-            name={pending.name}
-            askCascade={pending.kind === "スキーマ"}
-            onCancel={() => setPending(null)}
-            onConfirm={runDrop}
-          />
-        )}
+      <div hidden={view !== "all"}>
+        <AllDatabasesPanel
+          isPg={isPg}
+          databases={databases}
+          currentDb={currentDb}
+          owners={owners}
+          ownerError={ownerError}
+          system={system}
+          busy={busy}
+          onChangeOwner={askOwner}
+          onDrop={(name) => askDrop({ kind: "データベース", name })}
+        />
       </div>
-    </div>
+
+      {changing && owners && (
+        <OwnerDialog
+          dbType={dbType}
+          name={changing}
+          current={ownerOf.get(changing) ?? ""}
+          roles={owners.roles}
+          prod={prod}
+          onCancel={() => setChanging(null)}
+          onConfirm={async (owner) => {
+            setOwners(await changeDatabaseOwner(sessionId, changing, owner));
+            setNotice(`データベース ${changing} の所有者を ${owner} に変更しました`);
+            setChanging(null);
+          }}
+        />
+      )}
+
+      {pending && (
+        <DropNameConfirm
+          kind={pending.kind}
+          name={pending.name}
+          askCascade={pending.kind === "スキーマ"}
+          prod={prod}
+          onCancel={() => setPending(null)}
+          onConfirm={runDrop}
+        />
+      )}
+    </ModalFrame>
   );
 }
 

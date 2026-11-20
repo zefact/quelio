@@ -6,13 +6,17 @@
  * 足すときはこの画面を触らずに済む
  */
 import { useMemo, useState } from "react";
-import { useModal } from "../../hooks/useModal";
 import type { DbType } from "../../types";
+import { ModalFrame } from "../ModalFrame";
+import { SelectMenu } from "../SelectMenu";
 import { topicsFor } from "./helpTopics";
 
 interface Props {
-  /** つないでいるDB (出す話題と中身が変わる) */
-  dbType: DbType;
+  /**
+   * つないでいるDB (出す話題と中身が変わる)。
+   * 接続する前 (ホーム・⌘K・メニューバーから開いたとき) は省き、画面の中で選んでもらう
+   */
+  dbType?: DbType;
   onClose: () => void;
 }
 
@@ -24,33 +28,38 @@ const DB_LABEL: Record<DbType, string> = {
   valkey: "Valkey / Redis",
 };
 
-export function HelpDialog({ dbType, onClose }: Props) {
-  const boxRef = useModal(onClose);
+/** 接続していないときに選べるDB */
+const DB_OPTIONS = (Object.keys(DB_LABEL) as DbType[]).map((value) => ({
+  value,
+  label: DB_LABEL[value],
+}));
+
+export function HelpDialog({ dbType: fixedDb, onClose }: Props) {
+  /** 接続していないときに選んだDB */
+  const [pickedDb, setPickedDb] = useState<DbType>("mysql");
+  const dbType = fixedDb ?? pickedDb;
   const topics = useMemo(() => topicsFor(dbType), [dbType]);
   const [picked, setPicked] = useState(topics[0]?.id ?? "");
 
   const current = topics.find((t) => t.id === picked) ?? topics[0] ?? null;
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className="modal help-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            ヘルプ
-            <span className="column-modal-target">{DB_LABEL[dbType]}</span>
-          </span>
-          <button className="modal-close" onClick={onClose} title="閉じる (Esc)">
-            ×
-          </button>
-        </div>
-
+    <ModalFrame
+      title="ヘルプ"
+      target={fixedDb ? DB_LABEL[fixedDb] : undefined}
+      onClose={onClose}
+      className="help-modal"
+    >
         <div className="help-body">
           <div className="help-list">
+            {/* 接続していないときは、どのDB向けの説明かを選べるようにする */}
+            {!fixedDb && (
+              <SelectMenu
+                value={dbType}
+                options={DB_OPTIONS}
+                onChange={(v) => setPickedDb(v as DbType)}
+              />
+            )}
             {topics.map((t) => (
               <button
                 key={t.id}
@@ -112,7 +121,6 @@ export function HelpDialog({ dbType, onClose }: Props) {
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }

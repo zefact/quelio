@@ -5,6 +5,26 @@
  * 色は置いた場所の文字色をそのまま継ぐ
  */
 
+/** ファイルを開く (開いたフォルダ) */
+export function OpenIcon() {
+  return (
+    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M3.5 18.5V6A1.5 1.5 0 015 4.5h4l2 2h7A1.5 1.5 0 0119.5 8v1.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3.5 18.5l2.6-7.2A1.5 1.5 0 017.5 10.3h13a1 1 0 01.95 1.3l-2.2 6.4a1.5 1.5 0 01-1.4 1H5a1.5 1.5 0 01-1.5-.5z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 /** 保存 (フロッピー) */
 export function SaveIcon() {
   return (

@@ -30,14 +30,15 @@ const TICK_MS = 300;
  */
 const PHASE_LABEL: Record<Exclude<JobPhase, "working">, string> = {
   committing: "確定中",
-  rollingBack: "取り消し中",
+  // 「取り消し」はトランザクションの操作の言葉なので、ここでは何が起きているかを書く
+  rollingBack: "巻き戻し中",
   scanning: "ファイルを確認しています",
 };
 
 const PHASE_TIP: Record<Exclude<JobPhase, "working">, string> = {
   committing: "サーバーが変更を確定しています。件数が多いと時間がかかります。",
   rollingBack:
-    "サーバーが変更を巻き戻しています。件数が多いと取り込みより長くかかることがあります。",
+    "サーバーが変更を巻き戻しています (ROLLBACK)。件数が多いと取り込みより長くかかることがあります。",
   scanning:
     "取り込む前に、列の数が揃っているかをファイル全体で確かめています。まだ何も書き込んでいません。",
 };
@@ -50,7 +51,7 @@ const PHASE_TIP: Record<Exclude<JobPhase, "working">, string> = {
 export function CsvProgress({
   jobId,
   startedAt,
-  verb = "出力",
+  verb = "書き出し",
   unit = "行",
   total = null,
 }: Props) {
@@ -98,15 +99,15 @@ export function CsvProgress({
 
   return (
     <span
-      className="csv-progress-wrap"
+      className="csv-progress-wrap has-tooltip"
       role="status"
       aria-live="polite"
-      title={busy ? PHASE_TIP[busy] : undefined}
+      data-tooltip={busy ? PHASE_TIP[busy] : undefined}
     >
       <span className="capture-msg mono csv-progress">
         {state.rows.toLocaleString()}
         {total ? ` / ${total.toLocaleString()}` : ""}
-        {unit} {busy ? PHASE_LABEL[busy] : `${verb}中`}...
+        {unit} {busy ? PHASE_LABEL[busy] : `${verb}中`}…
         {pct !== null && ` ${pct}%`} ({(state.elapsed / 1000).toFixed(1)}s)
       </span>
       {pct !== null && !busy && (

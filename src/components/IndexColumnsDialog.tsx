@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useModal } from "../hooks/useModal";
+import { ModalFrame } from "./ModalFrame";
+import { IconButton } from "./IconButton";
 import type { ColumnInfo } from "../types";
 import { imeBusy } from "../ime";
 
@@ -58,34 +59,36 @@ export function IndexColumnsDialog({
   const rest = columns.filter((c) => !picked.includes(c.name));
 
 
-  // Escで閉じる・初期フォーカスは共通の作法にそろえる
-  const boxRef = useModal(onClose);
-
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <ModalFrame
+      title="対象カラムを選ぶ"
+      target="上にあるカラムから順に効きます"
+      onClose={onClose}
+      className="index-cols-modal"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose}>
+            キャンセル
+          </button>
+          <button
+            className="btn-primary"
+            disabled={picked.length === 0}
+            onClick={() => onDecide(picked)}
+          >
+            このカラムにする
+          </button>
+        </>
+      }
+    >
+      {/* Enter で決める (包みは並びに影響しないよう display: contents) */}
       <div
-        className="modal index-cols-modal"
-        onMouseDown={(e) => e.stopPropagation()}
+        style={{ display: "contents" }}
         onKeyDown={(e) => {
-          // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+          // 日本語入力の変換中のEnterは拾わない (確定の操作のため)
           if (imeBusy(e)) return;
           if (e.key === "Enter" && picked.length > 0) onDecide(picked);
         }}
-        tabIndex={-1}
-        ref={boxRef}
       >
-        <div className="modal-head">
-          <span className="modal-title">
-            対象カラムを選ぶ
-            <span className="column-modal-target">
-              上にあるカラムから順に効きます
-            </span>
-          </span>
-          <button className="modal-close" onClick={onClose} title="閉じる">
-            ×
-          </button>
-        </div>
-
         <div className="index-cols-body">
           <div className="index-cols-pane">
             <p className="column-note">
@@ -101,29 +104,29 @@ export function IndexColumnsDialog({
                   <li key={name}>
                     <span className="index-cols-no mono">{i + 1}</span>
                     <span className="index-cols-name mono">{name}</span>
-                    <button
+                    <IconButton
                       className="pane-icon-btn"
-                      title="1つ上へ"
+                      label="1つ上へ"
                       disabled={i === 0}
                       onClick={() => swap(i, i - 1)}
                     >
                       <ArrowIcon up />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
                       className="pane-icon-btn"
-                      title="1つ下へ"
+                      label="1つ下へ"
                       disabled={i === picked.length - 1}
                       onClick={() => swap(i, i + 1)}
                     >
                       <ArrowIcon up={false} />
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
                       className="pane-icon-btn danger"
-                      title="外す"
+                      label="外す"
                       onClick={() => remove(i)}
                     >
                       ×
-                    </button>
+                    </IconButton>
                   </li>
                 ))}
               </ol>
@@ -153,21 +156,7 @@ export function IndexColumnsDialog({
             </div>
           </div>
         </div>
-
-        <div className="modal-actions column-modal-actions">
-          <span className="toolbar-spacer" />
-          <button className="btn-secondary" onClick={onClose}>
-            キャンセル
-          </button>
-          <button
-            className="btn-primary"
-            disabled={picked.length === 0}
-            onClick={() => onDecide(picked)}
-          >
-            決定
-          </button>
-        </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 }

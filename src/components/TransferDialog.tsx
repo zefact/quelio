@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useModal } from "../hooks/useModal";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   cancelJob,
@@ -23,6 +22,12 @@ import {
 } from "../dumpTarget";
 import { dbBadgeLabel } from "../colors";
 import { RevealButton } from "./RevealButton";
+import { rememberExportDir } from "../exportDir";
+import { ModalFrame } from "./ModalFrame";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { IconButton } from "./IconButton";
+import { CloseMark } from "./CloseMark";
+import { sqlFileText } from "../prodConfirm";
 import { fmtDuration, fmtRemaining, pushSample, remainingSeconds, type EtaSample } from "../jobEta";
 import type { DbType, DumpEngine, ExportMode, ExportTable } from "../types";
 
@@ -128,7 +133,13 @@ function JobStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function JobProgress({ job, kind }: { job: JobView; kind: "export" | "import" }) {
+/**
+ * 書き出し・SQLファイル実行の進み具合 (実行中は大きな割合と数字、終わったら結果)。
+ *
+ * KV の一括操作などで使う JobProgress.tsx とは別の部品
+ * (あちらは件数を数える処理用で、こちらはバイト数で進む処理用)
+ */
+function TransferJobPanel({ job, kind }: { job: JobView; kind: "export" | "import" }) {
   const now = useNow(job.running);
   const ratio =
     job.progress !== null
@@ -375,25 +386,23 @@ function EngineSelect({
   );
 }
 
-/** ダイアログの見出し (何をするか・どの接続か) */
+/**
+ * 見出しの下に出す、何をするか・どの接続かのまとまり。
+ *
+ * 見出しの文字・本番バッジ・閉じるボタンは共通の枠 (ModalFrame) が出す
+ */
 function TransferHead({
   kind,
-  title,
   sub,
   dbType,
   connName,
   database,
-  closeDisabled,
-  onClose,
 }: {
   kind: "export" | "import";
-  title: string;
   sub: string;
   dbType: DbType;
   connName: string;
   database: string;
-  closeDisabled?: boolean;
-  onClose: () => void;
 }) {
   return (
     <div className="tf-head">
@@ -415,7 +424,6 @@ function TransferHead({
         )}
       </span>
       <div className="tf-head-text">
-        <span className="modal-title">{title}</span>
         <span className="tf-head-sub">{sub}</span>
         <span className="tf-head-target">
           <span className={`db-badge mini ${dbType}`}>{dbBadgeLabel(dbType)}</span>
@@ -428,15 +436,38 @@ function TransferHead({
           )}
         </span>
       </div>
-      <button
-        className="modal-close"
-        onClick={onClose}
-        disabled={closeDisabled}
-        title="閉じる"
-      >
-        ×
-      </button>
     </div>
+  );
+}
+
+/**
+ * 止めるボタン (押したら「中止しています…」にして押せなくする)。
+ *
+ * 実際に止まるのは処理側が区切りに来たときなので、
+ * 頼んだことが分かるように表示を変える
+ */
+function StopButton({
+  jobId,
+  onError,
+}: {
+  jobId: string;
+  onError: (message: string) => void;
+}) {
+  const [asked, setAsked] = useState(false);
+  return (
+    <button
+      className="btn-secondary"
+      disabled={asked}
+      onClick={() => {
+        setAsked(true);
+        cancelJob(jobId).catch((e) => {
+          setAsked(false);
+          onError(`中止できませんでした: ${e}`);
+        });
+      }}
+    >
+      {asked ? "中止しています…" : "中止"}
+    </button>
   );
 }
 
@@ -446,6 +477,8 @@ interface ExportProps {
   connName: string;
   dbType: DbType;
   tables: ExportTable[];
+  /** 本番の接続か (見出しに本番バッジを出す。書き出しはデータを変えないので確認はしない) */
+  prod?: boolean;
   onClose: () => void;
   /** 設定画面を開く (外部ツールが見つからないとき) */
   onOpenSettings?: () => void;
@@ -518,8 +551,9 @@ function tableLabel(t: ExportTable): string {
 const MODES: { mode: ExportMode; title: string; desc: string; icon: React.ReactNode }[] = [
   {
     mode: "full",
-    title: "スキーマ + データ",
-    desc: "定義と全行。バックアップに",
+    // PostgreSQL の「スキーマ」(名前空間) と紛れないよう「定義」と呼ぶ
+    title: "定義 + データ",
+    desc: "CREATE 文と全行。バックアップに",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <rect x="3.5" y="4" width="17" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
@@ -529,8 +563,8 @@ const MODES: { mode: ExportMode; title: string; desc: string; icon: React.ReactN
   },
   {
     mode: "schema",
-    title: "スキーマのみ",
-    desc: "CREATE文だけ。構造の複製に",
+    title: "定義のみ (CREATE 文)",
+    desc: "テーブルの形だけ。構造の複製に",
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
         <rect x="3.5" y="4" width="17" height="16" rx="2.5" stroke="currentColor" strokeWidth="1.7" strokeDasharray="3 2.4" />
@@ -577,9 +611,13 @@ function TableChips({ tables }: { tables: ExportTable[] }) {
   );
 }
 
-/** 選んだ保存先フォルダとファイル名のパターンを、次に開いたときにも引き継ぐ */
-const DIR_KEY = "quelio.dumpDir";
+/** ファイル名のパターンを、次に開いたときにも引き継ぐ */
 const PATTERN_KEY = "quelio.dumpNamePattern";
+/**
+ * 以前は SQL ダンプのフォルダだけを別に覚えていた (今は設定の書き出し先フォルダに寄せた)。
+ * 残っていると紛らわしいので、開いたときに消す
+ */
+const OLD_DIR_KEY = "quelio.dumpDir";
 
 function loadPref(key: string): string | null {
   try {
@@ -601,9 +639,10 @@ function savePref(key: string, value: string | null) {
 /**
  * 書き出す先 (フォルダとファイル名のパターン)。
  *
- * 既定は設定の保存先フォルダに {db}_{date}_{time}.sql。
+ * 既定は設定の書き出し先フォルダに {db}_{date}_{time}.sql。
  * パターンは書き出すときに日時などを埋めるので、続けて書き出しても上書きにならない。
- * フォルダもパターンも次回へ引き継ぐ
+ * フォルダは他の書き出しと同じ1か所で覚える (exportDir.ts。書き出しを始めたときに覚える)。
+ * パターンは次回へ引き継ぐ
  */
 function useExportTarget(sessionId: string, database: string) {
   const [defaultDir, setDefaultDir] = useState("");
@@ -620,8 +659,9 @@ function useExportTarget(sessionId: string, database: string) {
       .then((t) => {
         if (!alive) return;
         setDefaultDir(t.dir);
-        setDirRaw(loadPref(DIR_KEY) || t.dir);
+        setDirRaw(t.dir);
         setDb(t.db);
+        savePref(OLD_DIR_KEY, null);
       })
       .catch((e) => alive && setLoadError(String(e)));
     return () => {
@@ -634,21 +674,19 @@ function useExportTarget(sessionId: string, database: string) {
     savePref(PATTERN_KEY, p === DEFAULT_NAME_PATTERN ? null : p);
   };
 
-  /** 保存するフォルダを選ぶ */
+  /** 書き出すフォルダを選ぶ (覚えるのは書き出しを始めたとき) */
   const pickDir = async () => {
     const picked = await open({
       directory: true,
       defaultPath: dir || undefined,
-      title: "SQLダンプを保存するフォルダ",
+      title: "SQLダンプを書き出すフォルダ",
     }).catch(() => null);
     if (typeof picked !== "string") return;
     setDirRaw(picked);
-    savePref(DIR_KEY, picked === defaultDir ? null : picked);
   };
 
   /** 既定のフォルダとパターンに戻す */
   const reset = () => {
-    savePref(DIR_KEY, null);
     setDirRaw(defaultDir);
     setPattern(DEFAULT_NAME_PATTERN);
   };
@@ -700,6 +738,7 @@ export function ExportDialog({
   connName,
   dbType,
   tables,
+  prod = false,
   onClose,
   onOpenSettings,
 }: ExportProps) {
@@ -710,6 +749,11 @@ export function ExportDialog({
   const { missing, checking } = useToolCheck(dbType, "export", engine);
   const running = !!job?.running;
   const target = useExportTarget(sessionId, database);
+  /**
+   * 詳細設定 (実行方法・ファイル名に差し込む置き換え) を開いているか。
+   * 外部ツールを選んでいるときは、それが分かるよう初めから開いておく
+   */
+  const [advanced, setAdvanced] = useState(engine === "tool");
   /** 同じ名前のファイルがあり、上書きしてよいか尋ねているパス */
   const [overwriteAsk, setOverwriteAsk] = useState<string | null>(null);
   const patternError = badPattern(target.pattern);
@@ -768,192 +812,211 @@ export function ExportDialog({
         checked.path
       );
       watch(started.jobId);
+      // 選んだフォルダを、ほかの書き出しと同じ1か所で覚える
+      void rememberExportDir(checked.path);
     } catch (e) {
       setError(String(e));
     }
   };
 
-  // Escで閉じる・初期フォーカスは共通の作法にそろえる (実行中は閉じない)
-  const boxRef = useModal(onClose, !running);
   const modeTitle = MODES.find((m) => m.mode === mode)?.title ?? "";
+  /** 書き出しが終わったか (失敗・中止は除く) */
+  const done = !!job && !job.running && !job.error;
+  const startBlocked =
+    tables.length === 0 || !!missing || checking || !target.ready || !!patternError;
+  const startTip = missing
+    ? `${missing} が見つかりません`
+    : checking
+      ? "必要なコマンドを確認しています…"
+      : tables.length === 0
+        ? "テーブルを1つ以上選んでください"
+        : patternError
+          ? patternError
+          : undefined;
+  const engineLabel =
+    engine === "native" ? "Quelio" : toolName(dbType, "export");
 
   return (
-    <div className="modal-overlay" onMouseDown={running ? undefined : onClose}>
-      <div
-        className="modal transfer-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <TransferHead
-          kind="export"
-          title="SQLダンプ出力"
-          sub="選んだテーブルをSQLファイルに書き出します"
-          dbType={dbType}
-          connName={connName}
-          database={database}
-          closeDisabled={running}
-          onClose={onClose}
-        />
-
-        {running ? (
-          // 実行中は設定を畳み、進み具合を主役にする
-          <div className="tf-running-summary">
-            <span>{tables.length}テーブル</span>
-            <span className="tf-dot" aria-hidden />
-            <span>{modeTitle}</span>
-            <span className="tf-dot" aria-hidden />
-            <span>{engine === "native" ? "Quelio" : toolName(dbType, "export")}</span>
-          </div>
+    // 実行中は Esc・背景クリック・× で閉じない
+    <ModalFrame
+      title="SQLダンプを書き出す"
+      prod={prod}
+      onClose={onClose}
+      closable={!running}
+      className="transfer-modal"
+      footer={
+        running ? (
+          <StopButton jobId={job!.jobId} onError={setError} />
+        ) : done ? (
+          // 終わったら主ボタンは「閉じる」。続けて書き出すときは名前が変わるので上書きにはならない
+          <>
+            <button
+              className="btn-secondary has-tooltip"
+              onClick={() => handleStart()}
+              disabled={startBlocked}
+              data-tooltip={startTip}
+            >
+              もう一度書き出す
+            </button>
+            <button className="btn-primary" onClick={onClose}>
+              閉じる
+            </button>
+          </>
         ) : (
           <>
-            <Section
-              label="対象テーブル"
-              extra={<span className="tf-count">{tables.length}</span>}
+            <button className="btn-secondary" onClick={onClose}>
+              {job ? "閉じる" : "キャンセル"}
+            </button>
+            <button
+              className="btn-primary has-tooltip"
+              onClick={() => handleStart()}
+              disabled={startBlocked}
+              data-tooltip={startTip}
             >
-              <TableChips tables={tables} />
-            </Section>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              書き出す
+            </button>
+          </>
+        )
+      }
+    >
+      <TransferHead
+        kind="export"
+        sub="選んだテーブルをSQLファイルに書き出します"
+        dbType={dbType}
+        connName={connName}
+        database={database}
+      />
 
-            <Section label="書き出す内容">
-              <div className="choice-grid cols-3">
-                {MODES.map((m) => (
-                  <ChoiceCard
-                    key={m.mode}
-                    name="export-mode"
-                    checked={mode === m.mode}
-                    onChange={() => setMode(m.mode)}
-                    icon={m.icon}
-                    title={m.title}
-                    desc={m.desc}
-                  />
-                ))}
-              </div>
-            </Section>
+      {running ? (
+        // 実行中は設定を畳み、進み具合を主役にする
+        <div className="tf-running-summary">
+          <span>{tables.length}テーブル</span>
+          <span className="tf-dot" aria-hidden />
+          <span>{modeTitle}</span>
+          <span className="tf-dot" aria-hidden />
+          <span>{engineLabel}</span>
+        </div>
+      ) : (
+        <>
+          <Section
+            label="対象テーブル"
+            extra={<span className="tf-count">{tables.length}</span>}
+          >
+            <TableChips tables={tables} />
+          </Section>
 
+          <Section label="書き出す内容">
+            <div className="choice-grid cols-3">
+              {MODES.map((m) => (
+                <ChoiceCard
+                  key={m.mode}
+                  name="export-mode"
+                  checked={mode === m.mode}
+                  onChange={() => setMode(m.mode)}
+                  icon={m.icon}
+                  title={m.title}
+                  desc={m.desc}
+                />
+              ))}
+            </div>
+          </Section>
+
+          <Section
+            label="書き出し先とファイル名"
+            extra={
+              target.customized && (
+                <button className="tf-link" onClick={target.reset}>
+                  既定に戻す
+                </button>
+              )
+            }
+          >
+            <div className={"tf-dest" + (patternError ? " invalid" : "")}>
+              <button
+                className="tf-dest-folder has-tooltip tooltip-left tooltip-wide"
+                data-tooltip={target.dir ? `フォルダを選ぶ\n${target.dir}` : "フォルダを選ぶ"}
+                onClick={target.pickDir}
+                disabled={!target.ready}
+                aria-label="書き出すフォルダを選ぶ"
+              >
+                {ICON_FOLDER}
+                <span className="tf-dest-folder-name">
+                  {target.dir ? folderName(target.dir) : "…"}
+                </span>
+              </button>
+              <span className="tf-dest-sep" aria-hidden>
+                /
+              </span>
+              <input
+                ref={patternRef}
+                className="tf-dest-name mono"
+                value={target.pattern}
+                onChange={(e) => {
+                  target.setPattern(e.target.value);
+                  setOverwriteAsk(null);
+                }}
+                spellCheck={false}
+                aria-label="ファイル名のパターン"
+                placeholder={DEFAULT_NAME_PATTERN}
+              />
+            </div>
+            <div className={"tf-dest-full mono" + (patternError ? " error" : "")}>
+              {patternError ?? (preview && <>→ {preview}</>)}
+            </div>
+          </Section>
+
+          {/* あまり変えない設定は畳んでおく */}
+          <details
+            className="tf-advanced"
+            open={advanced}
+            onToggle={(e) => setAdvanced(e.currentTarget.open)}
+          >
+            <summary className="tf-advanced-summary">
+              詳細設定
+              {!advanced && dbType !== "sqlite" && (
+                <span className="tf-advanced-now">実行方法: {engineLabel}</span>
+              )}
+            </summary>
             <EngineSelect
               dbType={dbType}
               kind="export"
               engine={engine}
               onChange={setEngine}
             />
-
-            <Section
-              label="保存先とファイル名"
-              extra={
-                target.customized && (
-                  <button className="tf-link" onClick={target.reset}>
-                    既定に戻す
-                  </button>
-                )
-              }
-            >
-              <div className={"tf-dest" + (patternError ? " invalid" : "")}>
-                <button
-                  className="tf-dest-folder has-tooltip tooltip-left"
-                  data-tooltip={target.dir ? `フォルダを選ぶ\n${target.dir}` : "フォルダを選ぶ"}
-                  onClick={target.pickDir}
-                  disabled={!target.ready}
-                  aria-label="保存するフォルダを選ぶ"
-                >
-                  {ICON_FOLDER}
-                  <span className="tf-dest-folder-name">
-                    {target.dir ? folderName(target.dir) : "…"}
-                  </span>
-                </button>
-                <span className="tf-dest-sep" aria-hidden>
-                  /
-                </span>
-                <input
-                  ref={patternRef}
-                  className="tf-dest-name mono"
-                  value={target.pattern}
-                  onChange={(e) => {
-                    target.setPattern(e.target.value);
-                    setOverwriteAsk(null);
-                  }}
-                  spellCheck={false}
-                  aria-label="ファイル名のパターン"
-                  placeholder={DEFAULT_NAME_PATTERN}
-                />
-              </div>
+            <Section label="ファイル名に差し込む">
               <PatternTokens onInsert={insertToken} />
-              <div className={"tf-dest-full mono" + (patternError ? " error" : "")}>
-                {patternError ?? (preview && <>→ {preview}</>)}
-              </div>
             </Section>
-          </>
-        )}
+          </details>
+        </>
+      )}
 
-        {(error ?? target.loadError) && (
-          <div className="result-banner ng">
-            <span className="dot" aria-hidden />
-            <strong>エラー</strong>
-            <span className="result-detail">{error ?? target.loadError}</span>
-          </div>
-        )}
-        {overwriteAsk && !running && (
-          <div className="result-banner warn tf-overwrite">
-            <span className="dot" aria-hidden />
-            <span className="result-detail">
-              同じ名前のファイル <strong className="mono">{splitPath(overwriteAsk).name}</strong>{" "}
-              があります。書き出しが終わった時点で置き換わります。
-            </span>
-            <button className="btn-secondary" onClick={() => handleStart(true)}>
-              上書きする
-            </button>
-          </div>
-        )}
-        {missing && (
-          <ToolMissing tool={missing} onOpenSettings={onOpenSettings} />
-        )}
-        {job && <JobProgress job={job} kind="export" />}
-
-        <div className="modal-actions">
-          <span className="toolbar-spacer" />
-          {running ? (
-            <button
-              className="btn-secondary"
-              onClick={() =>
-                cancelJob(job!.jobId).catch((e) =>
-                  setError(`中止できませんでした: ${e}`)
-                )
-              }
-            >
-              中止する
-            </button>
-          ) : (
-            <>
-              <button className="btn-secondary" onClick={onClose}>
-                閉じる
-              </button>
-              <button
-                className="btn-primary"
-                onClick={() => handleStart()}
-                disabled={
-                  tables.length === 0 || !!missing || checking || !target.ready || !!patternError
-                }
-                title={
-                  missing
-                    ? `${missing} が見つかりません`
-                    : checking
-                      ? "必要なコマンドを確認しています..."
-                      : tables.length === 0
-                        ? "表を1つ以上選んでください"
-                        : patternError
-                          ? patternError
-                          : undefined
-                }
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                {job && !job.error ? "もう一度書き出す" : "書き出しを開始"}
-              </button>
-            </>
-          )}
+      {(error ?? target.loadError) && (
+        <div className="result-banner ng">
+          <span className="dot" aria-hidden />
+          <strong>エラー</strong>
+          <span className="result-detail">{error ?? target.loadError}</span>
         </div>
-      </div>
-    </div>
+      )}
+      {overwriteAsk && !running && (
+        <div className="result-banner warn tf-overwrite">
+          <span className="dot" aria-hidden />
+          <span className="result-detail">
+            同じ名前のファイル <strong className="mono">{splitPath(overwriteAsk).name}</strong>{" "}
+            があります。書き出しが終わった時点で置き換わります。
+          </span>
+          <button className="btn-secondary" onClick={() => handleStart(true)}>
+            上書きする
+          </button>
+        </div>
+      )}
+      {missing && (
+        <ToolMissing tool={missing} onOpenSettings={onOpenSettings} />
+      )}
+      {job && <TransferJobPanel job={job} kind="export" />}
+    </ModalFrame>
   );
 }
 
@@ -969,6 +1032,8 @@ interface ImportProps {
   database: string;
   connName: string;
   dbType: DbType;
+  /** 本番の接続か (見出しに本番バッジを出し、実行の前に確認する) */
+  prod?: boolean;
   onClose: () => void;
   /** 設定画面を開く (外部ツールが見つからないとき) */
   onOpenSettings?: () => void;
@@ -982,6 +1047,7 @@ export function ImportDialog({
   database,
   connName,
   dbType,
+  prod = false,
   onClose,
   onOpenSettings,
   onImported,
@@ -995,6 +1061,13 @@ export function ImportDialog({
   const [engine, setEngine] = useEngine(dbType);
   const { missing, checking } = useToolCheck(dbType, "import", engine);
   const notified = useRef(false);
+  /** 本番で、実行する前の確認を出しているか */
+  const [asking, setAsking] = useState(false);
+  /**
+   * 最後に流したファイルのパス。
+   * 流し終えた同じファイルを、もう一度「実行する」で二重に流させないために使う
+   */
+  const [ranPath, setRanPath] = useState<string | null>(null);
 
   useEffect(() => {
     if (job && !job.running && !job.error && !notified.current) {
@@ -1003,7 +1076,10 @@ export function ImportDialog({
     }
   }, [job, onImported]);
 
-  const busy = job?.running || staging !== null;
+  const busy = !!job?.running || staging !== null;
+  /** 選んでいるファイルを流し終えたか (失敗・中止は除く) */
+  const done =
+    !!job && !job.running && !job.error && !!file && file.path === ranPath;
 
   const pickFile = async () => {
     if (busy) return;
@@ -1044,10 +1120,18 @@ export function ImportDialog({
     }
   };
 
+  /** 「実行する」を押したとき。本番では先に確認を出す */
+  const askStart = () => {
+    if (!file) return;
+    if (prod) setAsking(true);
+    else void handleStart();
+  };
+
   const handleStart = async () => {
     if (!file) return;
     setError(null);
     notified.current = false;
+    setRanPath(file.path);
     try {
       const started = await startImport(sessionId, database, file.path, engine);
       watch(started.jobId);
@@ -1056,168 +1140,171 @@ export function ImportDialog({
     }
   };
 
-
-  // Escで閉じる・初期フォーカスは共通の作法にそろえる (実行中は閉じない)
-  const boxRef = useModal(onClose, !job?.running);
+  const startTip = missing
+    ? `${missing} が見つかりません`
+    : checking
+      ? "必要なコマンドを確認しています…"
+      : !file
+        ? "実行するファイルを選んでください"
+        : staging !== null
+          ? "ファイルを準備しています…"
+          : undefined;
 
   return (
-    <div className="modal-overlay" onMouseDown={job?.running ? undefined : onClose}>
-      <div
-        className="modal transfer-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <TransferHead
-          kind="import"
-          title="SQLファイル実行"
-          sub="SQLファイルの文を順に実行します (バックアップの復元など)"
-          dbType={dbType}
-          connName={connName}
-          database={database}
-          closeDisabled={job?.running}
-          onClose={onClose}
-        />
-
-        <div className="result-banner warn import-warn">
-          <span className="dot" aria-hidden />
-          <span className="result-detail">
-            <strong className="mono">
-              {connName} / {database}
-            </strong>{" "}
-            に対してSQLを実行します。内容によっては既存データが変更・削除されます。
-          </span>
-        </div>
-
-        <div
-          className={
-            "dropzone" +
-            (dragOver ? " over" : "") +
-            (file ? " has-file" : "") +
-            (busy ? " busy" : "")
-          }
-          // ファイルを受け取る場所の印 (画面全体の落とし込み止めが避けて通る)
-          data-file-drop=""
-          onClick={pickFile}
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (!busy) setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-        >
-          {staging !== null ? (
-            <>
-              <div className="job-bar dropzone-bar">
-                <div
-                  className="job-bar-fill"
-                  style={{ width: `${Math.round(staging * 100)}%` }}
-                />
-              </div>
-              <span className="dropzone-sub">
-                ファイルを転送中... {Math.round(staging * 100)}%
-              </span>
-            </>
-          ) : file ? (
-            <>
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M6 2h8l4 4v16H6z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-                <path d="M14 2v4h4" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-                <path d="M9 13h6M9 17h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-              <span className="dropzone-file mono">{file.name}</span>
-              {file.size !== null && (
-                <span className="dropzone-sub mono">{fmtBytes(file.size)}</span>
-              )}
-              {!busy && (
-                <button
-                  className="dropzone-clear"
-                  title="選択を解除"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFile(null);
-                  }}
-                >
-                  ×
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              <span className="dropzone-main">
-                SQLファイルをここにドロップ
-              </span>
-              <span className="dropzone-sub">
-                またはクリックして選択 (大きなファイルは、クリックして選ぶと転送を待たずに始められます)
-              </span>
-            </>
-          )}
-        </div>
-
-        <EngineSelect
-          dbType={dbType}
-          kind="import"
-          engine={engine}
-          disabled={busy}
-          onChange={setEngine}
-        />
-
-        {error && (
-          <div className="result-banner ng">
-            <span className="dot" aria-hidden />
-            <strong>エラー</strong>
-            <span className="result-detail">{error}</span>
-          </div>
-        )}
-        {missing && (
-          <ToolMissing tool={missing} onOpenSettings={onOpenSettings} />
-        )}
-        {job && <JobProgress job={job} kind="import" />}
-
-        <div className="modal-actions">
-          <span className="toolbar-spacer" />
-          {job?.running ? (
-            <button
-              className="btn-secondary"
-              onClick={() =>
-                cancelJob(job.jobId).catch((e) =>
-                  setError(`中止できませんでした: ${e}`)
-                )
-              }
-            >
-              キャンセル
+    // 実行中・ファイルの転送中・確認中は Esc・背景クリック・× で閉じない
+    <ModalFrame
+      title="SQLファイルを実行"
+      prod={prod}
+      onClose={onClose}
+      closable={!busy && !asking}
+      className="transfer-modal"
+      footer={
+        job?.running ? (
+          <StopButton jobId={job.jobId} onError={setError} />
+        ) : done ? (
+          // 流し終えたら主ボタンは「閉じる」(同じファイルを二重に流させない)
+          <button className="btn-primary" onClick={onClose}>
+            閉じる
+          </button>
+        ) : (
+          <>
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>
+              {job ? "閉じる" : "キャンセル"}
             </button>
-          ) : (
-            <>
-              <button className="btn-secondary" onClick={onClose}>
-                閉じる
-              </button>
-              <button
-                className="btn-primary"
-                onClick={handleStart}
-                disabled={!file || staging !== null || !!missing || checking}
-                title={
-                  missing
-                    ? `${missing} が見つかりません`
-                    : checking
-                      ? "必要なコマンドを確認しています..."
-                      : !file
-                        ? "取り込むファイルを選んでください"
-                        : staging !== null
-                          ? "ファイルを準備しています..."
-                          : undefined
-                }
-              >
-                実行する
-              </button>
-            </>
-          )}
-        </div>
+            <button
+              className="btn-primary has-tooltip"
+              onClick={askStart}
+              disabled={!file || staging !== null || !!missing || checking}
+              data-tooltip={startTip}
+            >
+              実行する
+            </button>
+          </>
+        )
+      }
+    >
+      <TransferHead
+        kind="import"
+        sub="SQLファイルの文を順に実行します (バックアップの復元など)"
+        dbType={dbType}
+        connName={connName}
+        database={database}
+      />
+
+      <div className="result-banner warn import-warn">
+        <span className="dot" aria-hidden />
+        <span className="result-detail">
+          <strong className="mono">
+            {connName} / {database}
+          </strong>{" "}
+          に対してSQLを実行します。内容によっては既存データが変更・削除されます。
+        </span>
       </div>
-    </div>
+
+      <div
+        className={
+          "dropzone" +
+          (dragOver ? " over" : "") +
+          (file ? " has-file" : "") +
+          (busy ? " busy" : "")
+        }
+        // ファイルを受け取る場所の印 (画面全体の落とし込み止めが避けて通る)
+        data-file-drop=""
+        onClick={pickFile}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!busy) setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+      >
+        {staging !== null ? (
+          <>
+            <div className="job-bar dropzone-bar">
+              <div
+                className="job-bar-fill"
+                style={{ width: `${Math.round(staging * 100)}%` }}
+              />
+            </div>
+            <span className="dropzone-sub">
+              ファイルを転送中… {Math.round(staging * 100)}%
+            </span>
+          </>
+        ) : file ? (
+          <>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path d="M6 2h8l4 4v16H6z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+              <path d="M14 2v4h4" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+              <path d="M9 13h6M9 17h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            <span className="dropzone-file mono">{file.name}</span>
+            {file.size !== null && (
+              <span className="dropzone-sub mono">{fmtBytes(file.size)}</span>
+            )}
+            {!busy && (
+              <IconButton
+                className="dropzone-clear"
+                label="選択を解除"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFile(null);
+                }}
+              >
+                <CloseMark size={10} />
+              </IconButton>
+            )}
+          </>
+        ) : (
+          <>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            <span className="dropzone-main">
+              SQLファイルをここにドロップ
+            </span>
+            <span className="dropzone-sub">
+              またはクリックして選択 (大きなファイルは、クリックして選ぶと転送を待たずに始められます)
+            </span>
+          </>
+        )}
+      </div>
+
+      <EngineSelect
+        dbType={dbType}
+        kind="import"
+        engine={engine}
+        disabled={busy}
+        onChange={setEngine}
+      />
+
+      {error && (
+        <div className="result-banner ng">
+          <span className="dot" aria-hidden />
+          <strong>エラー</strong>
+          <span className="result-detail">{error}</span>
+        </div>
+      )}
+      {missing && (
+        <ToolMissing tool={missing} onOpenSettings={onOpenSettings} />
+      )}
+      {job && <TransferJobPanel job={job} kind="import" />}
+
+      {asking && file && (
+        <ConfirmDialog
+          title="SQLファイルを実行します"
+          target={file.name}
+          confirmLabel="実行する"
+          prodNote={sqlFileText(database, file.name)}
+          onConfirm={async () => {
+            setAsking(false);
+            await handleStart();
+          }}
+          onCancel={() => setAsking(false)}
+        >
+          ファイルの文を上から順に実行します。内容によっては既存のデータが変更・削除され、元に戻せません。
+        </ConfirmDialog>
+      )}
+    </ModalFrame>
   );
 }

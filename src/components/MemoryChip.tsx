@@ -32,7 +32,7 @@ export function MemoryChip() {
     .join("\n");
 
   return (
-    <span className="status-memory mono" title={detail}>
+    <span className="status-memory mono has-tooltip" data-tooltip={detail}>
       メモリ {fmtBytes(memory.bytes)}
     </span>
   );

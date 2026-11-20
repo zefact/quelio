@@ -269,14 +269,15 @@ export function CsvDiffView({
             {overview.columns.map((c, i) => (
               <div
                 key={i}
-                className="csv-col"
+                className="csv-col has-tooltip"
                 style={{ left: lefts[i], width: widths[i] }}
-                title={`${c.name} (${side === "left" ? "左" : "右"})`}
+                data-tooltip={`${c.name} (${side === "left" ? "左" : "右"})`}
               >
                 <span className="csv-col-name">{c.name}</span>
                 <span
-                  className="csv-col-grip"
-                  title="ドラッグで幅を変えます (ダブルクリックで中身に合わせます)"
+                  className="csv-col-grip has-tooltip"
+                  aria-label="ドラッグで幅を変えます (ダブルクリックで中身に合わせます)"
+                  data-tooltip="ドラッグで幅を変えます (ダブルクリックで中身に合わせます)"
                   onDoubleClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -317,12 +318,15 @@ export function CsvDiffView({
         </button>
 
         {overview.duplicateKeys > 0 && (
-          <span className="csv-warn" title="同じキーの行が複数あります">
+          <span className="csv-warn has-tooltip" data-tooltip="同じキーの行が複数あります">
             キーの重複 {overview.duplicateKeys.toLocaleString()}
           </span>
         )}
         {overview.columnMismatch && (
-          <span className="csv-warn" title="片側にしか無い列は空欄で並べています">
+          <span
+            className="csv-warn has-tooltip"
+            data-tooltip="片側にしか無い列は空欄で並べています"
+          >
             列が揃っていません
           </span>
         )}
@@ -344,8 +348,9 @@ export function CsvDiffView({
       <div className="csv-panes split" ref={panesRef}>
         {pane("left")}
         <div
-          className="csv-splitter"
-          title="掴んで動かすと幅を変えられます (ダブルクリックで真ん中に戻します)"
+          className="csv-splitter has-tooltip"
+          aria-label="掴んで動かすと幅を変えられます (ダブルクリックで真ん中に戻します)"
+          data-tooltip="掴んで動かすと幅を変えられます (ダブルクリックで真ん中に戻します)"
           onMouseDown={grabSplitter}
           onDoubleClick={() => setLeftRatio(0.5)}
         />

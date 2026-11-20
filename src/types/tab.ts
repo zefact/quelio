@@ -141,8 +141,15 @@ export interface TabTableData {
   data: QueryResult | null;
   loading: boolean;
   error: string | null;
-  /** 絞り込み条件 (WHERE句。空なら全件) */
+  /** 絞り込み条件の入力欄 (WHERE句。空なら全件)。まだ適用していないこともある */
   where: string;
+  /**
+   * 表示中のデータを取ったときの条件 (適用済み)。
+   *
+   * ページ送り・並べ替え・再読み込みはこちらで取り直す。
+   * 入力欄 (where) と違えば「未適用」の印を出す。まだ取っていなければ undefined
+   */
+  appliedWhere?: string;
   /** データを取得した時刻 (ms)。取り直さずに出しているとき、いつの内容かを示す */
   fetchedAt?: number;
 }

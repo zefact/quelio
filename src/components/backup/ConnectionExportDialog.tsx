@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
 import { exportConnections } from "../../api";
-import { useModal } from "../../hooks/useModal";
+import { pickExportPath } from "../../exportDir";
+import { ModalFrame } from "../ModalFrame";
+import { RevealButton } from "../RevealButton";
 import { backupPasswordProblem } from "./backupPassword";
 
 interface Props {
   /** 保存先の初期のファイル名 */
   defaultName: string;
-  /** 書き出せたら、知らせる文を渡して閉じる */
+  /** 書き出せたあと「閉じる」を押したら、知らせる文を渡して閉じる */
   onDone: (message: string) => void;
   onClose: () => void;
 }
@@ -25,18 +26,19 @@ export function ConnectionExportDialog({ defaultName, onDone, onClose }: Props) 
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const boxRef = useModal(onClose, !busy);
+  /** 書き出せたときの知らせとファイル (「フォルダを開く」を出すため、閉じるまで残す) */
+  const [done, setDone] = useState<{ message: string; path: string } | null>(null);
 
   const problem = withSecrets ? backupPasswordProblem(password, confirm) : null;
 
   const run = async () => {
     if (busy || problem) return;
     setError(null);
-    const path = await save({
-      defaultPath: defaultName,
+    const path = await pickExportPath({
+      fileName: defaultName,
       filters: [{ name: "JSON", extensions: ["json"] }],
       title: "接続一覧をバックアップ",
-    }).catch(() => null);
+    });
     if (!path) return;
     setBusy(true);
     try {
@@ -48,33 +50,50 @@ export function ConnectionExportDialog({ defaultName, onDone, onClose }: Props) 
           message += `。${r.locked}件は保存されたパスワードを復号できず、入れていません`;
         }
       }
-      onDone(message);
+      setDone({ message, path });
     } catch (e) {
       setError(String(e));
+    } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={busy ? undefined : onClose}>
-      <div
-        className="modal ddl-confirm"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">接続一覧をバックアップします</span>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={busy}
-            title="閉じる (Esc)"
-          >
-            ×
+    <ModalFrame
+      title="接続一覧をバックアップします"
+      onClose={onClose}
+      closable={!busy}
+      className="ddl-confirm"
+      footer={
+        done ? (
+          <button className="btn-primary" onClick={() => onDone(done.message)}>
+            閉じる
           </button>
+        ) : (
+          <>
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>
+              キャンセル
+            </button>
+            <button
+              className="btn-primary"
+              disabled={busy || !!problem}
+              onClick={() => void run()}
+            >
+              {busy ? "書き出し中…" : "書き出し先を選んで書き出す"}
+            </button>
+          </>
+        )
+      }
+    >
+      {done ? (
+        <div className="column-modal-body backup-secret-body">
+          <div className="result-banner ok">
+            <span className="dot" aria-hidden />
+            <span className="result-detail">{done.message}</span>
+            <RevealButton path={done.path} />
+          </div>
         </div>
-
+      ) : (
         <div className="column-modal-body backup-secret-body">
           <label className="switch">
             <input
@@ -138,21 +157,7 @@ export function ConnectionExportDialog({ defaultName, onDone, onClose }: Props) 
             </div>
           )}
         </div>
-
-        <div className="modal-actions column-modal-actions">
-          <span className="toolbar-spacer" />
-          <button className="btn-secondary" onClick={onClose} disabled={busy}>
-            キャンセル
-          </button>
-          <button
-            className="btn-primary"
-            disabled={busy || !!problem}
-            onClick={() => void run()}
-          >
-            {busy ? "書き出し中..." : "保存先を選んで書き出す"}
-          </button>
-        </div>
-      </div>
-    </div>
+      )}
+    </ModalFrame>
   );
 }

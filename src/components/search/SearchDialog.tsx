@@ -1,4 +1,4 @@
-import { useModal } from "../../hooks/useModal";
+import { ModalFrame } from "../ModalFrame";
 import { ObjectSearchPanel } from "./ObjectSearchPanel";
 import type { DbType } from "../../types";
 
@@ -23,28 +23,13 @@ export function SearchDialog({
   onClose,
   onOpenTable,
 }: Props) {
-  const boxRef = useModal(onClose);
-
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className="modal kv-bulk-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            名前で探す
-            {database && (
-              <span className="column-modal-target mono">{database}</span>
-            )}
-          </span>
-          <button className="modal-close" onClick={onClose} title="閉じる (Esc)">
-            ×
-          </button>
-        </div>
-
+    <ModalFrame
+      title="名前で探す"
+      target={database}
+      onClose={onClose}
+      className="kv-bulk-modal"
+    >
         <ObjectSearchPanel
           sessionId={sessionId}
           dbType={dbType}
@@ -54,7 +39,6 @@ export function SearchDialog({
             onClose();
           }}
         />
-      </div>
-    </div>
+    </ModalFrame>
   );
 }

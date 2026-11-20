@@ -4,7 +4,7 @@
  * 選んでいるロールに、どのユーザーが属しているかを出し、
  * メンバーを足したり外したりする (GRANT ロール TO ユーザー / REVOKE)。
  *
- * 今つないでいるユーザー自身も足せる。
+ * 今接続しているユーザー自身も足せる。
  * AWS RDS のマスターユーザーは作ったロールに属していないので、
  * そのロールを所有者にする前などに、ここで自分を足す。
  * 外すほうは、自分の権限を削りかねないので自分自身には出さない
@@ -12,6 +12,7 @@
 import type { DbUser } from "../../types";
 import { SelectMenu } from "../SelectMenu";
 import { CloseMark } from "../CloseMark";
+import { IconButton } from "../IconButton";
 import type { AskedChange } from "./UserActions";
 import { memberCandidates, roleMembers } from "./memberList";
 
@@ -39,7 +40,7 @@ export function RoleMembers({ role, users, editable, onAsk }: Props) {
         add: true,
       },
       note: u.isSelf
-        ? `今つないでいる「${u.name}」を「${role.name}」のメンバーにします。` +
+        ? `今接続している「${u.name}」を「${role.name}」のメンバーにします。` +
           `「${role.name}」の権限を使えるようになり、データベースの所有者を「${role.name}」にすることもできるようになります`
         : `「${u.name}」は「${role.name}」の権限を使えるようになります`,
       confirmLabel: "足す",
@@ -75,7 +76,7 @@ export function RoleMembers({ role, users, editable, onAsk }: Props) {
               label: u.isSelf ? `${u.name} (この接続)` : u.name,
             }))}
             placeholder={
-              candidates.length === 0 ? "足せるユーザーがいません" : "メンバーを足す..."
+              candidates.length === 0 ? "足せるユーザーがいません" : "メンバーを足す…"
             }
             disabled={candidates.length === 0}
             popFixed
@@ -96,14 +97,13 @@ export function RoleMembers({ role, users, editable, onAsk }: Props) {
               {u.isSelf && " (この接続)"}
               {/* 自分自身とサーバーが用意したものは外させない */}
               {editable && !u.isSelf && !u.system && (
-                <button
+                <IconButton
                   className="dbusers-member-x"
-                  aria-label={`${u.name} を外す`}
-                  title="このロールから外す"
+                  label={`${u.name} をこのロールから外す`}
                   onClick={() => leave(u)}
                 >
                   <CloseMark size={8} />
-                </button>
+                </IconButton>
               )}
             </span>
           ))}

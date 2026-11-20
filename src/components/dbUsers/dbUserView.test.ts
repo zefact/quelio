@@ -4,6 +4,8 @@ import {
   blockedReason,
   filterUsers,
   groupGrants,
+  matchPreset,
+  presetPrivileges,
   privilegeSummary,
   revokeNote,
   revokeSpec,
@@ -104,7 +106,7 @@ describe("一覧の絞り込み", () => {
     ]);
   });
 
-  it("今つないでいるユーザーは常に残す", () => {
+  it("今接続しているユーザーは常に残す", () => {
     const only = filterUsers(list, "", false).find((u) => u.isSelf);
     expect(only?.name).toBe("me");
   });
@@ -253,5 +255,41 @@ describe("取り消しの断り書き", () => {
     const note = revokeNote(g, false);
     expect(note).toContain("他人に渡せる");
     expect(note).not.toContain("USAGE");
+  });
+});
+
+describe("権限のまとめ選び", () => {
+  const mysqlTable = ["ALL PRIVILEGES", "SELECT", "INSERT", "UPDATE", "DELETE", "SHOW VIEW", "DROP"];
+  const pgSchema = ["ALL PRIVILEGES", "USAGE", "CREATE"];
+
+  it("読むだけは、その範囲にある読む権限だけ", () => {
+    expect(presetPrivileges("read", mysqlTable)).toEqual(["SELECT", "SHOW VIEW"]);
+    expect(presetPrivileges("read", pgSchema)).toEqual(["USAGE"]);
+  });
+
+  it("読み書きは、読むだけに足す・書き換える・消すを足す", () => {
+    expect(presetPrivileges("write", mysqlTable)).toEqual([
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE",
+      "SHOW VIEW",
+    ]);
+  });
+
+  it("すべては ALL PRIVILEGES 1つにする (無ければ全部)", () => {
+    expect(presetPrivileges("all", mysqlTable)).toEqual(["ALL PRIVILEGES"]);
+    expect(presetPrivileges("all", ["SELECT", "INSERT"])).toEqual(["SELECT", "INSERT"]);
+  });
+
+  it("選んでいる権限がどのまとめ選びに当たるかを返す", () => {
+    expect(matchPreset(["SHOW VIEW", "SELECT"], mysqlTable)).toBe("read");
+    expect(matchPreset(["ALL PRIVILEGES"], mysqlTable)).toBe("all");
+    expect(matchPreset(["SELECT", "DROP"], mysqlTable)).toBeNull();
+    expect(matchPreset([], mysqlTable)).toBeNull();
+  });
+
+  it("読むだけと読み書きが同じになる範囲では、読むだけを返す", () => {
+    expect(matchPreset(["USAGE"], pgSchema)).toBe("read");
   });
 });

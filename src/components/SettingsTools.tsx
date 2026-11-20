@@ -9,9 +9,9 @@ interface Props {
 }
 
 const TOOL_KEYS: { tool: string; key: keyof ToolSettings; desc: string }[] = [
-  { tool: "mysqldump", key: "mysqldump", desc: "MySQLのSQLダンプ出力" },
+  { tool: "mysqldump", key: "mysqldump", desc: "MySQLのSQLダンプの書き出し" },
   { tool: "mysql", key: "mysql", desc: "MySQLのSQLファイル実行" },
-  { tool: "pg_dump", key: "pgDump", desc: "PostgreSQLのSQLダンプ出力" },
+  { tool: "pg_dump", key: "pgDump", desc: "PostgreSQLのSQLダンプの書き出し" },
   { tool: "psql", key: "psql", desc: "PostgreSQLのSQLファイル実行" },
 ];
 
@@ -95,24 +95,24 @@ export function SettingsTools({ notify }: Props) {
       <div className="set-section-head">
         <h3 className="set-section-title">コマンドのパス</h3>
         <button
-          className={"refresh-btn" + (loading ? " spinning" : "")}
+          className={"refresh-btn has-tooltip" + (loading ? " spinning" : "")}
           onClick={refresh}
           disabled={loading}
-          title="パスを再検出する"
+          data-tooltip="コマンドの場所を探し直して再読み込みする"
         >
           <RefreshIcon />
-          再検出
+          再読み込み
         </button>
       </div>
       <p className="set-section-note">
-        SQLダンプの出力・実行で「外部ツールを使う」を選んだときのコマンドの場所です。
+        SQLダンプの書き出し・実行で「外部ツールを使う」を選んだときのコマンドの場所です。
         Quelioで実行するときは要りません。空欄のままなら
         よく使われる場所から自動で探します。パスの変更は自動で保存されます。
       </p>
 
       {loading ? (
         <div className="content-placeholder dim-center">
-          <span className="spinner accent" /> 検出中...
+          <span className="spinner accent" /> 検出中…
         </div>
       ) : (
         <div className="tool-list">
@@ -128,8 +128,8 @@ export function SettingsTools({ notify }: Props) {
                   {ver && <span className="tool-ver mono">v{ver}</span>}
                   <span className="tool-item-gap" aria-hidden />
                   <span
-                    className={"tool-chip " + (found ? "ok" : "ng")}
-                    title={st?.version ?? ""}
+                    className={"tool-chip has-tooltip " + (found ? "ok" : "ng")}
+                    data-tooltip={st?.version ?? ""}
                   >
                     <span className="dot" aria-hidden />
                     {found ? "検出済み" : "未検出"}

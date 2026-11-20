@@ -98,16 +98,16 @@ export function CsvNamesMenu({
 
       <div className="context-sep" />
       <button
-        className="context-item"
+        className="context-item has-tooltip tooltip-left"
         disabled={!!cantSave}
-        title={cantSave ?? undefined}
+        data-tooltip={cantSave ?? undefined}
         onClick={onSave}
       >
-        今の列名をお気に入りに保存...
+        今の列名をお気に入りに保存…
       </button>
       <div className="csv-empty-hint csv-fav-hint">
         見出しをダブルクリックすると、列に名前を付けられます。
-        1行目をヘッダにしていないファイルでは、名前は画面にだけ出て、ファイルには書き込みません
+        1行目を見出し行にしていないファイルでは、名前は画面にだけ出て、ファイルには書き込みません
       </div>
     </div>
   );

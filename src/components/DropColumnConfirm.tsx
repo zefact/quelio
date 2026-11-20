@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { useModal } from "../hooks/useModal";
+import { useEffect, useRef, useState } from "react";
 import { applyColumnDdl, previewColumnDdl } from "../api";
 import type { ColumnChange, ColumnInfo } from "../types";
-import { ProdBadge } from "./ProdBadge";
+import { prodActionText } from "../prodConfirm";
+import { ModalFrame } from "./ModalFrame";
+import { ProdNote } from "./ProdBadge";
 
 interface Props {
   sessionId: string;
@@ -15,13 +16,13 @@ interface Props {
   onApplied: () => void;
   /** 生成したSQLをSQLエディタへ送る */
   onSendToEditor: (sql: string) => void;
-  /** 本番の接続か (見出しにバッジを出すだけ。確認そのものは元からある) */
+  /** 本番の接続か (見出しにバッジと、本文の先頭に本番の1行を出す) */
   prod?: boolean;
 }
 
 /**
  * カラム削除の確認。
- * 変更は確認なしで反映するが、削除だけはデータが失われて戻せないため確認を出す
+ * 削除はデータが失われて戻せないため、本番かどうかに関わらず確認を出す
  */
 export function DropColumnConfirm({
   sessionId,
@@ -65,63 +66,44 @@ export function DropColumnConfirm({
   };
 
 
-  // Escで閉じる・初期フォーカスは共通の作法にそろえる
-  const boxRef = useModal(onClose);
+  /** 取り消せない操作なので、開いたときのフォーカスは「キャンセル」に置く */
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    cancelRef.current?.focus();
+  }, []);
+
+  const fullName = schema ? `${schema}.${table}` : table;
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className="modal ddl-confirm"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            カラムを削除します
-            <span className="column-modal-target mono">
-              {table}.{column.name}
-            </span>
-            {/* 本番の接続なら、見出しでそれと分かるようにする */}
-            {prod && <ProdBadge />}
-          </span>
-          <button className="modal-close" onClick={onClose} title="閉じる">
-            ×
+    <ModalFrame
+      title="カラムを削除します"
+      target={`${table}.${column.name}`}
+      prod={prod}
+      onClose={onClose}
+      closable={!busy}
+      className="ddl-confirm"
+      footerNote={
+        sql && sql.length > 0 ? (
+          <button
+            className="btn-secondary"
+            disabled={busy}
+            onClick={() => {
+              onSendToEditor(sql.join(";\n") + ";");
+              onClose();
+            }}
+          >
+            SQLエディタへ送る
           </button>
-        </div>
-
-        <div className="column-modal-body">
-          <p className="column-warn">
-            このカラムのデータは失われます。取り消しはできません。
-          </p>
-          <p className="column-note">実行するSQL</p>
-          <pre className="column-sql mono">
-            {sql === null ? (error ? "" : "組み立て中...") : sql.join(";\n") + ";"}
-          </pre>
-
-          {error && (
-            <div className="result-banner ng column-error">
-              <span className="dot" aria-hidden />
-              <strong>エラー</strong>
-              <span className="result-detail">{error}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="modal-actions column-modal-actions">
-          {sql && sql.length > 0 && (
-            <button
-              className="btn-secondary"
-              onClick={() => {
-                onSendToEditor(sql.join(";\n") + ";");
-                onClose();
-              }}
-            >
-              SQLエディタへ送る
-            </button>
-          )}
-          <span className="toolbar-spacer" />
-          <button className="btn-secondary" onClick={onClose} disabled={busy}>
+        ) : undefined
+      }
+      footer={
+        <>
+          <button
+            className="btn-secondary"
+            onClick={onClose}
+            disabled={busy}
+            ref={cancelRef}
+          >
             キャンセル
           </button>
           <button
@@ -131,14 +113,37 @@ export function DropColumnConfirm({
           >
             {busy ? (
               <>
-                <span className="spinner light" /> 実行中...
+                <span className="spinner light" /> 実行中…
               </>
             ) : (
               "削除する"
             )}
           </button>
-        </div>
+        </>
+      }
+    >
+      <div className="column-modal-body">
+        {prod && (
+          <ProdNote>
+            {prodActionText(fullName, `カラム ${column.name} を削除します`)}
+          </ProdNote>
+        )}
+        <p className="column-warn">
+          このカラムのデータは失われ、元に戻せません。
+        </p>
+        <p className="column-note">実行するSQL</p>
+        <pre className="column-sql mono">
+          {sql === null ? (error ? "" : "組み立て中…") : sql.join(";\n") + ";"}
+        </pre>
+
+        {error && (
+          <div className="result-banner ng column-error">
+            <span className="dot" aria-hidden />
+            <strong>エラー</strong>
+            <span className="result-detail">{error}</span>
+          </div>
+        )}
       </div>
-    </div>
+    </ModalFrame>
   );
 }

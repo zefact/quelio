@@ -7,6 +7,7 @@ import {
 import { checkDangerousFilled, previewSql } from "../api";
 import type { DangerousStatement, DbType } from "../types";
 import { SelectMenu } from "./SelectMenu";
+import { ModalFrame } from "./ModalFrame";
 import { imeBusy } from "../ime";
 
 interface Props {
@@ -96,26 +97,41 @@ export function SqlParamModal({
   }, [sessionId, sql, dbType, values]);
 
   return (
-    <div className="modal-overlay" onMouseDown={onCancel}>
+    <ModalFrame
+      title="パラメータの入力"
+      onClose={onCancel}
+      className="sqlp-modal"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onCancel}>
+            キャンセル
+          </button>
+          <button
+            className={(danger.length > 0 ? "btn-danger" : "btn-primary") + " has-tooltip"}
+            disabled={blocked}
+            data-tooltip={blocked ? "上の内容を確認してください" : undefined}
+            onClick={submit}
+          >
+            実行する
+          </button>
+        </>
+      }
+    >
+      {/*
+        Enter で実行する (Esc で閉じるのは枠が受け持つ)。
+        包みの div は並びに影響しないよう display: contents にする
+      */}
       <div
-        className="modal sqlp-modal"
-        onMouseDown={(e) => e.stopPropagation()}
+        style={{ display: "contents" }}
         onKeyDown={(e) => {
-          // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+          // 日本語入力の変換中のEnterは拾わない (確定の操作のため)
           if (imeBusy(e)) return;
-          if (e.key === "Escape") onCancel();
           if (e.key === "Enter") {
             e.preventDefault();
             submit();
           }
         }}
       >
-        <div className="modal-head">
-          <span className="modal-title">パラメータの入力</span>
-          <button className="modal-close" onClick={onCancel}>
-            ×
-          </button>
-        </div>
         <div className="sqlp-grid">
           {params.map((p, i) => {
             const v = values[p] ?? { value: "", kind: "auto" as ParamKind };
@@ -178,20 +194,7 @@ export function SqlParamModal({
           「文字列」は常に ' ' 付き、「数値」「そのまま」は入力どおりに
           埋め込まれます。値と型は保存され、次回から初期値になります。
         </div>
-        <div className="modal-actions">
-          <button className="btn-ghost" onClick={onCancel}>
-            キャンセル
-          </button>
-          <button
-            className={danger.length > 0 ? "btn-danger" : "btn-primary"}
-            disabled={blocked}
-            title={blocked ? "上の内容を確認してください" : undefined}
-            onClick={submit}
-          >
-            実行
-          </button>
-        </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 }

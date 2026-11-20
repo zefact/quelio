@@ -1,11 +1,17 @@
 import { ErModal } from "./ErModal";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { imeBusy } from "../ime";
 
-/** 削除の確認 (何を消すかは呼び出し側が決める) */
+/** 確認 (何をするかは呼び出し側が決める。既定は削除の確認) */
 export interface ErConfirm {
   title: string;
   message: string;
+  /** 本文の下に添える1行 (既定は「この操作は元に戻せません」) */
   sub?: string;
+  /** 実行ボタンの文言 (既定は「削除する」) */
+  confirmLabel?: string;
+  /** 消す・壊す以外 (上書きの確認など) は primary にする */
+  tone?: "danger" | "primary";
   action: () => void;
 }
 
@@ -25,7 +31,7 @@ interface Props {
   onCommitName: () => void;
 }
 
-/** ER図ウィンドウのダイアログ2種 (削除確認 / 名前入力) */
+/** ER図ウィンドウのダイアログ2種 (確認 / 名前入力) */
 export function ErDialogs({
   confirm,
   onCloseConfirm,
@@ -37,35 +43,29 @@ export function ErDialogs({
   return (
     <>
       {confirm && (
-        <ErModal
-          icon="✕"
-          danger
+        // 消す確認では、フォーカスは「キャンセル」に置く (Delete → Enter ですぐ消えないように)
+        <ConfirmDialog
           title={confirm.title}
-          sub={confirm.sub ?? "この操作は元に戻せません"}
-          onClose={onCloseConfirm}
-          actions={
-            <button
-              className="btn-primary btn-fill-danger"
-              autoFocus
-              onClick={() => {
-                const a = confirm.action;
-                onCloseConfirm();
-                a();
-              }}
-            >
-              削除する
-            </button>
-          }
+          confirmLabel={confirm.confirmLabel ?? "削除する"}
+          tone={confirm.tone ?? "danger"}
+          onCancel={onCloseConfirm}
+          onConfirm={() => {
+            const a = confirm.action;
+            onCloseConfirm();
+            a();
+          }}
         >
           <p className="er-modal-body">{confirm.message}</p>
-        </ErModal>
+          <p className="er-modal-body er-confirm-sub">
+            {confirm.sub ?? "この操作は元に戻せません"}
+          </p>
+        </ConfirmDialog>
       )}
 
       {nameDialog && (
         <ErModal
-          icon="✎"
           title={
-            nameDialog.mode === "saveAs" ? "名前を付けて保存" : "名前を変更"
+            nameDialog.mode === "saveAs" ? "名前を付けて保存" : "図の名前を変更"
           }
           sub="どの接続からでもこの名前で開けます"
           onClose={onCloseName}
@@ -75,7 +75,7 @@ export function ErDialogs({
               disabled={!nameDialog.value.trim()}
               onClick={onCommitName}
             >
-              保存
+              {nameDialog.mode === "saveAs" ? "保存する" : "名前を変更する"}
             </button>
           }
         >

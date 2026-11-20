@@ -40,8 +40,9 @@ export const OPS: FilterOp[] = [
   { id: "starts", label: "で始まる", needsValue: true },
   { id: "ends", label: "で終わる", needsValue: true },
   { id: "in", label: "いずれか (カンマ区切り)", needsValue: true },
-  { id: "null", label: "空 (NULL)", needsValue: false },
-  { id: "notnull", label: "空でない", needsValue: false },
+  // 空文字 ('') と紛らわしくならないよう、「空」ではなく NULL と書く
+  { id: "null", label: "NULL である (IS NULL)", needsValue: false },
+  { id: "notnull", label: "NULL でない (IS NOT NULL)", needsValue: false },
 ];
 
 /** 1つの条件 */

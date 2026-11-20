@@ -32,7 +32,7 @@
   align-items: center;
   gap: 7px;
   padding: 9px 20px;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: var(--text-dim);
   background: transparent;
@@ -89,17 +89,9 @@
   min-height: 0;
 }
 
+/* データタブの結果バー (絞り込みの大きいボタンは query-actions の見た目を使う) */
 .table-data-actions {
   padding-top: 0;
-}
-
-/*
- * 絞り込みの一群と、行の追加より右のものを分ける区切り。
- * toolbar-spacer (flex:1) は絞り込み入力と余白を取り合ってしまうので、
- * 幅を持たない印を置いて、右側だけを寄せる
- */
-.table-data-gap {
-  margin-left: auto;
 }
 
 /* 絞り込み入力 (filter-inputの下マージンを打ち消して1行に並べる) */
@@ -120,15 +112,47 @@
   padding-right: 26px;
 }
 
-.table-where-clear {
+/* 入力欄の右端に重ねるもの (未適用の印と ×) */
+.table-where-tail {
   position: absolute;
   right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 未適用の条件があるときは、印のぶん文字を右へ伸ばさない */
+.table-where.dirty {
+  padding-right: 84px;
+}
+
+/* 入力中の条件が、表示中のデータの条件と違うときの印 */
+.table-where-dirty {
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--warn);
+  background: rgba(var(--ink), 0.06);
+  border: 1px solid currentColor;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.table-data-hint {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.table-where-clear {
   background: none;
   border: none;
   border-radius: var(--radius-xs);
   color: var(--text-faint);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   padding: 3px 6px;
 }
 
@@ -161,7 +185,7 @@
   align-items: center;
   gap: 10px;
   color: var(--text-faint);
-  font-size: 13px;
+  font-size: var(--fs-md);
   padding: 20px 0;
 }
 
@@ -178,7 +202,7 @@
    * 中央揃えではなくベースラインで揃えてズレを防ぐ */
   align-items: baseline;
   gap: var(--space-2);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   background: rgba(var(--ink), 0.04);
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -197,7 +221,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -219,7 +243,7 @@
 .grid {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
 }
 
 .grid th {
@@ -239,7 +263,7 @@
 
 .grid th {
   text-align: left;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -305,7 +329,7 @@
  * (日本語に大文字化・広い字間は効かないので外す)
  */
 .grid th .th-sub {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: 0.01em;
   text-transform: none;
@@ -314,7 +338,7 @@
 
 /* 1段目が日本語のとき (ヘッダ表示「日本語名」)。小さすぎると読めないので少し大きく */
 .grid th .th-ja {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   letter-spacing: 0.01em;
   text-transform: none;
 }
@@ -331,13 +355,41 @@
   box-shadow: inset 0 0 0 100px rgba(var(--ink), 0.08);
 }
 
+/*
+ * 見出しの ▾ (並べ替えのメニューを開く)。
+ * 右クリックを知らなくても気づけるよう常に出すが、文字の邪魔にならないよう薄くする
+ */
+.grid th .th-menu-btn {
+  margin-left: 4px;
+  padding: 0 3px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+  opacity: 0.5;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.grid th:hover .th-menu-btn,
+.grid th .th-menu-btn:focus-visible {
+  opacity: 1;
+}
+
+.grid th .th-menu-btn:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.1);
+}
+
 /* 並び替え中の列に出す方向マーク (見落とさないよう大きめ・アクセント色) */
 .sort-arrow {
   display: inline-block;
   margin-left: 6px;
   padding: 1px 5px;
   border-radius: 5px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.2;
   font-weight: 700;
   color: #fff;
@@ -365,7 +417,7 @@
   margin-bottom: 3px;
   border-bottom: 1px solid var(--border);
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -426,7 +478,7 @@
 .grid tbody tr.grid-more td {
   padding: 8px 12px;
   text-align: center;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: rgba(var(--ink), 0.45);
   background: rgba(var(--ink), 0.02);
   border-bottom: none;
@@ -472,7 +524,7 @@
   background: var(--menu-bg);
   border: 1px solid var(--border-strong);
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.45);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--text);
   pointer-events: none;
@@ -542,7 +594,7 @@
 
 .key-badge {
   display: inline-block;
-  font-size: 9.5px;
+  font-size: var(--fs-2xs);
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--text-dim);
@@ -592,7 +644,7 @@
 
 .diff-vs {
   color: var(--text-faint);
-  font-size: 16px;
+  font-size: var(--fs-lg);
 }
 
 .diff-compare {
@@ -602,7 +654,7 @@
   border: none;
   border-radius: var(--radius-btn);
   padding: 9px 22px;
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 700;
   cursor: pointer;
 }
@@ -641,7 +693,7 @@
 }
 
 .diff-summary {
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   padding: 2px 2px 8px;
   flex-shrink: 0;
@@ -652,7 +704,7 @@
   gap: 10px;
   margin-left: auto;
   margin-right: 12px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
 }
 
@@ -667,7 +719,7 @@
   flex: 0 0 var(--diff-label-w, 220px);
   min-width: 0;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   word-break: break-all;
 }
@@ -697,7 +749,7 @@
   flex: 1;
   min-width: 0;
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text);
   word-break: break-all;
   border-left: 1px solid rgba(var(--ink), 0.05);
@@ -781,14 +833,14 @@
 }
 
 .diff-table-name {
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 700;
   min-width: 0;
   word-break: break-all;
 }
 
 .diff-status {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   font-weight: 800;
   letter-spacing: 0.05em;
   border-radius: 5px;
@@ -856,7 +908,7 @@
 
 .diff-subhead {
   padding: 5px 12px 3px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;

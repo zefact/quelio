@@ -54,9 +54,19 @@ pub async fn kv_scan(
         database,
         &format!("SCAN {cursor} MATCH {pattern} COUNT {}", kv::SCAN_COUNT),
     );
-    match &mut session.conn {
+    let res = match &mut session.conn {
         DbConn::Kv(c) => kv::scan(c, pattern, cursor).await,
         _ => Err("Valkey接続ではありません".into()),
+    };
+    note_kv_result(session, &res);
+    res
+}
+
+/// 接続が切れた種類の失敗なら、次の操作の入口で張り直させる
+/// (入口の生存確認は、最後の操作から30秒たつまで走らないため)
+fn note_kv_result<T>(session: &mut Session, res: &Result<T, String>) {
+    if let Err(e) = res {
+        note_disconnected(session, e);
     }
 }
 
@@ -73,10 +83,12 @@ pub async fn kv_key_detail(
     let session = &mut *guard;
     ensure_alive(session, qlog).await?;
     ensure_kv_db(session, database, qlog).await?;
-    match &mut session.conn {
+    let res = match &mut session.conn {
         DbConn::Kv(c) => kv::key_detail(c, key).await,
         _ => Err("Valkey接続ではありません".into()),
-    }
+    };
+    note_kv_result(session, &res);
+    res
 }
 
 /// Valkey: コマンド (複数行) を逐次実行する
@@ -91,21 +103,79 @@ pub async fn kv_exec(
     let arc = get_session(sessions, session_id).await?;
     let mut guard = arc.lock().await;
     let session = &mut *guard;
-    ensure_alive(session, qlog).await?;
-    ensure_kv_db(session, database, qlog).await?;
     let label = conn_label(&session.profile);
-    // 履歴に残す前にパスワードを伏せる (AUTH / CONFIG SET requirepass など)
-    for c in &commands {
-        qlog.add(&label, database, &kv::mask_secrets(c));
+    let res = async {
+        ensure_alive(session, qlog).await?;
+        ensure_kv_db(session, database, qlog).await?;
+        // 履歴に残す前にパスワードを伏せる (AUTH / CONFIG SET requirepass など)
+        for c in &commands {
+            qlog.add(&label, database, &kv::mask_secrets(c));
+        }
+        let read_only = session.profile.read_only;
+        // 本番では書き込み系すべてを確認の対象にする
+        // (読み取り専用なら、そもそも書き込みは上で断られる)
+        let prod = session.profile.env.as_deref() == Some("prod") && !read_only;
+        match &mut session.conn {
+            DbConn::Kv(c) => kv::exec(c, &commands, read_only, confirmed, prod).await,
+            _ => Err("Valkey接続ではありません".into()),
+        }
     }
-    let read_only = session.profile.read_only;
-    // 本番では書き込み系すべてを確認の対象にする
-    // (読み取り専用なら、そもそも書き込みは上で断られる)
-    let prod = session.profile.env.as_deref() == Some("prod") && !read_only;
-    match &mut session.conn {
-        DbConn::Kv(c) => kv::exec(c, &commands, read_only, confirmed, prod).await,
-        _ => Err("Valkey接続ではありません".into()),
+    .await;
+    /*
+     * 「中止」で止めた場合は、接続が切れたエラーではなく「中止しました」として返す。
+     * 止めた接続はもう使えないので、次の操作の入口で張り直させる
+     */
+    if kv_stop_requested(session) {
+        mark_needs_ping(session);
+        qlog.add(&label, database, "-- コマンドを中止しました (次の操作の前に接続を張り直します)");
+        let done = res.map(|out| out.statements).unwrap_or_default();
+        return Ok(kv::cancelled_output(done));
     }
+    match &res {
+        Ok(out) => {
+            if let Some(e) = &out.error {
+                note_disconnected(session, e);
+            }
+        }
+        Err(e) => note_disconnected(session, e),
+    }
+    res
+}
+
+/// このセッションで「中止」が押されたか (押された接続はもう使えない)
+pub(super) fn kv_stop_requested(session: &Session) -> bool {
+    session
+        .cancel
+        .get(&session.id)
+        .and_then(|t| t.kv_stop)
+        .is_some_and(|s| s.requested())
+}
+
+/// Valkey: 実行中のコマンドを中止する。
+///
+/// サーバーに止めてもらうのではなく、こちらが応答を待つのをやめて接続を捨てる。
+/// Valkey はコマンドを1つずつしか処理しないので、重いコマンド (KEYS など) の
+/// 実行中は、別の接続から送った CLIENT KILL も終わるまで届かないため。
+/// 接続を閉じれば、待ち続けるコマンド (BLPOP など) はサーバー側でも片付く。
+///
+/// セッションのロックは取らない (実行中はずっと掴まれているため)。
+/// 次の操作は、入口 (ensure_alive) で新しい接続を張ってから動く
+pub fn kv_cancel(
+    cancel: &CancelRegistry,
+    qlog: &QueryLog,
+    session_id: &str,
+) -> Result<(), String> {
+    let target = cancel.get(session_id).ok_or("接続されていません")?;
+    let Some(stop) = target.kv_stop else {
+        return Err("接続し直している最中のため、いまは中止できません".into());
+    };
+    qlog.add(
+        &target.label,
+        "",
+        "-- 実行中のコマンドを中止 (応答を待たずに接続を切ります)",
+    );
+    stop.stop();
+    Ok(())
 }
 
 /// Valkey: キーの値を変更する (追加・削除・TTL変更も含む)
@@ -126,7 +196,9 @@ pub async fn kv_apply(
     let done = match &mut session.conn {
         DbConn::Kv(c) => kv::apply_change(c, &change).await,
         _ => Err("Valkey接続ではありません".into()),
-    }?;
+    };
+    note_kv_result(session, &done);
+    let done = done?;
     qlog.add(&label, database, &done);
     Ok(())
 }
@@ -276,5 +348,55 @@ pub async fn kv_search(
     match &mut session.conn {
         DbConn::Kv(c) => crate::kv_bulk::search_values(c, pattern, &opts, job).await,
         _ => Err("Valkey接続ではありません".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(kv_stop: Option<KvStop>) -> CancelTarget {
+        CancelTarget {
+            db_type: DbType::Valkey,
+            label: "テスト".into(),
+            host: "127.0.0.1".into(),
+            port: 6379,
+            user: String::new(),
+            password: zeroize::Zeroizing::new(String::new()),
+            conn_id: 1,
+            db_tls: db::TlsConfig::default(),
+            sqlite_cancel: None,
+            kv_stop,
+        }
+    }
+
+    #[tokio::test]
+    async fn 中止は送受信のタスクを止めて印を立てる() {
+        let cancel = CancelRegistry::default();
+        let qlog = QueryLog::default();
+        // 終わらないタスクを、接続の送受信の代わりにする
+        let task = tokio::spawn(std::future::pending::<()>());
+        let stop = KvStop::new(task.abort_handle());
+        cancel.register("s1".into(), target(Some(stop.clone())));
+
+        assert!(!stop.requested());
+        kv_cancel(&cancel, &qlog, "s1").unwrap();
+        assert!(stop.requested());
+        // 止めたタスクは中断で終わる
+        let joined = tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .expect("止めたタスクが終わらない");
+        assert!(joined.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn 止め口が無いときは中止できないと返す() {
+        let cancel = CancelRegistry::default();
+        let qlog = QueryLog::default();
+        // 張り直している最中 (止め口が外れている)
+        cancel.register("s1".into(), target(None));
+        assert!(kv_cancel(&cancel, &qlog, "s1").is_err());
+        // 接続していない
+        assert!(kv_cancel(&cancel, &qlog, "none").is_err());
     }
 }

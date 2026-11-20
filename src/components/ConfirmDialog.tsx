@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
-import { useModal } from "../hooks/useModal";
+import { ModalFrame } from "./ModalFrame";
+import { ProdNote } from "./ProdBadge";
 
 interface Props {
   /** 見出し (例: 接続先を削除します) */
@@ -8,15 +9,30 @@ interface Props {
   target?: string;
   /** 本文。何が起きるかを書く */
   children: ReactNode;
-  /** 実行ボタンのラベル */
-  confirmLabel?: string;
-  /** 取り消しボタンのラベル (既定は「キャンセル」) */
+  /**
+   * 実行ボタンのラベル。何をするかを動詞で書く (「削除する」「作り直す」など)。
+   * 「OK」のような何をするか分からない言葉は使わない
+   */
+  confirmLabel: string;
+  /** やめるボタンのラベル (既定は「キャンセル」) */
   cancelLabel?: string;
+  /**
+   * 実行ボタンの色。
+   * 赤 (danger) は消す・壊すなど、取り消せない操作だけに使う
+   */
+  tone?: "danger" | "primary";
+  /**
+   * 本番接続への操作のときに渡す、何をするかの1行
+   * (例: 「本番環境の users のカラムを変更します。」)。
+   * 渡すと見出しにバッジを出し、本文の先頭にこの1行を置き、
+   * フォーカスを「キャンセル」に置く
+   */
+  prodNote?: ReactNode;
   /**
    * 開いたときにフォーカスを置く先。
    *
-   * 既定は枠 (どのボタンにも当てない)。
-   * 「取り消す」を押しやすくしたいときに `"cancel"` を渡す
+   * 既定は、取り消せない操作 (danger) と本番では「キャンセル」、
+   * それ以外は枠 (どのボタンにも当てない)
    */
   defaultFocus?: "box" | "cancel";
   /**
@@ -28,27 +44,32 @@ interface Props {
 }
 
 /**
- * 取り消せない操作の共通確認ダイアログ。
- * 削除系はどこも同じ見た目・同じ操作 (Esc / 背景クリックで中止) にする
+ * 確認ダイアログの共通部品。
+ *
+ * 削除や本番での変更など、手を止めて確かめたい操作はここを通す。
+ * どこも同じ見た目・同じ操作 (Esc / 背景クリックでやめる、
+ * ボタンは右に [キャンセル] [実行]) にする
  */
 export function ConfirmDialog({
   title,
   target,
   children,
-  confirmLabel = "削除する",
+  confirmLabel,
   cancelLabel = "キャンセル",
-  defaultFocus = "box",
+  tone = "danger",
+  prodNote,
+  defaultFocus,
   onConfirm,
   onCancel,
 }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Escで閉じる・初期フォーカスは共通の作法にそろえる
-  const boxRef = useModal(onCancel, !busy);
   const cancelRef = useRef<HTMLButtonElement>(null);
-  // 開いたときに1度だけ (useModal が枠へ当てた後に取り直す)
+  const focus =
+    defaultFocus ?? (tone === "danger" || prodNote ? "cancel" : "box");
+  // 開いたときに1度だけ (枠へ当てた後に取り直す)
   useEffect(() => {
-    if (defaultFocus === "cancel") cancelRef.current?.focus();
+    if (focus === "cancel") cancelRef.current?.focus();
     // 開いた直後だけ。あとから変えない
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -66,44 +87,15 @@ export function ConfirmDialog({
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={busy ? undefined : onCancel}>
-      <div
-        className="modal ddl-confirm"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            {title}
-            {target && (
-              <span className="column-modal-target mono">{target}</span>
-            )}
-          </span>
-          <button
-            className="modal-close"
-            onClick={onCancel}
-            disabled={busy}
-            title="閉じる (Esc)"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="column-modal-body">
-          <div className="column-warn">{children}</div>
-
-          {error && (
-            <div className="result-banner ng column-error">
-              <span className="dot" aria-hidden />
-              <strong>エラー</strong>
-              <span className="result-detail">{error}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="modal-actions column-modal-actions">
-          <span className="toolbar-spacer" />
+    <ModalFrame
+      title={title}
+      target={target}
+      prod={!!prodNote}
+      onClose={onCancel}
+      closable={!busy}
+      className="ddl-confirm"
+      footer={
+        <>
           <button
             className="btn-secondary"
             onClick={onCancel}
@@ -112,17 +104,36 @@ export function ConfirmDialog({
           >
             {cancelLabel}
           </button>
-          <button className="btn-danger" disabled={busy} onClick={run}>
+          <button
+            className={tone === "danger" ? "btn-danger" : "btn-primary"}
+            disabled={busy}
+            onClick={run}
+          >
             {busy ? (
               <>
-                <span className="spinner light" /> 実行中...
+                <span className="spinner light" /> 実行中…
               </>
             ) : (
               confirmLabel
             )}
           </button>
+        </>
+      }
+    >
+      <div className="column-modal-body">
+        {prodNote && <ProdNote>{prodNote}</ProdNote>}
+        <div className={tone === "danger" ? "column-warn" : "confirm-body"}>
+          {children}
         </div>
+
+        {error && (
+          <div className="result-banner ng column-error">
+            <span className="dot" aria-hidden />
+            <strong>エラー</strong>
+            <span className="result-detail">{error}</span>
+          </div>
+        )}
       </div>
-    </div>
+    </ModalFrame>
   );
 }

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { IconButton } from "./IconButton";
+import { SHIFT } from "../keyLabel";
 import {
   DEFAULT_FIND_OPTIONS,
   buildMatcher,
@@ -40,17 +42,16 @@ function OptionToggle({
   onToggle: () => void;
 }) {
   return (
-    <button
+    <IconButton
+      label={tip}
       className={"sql-find-opt" + (on ? " on" : "")}
       // 押しても検索欄から入力位置を移さない
       onMouseDown={(e) => e.preventDefault()}
       onClick={onToggle}
-      title={tip}
-      aria-label={tip}
       aria-pressed={on}
     >
       {label}
-    </button>
+    </IconButton>
   );
 }
 
@@ -182,7 +183,7 @@ export function SqlFindBar({ editor, sql, initialQuery, onClose }: Props) {
     keepFocus();
   }, [editor, hits, replacement, opts, step, keepFocus]);
 
-  /** 見つかった所を全部置き換える */
+  /** 見つかった所をすべて置換する */
   const replaceEvery = useCallback(() => {
     const ed = editor.current;
     if (!ed) return;
@@ -242,12 +243,12 @@ export function SqlFindBar({ editor, sql, initialQuery, onClose }: Props) {
       onContextMenu={(e) => e.stopPropagation()}
     >
       {/* 置換の行を開く / 閉じる */}
-      <button
+      <IconButton
+        label={replaceOpen ? "置換を閉じる" : "置換を開く"}
+        tipLeft
         className={"sql-find-more" + (replaceOpen ? " on" : "")}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => setReplaceOpen(!replaceOpen)}
-        title={replaceOpen ? "置換を隠す" : "置換も使う"}
-        aria-label={replaceOpen ? "置換を隠す" : "置換も使う"}
         aria-expanded={replaceOpen}
       >
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -259,7 +260,7 @@ export function SqlFindBar({ editor, sql, initialQuery, onClose }: Props) {
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </IconButton>
 
       <div className="sql-find-rows">
         <div className="sql-find-row">
@@ -294,35 +295,32 @@ export function SqlFindBar({ editor, sql, initialQuery, onClose }: Props) {
             onToggle={() => setOpts({ ...opts, regex: !opts.regex })}
           />
           <span className="sql-find-count mono">{count}</span>
-          <button
+          <IconButton
+            label={`前へ (${SHIFT}Enter)`}
             className="sql-find-nav"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => step(false)}
             disabled={hits.length === 0}
-            title="前へ (Shift+Enter)"
-            aria-label="前へ"
           >
             ↑
-          </button>
-          <button
+          </IconButton>
+          <IconButton
+            label="次へ (Enter)"
             className="sql-find-nav"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => step(true)}
             disabled={hits.length === 0}
-            title="次へ (Enter)"
-            aria-label="次へ"
           >
             ↓
-          </button>
-          <button
+          </IconButton>
+          <IconButton
+            label="閉じる (Esc)"
             className="sql-find-nav"
             onMouseDown={(e) => e.preventDefault()}
             onClick={close}
-            title="閉じる (Esc)"
-            aria-label="閉じる"
           >
             ×
-          </button>
+          </IconButton>
         </div>
 
         {replaceOpen && (
@@ -331,29 +329,29 @@ export function SqlFindBar({ editor, sql, initialQuery, onClose }: Props) {
               ref={replaceRef}
               className="sql-find-input"
               value={replacement}
-              placeholder="置き換える文字"
+              placeholder="置換後の文字"
               spellCheck={false}
               onChange={(e) => setReplacement(e.target.value)}
               onKeyDown={(e) => onKeyDown(e, true)}
             />
-            <button
+            <IconButton
+              label="この1つを置換して次へ (Enter)"
               className="sql-find-do"
               onMouseDown={(e) => e.preventDefault()}
               onClick={replaceOne}
               disabled={hits.length === 0}
-              title="今の1か所を置き換えて次へ (Enter)"
             >
               置換
-            </button>
-            <button
+            </IconButton>
+            <IconButton
+              label={`見つかった ${hits.length}件をすべて置換 (${SHIFT}Enter)`}
               className="sql-find-do"
               onMouseDown={(e) => e.preventDefault()}
               onClick={replaceEvery}
               disabled={hits.length === 0}
-              title={`見つかった${hits.length}か所を全部置き換える (Shift+Enter)`}
             >
-              全て置換
-            </button>
+              すべて置換
+            </IconButton>
           </div>
         )}
       </div>

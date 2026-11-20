@@ -57,6 +57,7 @@ export function StatusBar({
       <span className="status-name" title={profile.name || "(無名)"}>
         {profile.name || "(無名)"}
       </span>
+      {/* 環境のバッジは、どの環境でもここには必ず出す (envBand.ts の決まり) */}
       {profile.env && (
         <span
           className="status-env"
@@ -78,8 +79,8 @@ export function StatusBar({
       )}
       {profile.readOnly && (
         <span
-          className="status-ro"
-          title="読み取り専用の接続です (更新・定義の変更はできません)"
+          className="status-ro has-tooltip"
+          data-tooltip="読み取り専用の接続です (更新・定義の変更はできません)"
         >
           読み取り専用
         </span>
@@ -90,8 +91,8 @@ export function StatusBar({
         */}
       {tlsWarning(profile) && (
         <span
-          className="status-tls"
-          title={
+          className="status-tls has-tooltip"
+          data-tooltip={
             "サーバー証明書を検証していません。" +
             "通信の相手が本物かを確かめないため、途中で差し替えられても気づけません。" +
             "接続設定のTLSで「必須 + CA証明書とホスト名を検証」を選ぶと確かめられます"
@@ -119,18 +120,18 @@ export function StatusBar({
               {/* 後始末に失敗した接続では確定できない (取り消しだけ出す) */}
               {txn === "open" && (
                 <button
-                  className="status-txn-btn commit"
+                  className="status-txn-btn commit has-tooltip"
                   disabled={txnBusy}
-                  title="COMMIT を実行して、変更を確定します"
+                  data-tooltip="確定 (COMMIT): このトランザクションの変更を確定します"
                   onClick={() => onEndTxn(true)}
                 >
                   確定
                 </button>
               )}
               <button
-                className="status-txn-btn"
+                className="status-txn-btn has-tooltip"
                 disabled={txnBusy}
-                title="ROLLBACK を実行して、変更を取り消します"
+                data-tooltip="取り消し (ROLLBACK): このトランザクションの変更をすべて取り消します"
                 onClick={() => onEndTxn(false)}
               >
                 取り消し

@@ -8,6 +8,7 @@
  *
  * 表そのものを置き換えたわけではないので、`ResizableGrid` の挙動は変わらない
  */
+import { MOD } from "../../keyLabel";
 import {
   Fragment,
   useCallback,
@@ -877,7 +878,7 @@ export function CsvGrid({
     return parts.map((p, i) => (
       <Fragment key={i}>
         {i > 0 && (
-          <span className="csv-nl" title="ここで改行しています">
+          <span className="csv-nl has-tooltip" data-tooltip="ここで改行しています">
             ↵
           </span>
         )}
@@ -937,11 +938,11 @@ export function CsvGrid({
       >
         <div
           className={
-            "csv-num" +
+            "csv-num has-tooltip tooltip-left" +
             (rowInAny(ranges, i) ? " on" : "")
           }
           style={{ width: NUM_W }}
-          title="押すとこの行を選びます"
+          data-tooltip="押すとこの行を選びます"
           onMouseDown={(e) => {
             /*
              * ここで押下の既定の動きを止めるので、表に印が移らない。
@@ -1067,10 +1068,11 @@ export function CsvGrid({
       <div className="csv-head" style={{ width: total, height: HEAD_H }}>
         <div
           className={
-            "csv-num head" + (rowCount > 0 && columns.length > 0 ? " all" : "")
+            "csv-num head has-tooltip tooltip-left" +
+            (rowCount > 0 && columns.length > 0 ? " all" : "")
           }
           style={{ width: NUM_W }}
-          title="押すと表全体を選びます (⌘/Ctrl+A)"
+          data-tooltip={`押すと表全体を選びます (${MOD}A)`}
           onMouseDown={(e) => {
             // 押下を止めるので、印は自分で移す (⌘C を表へ届かせるため)
             e.preventDefault();
@@ -1088,7 +1090,6 @@ export function CsvGrid({
               (colInAny(ranges, c) ? " on" : "")
             }
             style={{ left: lefts[c], width: widths[c] }}
-            title={name}
             onContextMenu={(e) => {
               if (!onHeaderMenu) return;
               e.preventDefault();
@@ -1162,12 +1163,24 @@ export function CsvGrid({
                 }}
               />
             ) : (
-              <span className="csv-col-name">{name}</span>
+              /*
+                列名の全体は名前の所にだけ出す (見出し全体に付けると、
+                絞り込みやつまみの説明と二重に出るため)
+              */
+              <span className="csv-col-name" title={name}>
+                {name}
+              </span>
             )}
             {sortMark?.(c) && (
               <span
-                className="csv-col-sort"
-                title={
+                className="csv-col-sort has-tooltip"
+                role="img"
+                aria-label={
+                  sortMark(c) === "desc"
+                    ? "大きい順に並べています"
+                    : "小さい順に並べています"
+                }
+                data-tooltip={
                   sortMark(c) === "desc"
                     ? "大きい順に並べています"
                     : "小さい順に並べています"
@@ -1189,9 +1202,10 @@ export function CsvGrid({
             {showFilter && (
               <button
                 className={
-                  "csv-col-filter" + (isFiltered?.(c) ? " on" : "")
+                  "csv-col-filter has-tooltip" + (isFiltered?.(c) ? " on" : "")
                 }
-                title={filterTip?.(c) ?? "この列で絞り込む"}
+                aria-label={filterTip?.(c) ?? "この列で絞り込む"}
+                data-tooltip={filterTip?.(c) ?? "この列で絞り込む"}
                 onMouseDown={(e) => e.stopPropagation()}
                 onDoubleClick={(e) => e.stopPropagation()}
                 onClick={(e) => {
@@ -1212,8 +1226,9 @@ export function CsvGrid({
               </button>
             )}
             <span
-              className="csv-col-grip"
-              title="ドラッグで幅を変えます (ダブルクリックで中身に合わせます)"
+              className="csv-col-grip has-tooltip"
+              aria-label="ドラッグで幅を変えます (ダブルクリックで中身に合わせます)"
+              data-tooltip="ドラッグで幅を変えます (ダブルクリックで中身に合わせます)"
               onDoubleClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();

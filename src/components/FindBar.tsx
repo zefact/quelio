@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FIND_EVENT } from "../appEvents";
 import { imeBusy } from "../ime";
+import { SHIFT } from "../keyLabel";
+import { CloseMark } from "./CloseMark";
+import { IconButton } from "./IconButton";
 
 /**
  * 探さないところ。
@@ -419,7 +422,8 @@ export function FindBar() {
       <input
         ref={inputRef}
         value={query}
-        placeholder="ページ内検索"
+        placeholder="画面内を検索"
+        aria-label="画面内を検索"
         spellCheck={false}
         autoFocus
         onChange={(e) => findFresh(e.target.value)}
@@ -437,27 +441,27 @@ export function FindBar() {
         {query === "" ? "" : `${pos}/${total}`}
       </span>
       {/* mousedownを抑止して入力欄のフォーカスを保つ */}
-      <button
+      <IconButton
+        label={`前へ (${SHIFT}Enter)`}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => findNext(true)}
-        title="前へ (Shift+Enter)"
       >
         ↑
-      </button>
-      <button
+      </IconButton>
+      <IconButton
+        label="次へ (Enter)"
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => findNext(false)}
-        title="次へ (Enter)"
       >
         ↓
-      </button>
-      <button
+      </IconButton>
+      <IconButton
+        label="閉じる (Esc)"
         onMouseDown={(e) => e.preventDefault()}
         onClick={close}
-        title="閉じる (Esc)"
       >
-        ×
-      </button>
+        <CloseMark size={11} />
+      </IconButton>
     </div>
   );
 }

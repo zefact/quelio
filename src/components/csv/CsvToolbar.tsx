@@ -5,8 +5,11 @@
  * ウィンドウ本体から切り出してある。
  *
  * 並ぶのは絵だけ。何をする所かは、載せたときに出る吹き出しで伝える
+ * (読み上げにも同じ文が届くよう、IconButton を使う)
  */
 import { useMemo, useState } from "react";
+import { MOD, SHIFT } from "../../keyLabel";
+import { IconButton } from "../IconButton";
 import type {
   CsvInfo,
   CsvLayoutNode,
@@ -20,6 +23,7 @@ import { appliedNameSet } from "./csvNameSets";
 import { appliedLayoutName } from "./csvFixed";
 import { flatLayouts } from "./csvLayoutTree";
 import {
+  OpenIcon,
   SaveIcon,
   SaveAsIcon,
   FindIcon,
@@ -34,6 +38,8 @@ import {
 
 interface Props {
   active: CsvInfo | null;
+  /** ファイルを選んで開く (⌘O と同じ) */
+  onOpen: () => void;
   onSave: (asNew: boolean) => void;
   /** Excel (.xlsx) として書き出す */
   onExcel: () => void;
@@ -88,6 +94,7 @@ interface Props {
 
 export function CsvToolbar({
   active,
+  onOpen,
   onSave,
   onExcel,
   onFind,
@@ -139,44 +146,58 @@ export function CsvToolbar({
 
   return (
     <div className="csv-toolbar">
-      <button
-        className="pane-icon-btn has-tooltip tooltip-left"
-        data-tooltip="保存 (⌘S)"
+      <IconButton
+        className="pane-icon-btn"
+        tipLeft
+        label={`ファイルを開く (${MOD}O)`}
+        onClick={onOpen}
+      >
+        <OpenIcon />
+      </IconButton>
+      <IconButton
+        className="pane-icon-btn"
+        tipLeft
+        label={
+          active && !active.dirty
+            ? `保存 (${MOD}S)\n変更が無いので保存するものはありません`
+            : `保存 (${MOD}S)`
+        }
         disabled={!active?.dirty}
         onClick={() => onSave(false)}
       >
         <SaveIcon />
-      </button>
-      <button
-        className="pane-icon-btn has-tooltip tooltip-left"
-        data-tooltip="別名で保存 (⇧⌘S)"
+      </IconButton>
+      <IconButton
+        className="pane-icon-btn"
+        tipLeft
+        label={`別名で保存 (${SHIFT}${MOD}S)`}
         disabled={!active}
         onClick={() => onSave(true)}
       >
         <SaveAsIcon />
-      </button>
-      <button
-        className="pane-icon-btn has-tooltip tooltip-left"
-        data-tooltip="Excel (.xlsx) で書き出す"
+      </IconButton>
+      <IconButton
+        className="pane-icon-btn"
+        tipLeft
+        label="Excel (.xlsx) で書き出す"
         disabled={!active}
         onClick={onExcel}
       >
         <ExcelIcon />
-      </button>
+      </IconButton>
 
       <span className="csv-sep" />
 
       <div className="csv-fixed-wrap">
-        <button
-          className={
-            "pane-icon-btn has-tooltip tooltip-left" +
-            (active?.format.fixed ? " on" : "")
-          }
-          data-tooltip={applied ? `固定長設定: ${applied}` : "固定長設定"}
+        <IconButton
+          className={"pane-icon-btn" + (active?.format.fixed ? " on" : "")}
+          tipLeft
+          label={applied ? `固定長設定: ${applied}` : "固定長設定"}
+          aria-expanded={fixedOpen}
           onClick={() => setFixedOpen((v) => !v)}
         >
           <FixedIcon />
-        </button>
+        </IconButton>
         {fixedOpen && (
           <CsvFixedMenu
             canApply={canApply}
@@ -216,15 +237,15 @@ export function CsvToolbar({
         )}
       </div>
       <div className="csv-fixed-wrap">
-        <button
-          className={
-            "pane-icon-btn has-tooltip tooltip-left" + (appliedNames ? " on" : "")
-          }
-          data-tooltip={appliedNames ? `列名: ${appliedNames}` : "列名のお気に入り"}
+        <IconButton
+          className={"pane-icon-btn" + (appliedNames ? " on" : "")}
+          tipLeft
+          label={appliedNames ? `列名: ${appliedNames}` : "列名のお気に入り"}
+          aria-expanded={namesOpen}
           onClick={() => setNamesOpen((v) => !v)}
         >
           <NamesIcon />
-        </button>
+        </IconButton>
         {namesOpen && (
           <CsvNamesMenu
             active={active}
@@ -256,57 +277,59 @@ export function CsvToolbar({
 
       <span className="csv-sep" />
 
-      <button
-        className="pane-icon-btn has-tooltip tooltip-left"
-        data-tooltip="検索・置換 (⌘F)"
+      <IconButton
+        className="pane-icon-btn"
+        tipLeft
+        label={`検索・置換 (${MOD}F)`}
         disabled={!active}
         onClick={onFind}
       >
         <FindIcon />
-      </button>
-      <button
-        className={
-          "pane-icon-btn has-tooltip tooltip-left" + (filterOn ? " on" : "")
-        }
-        data-tooltip={
-          filterOn ? "絞り込みをやめる" : "見出しから絞り込む (フィルタ)"
-        }
+      </IconButton>
+      <IconButton
+        className={"pane-icon-btn" + (filterOn ? " on" : "")}
+        tipLeft
+        label={filterOn ? "絞り込みをやめる" : "見出しから絞り込む"}
+        aria-pressed={filterOn}
         disabled={!active}
         onClick={onToggleFilter}
       >
         <FilterIcon />
-      </button>
-      <button
-        className="pane-icon-btn has-tooltip tooltip-left"
-        data-tooltip={canCompare ? "比較" : "比べるには2つ以上開いてください"}
+      </IconButton>
+      <IconButton
+        className="pane-icon-btn"
+        tipLeft
+        label={
+          canCompare ? "2つのファイルを比較" : "比較するには2つ以上開いてください"
+        }
         disabled={!canCompare}
         onClick={onCompare}
       >
         <CompareIcon />
-      </button>
+      </IconButton>
 
       <span className="csv-sep" />
 
-      <button
-        className={"pane-icon-btn has-tooltip tooltip-left" + (split ? " on" : "")}
-        data-tooltip={split ? "分割をやめる" : "左右に分けて出す"}
+      <IconButton
+        className={"pane-icon-btn" + (split ? " on" : "")}
+        tipLeft
+        label={split ? "分割をやめる" : "左右に分けて出す"}
+        aria-pressed={split}
         disabled={!active}
         onClick={onToggleSplit}
       >
         <SplitIcon />
-      </button>
+      </IconButton>
       {split && (
-        <button
-          className={
-            "pane-icon-btn has-tooltip tooltip-left" + (syncScroll ? " on" : "")
-          }
-          data-tooltip={
-            syncScroll ? "スクロールを合わせない" : "スクロールを合わせる"
-          }
+        <IconButton
+          className={"pane-icon-btn" + (syncScroll ? " on" : "")}
+          tipLeft
+          label={syncScroll ? "スクロールを合わせない" : "スクロールを合わせる"}
+          aria-pressed={syncScroll}
           onClick={onToggleSync}
         >
           <SyncIcon />
-        </button>
+        </IconButton>
       )}
     </div>
   );

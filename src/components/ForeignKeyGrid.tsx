@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { EditBar } from "./EditBar";
+import { ApplyCancelled } from "../hooks/useEditableGrid";
+import { prodActionText } from "../prodConfirm";
 import { GridColumn, GridRow, ResizableGrid } from "./ResizableGrid";
 import type {
   ColumnInfo,
@@ -16,10 +19,17 @@ interface Props {
   /** 定義変更が使えるか (Valkey以外・ビュー以外) */
   canEdit: boolean;
   dbType: DbType;
+  /** 本番の接続か (削除の確認に本番の1行を足す) */
+  prod?: boolean;
+  /** 確認に出すテーブル名 */
+  tableLabel?: string;
   /** 編集状態を解除するきっかけ (テーブル切替時に変わる) */
   resetKey: string | number;
-  /** 変更を実行する。失敗したら例外を投げること */
-  onApply: (change: ForeignKeyChange) => Promise<void>;
+  /**
+   * 変更を実行する。失敗したら例外を投げること。
+   * `confirmed` は、この画面ですでに確認ダイアログを通したか
+   */
+  onApply: (change: ForeignKeyChange, confirmed?: boolean) => Promise<void>;
 }
 
 const FK_COLS: GridColumn[] = [
@@ -91,6 +101,8 @@ export function ForeignKeyGrid({
   tableColumns,
   canEdit,
   dbType,
+  prod = false,
+  tableLabel = "",
   resetKey,
   onApply,
 }: Props) {
@@ -109,13 +121,19 @@ export function ForeignKeyGrid({
     setError(null);
   }, [resetKey]);
 
-  const run = async (change: ForeignKeyChange, onOk: () => void) => {
+  const run = async (
+    change: ForeignKeyChange,
+    onOk: () => void,
+    confirmed = false
+  ) => {
     setBusy(true);
     setError(null);
     try {
-      await onApply(change);
+      await onApply(change, confirmed);
       onOk();
     } catch (e) {
+      // 確認でやめただけなら、入力を残したまま何も出さない
+      if (e instanceof ApplyCancelled) return;
       setError(String(e));
       throw e;
     } finally {
@@ -184,27 +202,13 @@ export function ForeignKeyGrid({
         )}
       </h3>
 
-      {(busy || error) && (
-        <div className="ddl-bar">
-          {busy ? (
-            <>
-              <span className="spinner accent" />
-              <span className="ddl-bar-text">実行中...</span>
-            </>
-          ) : (
-            <>
-              <span className="ddl-bar-icon ng" aria-hidden>
-                !
-              </span>
-              <span className="ddl-bar-text ng">{error}</span>
-              <span className="toolbar-spacer" />
-              <button className="ddl-bar-btn" onClick={() => setError(null)}>
-                閉じる
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      {/* 追加・削除の実行中とエラー (入力はフォームのほうで受ける) */}
+      <EditBar
+        busy={busy}
+        error={error}
+        onDismissError={() => setError(null)}
+        editing={false}
+      />
 
       <ResizableGrid
         autoFit
@@ -320,7 +324,7 @@ export function ForeignKeyGrid({
               onClick={() => setDraft(null)}
               disabled={busy}
             >
-              取り消し
+              キャンセル
             </button>
             <button
               className="ddl-bar-btn primary"
@@ -341,7 +345,7 @@ export function ForeignKeyGrid({
                 );
               }}
             >
-              追加
+              追加する
             </button>
           </div>
         </div>
@@ -352,9 +356,19 @@ export function ForeignKeyGrid({
           title="外部キーを削除します"
           target={dropping.name}
           confirmLabel="削除する"
+          prodNote={
+            prod
+              ? prodActionText(tableLabel, `外部キー ${dropping.name} を削除します`)
+              : undefined
+          }
           onCancel={() => setDropping(null)}
+          // ここで確認しているので、上の画面では聞き直さない
           onConfirm={() =>
-            run({ kind: "drop", name: dropping.name }, () => setDropping(null))
+            run(
+              { kind: "drop", name: dropping.name },
+              () => setDropping(null),
+              true
+            )
           }
         >
           参照の整合性が保たれなくなります。取り消しはできません

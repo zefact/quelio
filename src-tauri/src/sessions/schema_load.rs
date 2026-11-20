@@ -300,10 +300,10 @@ async fn connect_schema_conn(
             user: profile.user.clone(),
             password: zeroize::Zeroizing::new(profile.password.clone()),
             conn_id,
-            tls: profile.tls,
-            tls_sni: via_ssh.then(|| profile.host.clone()),
             db_tls: tls,
             sqlite_cancel,
+            // スキーマの収集はSQLのDBだけ (Valkeyは対象外)
+            kv_stop: None,
         },
     );
     Ok(sc)

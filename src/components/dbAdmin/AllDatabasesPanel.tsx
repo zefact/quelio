@@ -44,6 +44,7 @@ export function AllDatabasesPanel({
       {ownerError && (
         <div className="result-banner ng">
           <span className="dot" aria-hidden />
+          <strong>エラー</strong>
           <span className="result-detail">
             所有者を読めませんでした: {ownerError}
           </span>
@@ -96,8 +97,8 @@ export function AllDatabasesPanel({
                     )}
                     {d === currentDb ? (
                       <span
-                        className="faint"
-                        title="別のデータベースを選ぶと削除できます"
+                        className="faint has-tooltip"
+                        data-tooltip="別のデータベースを選ぶと削除できます"
                       >
                         選択中のため削除不可
                       </span>
@@ -125,7 +126,7 @@ export function AllDatabasesPanel({
       <p className="db-admin-hint">
         {"削除は名前を打ち込んでから実行します。" +
           (isPg
-            ? "他につないでいる人がいるデータベースは削除できません。" +
+            ? "ほかに接続している人がいるデータベースは削除できません。" +
               "所有者を変更できるのは、そのデータベースの所有者で CREATEDB 権限を持つロールか、スーパーユーザーです。"
             : "")}
       </p>

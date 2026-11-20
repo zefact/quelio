@@ -123,6 +123,8 @@ export function SecretInput({
           <ConfirmDialog
             title={`保存済みの${label}を表示します`}
             confirmLabel="表示する"
+            // 何も壊さない操作なので赤にしない
+            tone="primary"
             defaultFocus="cancel"
             onConfirm={async () => {
               const secret = await onReveal();

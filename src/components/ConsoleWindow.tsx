@@ -5,6 +5,7 @@ import type { QueryLogEntry } from "../types";
 import { usePolling } from "../hooks/usePolling";
 import { GridColumn, GridRow, ResizableGrid } from "./ResizableGrid";
 import { ConsoleExport } from "./ConsoleExport";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 /** SQLを記録したときにバックエンドが流すイベント名 (query_log.rs と対応) */
 const QUERY_LOG_EVENT = "query-log";
@@ -180,6 +181,9 @@ export function ConsoleWindow() {
 
   /** クリアに失敗したときの表示 (消えていないのに消えたように見せない) */
   const [clearError, setClearError] = useState<string | null>(null);
+  /** クリアの確認を出しているか (消したログは戻せないので確かめる) */
+  const [askClear, setAskClear] = useState(false);
+
   const handleClear = async () => {
     setClearError(null);
     try {
@@ -279,9 +283,13 @@ export function ConsoleWindow() {
   return (
     <div className="console">
       <div className="console-toolbar" data-tauri-drag-region>
+        {/* 何の窓かを示す (macOS ではタイトルバーを隠しているため) */}
+        <span className="window-title" data-tauri-drag-region>
+          コンソール
+        </span>
         <input
           className="filter-input mono console-filter"
-          placeholder="フィルタ (SQL / 接続名 / DB名)..."
+          placeholder="絞り込み (SQL / 接続名 / DB名)…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         />
@@ -296,7 +304,12 @@ export function ConsoleWindow() {
           )}
         </span>
         <ConsoleExport filter={filter} hasEntries={filtered.length > 0} />
-        <button className="btn-ghost" onClick={handleClear}>
+        <button
+          className="btn-ghost has-tooltip"
+          disabled={entries.length === 0}
+          data-tooltip={entries.length === 0 ? "消すログがありません" : "SQLログをすべて消す"}
+          onClick={() => setAskClear(true)}
+        >
           クリア
         </button>
         {clearError && <span className="console-error">{clearError}</span>}
@@ -313,9 +326,23 @@ export function ConsoleWindow() {
         emptyText={
           entries.length === 0
             ? "まだクエリが実行されていません"
-            : "フィルタに一致するクエリがありません"
+            : "絞り込みに一致するクエリがありません"
         }
       />
+
+      {askClear && (
+        <ConfirmDialog
+          title="SQLログをクリア"
+          confirmLabel="クリアする"
+          onCancel={() => setAskClear(false)}
+          onConfirm={async () => {
+            setAskClear(false);
+            await handleClear();
+          }}
+        >
+          これまでに記録したSQLログを、絞り込みに関係なくすべて消します。消したログは元に戻せません。
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

@@ -20,7 +20,7 @@
 
 .sqlp-kind .db-select {
   min-width: 78px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .sqlp-grid {
@@ -42,7 +42,7 @@
   flex-shrink: 0;
   width: 140px;
   text-align: right;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -52,7 +52,7 @@
 .sqlp-row input {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--fs-md);
   padding: 7px 10px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
@@ -73,7 +73,7 @@
 
 .sqlp-preview-head {
   margin-bottom: 5px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-faint);
 }
 
@@ -86,7 +86,7 @@
   border-radius: var(--radius-btn);
   background: rgba(var(--ink), 0.03);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -94,7 +94,7 @@
 }
 
 .sqlp-hint {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.6;
   color: var(--text-faint);
   margin-top: 10px;
@@ -110,7 +110,7 @@
 }
 
 .sqlp-danger-head {
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 700;
   color: var(--danger);
 }
@@ -118,7 +118,7 @@
 .sqlp-danger-list {
   margin: 7px 0 0;
   padding-left: 18px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.7;
 }
 
@@ -137,7 +137,7 @@
   align-items: center;
   gap: 7px;
   margin-top: 9px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   cursor: pointer;
 }
 

@@ -10,15 +10,11 @@ import {
   clearCsvExportTimer,
   getCsvExport,
   patchCsvExport,
-  scheduleCsvExportClear,
   subscribeCsvExport,
 } from "../csvExportStore";
 import { FORMAT_LABEL } from "../exportFormat";
 import type { ExportFormat } from "../exportFormat";
 import type { QueryResult } from "../types";
-
-/** 完了メッセージを出しておく時間 */
-const MSG_TIMEOUT_MS = 10000;
 
 /** 進捗を出すためのジョブを1つ作る */
 function newJob(index: number, verb: string) {
@@ -85,7 +81,7 @@ export function useCsvExport(key: string) {
   /** 出力を始める。すでに走っていれば何もしない */
   const start = async (req: CsvExportRequest) => {
     if (getCsvExport(key).job) return;
-    const started = newJob(req.index, "出力");
+    const started = newJob(req.index, "書き出し");
     clearCsvExportTimer(key);
     patchCsvExport(key, { job: started, message: null, path: null });
     const name = FORMAT_LABEL[req.format];
@@ -104,16 +100,15 @@ export function useCsvExport(key: string) {
       );
       if (out.cancelled) {
         show(
-          `${name}出力を中止しました (${out.rows.toLocaleString()}行で停止・ファイルは残していません)`
+          `${name}の書き出しを中止しました (${out.rows.toLocaleString()}行で停止・ファイルは残していません)`
         );
       } else {
-        show(`${out.rows.toLocaleString()}行を保存: ${out.path}`);
+        show(`${out.rows.toLocaleString()}行を書き出しました: ${out.path}`);
         patchCsvExport(key, { path: out.path });
       }
-      // 続けてもう一度出力したときに、前のタイマーで消されないようにする
-      scheduleCsvExportClear(key, MSG_TIMEOUT_MS);
+      // 結果は次の操作まで残す (読む前に消えないように。自分では消さない)
     } catch (e) {
-      show(`${name}出力に失敗: ${e}`);
+      show(`${name}の書き出しに失敗しました: ${e}`);
     } finally {
       patchCsvExport(key, { job: null });
     }
@@ -151,7 +146,6 @@ export function useCsvExport(key: string) {
         show(`${out.rows.toLocaleString()}行をCSVエディタで開きました`);
         await openCsvWindow({ docId: out.info.docId });
       }
-      scheduleCsvExportClear(key, MSG_TIMEOUT_MS);
     } catch (e) {
       show(`CSVエディタで開けませんでした: ${e}`);
     } finally {
@@ -175,11 +169,10 @@ export function useCsvExport(key: string) {
       patchCsvExport(key, { message: { index, text } });
     try {
       const out = await exportPlanCsv(result.columns, result.rows);
-      show(`${out.rows.toLocaleString()}行を保存: ${out.path}`);
+      show(`${out.rows.toLocaleString()}行を書き出しました: ${out.path}`);
       patchCsvExport(key, { path: out.path });
-      scheduleCsvExportClear(key, MSG_TIMEOUT_MS);
     } catch (e) {
-      show(`CSV出力に失敗: ${e}`);
+      show(`CSVの書き出しに失敗しました: ${e}`);
     }
   };
 

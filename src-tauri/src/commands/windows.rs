@@ -321,6 +321,16 @@ pub fn import_er_diagrams(
     crate::backup::import_er_diagrams(&app, &path)
 }
 
+/// ER図のファイルを取り込んだら何件増えて、どれが上書きされるかを返す
+/// (書き込まない。復元の確認に出す)
+#[tauri::command]
+pub fn preview_er_diagrams_import(
+    app: AppHandle,
+    path: String,
+) -> Result<crate::backup::RestorePreview, String> {
+    crate::backup::preview_er_diagrams(&app, &path)
+}
+
 /// 選んだER図だけをJSONファイルへ書き出す (件数を返す)
 #[tauri::command]
 pub fn export_er_diagram_subset(

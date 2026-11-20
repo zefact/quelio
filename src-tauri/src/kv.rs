@@ -36,6 +36,28 @@ pub async fn connect(
     use_tls: bool,
     sni_host: Option<&str>,
 ) -> Result<MultiplexedConnection, String> {
+    connect_with_driver(host, port, user, password, db_index, use_tls, sni_host)
+        .await
+        .map(|(conn, _)| conn)
+}
+
+/// 接続を確立し、送受信を受け持つタスクの止め口と一緒に返す。
+///
+/// 「中止」はこの止め口を使う。
+/// Valkey は1つのコマンドを実行している間ほかの処理をしないので、
+/// 別の接続から CLIENT KILL を送っても、重いコマンド (KEYS など) が
+/// 終わるまで届かない。送受信のタスクを止めれば、応答を待つのを
+/// その場でやめられる (ソケットも閉じるので、サーバー側の後始末も進む)。
+/// 止めた接続は二度と使えないので、次の操作の前に張り直すこと
+pub async fn connect_with_driver(
+    host: &str,
+    port: u16,
+    user: &str,
+    password: &str,
+    db_index: i64,
+    use_tls: bool,
+    sni_host: Option<&str>,
+) -> Result<(MultiplexedConnection, tokio::task::AbortHandle), String> {
     timeout(
         CONNECT_TIMEOUT,
         connect_inner(host, port, user, password, db_index, use_tls, sni_host),
@@ -52,7 +74,7 @@ async fn connect_inner(
     db_index: i64,
     use_tls: bool,
     sni_host: Option<&str>,
-) -> Result<MultiplexedConnection, String> {
+) -> Result<(MultiplexedConnection, tokio::task::AbortHandle), String> {
     let mut info = redis::RedisConnectionInfo::default().set_db(db_index);
     if !user.is_empty() {
         info = info.set_username(user);
@@ -100,8 +122,8 @@ async fn connect_inner(
         )
         .await
         .map_err(|e| map_setup_err(e, use_tls))?;
-        tokio::spawn(driver);
-        Ok(conn)
+        let task = tokio::spawn(driver);
+        Ok((conn, task.abort_handle()))
     } else {
         let (conn, driver) = redis::aio::MultiplexedConnection::new_with_config(
             &info,
@@ -110,8 +132,8 @@ async fn connect_inner(
         )
         .await
         .map_err(|e| map_setup_err(e, use_tls))?;
-        tokio::spawn(driver);
-        Ok(conn)
+        let task = tokio::spawn(driver);
+        Ok((conn, task.abort_handle()))
     }
 }
 
@@ -966,6 +988,27 @@ pub struct KvRunOutput {
     pub failed_index: Option<usize>,
 }
 
+/// 「中止」で止めたときの文言 (画面はこの文字で始まるかどうかで見分ける)
+pub const CANCELLED_MSG: &str = "中止しました";
+
+/// 「中止」で止めたときの結果。
+///
+/// 止める前に終わっていたコマンドの結果は残す。
+/// 何件目で止まったかは、終わっていた件数から決まる
+pub fn cancelled_output(statements: Vec<KvStatementResult>) -> KvRunOutput {
+    let done = statements.len();
+    let error = if done == 0 {
+        CANCELLED_MSG.to_string()
+    } else {
+        format!("{CANCELLED_MSG} ({done}件目まで実行済み)")
+    };
+    KvRunOutput {
+        statements,
+        error: Some(error),
+        failed_index: Some(done),
+    }
+}
+
 /// 接続を占有・破壊するため実行を拒否するコマンド
 const BLOCKED_COMMANDS: &[&str] = &["MONITOR", "SUBSCRIBE", "PSUBSCRIBE", "SSUBSCRIBE"];
 
@@ -1811,5 +1854,85 @@ mod tests {
         );
         // キーは書かれたとおりに見せる (Valkeyは大文字小文字を区別する)
         assert_eq!(got, vec!["SET k".to_string(), "CONFIG SET".to_string()]);
+    }
+
+    #[test]
+    fn 中止した結果は終わった件数を添える() {
+        let none = cancelled_output(Vec::new());
+        assert_eq!(none.error.as_deref(), Some(CANCELLED_MSG));
+        assert_eq!(none.failed_index, Some(0));
+
+        let one = KvStatementResult {
+            command: "GET a".into(),
+            lines: vec!["(nil)".into()],
+            elapsed_ms: 1,
+        };
+        let out = cancelled_output(vec![one]);
+        assert_eq!(out.statements.len(), 1);
+        assert_eq!(out.failed_index, Some(1));
+        let msg = out.error.unwrap();
+        // 画面は「中止しました」で始まるかどうかで見分ける
+        assert!(msg.starts_with(CANCELLED_MSG));
+        assert!(msg.contains("1件目まで実行済み"));
+    }
+
+    /// BLPOP にだけ返事をしない、にせのサーバー (それ以外には +OK を返す)
+    async fn silent_server() -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let Ok((mut sock, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buf = vec![0u8; 4096];
+            loop {
+                let n = match sock.read(&mut buf).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => n,
+                };
+                let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                if text.contains("BLPOP") {
+                    continue;
+                }
+                // 届いたコマンドの数だけ返事をする (配列の頭の「*」を数える)
+                let count = text
+                    .split("\r\n")
+                    .filter(|l| l.starts_with('*'))
+                    .count()
+                    .max(1);
+                for _ in 0..count {
+                    if sock.write_all(b"+OK\r\n").await.is_err() {
+                        return;
+                    }
+                }
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn 送受信を止めると応答を待たずに戻る() {
+        let port = silent_server().await;
+        let (mut conn, driver) =
+            connect_with_driver("127.0.0.1", port, "", "", 0, false, None)
+                .await
+                .unwrap();
+        let pending = tokio::spawn(async move {
+            redis::cmd("BLPOP")
+                .arg("k")
+                .arg(0)
+                .query_async::<redis::Value>(&mut conn)
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!pending.is_finished(), "返事の無いコマンドが先に終わってしまった");
+        driver.abort();
+        // 止めたらすぐにエラーで戻る (待ち続けない)
+        let res = timeout(Duration::from_secs(3), pending)
+            .await
+            .expect("止めても戻ってこない")
+            .unwrap();
+        assert!(res.is_err());
     }
 }

@@ -24,8 +24,9 @@ function BrowseButton({
   return (
     <button
       type="button"
-      className="browse-btn"
-      title={title}
+      className="browse-btn has-tooltip"
+      data-tooltip={title}
+      aria-label={title}
       onClick={async () => {
         const selected = await open({ multiple: false, title }).catch(() => null);
         if (typeof selected === "string") onPick(selected);

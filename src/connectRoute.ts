@@ -10,7 +10,7 @@ import type { ConnectionProfile } from "./types";
 export type ConnectRoute = "none" | "ssh" | "ssm" | "cloudsql";
 
 export const ROUTES: [ConnectRoute, string][] = [
-  ["none", "直接つなぐ"],
+  ["none", "直接接続する"],
   ["ssh", "SSH踏み台を経由"],
   ["ssm", "AWS SSM (ポート転送)"],
   ["cloudsql", "Cloud SQL Auth Proxy"],

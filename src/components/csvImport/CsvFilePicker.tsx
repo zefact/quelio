@@ -2,6 +2,8 @@ import { useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { fmtBytes } from "../../format";
 import { stageDroppedFile } from "../../uploadFile";
+import { CloseMark } from "../CloseMark";
+import { IconButton } from "../IconButton";
 
 /** 取り込む対象のファイル */
 export interface PickedFile {
@@ -140,7 +142,7 @@ export function CsvFilePicker({
     >
       {staging !== null ? (
         <>
-          <span className="dropzone-file mono">転送中...</span>
+          <span className="dropzone-file mono">転送中…</span>
           <div className="job-bar dropzone-bar">
             <div
               className="job-bar-fill"
@@ -164,16 +166,16 @@ export function CsvFilePicker({
               .join(" / ")}
           </span>
           {!disabled && (
-            <button
+            <IconButton
               className="dropzone-clear"
-              title="選択を解除"
+              label="選択を解除"
               onClick={(e) => {
                 e.stopPropagation();
                 onFile(null);
               }}
             >
-              ×
-            </button>
+              <CloseMark size={10} />
+            </IconButton>
           )}
         </>
       ) : (

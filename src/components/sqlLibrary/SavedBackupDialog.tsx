@@ -9,10 +9,9 @@
  */
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
+import { pickExportPath } from "../../exportDir";
 import type { SavedSqlStore } from "../../types";
 import { exportSavedSqlSubset } from "../../api";
-import { useModal } from "../../hooks/useModal";
 import { buildTree, itemsInside, type SavedNode } from "../../savedTree";
 import {
   backupFileName,
@@ -23,6 +22,8 @@ import {
   toggleFolder,
   toggleItem,
 } from "../../savedSelection";
+import { ModalFrame } from "../ModalFrame";
+import { RevealButton } from "../RevealButton";
 import { FolderIcon, SqlIcon } from "./LibraryIcons";
 import { TreeIndent } from "./TreeIndent";
 import { TriCheckbox } from "./TriCheckbox";
@@ -40,7 +41,8 @@ export function SavedBackupDialog({ store, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   /** 書き出した数 (書き出したあとは結果だけを出す) */
   const [done, setDone] = useState<number | null>(null);
-  const boxRef = useModal(onClose, !busy);
+  /** 書き出したファイル (「フォルダを開く」に使う) */
+  const [savedPath, setSavedPath] = useState<string | null>(null);
 
   const tree = useMemo(() => buildTree(store), [store]);
   const total = store.items.length;
@@ -50,16 +52,17 @@ export function SavedBackupDialog({ store, onClose }: Props) {
 
   const run = async () => {
     if (nothing || busy) return;
-    const path = await save({
-      defaultPath: backupFileName(new Date()),
+    const path = await pickExportPath({
+      fileName: backupFileName(new Date()),
       filters: JSON_FILTER,
       title: "お気に入りをバックアップ",
-    }).catch(() => null);
+    });
     if (!path) return;
     setBusy(true);
     setError(null);
     try {
       setDone(await exportSavedSqlSubset(path, plan.ids, plan.folders));
+      setSavedPath(path);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -105,73 +108,77 @@ export function SavedBackupDialog({ store, onClose }: Props) {
     });
 
   return (
-    <div className="modal-overlay" onMouseDown={() => !busy && onClose()}>
-      <div
-        className="modal saved-transfer-modal"
-        ref={boxRef}
-        tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <span className="modal-title">お気に入りをバックアップ</span>
-          <button className="modal-close" onClick={onClose} title="閉じる">
-            ×
+    <ModalFrame
+      title="お気に入りをバックアップ"
+      onClose={onClose}
+      closable={!busy}
+      className="saved-transfer-modal"
+      footer={
+        done !== null ? (
+          <button className="btn-primary" onClick={onClose}>
+            閉じる
           </button>
-        </div>
-
-        {done !== null ? (
-          <div className="saved-transfer-body">
-            <p className="saved-transfer-done">
-              お気に入りを{done}件書き出しました。
-            </p>
-            <div className="save-sql-actions">
-              <button className="btn-primary" onClick={onClose}>
-                閉じる
-              </button>
-            </div>
-          </div>
         ) : (
-          <div className="saved-transfer-body">
-            <div className="pick-head">
-              <span className="pick-count">
-                {total}件中 {picked}件を書き出します
-              </span>
-              <span className="toolbar-spacer" />
-              <button
-                type="button"
-                className="lib-action"
-                onClick={() => setSel(selectAll(store))}
-              >
-                すべて選ぶ
-              </button>
-              <button
-                type="button"
-                className="lib-action"
-                onClick={() => setSel(new Set())}
-              >
-                すべて外す
-              </button>
-            </div>
-            <div className="pick-list">{rows(tree, 0)}</div>
-            <span className="save-sql-note">
-              フォルダに印を付けると中身が全部入ります。書き出したファイルは「復元」で読み込めます
+          <>
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>
+              キャンセル
+            </button>
+            <button
+              className="btn-primary"
+              disabled={nothing || busy}
+              onClick={() => void run()}
+            >
+              書き出す…
+            </button>
+          </>
+        )
+      }
+    >
+      {done !== null ? (
+        <div className="saved-transfer-body">
+          <div className="result-banner ok">
+            <span className="dot" aria-hidden />
+            <span className="result-detail">
+              お気に入りを{done}件書き出しました。
             </span>
-            {error && <div className="save-sql-error">{error}</div>}
-            <div className="save-sql-actions">
-              <button className="btn-secondary" onClick={onClose}>
-                キャンセル
-              </button>
-              <button
-                className="btn-primary"
-                disabled={nothing || busy}
-                onClick={() => void run()}
-              >
-                書き出す…
-              </button>
-            </div>
+            {savedPath && <RevealButton path={savedPath} />}
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      ) : (
+        <div className="saved-transfer-body">
+          <div className="pick-head">
+            <span className="pick-count">
+              {total}件中 {picked}件を書き出します
+            </span>
+            <span className="toolbar-spacer" />
+            <button
+              type="button"
+              className="lib-action"
+              onClick={() => setSel(selectAll(store))}
+            >
+              すべて選ぶ
+            </button>
+            <button
+              type="button"
+              className="lib-action"
+              onClick={() => setSel(new Set())}
+            >
+              すべて外す
+            </button>
+          </div>
+          <div className="pick-list">{rows(tree, 0)}</div>
+          <span className="save-sql-note">
+            フォルダに印を付けると中身が全部入ります。書き出したファイルは「復元」で今あるお気に入りに追加できます
+          </span>
+          {error && (
+            <div className="result-banner ng">
+              <span className="dot" aria-hidden />
+              <strong>エラー</strong>
+              <span className="result-detail">{error}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </ModalFrame>
   );
 }

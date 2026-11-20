@@ -9,6 +9,7 @@ import type {
   ErAnchorPoint,
   ErCustomEdge,
   ErDiagramData,
+  ErDiagramSource,
   ErEdgeStyle,
   ErFrame,
   ErPageData,
@@ -16,7 +17,7 @@ import type {
   SchemaEntry,
 } from "../types";
 
-/** ページ (タブ) の見出し */
+/** ページの見出し */
 export interface ErPageMeta {
   id: string;
   name: string;
@@ -52,8 +53,8 @@ interface Options {
   snapshot: () => ErPageSnapshot;
   /** 読み込んだページの内容を画面へ反映する */
   apply: (page: ErPageData) => void;
-  /** 右上のトーストに出す文言 (nullで消す) */
-  onNotice: (message: string | null) => void;
+  /** 右上のトーストに出す文言 (nullで消す。失敗は tone を "ng" にする) */
+  onNotice: (message: string | null, tone?: "ok" | "ng") => void;
   /** ページを切り替えたので全体が入るように表示し直す */
   onFit: () => void;
   /** ページを切り替えたので、そのページで最後に見ていた表示へ戻す */
@@ -91,7 +92,7 @@ function toPageData(id: string, name: string, s: ErPageSnapshot): ErPageData {
 /**
  * ER図の保存・読み込みまわり。
  *
- * 1つの保存ファイル (図の名前) に複数のページ (タブ) を持つ。
+ * 1つの保存ファイル (図の名前) に複数のページを持つ。
  * 表示中のページの内容は呼び出し側のstateにあるので、
  * 保存するときだけ `snapshot()` で集め、読み込んだら `apply()` で戻す
  */
@@ -108,6 +109,9 @@ export function useErPersistence({
   diagNameRef.current = diagName;
   /** 保存済みの図の名前一覧 */
   const [diagList, setDiagList] = useState<string[]>([]);
+  /** 図を作った接続とデータベース (分からなければnull) */
+  const [source, setSourceState] = useState<ErDiagramSource | null>(null);
+  const sourceRef = useRef<ErDiagramSource | null>(null);
 
   const [pages, setPages] = useState<ErPageMeta[]>([{ id: "p1", name: "ER図1" }]);
   const pagesRef = useRef(pages);
@@ -160,6 +164,7 @@ export function useErPersistence({
         0,
         metas.findIndex((p) => p.id === pageIdRef.current)
       ),
+      ...(sourceRef.current ? { source: sourceRef.current } : {}),
     };
   };
 
@@ -190,7 +195,7 @@ export function useErPersistence({
   /**
    * 表示するページを差し替える。
    *
-   * @param fit 表示し直すか (タブ追加のときは今の倍率のまま)。
+   * @param fit 表示し直すか (ページ追加のときは今の倍率のまま)。
    *   そのページで最後に見ていた表示があればそこへ戻し、無ければ全体を収める
    */
   const goToPage = (
@@ -219,6 +224,16 @@ export function useErPersistence({
     cb.current.apply(emptyPageData(pid, "ER図1"));
     setDiagName(null);
     diagNameRef.current = null;
+    setSource(null);
+  };
+
+  /**
+   * 図を作った接続とデータベースを覚える (リバースしたとき)。
+   * ファイルへは次の保存で書く
+   */
+  const setSource = (s: ErDiagramSource | null) => {
+    sourceRef.current = s;
+    setSourceState(s);
   };
 
   /** 保存済みの図を名前で開く (どの接続からでも開ける) */
@@ -256,13 +271,14 @@ export function useErPersistence({
         const idx = Math.min(data.activePage ?? 0, pageList.length - 1);
         setDiagName(name);
         diagNameRef.current = name;
+        setSource(data.source ?? null);
         goToPage(pageList[idx], { fit: true, save: false });
         cb.current.onNotice(null);
       })
       .catch(() => {});
   };
 
-  /** タブを切り替える */
+  /** ページを切り替える */
   const switchPage = (id: string) => {
     if (id === pageIdRef.current) return;
     pagesDataRef.current.set(pageIdRef.current, buildActivePage());
@@ -273,7 +289,7 @@ export function useErPersistence({
     );
   };
 
-  /** タブを追加して切り替える */
+  /** ページを追加して切り替える */
   const addPage = () => {
     pagesDataRef.current.set(pageIdRef.current, buildActivePage());
     const id = `p${Date.now()}_${Math.floor(Math.random() * 1e5)}`;
@@ -283,11 +299,11 @@ export function useErPersistence({
     pagesRef.current = meta;
     const fresh = emptyPageData(id, name);
     pagesDataRef.current.set(id, fresh);
-    // タブを足しただけでは表示倍率を変えない (中身が無いので合わせようがない)
+    // ページを足しただけでは表示倍率を変えない (中身が無いので合わせようがない)
     goToPage(fresh, { fit: false, save: true });
   };
 
-  /** タブを削除する (最後の1つは削除しない) */
+  /** ページを削除する (最後の1つは削除しない) */
   const deletePage = (id: string) => {
     if (pagesRef.current.length <= 1) return;
     const target = pagesRef.current.find((p) => p.id === id);
@@ -304,10 +320,10 @@ export function useErPersistence({
       );
     }
     saveFile();
-    cb.current.onNotice(`タブ「${target?.name ?? id}」を削除しました`);
+    cb.current.onNotice(`ページ「${target?.name ?? id}」を削除しました`);
   };
 
-  /** タブの並べ替え (ドラッグ中にindexを入れ替える。保存はドラッグ終了時) */
+  /** ページの並べ替え (ドラッグ中にindexを入れ替える。保存はドラッグ終了時) */
   const reorderPages = (from: number, to: number) => {
     const next = [...pagesRef.current];
     const [moved] = next.splice(from, 1);
@@ -322,7 +338,7 @@ export function useErPersistence({
     saveFile();
   };
 
-  /** タブ名を変える */
+  /** ページの名前を変える */
   const renamePage = (id: string, name: string) => {
     const next = pagesRef.current.map((p) =>
       p.id === id ? { ...p, name } : p
@@ -335,7 +351,8 @@ export function useErPersistence({
 
   /**
    * 名前を付けて保存する。
-   * 名前変更のときは、保存できてから古い名前のファイルを消す
+   * 名前変更のときは、保存できてから古い名前のファイルを消す。
+   * 同じ名前の図があれば上書きするので、確かめるのは呼び出し側で済ませておく
    */
   const saveAs = (name: string, mode: "saveAs" | "rename") => {
     const old = diagNameRef.current;
@@ -349,7 +366,7 @@ export function useErPersistence({
         refreshDiagList();
         cb.current.onNotice(`「${name}」として保存しました`);
       })
-      .catch((e) => cb.current.onNotice(`保存に失敗: ${e}`));
+      .catch((e) => cb.current.onNotice(`保存できませんでした: ${e}`, "ng"));
   };
 
   /** 開いている図を削除して、空の未保存状態に戻す */
@@ -380,6 +397,8 @@ export function useErPersistence({
   return {
     diagName,
     diagList,
+    source,
+    setSource,
     refreshDiagList,
     pages,
     pageId,

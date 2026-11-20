@@ -55,9 +55,9 @@ export function CsvFavItemRow({
     >
       <button
         className={
-          "context-item saved-item" + (applied ? " csv-fav-applied" : "")
+          "context-item saved-item has-tooltip" + (applied ? " csv-fav-applied" : "")
         }
-        title={
+        data-tooltip={
           (applied ? "このファイルに使われています\n" : "") +
           `${columns.length}桁 (計${totalWidth(columns)}${UNIT_LABEL[unit]})\n` +
           (canApply
@@ -76,8 +76,8 @@ export function CsvFavItemRow({
         <span className="saved-item-folder mono">{columns.length}桁</span>
       </button>
       <button
-        className="saved-edit"
-        title="名前・桁設定を変更"
+        className="saved-edit has-tooltip"
+        data-tooltip="名前・桁設定を変更"
         aria-label="名前・桁設定を変更"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onEdit}
@@ -85,8 +85,8 @@ export function CsvFavItemRow({
         ✎
       </button>
       <button
-        className="saved-del"
-        title="このお気に入りを削除"
+        className="saved-del has-tooltip"
+        data-tooltip="このお気に入りを削除"
         aria-label="このお気に入りを削除"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onDelete}

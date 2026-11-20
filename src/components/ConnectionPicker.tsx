@@ -14,8 +14,12 @@ import { ConnectionForm } from "./ConnectionForm";
 import { routeChip } from "../connectRoute";
 import { envListLabel } from "../connectionEnvHint";
 import { PickerHome } from "./PickerHome";
+import { IconButton } from "./IconButton";
+import { PaneSplitter } from "./SidePane";
 import { useDismiss } from "../hooks/useDismiss";
 import { imeBusy } from "../ime";
+import { isProfileDirty } from "../connectionDirty";
+import { emptyProfile } from "../types";
 
 interface Props {
   tab: WorkTab;
@@ -23,9 +27,17 @@ interface Props {
   onCreateFolder: () => Promise<FolderInfo | null>;
   /** お試し用のサンプルSQLite DBを作って開く */
   onOpenSample: () => void;
+  /** ヘルプを開く (ホームの入口) */
+  onOpenHelp: () => void;
+  /** 編集画面からホームへ戻る (書きかけの確認はこのコンポーネントで出す) */
+  onGoHome: () => void;
+  /** 接続先を複製して、新しい接続として編集を始める */
+  onDuplicate: (profile: ConnectionProfile) => void;
+  /** 一覧の右クリックから接続先を削除する (確認はここで出す。失敗したら例外を投げること) */
+  onDeleteConnection: (id: string) => void | Promise<void>;
   /** ホームでのピン留めの付け外し */
   onSetConnPinned: (id: string, pinned: boolean) => void;
-  /** ホームの「最近つないだ接続」から外す (接続先そのものは残す) */
+  /** ホームの「最近接続した接続先」から外す (接続先そのものは残す) */
   onForgetRecent: (id: string) => void;
   /** フォルダを削除する (確認はこのコンポーネントで出す。失敗したら例外を投げること) */
   onDeleteFolder: (id: string) => void | Promise<void>;
@@ -87,12 +99,32 @@ function FolderIcon({ open }: { open: boolean }) {
   );
 }
 
+/** 色見本の名前 (色コードだけでは何色か読み上げられないため) */
+const COLOR_NAMES: Record<string, string> = {
+  "#f87171": "赤",
+  "#fb923c": "オレンジ",
+  "#fbbf24": "黄",
+  "#a3e635": "黄緑",
+  "#34d399": "緑",
+  "#2dd4bf": "青緑",
+  "#22d3ee": "シアン",
+  "#60a5fa": "青",
+  "#6366f1": "藍",
+  "#a78bfa": "紫",
+  "#f472b6": "ピンク",
+  "#94a3b8": "灰",
+};
+
 /** 未接続タブの中身: 保存済み接続の一覧(フォルダ+D&D対応) + 編集フォーム */
 export function ConnectionPicker({
   tab,
   store,
   onCreateFolder,
   onOpenSample,
+  onOpenHelp,
+  onGoHome,
+  onDuplicate,
+  onDeleteConnection,
   onSetConnPinned,
   onForgetRecent,
   onDeleteFolder,
@@ -107,7 +139,7 @@ export function ConnectionPicker({
   onConnect,
 }: Props) {
   const { profile, testResult, error, busy } = tab;
-  const [sideWidth, startResize] = useResizableWidth(272, 200, 480);
+  const [sideWidth, startResize, nudgeSide] = useResizableWidth(272, 200, 480);
   /**
    * 「新しい接続を作る」を押したか。
    *
@@ -116,16 +148,18 @@ export function ConnectionPicker({
    */
   const newForm = !!tab.newConnForm;
   /**
-   * ホームから繋ぎ始めたか。
+   * ホームから接続し始めたか。
    *
    * 接続すると、そのタブに接続先の内容が入る。
-   * そのままだと繋いでいるあいだ「接続の編集」が開いてしまい、
-   * 一瞬だけ触れる画面になるので、繋ぎ終わるまでホームのまま待たせる
+   * そのままだと接続しているあいだ「接続の編集」が開いてしまい、
+   * 一瞬だけ触れる画面になるので、接続し終わるまでホームのまま待たせる。
+   * 失敗したときもホームに残し、理由をホームに出す
+   * (いきなり編集画面へ飛ぶと、何が起きたのか分かりにくいため)
    */
   const [waitHome, setWaitHome] = useState(false);
   useEffect(() => {
-    if (busy !== "connect") setWaitHome(false);
-  }, [busy]);
+    if (busy !== "connect" && !error) setWaitHome(false);
+  }, [busy, error]);
 
   /** 何も選んでおらず、新規作成でもないならホームを出す */
   const showHome = (!profile.id && !newForm) || waitHome;
@@ -137,9 +171,46 @@ export function ConnectionPicker({
    * (編集画面の「接続」から呼ぶときは showHome が false なので立たない)
    */
   const connect = (p: ConnectionProfile) => {
-    if (showHome) setWaitHome(true);
+    setWaitHome(showHome);
     onConnect(p);
   };
+
+  /**
+   * 書きかけ (保存していない変更) があるか。
+   *
+   * 比べる相手は、保存済みの同じ接続先 (新規作成なら空のフォーム)。
+   * ホームを出している間は編集していないので、書きかけは無い
+   */
+  const savedProfile = useMemo(
+    () =>
+      profile.id
+        ? (store.connections.find((c) => c.id === profile.id) ?? null)
+        : newForm
+          ? emptyProfile()
+          : null,
+    [profile.id, store.connections, newForm]
+  );
+  const dirty = !showHome && isProfileDirty(profile, savedProfile);
+  /** 書きかけを捨てる確認を出しているときの、確認後にする操作 */
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
+  /**
+   * フォームの中身を差し替える操作の前に通す。
+   * 書きかけがあれば確認を出し、無ければそのまま進める
+   */
+  const guard = (fn: () => void) => {
+    const go = () => {
+      setWaitHome(false);
+      fn();
+    };
+    if (dirty) setLeaving(() => go);
+    else go();
+  };
+  /** 一覧の絞り込み (名前・ホスト・データベース名・ユーザー) */
+  const [filter, setFilter] = useState("");
+  /** 右クリックから削除しようとしている接続先 */
+  const [deletingConn, setDeletingConn] = useState<ConnectionProfile | null>(
+    null
+  );
 
   const [menu, setMenu] = useState<MenuState | null>(null);
   // メニューが画面の外へはみ出さないように位置を補正する
@@ -155,6 +226,16 @@ export function ConnectionPicker({
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
   const { folders, connections } = store;
+  /** 絞り込みに当たった接続先 (絞り込んでいないときは null で、ふだんの木を出す) */
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return null;
+    return connections.filter((c) =>
+      [c.name, c.host, c.database ?? "", c.user].some((v) =>
+        v.toLowerCase().includes(q)
+      )
+    );
+  }, [connections, filter]);
   /** 削除の確認中のフォルダ (中の接続がどうなるかを見せてから消す) */
   const [deletingFolder, setDeletingFolder] = useState<FolderInfo | null>(null);
 
@@ -475,11 +556,19 @@ export function ConnectionPicker({
 
   // ---------- 描画 ----------
 
+  /** 右クリックした接続先 (接続先の上で開いたときだけ) */
+  const menuConn =
+    menu?.target.kind === "conn"
+      ? connections.find(
+          (x) => menu.target.kind === "conn" && x.id === menu.target.id
+        )
+      : undefined;
+
   const renderConnItem = (c: ConnectionProfile) => (
     <li key={c.id}>
       <button
         className={
-          "connection-item" +
+          "connection-item has-tooltip tooltip-left" +
           (c.id === profile.id ? " selected" : "") +
           (dropTarget?.type === "before" && dropTarget.id === c.id
             ? " drop-before"
@@ -491,15 +580,20 @@ export function ConnectionPicker({
             ? " drop-denied"
             : "")
         }
-        draggable
+        // 絞り込み中は木の形が見えないので、並べ替えさせない
+        draggable={!filtered}
         onDragStart={(e) => handleDragStart(e, { type: "conn", id: c.id })}
         onDragEnd={handleDragEnd}
         onDragOver={(e) => dragOver(e, connDropTarget(e, c.id))}
         onDrop={(e) => handleDrop(e, connDropTarget(e, c.id))}
-        onClick={() => onSelectFavorite(c)}
-        onDoubleClick={() => connect(c)}
+        onClick={() => {
+          // 編集中のものをもう一度押しても、書きかけを捨てて読み直さない
+          if (c.id === profile.id && !showHome) return;
+          guard(() => onSelectFavorite(c));
+        }}
+        onDoubleClick={() => guard(() => connect(c))}
         onContextMenu={(e) => openMenu(e, { kind: "conn", id: c.id })}
-        title="クリック: 選択 / ダブルクリック: 接続"
+        data-tooltip="クリック: 編集 / ダブルクリック: 接続する"
       >
         <span className={`db-badge ${c.dbType}`} style={badgeStyle(profileColor(c))}>
           {dbBadgeLabel(c.dbType)}
@@ -549,7 +643,7 @@ export function ConnectionPicker({
       >
         <button
           className={
-            "folder-item" +
+            "folder-item has-tooltip tooltip-left" +
             (dropTarget?.type === "into-folder" && dropTarget.id === f.id
               ? " drop-into"
               : "")
@@ -561,7 +655,7 @@ export function ConnectionPicker({
           onDrop={(e) => handleDrop(e, folderDropTarget(e, f.id))}
           onClick={() => toggleFolder(f.id)}
           onContextMenu={(e) => openMenu(e, { kind: "folder", id: f.id })}
-          title="クリック: 開閉 / ドラッグ: 並べ替え (中央へ落とすとフォルダに入ります)"
+          data-tooltip="クリック: 開閉 / ドラッグ: 並べ替え (中央へ落とすとフォルダに入ります)"
         >
           <span className={"chevron" + (f.collapsed ? "" : " open")} aria-hidden>
             ▸
@@ -611,12 +705,11 @@ export function ConnectionPicker({
           <span className="picker-side-title">接続先</span>
           <span className="panel-count">{connections.length}</span>
           <span className="toolbar-spacer" />
-          <button
-            className="pane-icon-btn has-tooltip tooltip-left"
-            data-tooltip="新規接続先を作成"
-            onClick={() => {
-              onNewFavorite();
-            }}
+          <IconButton
+            className="pane-icon-btn"
+            tipLeft
+            label="新しい接続先を作成"
+            onClick={() => guard(onNewFavorite)}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
               <path
@@ -626,8 +719,23 @@ export function ConnectionPicker({
                 strokeLinecap="round"
               />
             </svg>
-          </button>
+          </IconButton>
         </div>
+
+        {/* 接続先が増えても探せるように、名前・ホストで絞り込む */}
+        {connections.length > 0 && (
+          <input
+            className="filter-input picker-filter"
+            placeholder="絞り込み (名前・ホスト・データベース)…"
+            aria-label="接続先を絞り込む"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            onKeyDown={(e) => {
+              if (imeBusy(e)) return;
+              if (e.key === "Escape") setFilter("");
+            }}
+          />
+        )}
 
         <div
           className="connection-tree"
@@ -641,10 +749,15 @@ export function ConnectionPicker({
           onDrop={(e) => handleDrop(e, { type: "root-end" })}
         >
           <ul className="connection-list">
-            {rootItems.map((item) =>
-              item.kind === "conn"
-                ? renderConnItem(item.conn)
-                : renderFolderItem(item.folder)
+            {filtered
+              ? filtered.map(renderConnItem)
+              : rootItems.map((item) =>
+                  item.kind === "conn"
+                    ? renderConnItem(item.conn)
+                    : renderFolderItem(item.folder)
+                )}
+            {filtered && filtered.length === 0 && (
+              <li className="connection-empty">該当する接続先がありません。</li>
             )}
             {connections.length === 0 && folders.length === 0 && (
               /* 作り方やサンプルDBは右のホームに出しているので、ここは一言だけ */
@@ -671,7 +784,12 @@ export function ConnectionPicker({
 
       </aside>
 
-      <div className="pane-splitter" onMouseDown={startResize} />
+      <PaneSplitter
+        width={sideWidth}
+        onStartResize={startResize}
+        onNudge={nudgeSide}
+        label="接続先の一覧の幅"
+      />
 
       {/* 何も選んでいないときはホーム、選んだら編集フォーム */}
       <div className="picker-main">
@@ -681,17 +799,34 @@ export function ConnectionPicker({
             onConnect={connect}
             onTogglePin={onSetConnPinned}
             onForget={onForgetRecent}
-            onNew={() => {
-              onNewFavorite();
-            }}
+            onNew={() => guard(onNewFavorite)}
             onOpenSample={onOpenSample}
+            onOpenHelp={onOpenHelp}
             connecting={busy === "connect"}
+            connectingId={busy === "connect" ? profile.id : null}
+            // ホームから接続して失敗したときの理由 (編集画面へは飛ばさない)
+            error={waitHome && busy !== "connect" ? error : null}
+            onEditFailed={() => setWaitHome(false)}
           />
         ) : (
           <>
         <header className="main-head">
-          <h1>{profile.id ? "接続の編集" : "新しい接続"}</h1>
+          <button
+            className="btn-ghost home-back"
+            onClick={() => guard(onGoHome)}
+          >
+            ← ホーム
+          </button>
+          <h1>{profile.id ? "接続先の編集" : "新しい接続先"}</h1>
           {profile.id && <span className="profile-id mono">{profile.name}</span>}
+          {dirty && (
+            <span
+              className="dirty-mark has-tooltip"
+              data-tooltip="まだ保存していない変更があります"
+            >
+              ● 未保存
+            </span>
+          )}
         </header>
 
         <ConnectionForm
@@ -700,7 +835,7 @@ export function ConnectionPicker({
           onSave={onSave}
           onDelete={onDelete}
           onTest={onTest}
-          onConnect={() => onConnect(profile)}
+          onConnect={() => connect(profile)}
           testing={busy === "test"}
           saving={busy === "save"}
           connecting={busy === "connect"}
@@ -738,14 +873,53 @@ export function ConnectionPicker({
           style={menuStyle}
           onMouseDown={(e) => e.stopPropagation()}
         >
+          {/* 接続先: 開く (接続する) → 編集 → 複製 → 削除 の順に並べる */}
+          {menuConn &&
+            (() => {
+              const c = menuConn;
+              return (
+                <>
+                  <button
+                    className="context-item"
+                    onClick={() => {
+                      setMenu(null);
+                      guard(() => connect(c));
+                    }}
+                  >
+                    接続する
+                  </button>
+                  <button
+                    className="context-item"
+                    onClick={() => {
+                      setMenu(null);
+                      if (c.id === profile.id && !showHome) return;
+                      guard(() => onSelectFavorite(c));
+                    }}
+                  >
+                    編集
+                  </button>
+                  <button
+                    className="context-item has-tooltip"
+                    data-tooltip="同じ設定で新しい接続先を作ります (パスワードは入れ直してください)"
+                    onClick={() => {
+                      setMenu(null);
+                      guard(() => onDuplicate(c));
+                    }}
+                  >
+                    複製
+                  </button>
+                  <div className="context-sep" />
+                </>
+              );
+            })()}
           <button
             className="context-item"
             onClick={() => {
               setMenu(null);
-              onNewFavorite();
+              guard(onNewFavorite);
             }}
           >
-            新規接続先
+            新しい接続先を作成
           </button>
           <button className="context-item" onClick={startCreateFolder}>
             フォルダを作成
@@ -755,15 +929,17 @@ export function ConnectionPicker({
               {PRESET_COLORS.map((color) => (
                 <button
                   key={color}
-                  className="color-swatch"
+                  className="color-swatch has-tooltip"
                   style={{ background: color }}
-                  title={color}
+                  data-tooltip={COLOR_NAMES[color] ?? color}
+                  aria-label={`アイコンの色: ${COLOR_NAMES[color] ?? color}`}
                   onClick={() => applyColor(color)}
                 />
               ))}
               <button
-                className="color-swatch reset"
-                title="既定色に戻す"
+                className="color-swatch reset has-tooltip"
+                data-tooltip="既定色に戻す"
+                aria-label="アイコンの色を既定に戻す"
                 onClick={() => applyColor(undefined)}
               >
                 ×
@@ -802,25 +978,60 @@ export function ConnectionPicker({
             </>
           )}
           {menu.target.kind === "conn" && (
-            <button
-              className="context-item"
-              onClick={() => {
-                const c = connections.find(
-                  (x) => menu.target.kind === "conn" && x.id === menu.target.id
-                );
-                if (c) connect(c);
-                setMenu(null);
-              }}
-            >
-              接続
-            </button>
+            <>
+              <div className="context-sep" />
+              <button
+                className="context-item danger"
+                onClick={() => {
+                  setMenu(null);
+                  if (menuConn) setDeletingConn(menuConn);
+                }}
+              >
+                接続先を削除
+              </button>
+            </>
           )}
         </div>
+      )}
+
+      {leaving && (
+        <ConfirmDialog
+          title="保存していない変更があります"
+          target={profile.name || `${profile.host}:${profile.port}`}
+          confirmLabel="変更を破棄"
+          onCancel={() => setLeaving(null)}
+          onConfirm={() => {
+            const go = leaving;
+            setLeaving(null);
+            go();
+          }}
+        >
+          編集中の接続先の変更は、まだ保存されていません。
+          このまま移ると、変更は失われます。残すときは、キャンセルして「保存」を押してください。
+        </ConfirmDialog>
+      )}
+
+      {deletingConn && (
+        <ConfirmDialog
+          title="接続先を削除します"
+          target={deletingConn.name || `${deletingConn.host}:${deletingConn.port}`}
+          confirmLabel="削除する"
+          onCancel={() => setDeletingConn(null)}
+          onConfirm={async () => {
+            await onDeleteConnection(deletingConn.id);
+            setDeletingConn(null);
+          }}
+        >
+          ホスト・ユーザー・パスワード・SSHの設定がまとめて消えます。
+          取り消しはできません。 (設定 &gt; バックアップ
+          で書き出しておくと復元できます)
+        </ConfirmDialog>
       )}
 
       {deletingFolder && (
         <ConfirmDialog
           title="フォルダを削除します"
+          confirmLabel="削除する"
           target={deletingFolder.name}
           onCancel={() => setDeletingFolder(null)}
           onConfirm={async () => {

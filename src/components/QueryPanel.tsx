@@ -9,7 +9,6 @@ import {
   saveTextAs,
   splitSqlStatements,
 } from "../api";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { autoTitle } from "./sheetTitle";
 import { captureResults } from "../capture";
 import { CellDetail } from "./CellDetail";
@@ -60,6 +59,7 @@ import { SqlFindBar } from "./SqlFindBar";
 import { toInList } from "../inList";
 import { SqlFunctionsDialog } from "./SqlFunctionsDialog";
 import { useDismiss } from "../hooks/useDismiss";
+import { pickExportPath } from "../exportDir";
 import { useCsvExport } from "../hooks/useCsvExport";
 
 /** セル値の比較 (数値として解釈できれば数値比較、NULLは常に末尾) */
@@ -530,7 +530,7 @@ export function QueryPanel({
     if (running || !captureReq.current) return;
     captureReq.current = false;
     if (!results?.length) return;
-    setCaptureMsg("キャプチャ保存中...");
+    setCaptureMsg("キャプチャ保存中…");
     setCapturePath(null);
     const { labels, mode, explain } = headerRef.current;
     // 実行計画は英語の列名そのものに意味があるので置き換えない
@@ -570,7 +570,11 @@ export function QueryPanel({
   };
 
   /**
-   * EXPLAIN / EXPLAIN ANALYZE を実行 (選択があれば選択部分)。
+   * EXPLAIN / EXPLAIN ANALYZE を実行する。
+   *
+   * 範囲は実行ボタンと同じにする (選択があれば選択部分、
+   * 部分実行ならカーソルのある文だけ、全体実行なら全部)。
+   * 実行ボタンと違う範囲が走ると、どの文の計画なのか分からなくなるため。
    *
    * 通常の実行と同じ門・同じ受付番号を通す。
    * 片方の応答待ちにもう片方が始まると、結果や説明の種類が
@@ -582,7 +586,12 @@ export function QueryPanel({
     setRunSource("explain");
     begin(async (ticket) => {
       const text = selectedText();
-      return pendingOf(text?.trim() ? text : sql, ticket, mode);
+      if (text?.trim()) return pendingOf(text, ticket, mode);
+      if (runScope === "all") return pendingOf(sql, ticket, mode);
+      const stmt = await statementAtCursor();
+      if (!stmt) return pendingOf(sql, ticket, mode);
+      editorRef.current?.flashRange(stmt.from, stmt.to);
+      return pendingOf(stmt.text, ticket, mode);
     }, false);
   };
 
@@ -656,16 +665,17 @@ export function QueryPanel({
     const text = id === sheetPane.activeId ? sql : (sheet?.sql ?? "");
     if (!text.trim()) return;
     const base = (sheet?.title || autoTitle(text)).replace(/[\\/:*?"<>|]/g, "_");
-    const got = await saveDialog({
-      defaultPath: `${base}.sql`,
+    // 書き出し先は、ほかの書き出しと同じフォルダから選ぶ
+    const got = await pickExportPath({
+      fileName: `${base}.sql`,
       filters: [{ name: "SQL", extensions: ["sql", "txt"] }],
-      title: "SQLをファイルに保存",
-    }).catch(() => null);
-    if (typeof got !== "string") return;
+      title: "SQLをファイルに書き出す",
+    });
+    if (!got) return;
     try {
       await saveTextAs(got, text);
       // 書き出しの知らせはキャプチャと同じ場所に出す (「表示」ボタンも付く)
-      setCaptureMsg("SQLを保存しました");
+      setCaptureMsg("SQLを書き出しました");
       setCapturePath(got);
     } catch (e) {
       setActionError(String(e));
@@ -910,9 +920,7 @@ export function QueryPanel({
         onSaveFile={(id) => void saveSqlToFile(id)}
         onClose={sheetPane.onClose}
         onRename={sheetPane.onRename}
-        onFormat={handleFormat}
         onFunctions={() => setShowFunctions(true)}
-        canFormat={sql.trim() !== ""}
       />
 
       {/* エディタ (最大化中は残りの高さいっぱいに広げる) */}
@@ -1002,8 +1010,8 @@ export function QueryPanel({
 
         {/* エディタを画面いっぱいに広げる / 元に戻す (アイコンは開閉で反転) */}
         <button
-          className={"editor-size-btn" + (editorFull ? " on" : "")}
-          title={
+          className={"editor-size-btn has-tooltip" + (editorFull ? " on" : "")}
+          data-tooltip={
             editorFull ? "結果欄を表示する" : "SQLエディタを画面いっぱいに広げる"
           }
           aria-label={
@@ -1087,7 +1095,7 @@ export function QueryPanel({
               setShowFunctions(true);
             }}
           >
-            関数リファレンス...
+            関数リファレンス…
             <span className="context-key">{`${MOD}${SHIFT}H`}</span>
           </button>
           <div className="context-sep" aria-hidden />
@@ -1099,7 +1107,7 @@ export function QueryPanel({
               void saveSqlToFile();
             }}
           >
-            SQLをファイルに保存...
+            SQLをファイルに書き出す…
             <span className="context-key">{`${MOD}${SHIFT}S`}</span>
           </button>
         </div>
@@ -1126,6 +1134,8 @@ export function QueryPanel({
         onCancel={onCancel}
         onChangeSql={onChangeSql}
         onChangeOptions={onChangeOptions}
+        onFormat={handleFormat}
+        onSaveFile={() => void saveSqlToFile()}
       />
 
       {showFunctions && (
@@ -1140,8 +1150,9 @@ export function QueryPanel({
       )}
 
       <div
-        className="row-splitter"
-        title="ドラッグで高さを変更"
+        className="row-splitter has-tooltip"
+        data-tooltip="ドラッグで高さを変更"
+        aria-label="ドラッグで高さを変更"
         onMouseDown={handleSplitterDown}
       >
         <span className="grip" aria-hidden />

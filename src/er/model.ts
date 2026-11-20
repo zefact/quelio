@@ -188,7 +188,7 @@ export function buildEdges(entries: SchemaEntry[], fks: FkInfo[]): ErEdge[] {
   for (const target of entries) {
     const t = target.table.name;
     const pk = pkOf.get(t) ?? [];
-    // ルール1: 参照先のPKカラム一式(1〜3個・"id"単独は除く)を全て持つテーブルを子とみなす
+    // ルール1: 参照先のPKカラム一式(1〜3個・"id"単独は除く)をすべて持つテーブルを子とみなす
     const pkDistinctive =
       pk.length >= 1 && pk.length <= 3 && !(pk.length === 1 && pk[0] === "id");
     if (pkDistinctive) {

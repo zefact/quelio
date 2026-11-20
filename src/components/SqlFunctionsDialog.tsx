@@ -8,7 +8,7 @@
  * 開いたまま書き進められるよう、選んだ関数はその場でエディタへ差し込める
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useModal } from "../hooks/useModal";
+import { ModalFrame } from "./ModalFrame";
 import { writeClipboard } from "../gridCopy";
 import type { DbType } from "../types";
 import { functionsFor, searchFunctions } from "../sqlFunctions";
@@ -31,7 +31,6 @@ const DB_LABEL: Record<DbType, string> = {
 };
 
 export function SqlFunctionsDialog({ dbType, onInsert, onClose }: Props) {
-  const boxRef = useModal(onClose);
   const [query, setQuery] = useState("");
   /** 選んでいる関数 (名前で覚える。絞り込みで並びが変わっても追える) */
   const [picked, setPicked] = useState<string | null>(null);
@@ -135,12 +134,41 @@ export function SqlFunctionsDialog({ dbType, onInsert, onClose }: Props) {
   );
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
+    <ModalFrame
+      title="関数リファレンス"
+      target={DB_LABEL[dbType]}
+      onClose={onClose}
+      className="fn-modal"
+      footerNote={
+        <span className="faint fn-hint">項目を2度押しすると書式を差し込みます</span>
+      }
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose}>
+            閉じる
+          </button>
+          {current && (
+            <button
+              className={onInsert ? "btn-secondary" : "btn-primary"}
+              onClick={() => void copy(current.func.example)}
+            >
+              {copied ? "コピーしました" : "例をコピー"}
+            </button>
+          )}
+          {current && onInsert && (
+            <button
+              className="btn-primary"
+              onClick={() => onInsert(current.func.signature)}
+            >
+              エディタに差し込む
+            </button>
+          )}
+        </>
+      }
+    >
+      {/* 上下の矢印で関数を選び直す (包みは並びに影響しないよう display: contents) */}
       <div
-        className="modal fn-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
+        style={{ display: "contents" }}
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") {
             e.preventDefault();
@@ -151,15 +179,6 @@ export function SqlFunctionsDialog({ dbType, onInsert, onClose }: Props) {
           }
         }}
       >
-        <div className="modal-head">
-          <span className="modal-title">
-            関数リファレンス
-            <span className="column-modal-target mono">{DB_LABEL[dbType]}</span>
-          </span>
-          <button className="modal-close" onClick={onClose} title="閉じる (Esc)">
-            ×
-          </button>
-        </div>
 
         {groups.length === 0 ? (
           <div className="fn-empty">
@@ -267,34 +286,7 @@ export function SqlFunctionsDialog({ dbType, onInsert, onClose }: Props) {
           </div>
         )}
 
-        <div className="modal-actions">
-          <span className="faint fn-hint">
-            項目を2度押しすると書式を差し込みます
-          </span>
-          <span className="toolbar-spacer" />
-          {current && (
-            <button
-              className="btn-secondary"
-              onClick={() => void copy(current.func.example)}
-            >
-              {copied ? "コピーしました" : "例をコピー"}
-            </button>
-          )}
-          {current && onInsert && (
-            <button
-              className="btn-primary"
-              onClick={() => onInsert(current.func.signature)}
-            >
-              エディタに差し込む
-            </button>
-          )}
-          {!onInsert && (
-            <button className="btn-primary" onClick={onClose}>
-              閉じる
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+    </ModalFrame>
   );
 }

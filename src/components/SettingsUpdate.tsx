@@ -1,8 +1,10 @@
 import { useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { checkForUpdate, installUpdate } from "../updater";
+import { checkForUpdate, checkUpdateRisk, installUpdate } from "../updater";
+import type { UpdateRisk } from "../updater";
 import { SettingRow } from "./SettingRow";
+import { UpdateRiskConfirm } from "./UpdateBanner";
 
 type UpdState = "idle" | "checking" | "latest" | "available" | "installing";
 
@@ -46,6 +48,8 @@ export function SettingsUpdate() {
   const [version, setVersion] = useState("");
   const [error, setError] = useState<string | null>(null);
   const updateRef = useRef<Update | null>(null);
+  /** 未確定の変更がある接続 (確認を出している間だけ入る) */
+  const [risk, setRisk] = useState<UpdateRisk | null>(null);
 
   const handleCheck = async () => {
     setState("checking");
@@ -63,6 +67,16 @@ export function SettingsUpdate() {
       setState("idle");
       setError(String(e));
     }
+  };
+
+  /** 未確定の変更が残っていれば、先に確認を出す */
+  const requestInstall = async () => {
+    const found = await checkUpdateRisk();
+    if (found.names.length > 0) {
+      setRisk(found);
+      return;
+    }
+    await handleInstall();
   };
 
   const handleInstall = async () => {
@@ -111,11 +125,11 @@ export function SettingsUpdate() {
             {state === "available" || state === "installing" ? (
               <button
                 className="btn-primary"
-                onClick={handleInstall}
+                onClick={() => void requestInstall()}
                 disabled={busy}
               >
                 {busy && <span className="spinner light" />}
-                {state === "installing" ? "更新中..." : "更新して再起動"}
+                {state === "installing" ? "更新中…" : "更新して再起動"}
               </button>
             ) : (
               <button
@@ -124,7 +138,7 @@ export function SettingsUpdate() {
                 disabled={busy}
               >
                 {busy && <span className="spinner accent" />}
-                {state === "checking" ? "確認中..." : "アップデートを確認"}
+                {state === "checking" ? "確認中…" : "アップデートを確認"}
               </button>
             )}
           </div>
@@ -137,9 +151,9 @@ export function SettingsUpdate() {
           <SettingRow key={url} title={label} desc={desc}>
             <div className="upd-control">
               <button
-                className="btn-secondary link-btn"
+                className="btn-secondary link-btn has-tooltip"
                 onClick={() => openUrl(url).catch(() => {})}
-                title={url}
+                data-tooltip={url}
               >
                 <ExternalIcon />
                 開く
@@ -148,6 +162,17 @@ export function SettingsUpdate() {
           </SettingRow>
         ))}
       </section>
+
+      {risk && (
+        <UpdateRiskConfirm
+          risk={risk}
+          onCancel={() => setRisk(null)}
+          onConfirm={() => {
+            setRisk(null);
+            void handleInstall();
+          }}
+        />
+      )}
     </>
   );
 }

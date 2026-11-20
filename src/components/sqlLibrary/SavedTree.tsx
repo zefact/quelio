@@ -190,8 +190,8 @@ export function SavedTree({
             onDrop={(e) => drop(e, folderSpot(e, f.path, first))}
           >
             <button
-              className="context-item saved-folder"
-              title="クリックで開閉 / ドラッグで移動"
+              className="context-item saved-folder has-tooltip tooltip-left"
+              data-tooltip="クリックで開閉 / ドラッグで移動"
               draggable
               onDragStart={(e) => startDrag(e, { type: "folder", path: f.path })}
               onDragEnd={endDrag}
@@ -209,8 +209,8 @@ export function SavedTree({
               </span>
             </button>
             <button
-              className="saved-edit"
-              title="フォルダ名を変える (削除もここから)"
+              className="saved-edit has-tooltip"
+              data-tooltip="フォルダ名を変える (削除もここから)"
               aria-label="フォルダを変更"
               onClick={() => onRenameFolder(f.path)}
             >
@@ -259,9 +259,11 @@ export function SavedTree({
        */}
       <div
         className={
-          "saved-root-drop" + (spot?.type === "root-end" ? " drop-before" : "")
+          "saved-root-drop has-tooltip tooltip-left" +
+          (spot?.type === "root-end" ? " drop-before" : "")
         }
-        title="ここへ落とすと、フォルダの外へ移動します"
+        aria-label="ここへ落とすと、フォルダの外へ移動します"
+        data-tooltip="ここへ落とすと、フォルダの外へ移動します"
         onDragOver={(e) => over(e, { type: "root-end" })}
         onDrop={(e) => drop(e, { type: "root-end" })}
       />

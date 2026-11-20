@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { useModal } from "../../hooks/useModal";
 import type { AdminKind } from "./DbAdminDialog";
 import { imeBusy } from "../../ime";
+import { ModalFrame } from "../ModalFrame";
+import { ProdNote } from "../ProdBadge";
+import { dbAdminText } from "../../prodConfirm";
 
 interface Props {
   /** 「データベース」「スキーマ」 */
@@ -10,6 +12,8 @@ interface Props {
   name: string;
   /** 中身ごと消すかを選ばせるか (PostgreSQLのスキーマ) */
   askCascade?: boolean;
+  /** 本番の接続か (見出しにバッジ、本文の先頭に本番の1行を出す) */
+  prod?: boolean;
   onCancel: () => void;
   /** 実行する。失敗したら例外を投げること */
   onConfirm: (cascade: boolean) => Promise<void>;
@@ -25,6 +29,7 @@ export function DropNameConfirm({
   kind,
   name,
   askCascade = false,
+  prod = false,
   onCancel,
   onConfirm,
 }: Props) {
@@ -32,7 +37,6 @@ export function DropNameConfirm({
   const [cascade, setCascade] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const boxRef = useModal(onCancel, !busy);
 
   const matched = typed === name;
 
@@ -49,77 +53,16 @@ export function DropNameConfirm({
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={busy ? undefined : onCancel}>
-      <div
-        className="modal ddl-confirm"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            {kind}を削除します
-            <span className="column-modal-target mono">{name}</span>
-          </span>
-          <button
-            className="modal-close"
-            onClick={onCancel}
-            disabled={busy}
-            title="閉じる (Esc)"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="column-modal-body">
-          <div className="column-warn">
-            この{kind}の中身 (テーブル・データ) はすべて消え、元に戻せません。
-            <br />
-            実行するには、下の欄に <strong className="mono">{name}</strong>{" "}
-            と入力してください。
-          </div>
-
-          <input
-            className="text-field mono db-admin-typed"
-            value={typed}
-            spellCheck={false}
-            autoFocus
-            disabled={busy}
-            placeholder={name}
-            onChange={(e) => setTyped(e.target.value)}
-            onKeyDown={(e) => {
-              // 日本語入力の変換確定のEnterで消さない
-              if (imeBusy(e)) return;
-              if (e.key === "Enter" && matched) void run();
-            }}
-          />
-
-          {askCascade && (
-            <label className="switch db-admin-cascade">
-              <input
-                type="checkbox"
-                checked={cascade}
-                disabled={busy}
-                onChange={(e) => setCascade(e.target.checked)}
-              />
-              <span className="track" aria-hidden />
-              <span className="switch-label">
-                中に何かあっても消す (CASCADE)
-              </span>
-            </label>
-          )}
-
-          {error && (
-            <div className="result-banner ng column-error">
-              <span className="dot" aria-hidden />
-              <strong>エラー</strong>
-              <span className="result-detail">{error}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="modal-actions column-modal-actions">
-          <span className="toolbar-spacer" />
+    // 実行中は Esc・背景クリック・× で閉じない
+    <ModalFrame
+      title={`${kind}を削除します`}
+      target={name}
+      prod={prod}
+      onClose={onCancel}
+      closable={!busy}
+      className="ddl-confirm"
+      footer={
+        <>
           <button className="btn-secondary" onClick={onCancel} disabled={busy}>
             キャンセル
           </button>
@@ -130,14 +73,64 @@ export function DropNameConfirm({
           >
             {busy ? (
               <>
-                <span className="spinner light" /> 実行中...
+                <span className="spinner light" /> 実行中…
               </>
             ) : (
               "削除する"
             )}
           </button>
+        </>
+      }
+    >
+      <div className="column-modal-body">
+        {prod && (
+          <ProdNote>{dbAdminText({ kind: "drop", what: kind, name })}</ProdNote>
+        )}
+        <div className="column-warn">
+          この{kind}の中身 (テーブル・データ) はすべて消え、元に戻せません。
+          <br />
+          実行するには、下の欄に <strong className="mono">{name}</strong>{" "}
+          と入力してください。
         </div>
+
+        <input
+          className="text-field mono db-admin-typed"
+          value={typed}
+          spellCheck={false}
+          autoFocus
+          disabled={busy}
+          placeholder={name}
+          onChange={(e) => setTyped(e.target.value)}
+          onKeyDown={(e) => {
+            // 日本語入力の変換確定のEnterで消さない
+            if (imeBusy(e)) return;
+            if (e.key === "Enter" && matched) void run();
+          }}
+        />
+
+        {askCascade && (
+          <label className="switch db-admin-cascade">
+            <input
+              type="checkbox"
+              checked={cascade}
+              disabled={busy}
+              onChange={(e) => setCascade(e.target.checked)}
+            />
+            <span className="track" aria-hidden />
+            <span className="switch-label">
+              中に何かあっても消す (CASCADE)
+            </span>
+          </label>
+        )}
+
+        {error && (
+          <div className="result-banner ng column-error">
+            <span className="dot" aria-hidden />
+            <strong>エラー</strong>
+            <span className="result-detail">{error}</span>
+          </div>
+        )}
       </div>
-    </div>
+    </ModalFrame>
   );
 }

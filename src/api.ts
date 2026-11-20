@@ -57,6 +57,7 @@ import type {
   FolderInfo,
   ForeignKeyChange,
   ImportCounts,
+  RestorePreview,
   ImportMode,
   ImportResult,
   IndexChange,
@@ -1421,6 +1422,11 @@ export function importErDiagrams(path: string): Promise<ImportCounts> {
   return call("import_er_diagrams", { path });
 }
 
+/** ER図のファイルを取り込んだら何件増えて、どれが上書きされるかを調べる (書き込まない) */
+export function previewErDiagramsImport(path: string): Promise<RestorePreview> {
+  return call("preview_er_diagrams_import", { path });
+}
+
 /** 選んだER図だけをJSONファイルへ書き出す (件数を返す) */
 export function exportErDiagramSubset(
   path: string,
@@ -1450,6 +1456,11 @@ export function exportSavedSql(path: string): Promise<number> {
 /** JSONファイルからSQLのお気に入りを取り込む (同じIDは上書き) */
 export function importSavedSql(path: string): Promise<ImportCounts> {
   return call("import_saved_sql", { path });
+}
+
+/** SQLのお気に入りのファイルを取り込んだら何件増えて、どれが上書きされるかを調べる (書き込まない) */
+export function previewSavedSqlImport(path: string): Promise<RestorePreview> {
+  return call("preview_saved_sql_import", { path });
 }
 
 /**
@@ -1489,6 +1500,11 @@ export function exportCsvLayouts(path: string): Promise<number> {
 /** JSONファイルから固定長のお気に入りを取り込む (同じ名前は上書き) */
 export function importCsvLayouts(path: string): Promise<ImportCounts> {
   return call("import_csv_layouts", { path });
+}
+
+/** 固定長のお気に入りのファイルを取り込んだら何件増えて、どれが上書きされるかを調べる (書き込まない) */
+export function previewCsvLayoutsImport(path: string): Promise<RestorePreview> {
+  return call("preview_csv_layouts_import", { path });
 }
 
 /** 範囲ごとに選べる権限の名前 (画面の選択肢を作るのに使う) */
@@ -1808,6 +1824,11 @@ export function cancelQuery(sessionId: string): Promise<void> {
   return call("cancel_query", { sessionId });
 }
 
+/** 接続が生きているか確かめ、切れていれば張り直す (「接続し直す」ボタン) */
+export function checkConnection(sessionId: string): Promise<void> {
+  return call("check_connection", { sessionId });
+}
+
 /**
  * 今のトランザクションの状態を読む。
  * 実行中は "busy" が返る (待たせないため。実行が終わったら読み直す)
@@ -1859,6 +1880,11 @@ export function kvExec(
   confirmed = false,
 ): Promise<KvRunOutput> {
   return call("kv_exec", { sessionId, database, commands, confirmed });
+}
+
+/** Valkey: 実行中のコマンドを中止する (応答を待たずに接続を張り直す) */
+export function kvCancel(sessionId: string): Promise<void> {
+  return call("kv_cancel", { sessionId });
 }
 
 /**

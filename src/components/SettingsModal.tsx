@@ -1,5 +1,6 @@
+import { CloseMark } from "./CloseMark";
 import { useEffect, useRef, useState } from "react";
-import { useModal } from "../hooks/useModal";
+import { ModalShell } from "./ModalShell";
 import type { Notify, NotifyLevel } from "../notify";
 import { getVersion } from "@tauri-apps/api/app";
 import { SettingsAi } from "./SettingsAi";
@@ -16,25 +17,13 @@ interface Props {
   onImported: () => void;
 }
 
-function CloseIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M6 6l12 12M18 6L6 18"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 /** 設定モーダル (左: ナビゲーション / 右: 固定ヘッダ + 設定行) */
 export function SettingsModal({ onClose, onImported }: Props) {
   const [page, setPage] = useState<SettingsPage>("general");
-  const [toast, setToast] = useState<{ msg: string; level: NotifyLevel } | null>(
-    null
-  );
+  const [toast, setToast] = useState<{
+    msg: string;
+    level: NotifyLevel;
+  } | null>(null);
   const timer = useRef<number | undefined>(undefined);
   const [version, setVersion] = useState("");
   /** 本文をスクロールしたか (ヘッダに区切り線を出すため) */
@@ -46,10 +35,6 @@ export function SettingsModal({ onClose, onImported }: Props) {
       .catch(() => {});
     return () => window.clearTimeout(timer.current);
   }, []);
-
-  // Escで閉じる・初期フォーカスは共通の作法にそろえる
-  // (上に確認ダイアログが出ているときは、そちらが先に閉じる)
-  const boxRef = useModal<HTMLDivElement>(onClose);
 
   // ページを切り替えたらスクロール位置は先頭に戻る
   useEffect(() => setScrolled(false), [page]);
@@ -67,57 +52,53 @@ export function SettingsModal({ onClose, onImported }: Props) {
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className="modal settings-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <SettingsNav page={page} onSelect={setPage} version={version} />
+    // Escで閉じる・初期フォーカスは共通の作法にそろえる
+    // (上に確認ダイアログが出ているときは、そちらが先に閉じる)
+    <ModalShell label="設定" onClose={onClose} className="settings-modal">
+      <SettingsNav page={page} onSelect={setPage} version={version} />
 
-        <div className="settings-main">
-          <div className={"settings-topbar" + (scrolled ? " scrolled" : "")}>
-            {toast && (
-              <button
-                className={"save-toast " + toast.level}
-                title={toast.level === "success" ? undefined : "押すと閉じます"}
-                onClick={() => setToast(null)}
-              >
-                {toast.level === "success" ? "✓ " : "! "}
-                {toast.msg}
-              </button>
-            )}
+      <div className="settings-main">
+        <div className={"settings-topbar" + (scrolled ? " scrolled" : "")}>
+          {toast && (
             <button
-              className="modal-close settings-close"
-              onClick={onClose}
-              title="閉じる (Esc)"
+              className={"save-toast has-tooltip " + toast.level}
+              data-tooltip={toast.level === "success" ? undefined : "押すと閉じます"}
+              onClick={() => setToast(null)}
             >
-              <CloseIcon />
+              {toast.level === "success" ? "✓ " : "! "}
+              {toast.msg}
             </button>
-          </div>
-
-          <div
-            className="settings-body"
-            key={page}
-            onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
+          )}
+          <button
+            className="modal-close settings-close has-tooltip"
+            onClick={onClose}
+            data-tooltip="閉じる (Esc)"
+            aria-label="閉じる"
           >
-            {page === "general" ? (
-              <SettingsGeneral notify={notify} />
-            ) : page === "editor" ? (
-              <SettingsEditor notify={notify} />
-            ) : page === "tools" ? (
-              <SettingsTools notify={notify} />
-            ) : page === "ai" ? (
-              <SettingsAi notify={notify} />
-            ) : page === "update" ? (
-              <SettingsUpdate />
-            ) : (
-              <SettingsBackup notify={notify} onImported={onImported} />
-            )}
-          </div>
+            <CloseMark size={16} />
+          </button>
+        </div>
+
+        <div
+          className="settings-body"
+          key={page}
+          onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 2)}
+        >
+          {page === "general" ? (
+            <SettingsGeneral notify={notify} />
+          ) : page === "editor" ? (
+            <SettingsEditor notify={notify} />
+          ) : page === "tools" ? (
+            <SettingsTools notify={notify} />
+          ) : page === "ai" ? (
+            <SettingsAi notify={notify} />
+          ) : page === "update" ? (
+            <SettingsUpdate />
+          ) : (
+            <SettingsBackup notify={notify} onImported={onImported} />
+          )}
         </div>
       </div>
-    </div>
+    </ModalShell>
   );
 }

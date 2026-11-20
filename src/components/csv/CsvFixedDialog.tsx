@@ -19,7 +19,7 @@
  */
 import { useState } from "react";
 import { csvSaveLayout } from "../../api";
-import { useModal } from "../../hooks/useModal";
+import { ModalFrame } from "../ModalFrame";
 import type {
   CsvFixedColumn,
   CsvFixedKind,
@@ -109,7 +109,6 @@ export function CsvFixedDialog({
    */
   const [part, setPart] = useState("body");
   // Esc で閉じる (他のダイアログと同じ)。保存している間は閉じない
-  const boxRef = useModal(onClose, !busy);
 
   /** レイアウトの一部を差し替える */
   const put = (fix: Partial<CsvFixedLayout>) =>
@@ -227,190 +226,174 @@ export function CsvFixedDialog({
   const exists = layouts.some((s) => s.name === name.trim());
 
   return (
-    <div className="modal-overlay" onMouseDown={busy ? undefined : onClose}>
-      <div
-        className="modal csv-fixed-modal"
-        ref={boxRef}
-        tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            {edit ? "お気に入りの編集" : "固定長の桁設定"}
-          </span>
-          <button
-            className="modal-close"
-            disabled={busy}
-            onClick={onClose}
-            title="閉じる"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="csv-fixed-body">
-          {/* 名前と単位は横に並べる (見出しは欄の上。他のダイアログと同じ形) */}
-          <div className="csv-fixed-top">
-            <label className="save-sql-label">
-              お気に入り名
-              <input
-                className="save-sql-input"
-                placeholder={edit ? "名前を入力" : "未設定 (保存する場合に入力)"}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
-            <div className="save-sql-label">
-              桁幅の単位
-              <SelectMenu
-                popFixed
-                value={layout.unit}
-                options={UNITS}
-                onChange={(v) => put({ unit: v as CsvWidthUnit })}
-              />
-            </div>
-          </div>
-
-          {/* 入り切りは2列に並べて、縦に長くならないようにする */}
-          <div className="csv-fixed-opts">
-            <label className="csv-check">
-              <input
-                type="checkbox"
-                className="pick-check"
-                checked={layout.trim}
-                onChange={(e) => put({ trim: e.target.checked })}
-              />
-              埋め文字を除いて表示する
-            </label>
-
-            {/*
-              ホストから来るファイルには、改行が1つも無く
-              桁の合計ぶんずつが1件になっているものがある
-            */}
-            <label className="csv-check">
-              <input
-                type="checkbox"
-                className="pick-check"
-                checked={!layout.newline}
-                onChange={(e) => put({ newline: !e.target.checked })}
-              />
-              改行が無いファイル (計{total}
-              {UNIT_LABEL[layout.unit]}ごと)
-            </label>
-
-            {/*
-              先頭と末尾だけ桁が違うファイルへの指定。
-              どちらも表には混ぜず、表の外に出して編集してもらう。
-              種別を見分けるときは使えないので、押せなくして残す (欄が出たり消えたりしないように)
-            */}
-            <label className={"csv-check" + (mixed ? " off" : "")}>
-              <input
-                type="checkbox"
-                className="pick-check"
-                disabled={mixed}
-                checked={layout.header.length > 0}
-                onChange={(e) => toggleEdge(false, e.target.checked)}
-              />
-              先頭にヘッダ行がある
-            </label>
-            <label className={"csv-check" + (mixed ? " off" : "")}>
-              <input
-                type="checkbox"
-                className="pick-check"
-                disabled={mixed}
-                checked={layout.trailer.length > 0}
-                onChange={(e) => toggleEdge(true, e.target.checked)}
-              />
-              末尾にトレーラ行がある
-            </label>
-
-            {/*
-              レコードごとに桁が違うファイルへの指定。
-              値を見て種別を決め、種別ごとの桁で1つの表に並べる
-            */}
-            <label className="csv-check csv-fixed-opt-wide">
-              <input
-                type="checkbox"
-                className="pick-check"
-                checked={mixed}
-                onChange={(e) => toggleKinds(e.target.checked)}
-              />
-              レコードの種別を見分ける
-              <span className="save-sql-note">
-                (行ごとに桁が違うファイル。ヘッダ行・トレーラ行とは一緒に使えません)
-              </span>
-            </label>
-          </div>
-
-          {/* 桁の並びは、場所ごとにここで切り替えて出す */}
-          <div className="csv-fixed-tabs-row">
-            <div className="result-tabs csv-fixed-tabs" role="tablist">
-              {parts.map((p) => (
-                <button
-                  key={p.key}
-                  className={"result-tab" + (p.key === shown ? " active" : "")}
-                  role="tab"
-                  aria-selected={p.key === shown}
-                  onClick={() => setPart(p.key)}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            {mixed && (
-              <button
-                type="button"
-                className="lib-action"
-                title="レコードの種別を足す"
-                onClick={addKind}
-              >
-                ＋ 種別を追加
-              </button>
-            )}
-          </div>
-
-          <div className="csv-fixed-part">
-            {kindAt >= 0 && (
-              <CsvFixedKindPart
-                kind={layout.kinds[kindAt]}
-                unit={layout.unit}
-                onChange={(fix) => putKind(kindAt, fix)}
-                onRemove={() => removeKind(kindAt)}
-              />
-            )}
-            <CsvFixedColumns
-              /*
-                出している場所ごとに作り直す。
-                同じ部品を使い回すと、一括入力の欄に前の場所の桁が残ってしまう
-              */
-              key={shown}
-              columns={columns}
-              unit={layout.unit}
-              onChange={putColumns}
+    <ModalFrame
+      title={edit ? "お気に入りの編集" : "固定長の桁設定"}
+      onClose={onClose}
+      closable={!busy}
+      className="csv-fixed-modal"
+    >
+      <div className="csv-fixed-body">
+        {/* 名前と単位は横に並べる (見出しは欄の上。他のダイアログと同じ形) */}
+        <div className="csv-fixed-top">
+          <label className="save-sql-label">
+            お気に入り名
+            <input
+              className="save-sql-input"
+              placeholder={edit ? "名前を入力" : "未設定 (保存する場合に入力)"}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
             />
-            {mixed && kindAt < 0 && shown === "body" && (
-              <span className="save-sql-note">
-                上のタブの種別を順に見て、はじめに当てはまった桁で読み込みます。
-                どれにも当てはまらない行は、このデータ行の桁で読み込みます
-              </span>
-            )}
+          </label>
+          <div className="save-sql-label">
+            桁幅の単位
+            <SelectMenu
+              popFixed
+              value={layout.unit}
+              options={UNITS}
+              onChange={(v) => put({ unit: v as CsvWidthUnit })}
+            />
           </div>
-
-          {note && <div className="csv-fixed-note">{note}</div>}
-          {error && <div className="csv-fixed-note error">{error}</div>}
         </div>
 
-        <CsvFixedFooter
-          mode={edit ? "edit" : onApply ? "apply" : "register"}
-          named={!!name.trim()}
-          ready={ready}
-          exists={exists}
-          busy={busy}
-          onSave={() => void (edit ? saveEdit() : save())}
-          onApply={() => onApply?.(layout)}
-          onClose={onClose}
-        />
+        {/* 入り切りは2列に並べて、縦に長くならないようにする */}
+        <div className="csv-fixed-opts">
+          <label className="csv-check">
+            <input
+              type="checkbox"
+              className="pick-check"
+              checked={layout.trim}
+              onChange={(e) => put({ trim: e.target.checked })}
+            />
+            埋め文字を除いて表示する
+          </label>
+
+          {/*
+            ホストから来るファイルには、改行が1つも無く
+            桁の合計ぶんずつが1件になっているものがある
+          */}
+          <label className="csv-check">
+            <input
+              type="checkbox"
+              className="pick-check"
+              checked={!layout.newline}
+              onChange={(e) => put({ newline: !e.target.checked })}
+            />
+            改行が無いファイル (計{total}
+            {UNIT_LABEL[layout.unit]}ごと)
+          </label>
+
+          {/*
+            先頭と末尾だけ桁が違うファイルへの指定。
+            どちらも表には混ぜず、表の外に出して編集してもらう。
+            種別を見分けるときは使えないので、押せなくして残す (欄が出たり消えたりしないように)
+          */}
+          <label className={"csv-check" + (mixed ? " off" : "")}>
+            <input
+              type="checkbox"
+              className="pick-check"
+              disabled={mixed}
+              checked={layout.header.length > 0}
+              onChange={(e) => toggleEdge(false, e.target.checked)}
+            />
+            先頭にヘッダ行がある
+          </label>
+          <label className={"csv-check" + (mixed ? " off" : "")}>
+            <input
+              type="checkbox"
+              className="pick-check"
+              disabled={mixed}
+              checked={layout.trailer.length > 0}
+              onChange={(e) => toggleEdge(true, e.target.checked)}
+            />
+            末尾にトレーラ行がある
+          </label>
+
+          {/*
+            レコードごとに桁が違うファイルへの指定。
+            値を見て種別を決め、種別ごとの桁で1つの表に並べる
+          */}
+          <label className="csv-check csv-fixed-opt-wide">
+            <input
+              type="checkbox"
+              className="pick-check"
+              checked={mixed}
+              onChange={(e) => toggleKinds(e.target.checked)}
+            />
+            レコードの種別を見分ける
+            <span className="save-sql-note">
+              (行ごとに桁が違うファイル。ヘッダ行・トレーラ行とは一緒に使えません)
+            </span>
+          </label>
+        </div>
+
+        {/* 桁の並びは、場所ごとにここで切り替えて出す */}
+        <div className="csv-fixed-tabs-row">
+          <div className="result-tabs csv-fixed-tabs" role="tablist">
+            {parts.map((p) => (
+              <button
+                key={p.key}
+                className={"result-tab" + (p.key === shown ? " active" : "")}
+                role="tab"
+                aria-selected={p.key === shown}
+                onClick={() => setPart(p.key)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          {mixed && (
+            <button
+              type="button"
+              className="lib-action has-tooltip"
+              data-tooltip="レコードの種別を足す"
+              onClick={addKind}
+            >
+              ＋ 種別を追加
+            </button>
+          )}
+        </div>
+
+        <div className="csv-fixed-part">
+          {kindAt >= 0 && (
+            <CsvFixedKindPart
+              kind={layout.kinds[kindAt]}
+              unit={layout.unit}
+              onChange={(fix) => putKind(kindAt, fix)}
+              onRemove={() => removeKind(kindAt)}
+            />
+          )}
+          <CsvFixedColumns
+            /*
+              出している場所ごとに作り直す。
+              同じ部品を使い回すと、一括入力の欄に前の場所の桁が残ってしまう
+            */
+            key={shown}
+            columns={columns}
+            unit={layout.unit}
+            onChange={putColumns}
+          />
+          {mixed && kindAt < 0 && shown === "body" && (
+            <span className="save-sql-note">
+              上のタブの種別を順に見て、はじめに当てはまった桁で読み込みます。
+              どれにも当てはまらない行は、このデータ行の桁で読み込みます
+            </span>
+          )}
+        </div>
+
+        {note && <div className="csv-fixed-note">{note}</div>}
+        {error && <div className="csv-fixed-note error">{error}</div>}
       </div>
-    </div>
+
+      <CsvFixedFooter
+        mode={edit ? "edit" : onApply ? "apply" : "register"}
+        named={!!name.trim()}
+        ready={ready}
+        exists={exists}
+        busy={busy}
+        onSave={() => void (edit ? saveEdit() : save())}
+        onApply={() => onApply?.(layout)}
+        onClose={onClose}
+      />
+    </ModalFrame>
   );
 }

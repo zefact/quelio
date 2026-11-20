@@ -9,6 +9,10 @@ interface Props {
   verb: string;
   /** 数えているものの単位 (件 / テーブル など) */
   unit: string;
+  /** 全部でいくつか (分かっていれば進み具合の帯を出す) */
+  total?: number | null;
+  /** 枠の class (ダイアログのボタン欄に置くときは余白を変える) */
+  className?: string;
   /** 中止を頼めなかったときに知らせる */
   onError: (message: string) => void;
 }
@@ -24,17 +28,20 @@ export function JobProgress({
   startedAt,
   verb,
   unit,
+  total = null,
+  className = "kv-bulk-progress",
   onError,
 }: Props) {
   const [asked, setAsked] = useState(false);
 
   return (
-    <div className="kv-bulk-progress">
+    <div className={className}>
       <CsvProgress
         jobId={jobId}
         startedAt={startedAt}
         verb={verb}
         unit={unit}
+        total={total}
       />
       <button
         className="btn-secondary"
@@ -47,7 +54,7 @@ export function JobProgress({
           });
         }}
       >
-        {asked ? "中止しています..." : "中止"}
+        {asked ? "中止しています…" : "中止"}
       </button>
     </div>
   );

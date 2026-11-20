@@ -13,27 +13,42 @@ import { IndexGrid } from "./IndexGrid";
 interface Props {
   detail: TableDetail | null;
   loading: boolean;
-  /** コメントを論理名+補足に分けて表示するか (設定) */
+  /** コメントを日本語名と補足に分けて表示するか (設定) */
   split: boolean;
-  /** 論理名と補足の区切り文字 (設定) */
+  /** 日本語名と補足の区切り文字 (設定) */
   delim: string;
   /** 定義変更 (DDL) が使えるか (Valkey以外・ビュー以外) */
   canEdit: boolean;
   dbType: DbType;
+  /**
+   * 本番の接続か。
+   * 削除などの確認ダイアログに本番の1行を出す (確認そのものは上の画面が出す)
+   */
+  prod?: boolean;
+  /** 確認に出すテーブル名 (スキーマがあれば付けた形) */
+  tableLabel?: string;
   /** 編集状態を解除するきっかけ (テーブル切替時に変わる) */
   resetKey: string | number;
-  /** カラムの変更を実行する (失敗したら例外を投げる) */
-  onApplyDdl: (change: ColumnChange) => Promise<void>;
+  /**
+   * カラムの変更を実行する (失敗したら例外を投げる)。
+   * `confirmed` は、この画面ですでに確認ダイアログを通したか
+   */
+  onApplyDdl: (change: ColumnChange, confirmed?: boolean) => Promise<void>;
   /** 実行せずに、生成されるSQLだけを取得する (並べ替えの確認用) */
   onPreviewDdl: (change: ColumnChange) => Promise<string[]>;
   /** カラム削除の確認を出す */
   onRequestDrop: (column: ColumnInfo) => void;
   /** インデックスの変更を実行する (失敗したら例外を投げる) */
-  onApplyIndexDdl: (change: IndexChange) => Promise<void>;
+  onApplyIndexDdl: (change: IndexChange, confirmed?: boolean) => Promise<void>;
   /** 実行せずに、インデックスを作るSQLだけを取得する */
   onPreviewIndexDdl: (change: IndexChange) => Promise<string[]>;
   /** 外部キーの変更を実行する (失敗したら例外を投げる) */
-  onApplyForeignKeyDdl: (change: ForeignKeyChange) => Promise<void>;
+  onApplyForeignKeyDdl: (
+    change: ForeignKeyChange,
+    confirmed?: boolean
+  ) => Promise<void>;
+  /** 組み立てたSQL (CREATE INDEX 文など) をSQLエディタへ送る */
+  onSendToEditor?: (sql: string) => void;
   /** 型の選択肢 */
   types: string[];
   /** 照合順序の選択肢 */
@@ -48,6 +63,8 @@ export function StructureView({
   delim,
   canEdit,
   dbType,
+  prod = false,
+  tableLabel = "",
   resetKey,
   onApplyDdl,
   onPreviewDdl,
@@ -55,6 +72,7 @@ export function StructureView({
   onApplyIndexDdl,
   onPreviewIndexDdl,
   onApplyForeignKeyDdl,
+  onSendToEditor,
   types,
   collations,
 }: Props) {
@@ -62,11 +80,11 @@ export function StructureView({
     <div className="structure">
       {loading ? (
         <div className="structure-loading">
-          <span className="spinner accent" /> 構造を読み込み中...
+          <span className="spinner accent" /> 構造を読み込み中…
         </div>
       ) : !detail ? (
         <div className="structure-loading">
-          定義を取得できませんでした (再読込を試してください)
+          定義を取得できませんでした (再読み込みを試してください)
         </div>
       ) : (
         <>
@@ -87,6 +105,8 @@ export function StructureView({
             delim={delim}
             canEdit={canEdit}
             dbType={dbType}
+            prod={prod}
+            tableLabel={tableLabel}
             resetKey={resetKey}
             onApply={onApplyDdl}
             onPreview={onPreviewDdl}
@@ -103,9 +123,12 @@ export function StructureView({
             tableColumns={detail.columns}
             canEdit={canEdit}
             dbType={dbType}
+            prod={prod}
+            tableLabel={tableLabel}
             resetKey={resetKey}
             onApply={onApplyIndexDdl}
             onPreview={onPreviewIndexDdl}
+            onSendToEditor={onSendToEditor}
           />
 
           <ForeignKeyGrid
@@ -113,6 +136,8 @@ export function StructureView({
             tableColumns={detail.columns}
             canEdit={canEdit}
             dbType={dbType}
+            prod={prod}
+            tableLabel={tableLabel}
             resetKey={resetKey}
             onApply={onApplyForeignKeyDdl}
           />

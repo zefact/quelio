@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { previewChangeDatabaseOwner } from "../../api";
-import { useModal } from "../../hooks/useModal";
+import { ModalFrame } from "../ModalFrame";
+import { ProdNote } from "../ProdBadge";
 import { SelectMenu } from "../SelectMenu";
+import { dbAdminText } from "../../prodConfirm";
 import type { DbType } from "../../types";
 
 interface Props {
@@ -12,6 +14,8 @@ interface Props {
   current: string;
   /** 所有者に選べるロール */
   roles: string[];
+  /** 本番の接続か (見出しにバッジ、本文の先頭に本番の1行を出す) */
+  prod?: boolean;
   onCancel: () => void;
   /** 実行する。失敗したら例外を投げること (成功したら呼び出し側で閉じる) */
   onConfirm: (owner: string) => Promise<void>;
@@ -28,6 +32,7 @@ export function OwnerDialog({
   name,
   current,
   roles,
+  prod = false,
   onCancel,
   onConfirm,
 }: Props) {
@@ -36,7 +41,6 @@ export function OwnerDialog({
   const [sql, setSql] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const boxRef = useModal(onCancel, !busy);
 
   // 今の所有者は選んでも何も変わらないので、選択肢から外す
   const options = useMemo(
@@ -80,92 +84,82 @@ export function OwnerDialog({
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={busy ? undefined : onCancel}>
-      <div
-        className="modal ddl-confirm"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            所有者を変更します
-            <span className="column-modal-target mono">{name}</span>
-          </span>
-          <button
-            className="modal-close"
-            onClick={onCancel}
-            disabled={busy}
-            title="閉じる (Esc)"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="column-modal-body">
-          <div className="db-owner-fields">
-            <div className="db-admin-opt-field">
-              <span className="db-admin-opt-label">今の所有者</span>
-              <span className="db-owner-current mono">{current}</span>
-            </div>
-            <div className="db-admin-opt-field">
-              <span className="db-admin-opt-label">新しい所有者</span>
-              <SelectMenu
-                className="select-field mono"
-                value={owner}
-                options={options}
-                disabled={busy || options.length === 0}
-                placeholder={
-                  options.length === 0 ? "選べるロールがありません" : "選んでください"
-                }
-                popFixed
-                onChange={setOwner}
-              />
-            </div>
-          </div>
-
-          {sql && (
-            <>
-              <p className="confirm-sql-head">次のSQLを実行します</p>
-              <pre className="mono confirm-sql">{sql}</pre>
-            </>
-          )}
-
-          <p className="db-admin-hint">
-            {/* 文の間に空白が入らないよう、1つの文字列で渡す */}
-            {"変更できるのは、このデータベースの所有者で CREATEDB 権限を持つロールか、スーパーユーザーです。" +
-              "選べるのは、今つないでいるロールが属しているロールだけです。"}
-          </p>
-
-          {error && (
-            <div className="result-banner ng column-error">
-              <span className="dot" aria-hidden />
-              <strong>エラー</strong>
-              <span className="result-detail">{error}</span>
-            </div>
-          )}
-        </div>
-
-        <div className="modal-actions column-modal-actions">
-          <span className="toolbar-spacer" />
+    // 実行中は Esc・背景クリック・× で閉じない
+    <ModalFrame
+      title="所有者を変更します"
+      target={name}
+      prod={prod}
+      onClose={onCancel}
+      closable={!busy}
+      className="ddl-confirm"
+      footer={
+        <>
           <button className="btn-secondary" onClick={onCancel} disabled={busy}>
             キャンセル
           </button>
           <button
-            className="btn-primary"
+            className="btn-primary has-tooltip"
             disabled={busy || !sql}
+            data-tooltip={!owner ? "新しい所有者を選んでください" : undefined}
             onClick={() => void run()}
           >
             {busy ? (
               <>
-                <span className="spinner light" /> 実行中...
+                <span className="spinner light" /> 実行中…
               </>
             ) : (
               "変更する"
             )}
           </button>
+        </>
+      }
+    >
+      <div className="column-modal-body">
+        {prod && owner && (
+          <ProdNote>{dbAdminText({ kind: "owner", name, owner })}</ProdNote>
+        )}
+        <div className="db-owner-fields">
+          <div className="db-admin-opt-field">
+            <span className="db-admin-opt-label">今の所有者</span>
+            <span className="db-owner-current mono">{current}</span>
+          </div>
+          <div className="db-admin-opt-field">
+            <span className="db-admin-opt-label">新しい所有者</span>
+            <SelectMenu
+              className="select-field mono"
+              value={owner}
+              options={options}
+              disabled={busy || options.length === 0}
+              placeholder={
+                options.length === 0 ? "選べるロールがありません" : "選んでください"
+              }
+              popFixed
+              onChange={setOwner}
+            />
+          </div>
         </div>
+
+        {sql && (
+          <>
+            <p className="confirm-sql-head">次のSQLを実行します</p>
+            <pre className="mono confirm-sql">{sql}</pre>
+          </>
+        )}
+
+        <p className="db-admin-hint">
+          {/* 文の間に空白が入らないよう、1つの文字列で渡す */}
+          {"変更できるのは、このデータベースの所有者で CREATEDB 権限を持つロールか、スーパーユーザーです。" +
+            "選べるのは、今接続しているロールが属しているロールだけです。"}
+        </p>
+
+        {error && (
+          <div className="result-banner ng column-error">
+            <span className="dot" aria-hidden />
+            <strong>エラー</strong>
+            <span className="result-detail">{error}</span>
+          </div>
+        )}
       </div>
-    </div>
+    </ModalFrame>
   );
 }

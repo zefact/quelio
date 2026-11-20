@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { CsvLayoutFileEntry, CsvLayoutImported } from "../../types";
-import { useModal } from "../../hooks/useModal";
+import { ModalFrame } from "../ModalFrame";
 import { FolderIcon } from "../sqlLibrary/LibraryIcons";
 import { TreeIndent } from "../sqlLibrary/TreeIndent";
 import { TriCheckbox } from "../sqlLibrary/TriCheckbox";
@@ -45,7 +45,6 @@ export function CsvLayoutRestoreDialog<T extends Named>({
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const boxRef = useModal(onClose, !busy);
 
   /** ファイルを選んで、中のお気に入りを確かめる (最初は全部に印を付ける) */
   const pick = async () => {
@@ -137,115 +136,115 @@ export function CsvLayoutRestoreDialog<T extends Named>({
   );
 
   return (
-    <div className="modal-overlay" onMouseDown={() => !busy && onClose()}>
-      <div
-        className="modal saved-transfer-modal"
-        ref={boxRef}
-        tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <span className="modal-title">{kind.label}を復元</span>
-          <button className="modal-close" onClick={onClose} title="閉じる">
-            ×
+    <ModalFrame
+      title={`${kind.label}を復元 (今あるものに追加)`}
+      onClose={onClose}
+      closable={!busy}
+      className="saved-transfer-modal"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose} disabled={busy}>
+            キャンセル
           </button>
+          <button
+            className="btn-primary"
+            disabled={!canRun}
+            onClick={() => void run()}
+          >
+            {picked.length > 0 ? `${picked.length}件を追加する` : "追加する"}
+          </button>
+        </>
+      }
+    >
+
+      <div className="saved-transfer-body">
+        <div className="save-sql-label">
+          ファイル
+          <div className="restore-file">
+            <span className="restore-file-name mono" title={path ?? ""}>
+              {path ? baseName(path) : "(選んでいません)"}
+            </span>
+            <button
+              type="button"
+              className="btn-ghost folder-pick-add"
+              disabled={busy}
+              onClick={() => void pick()}
+            >
+              {path ? "選び直す…" : "ファイルを選ぶ…"}
+            </button>
+          </div>
         </div>
 
-        <div className="saved-transfer-body">
-          <div className="save-sql-label">
-            ファイル
-            <div className="restore-file">
-              <span className="restore-file-name mono" title={path ?? ""}>
-                {path ? baseName(path) : "(選んでいません)"}
+        {entries && entries.length === 0 && (
+          <span className="save-sql-note">
+            このファイルには{kind.label}がありません
+          </span>
+        )}
+        {entries && entries.length > 0 && (
+          <>
+            <div className="pick-head">
+              <span className="pick-count">
+                {entries.length}件中 {picked.length}件を追加します
               </span>
+              <span className="toolbar-spacer" />
               <button
                 type="button"
-                className="btn-ghost folder-pick-add"
-                disabled={busy}
-                onClick={() => void pick()}
+                className="lib-action"
+                onClick={() => setSel(new Set(entries.map((e) => e.name)))}
               >
-                {path ? "選び直す…" : "ファイルを選ぶ…"}
+                すべて選ぶ
+              </button>
+              <button
+                type="button"
+                className="lib-action"
+                onClick={() => setSel(new Set())}
+              >
+                すべて外す
               </button>
             </div>
-          </div>
-
-          {entries && entries.length === 0 && (
-            <span className="save-sql-note">
-              このファイルには{kind.label}がありません
-            </span>
-          )}
-          {entries && entries.length > 0 && (
-            <>
-              <div className="pick-head">
-                <span className="pick-count">
-                  {entries.length}件中 {picked.length}件を取り込みます
-                </span>
-                <span className="toolbar-spacer" />
-                <button
-                  type="button"
-                  className="lib-action"
-                  onClick={() => setSel(new Set(entries.map((e) => e.name)))}
-                >
-                  すべて選ぶ
-                </button>
-                <button
-                  type="button"
-                  className="lib-action"
-                  onClick={() => setSel(new Set())}
-                >
-                  すべて外す
-                </button>
-              </div>
-              <div className="pick-list">
-                {groups.flatMap((g, i) => {
-                  if (g.folder === null) return g.entries.map((e) => itemRow(e, 0));
-                  const names = g.entries.map((e) => e.name);
-                  return [
-                    <label key={`f:${i}`} className="pick-row pick-folder">
-                      <TriCheckbox
-                        state={groupState(names)}
-                        onChange={() => toggleGroup(names)}
-                      />
-                      <FolderIcon open />
-                      <span className="er-pick-text">
-                        <span className="pick-name">
-                          {g.renamedFrom ?? g.folder}
-                        </span>
-                        {g.renamedFrom !== null && (
-                          <span className="er-pick-rename pick-name">
-                            同じ名前のフォルダがあるので「{g.folder}」として追加
-                          </span>
-                        )}
+            <div className="pick-list">
+              {groups.flatMap((g, i) => {
+                if (g.folder === null) return g.entries.map((e) => itemRow(e, 0));
+                const names = g.entries.map((e) => e.name);
+                return [
+                  <label key={`f:${i}`} className="pick-row pick-folder">
+                    <TriCheckbox
+                      state={groupState(names)}
+                      onChange={() => toggleGroup(names)}
+                    />
+                    <FolderIcon open />
+                    <span className="er-pick-text">
+                      <span className="pick-name">
+                        {g.renamedFrom ?? g.folder}
                       </span>
-                      <span className="saved-folder-count">{g.entries.length}</span>
-                    </label>,
-                    ...g.entries.map((e) => itemRow(e, 1)),
-                  ];
-                })}
-              </div>
-            </>
-          )}
+                      {g.renamedFrom !== null && (
+                        <span className="er-pick-rename pick-name">
+                          同じ名前のフォルダがあるので「{g.folder}」として追加
+                        </span>
+                      )}
+                    </span>
+                    <span className="saved-folder-count">{g.entries.length}</span>
+                  </label>,
+                  ...g.entries.map((e) => itemRow(e, 1)),
+                ];
+              })}
+            </div>
+          </>
+        )}
 
-          <p className="restore-safe">
-            今あるお気に入りは変わりません
-            (同じ名前のものは上書きせず、番号を付けて足します)。
-          </p>
+        <p className="restore-safe">
+          今あるお気に入りは変わりません
+          (同じ名前のものは上書きせず、番号を付けて足します)。
+        </p>
 
-          {error && <div className="save-sql-error">{error}</div>}
-          <div className="save-sql-actions">
-            <button className="btn-secondary" onClick={onClose}>
-              キャンセル
-            </button>
-            <button
-              className="btn-primary"
-              disabled={!canRun}
-              onClick={() => void run()}
-            >
-              取り込む
-            </button>
+        {error && (
+          <div className="result-banner ng">
+            <span className="dot" aria-hidden />
+            <strong>エラー</strong>
+            <span className="result-detail">{error}</span>
           </div>
-        </div>
+        )}
       </div>
-    </div>
+    </ModalFrame>
   );
 }

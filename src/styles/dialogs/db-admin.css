@@ -17,7 +17,7 @@
   align-items: center;
   gap: var(--space-2);
   margin: 0 0 var(--space-2);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 700;
   color: var(--text-dim);
 }
@@ -53,7 +53,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-2) var(--space-3);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   border-bottom: 1px solid var(--border);
 }
 
@@ -76,7 +76,7 @@
 
 .db-admin-hint {
   margin: var(--space-4) 0 0;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.6;
   color: var(--text-faint);
 }
@@ -107,7 +107,7 @@
 }
 
 .db-admin-opt-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
 }
 
@@ -128,7 +128,7 @@
   align-items: center;
   gap: 6px;
   font-family: inherit;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 /* 「選択中のデータベース」タブに添える名前 (長い名前は切る) */
@@ -150,7 +150,7 @@
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
   font-family: inherit;
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   font-weight: 700;
 }
 
@@ -162,7 +162,7 @@
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .db-admin-current-owner .db-admin-owner {
@@ -195,7 +195,7 @@
 
 .db-admin-table-head {
   padding: 0 var(--space-3) 4px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-faint);
 }
@@ -229,7 +229,7 @@ ul.db-admin-table {
 
 .db-owner-current {
   padding: 6px 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 /* 作成と削除は別の操作なので、かたまりが分かるようにする。
@@ -246,7 +246,7 @@ ul.db-admin-table {
   align-items: center;
   gap: var(--space-2);
   margin: 0 0 var(--space-2);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   color: var(--text-dim);
 }
@@ -274,10 +274,17 @@ ul.db-admin-table {
   list-style: none;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.8;
 }
 
 .drop-table-agree {
   margin-bottom: var(--space-2);
+}
+
+/* データベースの作成ボタン (指定の欄の下、右に寄せる) */
+.db-admin-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-3);
 }

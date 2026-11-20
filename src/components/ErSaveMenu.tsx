@@ -4,7 +4,6 @@ import { usePopupPosition } from "../hooks/usePopupPosition";
 import { CaretIcon } from "./SqlToolIcons";
 import {
   ER_FORMATS,
-  formatLabel,
   isTextFormat,
   lastErFormat,
   rememberErFormat,
@@ -15,7 +14,7 @@ import {
 interface Props {
   /** 図が空のときは押せなくする */
   disabled: boolean;
-  /** 選んでいる形式で保存する */
+  /** 選んだ形式でファイルへ書き出す */
   onSave: (format: ErExportFormat) => void;
   /** テキスト形式をクリップボードへコピーする */
   onCopy: (format: ErTextFormat) => void;
@@ -25,16 +24,17 @@ interface Props {
 const MENU_W = 300;
 
 /**
- * ER図の保存ボタン (Excel / PNG / SVG / Mermaid / PlantUML)。
+ * ER図の書き出しボタン (Excel / PNG / SVG / Mermaid / PlantUML)。
  *
- * 押すと前に選んだ形式でそのまま保存し、「▾」で形式を選び直す。
- * ▾ で選んでもその場では保存しない (選ぶ操作と保存する操作を分ける)。
+ * 図そのものは自動で保存されるので、ここは「ファイルへ書き出す」だけ。
+ * 「保存」と書くと、押さないと図が消えるように読めるため、「書き出す ▾」にしている。
+ * 形式の行を押すとその形式で書き出す。前に使った形式には印を付ける。
  * テキスト形式はメニューの行からクリップボードへコピーもできる
  */
 export function ErSaveMenu({ disabled, onSave, onCopy }: Props) {
   const [open, setOpen] = useState(false);
   const [at, setAt] = useState({ x: 0, y: 0, top: 0 });
-  /** 今選んでいる形式 (前に選んだものから始める) */
+  /** 前に使った形式 (印を付ける) */
   const [format, setFormat] = useState<ErExportFormat>(lastErFormat);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
@@ -44,7 +44,7 @@ export function ErSaveMenu({ disabled, onSave, onCopy }: Props) {
   );
   useDismiss(open, () => setOpen(false), {
     // 図の上の要素がmousedownを止めるので、キャプチャ段階で拾う。
-    // ▾ もメニューも外枠の中にあるので、外枠の外だけを「外側」とする
+    // ボタンもメニューも外枠の中にあるので、外枠の外だけを「外側」とする
     capture: true,
     ref: wrapRef,
     resize: true,
@@ -57,68 +57,67 @@ export function ErSaveMenu({ disabled, onSave, onCopy }: Props) {
     setOpen((v) => !v);
   };
 
-  /** 形式を選ぶ (ここでは保存しない) */
+  /** その形式で書き出し、次に開いたときの印にする */
   const pick = (value: ErExportFormat) => {
     setOpen(false);
     setFormat(value);
     rememberErFormat(value);
+    onSave(value);
   };
 
-  const note = ER_FORMATS.find((f) => f.value === format)?.note ?? "";
-
   return (
-    <div className="run-split export-split" ref={wrapRef}>
+    <div className="er-export" ref={wrapRef}>
       <button
-        className={
-          "btn-secondary export-main tooltip-left" +
-          (open ? "" : " has-tooltip tooltip-wrap")
+        className="btn-secondary tooltip-left has-tooltip"
+        // メニューを開いている間は、説明がメニューに重ならないよう出さない
+        data-tooltip={
+          open
+            ? undefined
+            : disabled
+              ? "図が空なので書き出せません"
+              : "図をファイルへ書き出します (Excel / PNG / SVG / Mermaid / PlantUML)\n図そのものは自動で保存されています"
         }
-        data-tooltip={`${formatLabel(format)}で保存します (${note})\n形式は ▾ で切り替えられます`}
-        disabled={disabled}
-        onClick={() => onSave(format)}
-      >
-        {formatLabel(format)}保存
-      </button>
-      <button
-        className="btn-secondary export-caret"
-        title="保存する形式を選ぶ"
-        aria-label="保存する形式を選ぶ"
+        aria-haspopup="menu"
+        aria-expanded={open}
         disabled={disabled}
         onClick={openMenu}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <CaretIcon />
+        書き出す <CaretIcon />
       </button>
       {open && (
         <div
           className="context-menu export-menu er-save-menu"
           ref={menuRef}
           style={menuStyle}
+          role="menu"
           onMouseDown={(e) => e.stopPropagation()}
         >
           {ER_FORMATS.map((f) => (
-              <div key={f.value} className="er-save-row">
-                <button
-                  className={
-                    "context-item export-item" +
-                    (f.value === format ? " checked" : "")
-                  }
-                  onClick={() => pick(f.value)}
-                >
-                  <span className="export-name">{f.label}</span>
-                  <span className="export-note">{f.note}</span>
-                </button>
-                {isTextFormat(f.value) && (
-                  <CopyButton
-                    format={f.value}
-                    label={f.label}
-                    onCopy={(v) => {
-                      setOpen(false);
-                      onCopy(v);
-                    }}
-                  />
-                )}
-              </div>
+            <div key={f.value} className="er-save-row">
+              <button
+                className={
+                  "context-item export-item has-tooltip" +
+                  (f.value === format ? " checked" : "")
+                }
+                role="menuitem"
+                data-tooltip={f.value === format ? "前回使った形式" : undefined}
+                onClick={() => pick(f.value)}
+              >
+                <span className="export-name">{f.label}で書き出す</span>
+                <span className="export-note">{f.note}</span>
+              </button>
+              {isTextFormat(f.value) && (
+                <CopyButton
+                  format={f.value}
+                  label={f.label}
+                  onCopy={(v) => {
+                    setOpen(false);
+                    onCopy(v);
+                  }}
+                />
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -138,8 +137,8 @@ function CopyButton({
 }) {
   return (
     <button
-      className="context-item er-save-copy"
-      title={`${label}をクリップボードへコピー`}
+      className="context-item er-save-copy has-tooltip"
+      data-tooltip={`${label}をクリップボードへコピー`}
       onClick={() => onCopy(format)}
     >
       コピー

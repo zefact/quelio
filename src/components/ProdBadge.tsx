@@ -16,14 +16,10 @@ export function ProdBadge() {
 }
 
 /**
- * 確認ダイアログの本文に出す、本番の1行 (バッジ + 短い文)。
- * 何をどこに対して行うのかが1行で分かるようにする
+ * 確認ダイアログの本文に出す、本番の1行 (短い文)。
+ * 何をどこに対して行うのかが1行で分かるようにする。
+ * 「本番」のバッジは枠 (ModalFrame の prod) が見出しに出すので、ここでは出さない
  */
 export function ProdNote({ children }: { children: ReactNode }) {
-  return (
-    <span className="prod-note">
-      <ProdBadge />
-      {children}
-    </span>
-  );
+  return <p className="prod-note">{children}</p>;
 }

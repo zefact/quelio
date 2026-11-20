@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { importConnections } from "../../api";
-import { useModal } from "../../hooks/useModal";
+import { ModalFrame } from "../ModalFrame";
 import { imeBusy } from "../../ime";
 import type { ConnectionsFileInfo, ImportCounts } from "../../types";
+import { overwrittenNames, restoreCounts } from "../../restorePreview";
 
 interface Props {
   /** 取り込むファイル */
@@ -23,7 +24,6 @@ export function ConnectionImportDialog({ path, info, onDone, onClose }: Props) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const boxRef = useModal(onClose, !busy);
 
   const run = async (withSecrets: boolean) => {
     if (busy || (withSecrets && !password)) return;
@@ -39,29 +39,52 @@ export function ConnectionImportDialog({ path, info, onDone, onClose }: Props) {
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={busy ? undefined : onClose}>
-      <div
-        className="modal ddl-confirm"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">接続一覧を復元します</span>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={busy}
-            title="閉じる (Esc)"
-          >
-            ×
+    <ModalFrame
+      title="接続一覧を復元します"
+      onClose={onClose}
+      closable={!busy}
+      className="ddl-confirm"
+      // パスワード抜きで取り込む道もあるので、主ボタンから離して左に置く
+      footerNote={
+        <button
+          className="btn-secondary has-tooltip"
+          disabled={busy}
+          data-tooltip="接続先の設定だけを取り込みます (パスワードはあとで入れ直します)"
+          onClick={() => void run(false)}
+        >
+          パスワードは取り込まない
+        </button>
+      }
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose} disabled={busy}>
+            キャンセル
           </button>
-        </div>
+          <button
+            className="btn-primary"
+            disabled={busy || !password}
+            onClick={() => void run(true)}
+          >
+            {busy ? "取り込み中…" : "パスワードも取り込む"}
+          </button>
+        </>
+      }
+    >
 
         <div className="column-modal-body backup-secret-body">
           <p className="backup-secret-note">
             {`このファイルには、接続先${info.connections}件と、暗号化したパスワード・SSHのパスフレーズが入っています。` +
               "バックアップのときに決めたパスワードを入れると、それも取り込みます。"}
+          </p>
+          {/* 取り込んだら何件増えて、どれが上書きされるか (書き込まずに数えたもの) */}
+          <p className="backup-secret-note">
+            {restoreCounts(info.preview)}
+            {info.preview.updated > 0 && (
+              <>
+                <br />
+                上書きされるもの: {overwrittenNames(info.preview.updatedNames)}
+              </>
+            )}
           </p>
           <label className="backup-secret-field">
             <span className="field-label">バックアップのパスワード</span>
@@ -88,29 +111,6 @@ export function ConnectionImportDialog({ path, info, onDone, onClose }: Props) {
             </div>
           )}
         </div>
-
-        <div className="modal-actions column-modal-actions">
-          <button
-            className="btn-secondary"
-            disabled={busy}
-            title="接続先の設定だけを取り込みます (パスワードはあとで入れ直します)"
-            onClick={() => void run(false)}
-          >
-            パスワードは取り込まない
-          </button>
-          <span className="toolbar-spacer" />
-          <button className="btn-secondary" onClick={onClose} disabled={busy}>
-            キャンセル
-          </button>
-          <button
-            className="btn-primary"
-            disabled={busy || !password}
-            onClick={() => void run(true)}
-          >
-            {busy ? "取り込み中..." : "パスワードも取り込む"}
-          </button>
-        </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }

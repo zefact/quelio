@@ -23,6 +23,8 @@ import {
   withSize,
 } from "./columnDraft";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { EditBar, EditKeysHint } from "./EditBar";
+import { columnChangeWhat, prodActionText } from "../prodConfirm";
 import { GridColumn, GridRow, ResizableGrid } from "./ResizableGrid";
 import {
   useAsyncApply,
@@ -33,13 +35,17 @@ import { imeBusy } from "../ime";
 
 interface Props {
   columns: ColumnInfo[];
-  /** コメントを論理名+補足に分けて表示するか (設定) */
+  /** コメントを日本語名と補足に分けて表示するか (設定) */
   split: boolean;
-  /** 論理名と補足の区切り文字 (設定) */
+  /** 日本語名と補足の区切り文字 (設定) */
   delim: string;
   /** 定義変更 (DDL) が使えるか (Valkey以外・ビュー以外) */
   canEdit: boolean;
   dbType: DbType;
+  /** 本番の接続か (この画面で出す確認ダイアログに本番の1行を足す) */
+  prod?: boolean;
+  /** 確認に出すテーブル名 */
+  tableLabel?: string;
   /**
    * この値が変わったら編集状態を解除する
    * (テーブルを切り替えたときに親が変える)
@@ -47,9 +53,11 @@ interface Props {
   resetKey: string | number;
   /**
    * 変更を実行する。失敗したら例外を投げること。
-   * 成功すれば編集状態を解除し、失敗すれば行を編集状態のまま残す
+   * 成功すれば編集状態を解除し、失敗すれば行を編集状態のまま残す。
+   * `confirmed` は、この画面ですでに確認ダイアログを通したか
+   * (通していなければ、上の画面が本番などの確認を出す)
    */
-  onApply: (change: ColumnChange) => Promise<void>;
+  onApply: (change: ColumnChange, confirmed?: boolean) => Promise<void>;
   /** 実行せずに、生成されるSQLだけを取得する (並べ替えの確認に使う) */
   onPreview: (change: ColumnChange) => Promise<string[]>;
   /** カラム削除の確認を親に依頼する (取り返しがつかないため) */
@@ -97,9 +105,9 @@ const ROW_NUM_COL: GridColumn = {
 function columnCols(split: boolean, showComment: boolean): GridColumn[] {
   return [
     ROW_NUM_COL,
-    { id: "name", label: "フィールド", width: 190, minWidth: 90 },
+    { id: "name", label: "カラム名", width: 190, minWidth: 90 },
     ...(split && showComment
-      ? [{ id: "logical", label: "論理名", width: 160, minWidth: 80 }]
+      ? [{ id: "logical", label: "日本語名", width: 160, minWidth: 80 }]
       : []),
     { id: "type", label: "型", width: 110, minWidth: 60 },
     { id: "size", label: "サイズ", width: 70, minWidth: 50, align: "right" as const },
@@ -160,6 +168,8 @@ export function ColumnGrid({
   delim,
   canEdit,
   dbType,
+  prod = false,
+  tableLabel = "",
   resetKey,
   onApply,
   onPreview,
@@ -425,10 +435,10 @@ export function ColumnGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing, changed]);
 
-  /** 変更を実行する */
-  const runChange = async (change: ColumnChange) => {
+  /** 変更を実行する (`confirmed` はこの画面で確認を通したか) */
+  const runChange = async (change: ColumnChange, confirmed = false) => {
     // 失敗したら直せるよう、行は編集状態のまま残す
-    if (await run(change)) setEditing(null);
+    if (await run(change, confirmed)) setEditing(null);
     setConfirmEdit(null);
   };
 
@@ -633,7 +643,8 @@ export function ColumnGrid({
     if (!pendingMove || busy) return;
     const change = moveChange(pendingMove.from, pendingMove.after);
     if (!change) return;
-    if (await run(change)) setPendingMove(null);
+    // 移動の帯そのものが確認なので、本番のときだけもう一度聞く
+    if (await run(change, !prod)) setPendingMove(null);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -709,11 +720,12 @@ export function ColumnGrid({
     />,
     <input
       type="checkbox"
-      className="cell-check"
+      className="cell-check has-tooltip"
       data-field="null"
       checked={d.nullable}
       disabled={busy}
-      title={d.nullable ? "NULLを許可" : "NOT NULL"}
+      data-tooltip={d.nullable ? "NULLを許可" : "NOT NULL"}
+      aria-label={d.nullable ? "NULLを許可" : "NOT NULL"}
       onKeyDown={onKeyDown}
       onChange={(e) => patch({ nullable: e.target.checked })}
     />,
@@ -776,8 +788,8 @@ export function ColumnGrid({
       // MySQLは行番号のところをつまんでドラッグすると並べ替えられる
       canMove ? (
         <span
-          className="mono row-num drag-handle"
-          title="ドラッグして並べ替え"
+          className="mono row-num drag-handle has-tooltip"
+          data-tooltip="ドラッグして並べ替え"
           onPointerDown={(e) => startDrag(c, e)}
         >
           {i + 1}
@@ -817,12 +829,12 @@ export function ColumnGrid({
         const diff = !!col && !!baseCollation && col !== baseCollation;
         return (
           <span
-            className={"mono " + (diff ? "collation-diff" : "faint")}
-            title={
-              diff
-                ? `${col}\n既定 (${baseCollation}) と違います`
-                : (c.collation ?? undefined)
+            className={"mono has-tooltip " + (diff ? "collation-diff" : "faint")}
+            // 既定と違うときは説明つきでツールチップに、そうでなければ省略した文字の全体を title で出す
+            data-tooltip={
+              diff ? `${col}\n既定 (${baseCollation}) と違います` : undefined
             }
+            title={diff ? undefined : (c.collation ?? undefined)}
           >
             {c.collation ?? ""}
           </span>
@@ -921,17 +933,17 @@ export function ColumnGrid({
             <span className="toolbar-spacer" />
             <span className="ddl-hint">
               {editing
-                ? "編集中の行を確定するか取り消すと、他の行を編集できます"
+                ? "編集中の行を保存するか破棄すると、他の行を編集できます"
                 : canMove
                   ? "ダブルクリックで編集 / 右クリックで追加・削除 / 行番号をドラッグで並べ替え"
                   : "ダブルクリックで編集 / 右クリックで追加・削除"}
             </span>
             <button
-              className="btn-secondary ddl-add-btn"
+              className="btn-secondary ddl-add-btn has-tooltip"
               onClick={() => startAdd(null)}
               disabled={!!editing}
-              title={
-                editing ? "編集中の行を確定するか取り消してください" : undefined
+              data-tooltip={
+                editing ? "編集中の行を保存するか破棄してください" : undefined
               }
             >
               <PlusIcon />
@@ -946,8 +958,14 @@ export function ColumnGrid({
         <ConfirmDialog
           title="この変更を実行します"
           target={confirmEdit.change.kind === "modify" ? confirmEdit.change.before.name : ""}
-          confirmLabel="実行する"
-          onConfirm={() => runChange(confirmEdit.change)}
+          confirmLabel="変更する"
+          prodNote={
+            prod
+              ? prodActionText(tableLabel, columnChangeWhat(confirmEdit.change))
+              : undefined
+          }
+          // データが失われうる変更なので、ここで確認したら上の画面では聞き直さない
+          onConfirm={() => runChange(confirmEdit.change, true)}
           onCancel={() => setConfirmEdit(null)}
         >
           <ul className="column-warn-list">
@@ -995,7 +1013,7 @@ export function ColumnGrid({
             onClick={() => setPendingMove(null)}
             disabled={busy}
           >
-            取り消し
+            キャンセル
           </button>
           <button
             className="ddl-bar-btn primary"
@@ -1008,54 +1026,26 @@ export function ColumnGrid({
       )}
 
       {/* 編集中の案内と、実行中・エラーの表示 (位置変更の失敗もここに出す) */}
-      {(editing || busy || error) && (
-        <div className="ddl-bar">
-          {busy ? (
-            <>
-              <span className="spinner accent" />
-              <span className="ddl-bar-text">実行中...</span>
-            </>
-          ) : error ? (
-            <>
-              <span className="ddl-bar-icon ng" aria-hidden>
-                !
+      <EditBar
+        busy={busy}
+        error={error}
+        onDismissError={() => setError(null)}
+        editing={!!editing}
+        changed={changed}
+        hint={
+          <>
+            <EditKeysHint />
+            {!changed && "（変更はまだありません）"}
+            {changed && previewSql && previewSql.length > 0 && (
+              <span className="move-sql mono" title={previewSql.join("\n")}>
+                {previewSql.join(" / ")}
               </span>
-              <span className="ddl-bar-text ng">{error}</span>
-            </>
-          ) : (
-            <span className="ddl-bar-text">
-              <kbd>Enter</kbd> で反映 / <kbd>Esc</kbd> で取り消し
-              {!changed && "（変更はまだありません）"}
-              {changed && previewSql && previewSql.length > 0 && (
-                <span className="move-sql mono" title={previewSql.join("\n")}>
-                  {previewSql.join(" / ")}
-                </span>
-              )}
-            </span>
-          )}
-          <span className="toolbar-spacer" />
-          {editing ? (
-            <>
-              <button className="ddl-bar-btn" onClick={cancel} disabled={busy}>
-                取り消し
-              </button>
-              <button
-                className="ddl-bar-btn primary"
-                onClick={commit}
-                disabled={busy || !changed}
-              >
-                反映
-              </button>
-            </>
-          ) : (
-            error && (
-              <button className="ddl-bar-btn" onClick={() => setError(null)}>
-                閉じる
-              </button>
-            )
-          )}
-        </div>
-      )}
+            )}
+          </>
+        }
+        onCancel={cancel}
+        onSave={commit}
+      />
 
       <ResizableGrid
         autoFit
@@ -1093,7 +1083,7 @@ export function ColumnGrid({
         }
         rowMenuHead={(key) => (key === NEW_ROW ? undefined : key)}
         rowMenuItems={(key) => {
-          // 編集中は追加・削除させない (先に確定か取り消しをしてもらう)
+          // 編集中は追加・削除させない (先に保存か破棄をしてもらう)
           if (!canEdit || key === NEW_ROW || busy || editing) return [];
           const column = columns.find((c) => c.name === key);
           if (!column) return [];

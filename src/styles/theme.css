@@ -81,6 +81,17 @@
   --space-5: 16px;
   --space-6: 24px;
 
+  /*
+   * 文字の大きさのスケール (font-size はここから選ぶ。生の px は増やさない)。
+   * 見出しなどの大きな字 (18px 以上) だけは、その場で決めてよい
+   */
+  --fs-2xs: 10px; /* バッジ・補足の小さな字 */
+  --fs-xs: 11px; /* 注記・ツールチップ */
+  --fs-sm: 12px; /* グリッド・メニュー・ボタン */
+  --fs-md: 13px; /* 本文 */
+  --fs-base: 14px; /* 標準の文字 */
+  --fs-lg: 16px; /* 小見出し */
+
   /* SQLシンタックスハイライト */
   --syn-keyword: #c4b5fd;
   --syn-string: #6ee7b7;
@@ -132,6 +143,8 @@ html[data-theme="light"] {
   --json-str: #0f7a5c;
   --json-num: #2b6cb0;
   --json-bool: #8a5a00;
+  /* 明るい地では水色が見えにくいので、濃い青緑にする */
+  --accent-2: #0891b2;
   --ink: 17, 24, 39;
   --input-bg: #ffffff;
   --menu-bg: #ffffff;

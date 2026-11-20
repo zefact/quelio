@@ -8,13 +8,49 @@
   width: min(1080px, 96vw);
 }
 
-/* 読み取り方法と取り込み方法 (横に並べて、幅が足りなければ折り返す) */
+/* 読み取り方法と取り込み方法 (ファイルを選んでから出す) */
 .csv-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* 読み取り方法の1行 (幅が足りなければ折り返す) */
+.csv-read-row {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--space-4);
-  margin-top: var(--space-3);
+}
+
+/* 自動判定の結果と [変更] */
+.csv-read-auto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.csv-read-now {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  font-size: var(--fs-sm);
+}
+
+/* 重複したときの動き (説明付きのカード) */
+.csv-mode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* 絵の無いカードは題を幅いっぱいに置く */
+.choice-card.no-icon {
+  grid-template-columns: 1fr;
+  row-gap: 4px;
+  padding: 9px 12px;
 }
 
 .csv-field {
@@ -24,7 +60,7 @@
 }
 
 .csv-field-label {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-faint);
 }
 
@@ -32,7 +68,7 @@
 .csv-settings-hint {
   flex-basis: 100%;
   margin: 0;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
 }
 
@@ -54,7 +90,7 @@
 
 .csv-map-table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 /* 見出しは縦スクロールしても残す */
@@ -118,7 +154,7 @@
 
 .csv-import-hint {
   flex: 1;
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 /* 取り込み中の進み具合 (件数の下に帯を出す) */

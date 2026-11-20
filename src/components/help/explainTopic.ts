@@ -420,7 +420,7 @@ const POSTGRESQL: HelpSection[] = [
         ["EXPLAIN (ANALYZE, VERBOSE)", "出力する列や、関数の呼び出し先まで"],
         [
           "EXPLAIN (ANALYZE, TIMING OFF)",
-          "時間の計測をやめる。計測そのものが重い環境で、行数だけ知りたいとき",
+          "時間を計らない。計測そのものが重い環境で、行数だけ知りたいとき",
         ],
         [
           "EXPLAIN (ANALYZE, SETTINGS)",

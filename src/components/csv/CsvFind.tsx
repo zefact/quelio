@@ -5,6 +5,8 @@
  * 見つかった場所を親へ返し、親がそこへカーソルを動かす
  */
 import { useEffect, useRef, useState } from "react";
+import { SHIFT } from "../../keyLabel";
+import { IconButton } from "../IconButton";
 import { csvFind, csvReplaceAll, csvReplaceOne } from "../../api";
 import type { CsvFindOptions, CsvInfo, CsvMatch, CsvRect } from "../../types";
 import { selectionCells } from "./csvSelection";
@@ -196,104 +198,106 @@ export function CsvFind({
           左端の矢印。押すと置換の欄が出る。
           置換はいつも使うものではないので、普段はたたんでおく
         */}
-        <button
+        <IconButton
+          label={open ? "置換を閉じる" : "置換を開く"}
+          tipLeft
           className={"csv-find-more" + (open ? " on" : "")}
-          title={open ? "置換を閉じる" : "置換を開く"}
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
         >
           <MoreIcon />
-        </button>
+        </IconButton>
 
         {/* 探し方の入り切りは、入力欄の中に収める */}
         <div className="csv-find-field">
           <input
             ref={boxRef}
             className="csv-find-box"
-            placeholder="検索"
+            placeholder="表の中を検索"
+            aria-label="表の中を検索"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <button
+          <IconButton
+            label="英字の大小を区別する"
             className={"csv-find-toggle" + (matchCase ? " on" : "")}
-            title="英字の大小を区別する"
             aria-pressed={matchCase}
             onClick={() => setMatchCase((v) => !v)}
           >
             Aa
-          </button>
-          <button
+          </IconButton>
+          <IconButton
+            label="正規表現として探す"
             className={"csv-find-toggle" + (useRegex ? " on" : "")}
-            title="正規表現として探す"
             aria-pressed={useRegex}
             onClick={() => setUseRegex((v) => !v)}
           >
             .*
-          </button>
-          <button
+          </IconButton>
+          <IconButton
+            label="セルの中身がまるごと同じものだけを探す"
             className={"csv-find-toggle" + (wholeCell ? " on" : "")}
-            title="セルの中身がまるごと同じものだけを探す"
             aria-pressed={wholeCell}
             onClick={() => setWholeCell((v) => !v)}
           >
             <span className="csv-find-whole">ab</span>
-          </button>
+          </IconButton>
         </div>
 
-        <button
+        <IconButton
+          label={`前へ (${SHIFT}Enter)`}
           className="csv-find-step"
-          title="前を検索 (Shift+Enter)"
           disabled={!query}
           onClick={() => void find(true)}
         >
           <UpIcon />
-        </button>
-        <button
+        </IconButton>
+        <IconButton
+          label="次へ (Enter)"
           className="csv-find-step"
-          title="次を検索 (Enter)"
           disabled={!query}
           onClick={() => void find(false)}
         >
           <DownIcon />
-        </button>
+        </IconButton>
 
         {/* 選んだ所だけを探す */}
-        <button
-          className={"csv-find-step" + (scoped ? " on" : "")}
-          title={
+        <IconButton
+          label={
             scoped
               ? `選んだ${selectionCells(ranges).toLocaleString()}セルの中だけを探しています (押すと表全体に戻します)`
               : canScope
                 ? "選んだ範囲の中だけを探す"
                 : "範囲を選ぶと、その中だけを探せます"
           }
+          className={"csv-find-step" + (scoped ? " on" : "")}
           aria-pressed={scoped}
           disabled={!canScope}
           onClick={toggleScope}
         >
           <ScopeIcon />
-        </button>
+        </IconButton>
 
         {/* 知らせ (長いときは末尾を省くので、全文は吹き出しで出す) */}
         <span className="csv-find-note" title={note ?? undefined}>
           {note}
         </span>
         {/* 正規表現の早見表 (欄の幅を変えないよう、いつも置いておく) */}
-        <button
+        <IconButton
+          label="正規表現の書き方"
           className={"csv-find-step csv-find-help" + (help ? " on" : "")}
-          title="正規表現の書き方"
           aria-pressed={help}
           onClick={() => setHelp((v) => !v)}
         >
           ?
-        </button>
-        <button
+        </IconButton>
+        <IconButton
+          label="閉じる (Esc)"
           className="csv-find-step"
-          title="閉じる (Esc)"
           onClick={onClose}
         >
           <CloseIcon />
-        </button>
+        </IconButton>
       </div>
 
       {/* 2行目: 置換 (左の矢印を押したときだけ出す) */}
@@ -305,26 +309,27 @@ export function CsvFind({
             <input
               className="csv-find-box"
               placeholder="置換後の文字"
+              aria-label="置換後の文字"
               value={replacement}
               onChange={(e) => setReplacement(e.target.value)}
             />
           </div>
-          <button
+          <IconButton
+            label="この1つを置換して次へ"
             className="csv-find-step"
-            title="この1つを置換して次へ"
             disabled={!query || replacing}
             onClick={() => void replaceOne()}
           >
             <ReplaceOneIcon />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
+            label="見つかったものをすべて置換"
             className="csv-find-step"
-            title="見つかったものをすべて置換"
             disabled={!query || replacing}
             onClick={() => void replaceAll()}
           >
             <ReplaceAllIcon />
-          </button>
+          </IconButton>
           {/*
             1行目の「選んだ所だけ」「知らせ」「閉じる」に当たる場所を空ける。
             空けておかないと、入力欄の右端が上下でずれる

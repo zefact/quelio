@@ -81,7 +81,7 @@ export function groupGrants(grants: DbGrant[]): GrantGroup[] {
  *
  * 名前・接続元・所属ロール・印のどれかに当たれば残す。
  * `withSystem` が false のときは、サーバーが用意したものを外す
- * (ただし今つないでいるユーザーは、どんなときでも残す)
+ * (ただし今接続しているユーザーは、どんなときでも残す)
  */
 export function filterUsers(
   users: DbUser[],
@@ -189,16 +189,64 @@ export function userRef(u: DbUser): DbUserRef {
 /**
  * 変えてよい相手か (変えられないなら、その理由)。
  *
- * サーバーが用意したものと、今つないでいる自分自身は変えさせない。
+ * サーバーが用意したものと、今接続している自分自身は変えさせない。
  * バックエンドでも同じことを確かめるが、
  * 押せないことが先に分かるほうが迷わない
  */
 export function blockedReason(u: DbUser): string | null {
   if (u.isSelf) {
-    return "今つないでいるユーザー自身は変更できません";
+    return "今接続しているユーザー自身は変更できません";
   }
   if (u.system) {
     return "サーバーが用意したユーザーなので変更できません";
+  }
+  return null;
+}
+
+/** 権限のまとめ選び (SQL の権限名を知らなくても選べるように) */
+export type GrantPreset = "read" | "write" | "all";
+
+export const GRANT_PRESETS: { value: GrantPreset; label: string; hint: string }[] = [
+  {
+    value: "read",
+    label: "読むだけ",
+    hint: "行を読む権限と、入れ物 (データベース・スキーマ) に入る権限",
+  },
+  {
+    value: "write",
+    label: "読み書き",
+    hint: "読むだけに加えて、行を足す・書き換える・消す権限",
+  },
+  { value: "all", label: "すべて", hint: "その範囲でできることを全部 (ALL PRIVILEGES)" },
+];
+
+/** 読むのに要る権限 (範囲によって無いものは使わない) */
+const READ_PRIVS = ["SELECT", "SHOW VIEW", "CONNECT", "USAGE"];
+/** 書くのに足す権限 */
+const WRITE_PRIVS = ["INSERT", "UPDATE", "DELETE"];
+
+/**
+ * まとめ選びに当たる権限を、その範囲で選べるものの中から選ぶ。
+ *
+ * 「すべて」は ALL PRIVILEGES があればそれ1つにする
+ * (1つずつ並べるより、流すSQLが短く読みやすい)
+ */
+export function presetPrivileges(preset: GrantPreset, available: string[]): string[] {
+  if (preset === "all") {
+    const all = available.find((p) => p.toUpperCase() === "ALL PRIVILEGES");
+    return all ? [all] : [...available];
+  }
+  const want = preset === "read" ? READ_PRIVS : [...READ_PRIVS, ...WRITE_PRIVS];
+  return available.filter((p) => want.includes(p.toUpperCase()));
+}
+
+/** 選んでいる権限が、どのまとめ選びと同じか (どれでもなければ null) */
+export function matchPreset(picked: string[], available: string[]): GrantPreset | null {
+  const same = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((p) => b.includes(p));
+  for (const p of GRANT_PRESETS) {
+    const list = presetPrivileges(p.value, available);
+    if (list.length > 0 && same(list, picked)) return p.value;
   }
   return null;
 }

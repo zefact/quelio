@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useModal } from "../hooks/useModal";
+import { ModalFrame } from "./ModalFrame";
 import type { Clip } from "../cellValue";
 import { clippedHead } from "../cellValue";
 import { writeClipboard } from "../gridCopy";
@@ -44,7 +44,6 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
    * (Valkeyの一覧は行数が多いので既定は素のまま、と使い分けている)
    */
   const [view, setView] = useState<CellView>("tree");
-  const boxRef = useModal(onClose);
 
   // 別のセルを開いたときに、前のセルの内容が残らないようにする
   useEffect(() => {
@@ -134,23 +133,26 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
   const shown = [...text].length;
 
   return (
-    <div className="modal-overlay" onMouseDown={onClose}>
-      <div
-        className="modal cell-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            セルの内容
-            <span className="column-modal-target mono">{column}</span>
-          </span>
-          <button className="modal-close" onClick={onClose} title="閉じる (Esc)">
-            ×
+    <ModalFrame
+      title="セルの内容"
+      target={column}
+      onClose={onClose}
+      className="cell-modal"
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose}>
+            閉じる
           </button>
-        </div>
-
+          <button className="btn-primary" onClick={copy} disabled={busy}>
+            {copied
+              ? "コピーしました"
+              : full || onFetchFull
+                ? "コピー"
+                : "先頭のみコピー"}
+          </button>
+        </>
+      }
+    >
         <div className="cell-modal-body">
           <div className="cell-meta">
             <span className="faint">
@@ -160,8 +162,8 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
             </span>
             {formatted !== null && (
               <div
-                className="cell-view-switch"
-                title="JSON・PHPシリアライズを読みやすく表示します"
+                className="cell-view-switch has-tooltip"
+                data-tooltip="JSON・PHPシリアライズを読みやすく表示します"
               >
                 {canTree && (
                   <button
@@ -175,7 +177,7 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
                   className={shownView === "pretty" ? "on" : ""}
                   onClick={() => setView("pretty")}
                 >
-                  整形
+                  見やすく
                 </button>
                 <button
                   className={shownView === "raw" ? "on" : ""}
@@ -187,10 +189,10 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
             )}
             {!full && (
               <button
-                className="btn-secondary"
+                className="btn-secondary has-tooltip"
                 onClick={fetchFull}
                 disabled={busy || !onFetchFull}
-                title={
+                data-tooltip={
                   onFetchFull
                     ? "この行をもう一度読み、全文を取得します"
                     : "SQLの実行結果では行を特定できないため取得できません"
@@ -198,7 +200,7 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
               >
                 {busy ? (
                   <>
-                    <span className="spinner" /> 取得中...
+                    <span className="spinner" /> 読み込み中…
                   </>
                 ) : (
                   "全文を取得"
@@ -225,21 +227,6 @@ export function CellDetail({ column, value, clip, onFetchFull, onClose }: Props)
             </div>
           )}
         </div>
-
-        <div className="modal-actions column-modal-actions">
-          <span className="toolbar-spacer" />
-          <button className="btn-secondary" onClick={copy} disabled={busy}>
-            {copied
-              ? "コピーしました"
-              : full || onFetchFull
-                ? "コピー"
-                : "先頭のみコピー"}
-          </button>
-          <button className="btn-primary" onClick={onClose}>
-            閉じる
-          </button>
-        </div>
-      </div>
-    </div>
+    </ModalFrame>
   );
 }

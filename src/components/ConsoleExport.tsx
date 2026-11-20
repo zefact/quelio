@@ -10,12 +10,12 @@ import type { ExportedLog, LogFormat } from "../types";
 const FORMATS: { value: LogFormat; label: string; hint: string }[] = [
   {
     value: "csv",
-    label: "CSVで保存",
+    label: "CSV で書き出す",
     hint: "表計算ソフトで開く用 (時刻・接続・DB・クエリの4列)",
   },
   {
     value: "text",
-    label: "テキストで保存",
+    label: "テキストで書き出す",
     hint: "1行1件のテキスト (grepしやすい形)",
   },
 ];
@@ -75,7 +75,7 @@ export function ConsoleExport({ filter, hasEntries }: Props) {
       setError(
         text.includes("記録がありません")
           ? "絞り込みに一致する記録がありません"
-          : `保存できません: ${text}`
+          : `書き出せませんでした: ${text}`
       );
     } finally {
       setBusy(false);
@@ -86,9 +86,9 @@ export function ConsoleExport({ filter, hasEntries }: Props) {
     <>
       <button
         ref={btnRef}
-        className="btn-ghost console-export-btn"
+        className="btn-ghost console-export-btn has-tooltip"
         disabled={busy || !hasEntries}
-        title={
+        data-tooltip={
           filter
             ? "絞り込んだ結果をファイルへ書き出します"
             : "SQLログをファイルへ書き出します"
@@ -102,7 +102,7 @@ export function ConsoleExport({ filter, hasEntries }: Props) {
           setAt(r ? { x: r.left, y: r.bottom + 4 } : { x: 0, y: 0 });
         }}
       >
-        {busy ? "保存中..." : "保存"}
+        {busy ? "書き出し中…" : "書き出す ▾"}
       </button>
 
       {at &&
@@ -116,8 +116,8 @@ export function ConsoleExport({ filter, hasEntries }: Props) {
             {FORMATS.map((f) => (
               <button
                 key={f.value}
-                className="context-item"
-                title={f.hint}
+                className="context-item has-tooltip"
+                data-tooltip={f.hint}
                 onClick={() => void run(f.value)}
               >
                 {f.label}
@@ -135,7 +135,7 @@ export function ConsoleExport({ filter, hasEntries }: Props) {
       {done && (
         <>
           <span className="console-saved mono">
-            {done.rows.toLocaleString()}件を保存: {done.path}
+            {done.rows.toLocaleString()}件を書き出しました: {done.path}
           </span>
           <RevealButton path={done.path} />
         </>

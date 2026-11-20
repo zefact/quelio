@@ -11,7 +11,7 @@ export function isCancelled(message: string): boolean {
 }
 
 interface Props {
-  /** 「スキーマを読み込み中...」など */
+  /** 「スキーマを読み込み中…」など */
   label: string;
   /** 中止する接続 (差分ビューアは左右2つある) */
   sessionIds: string[];
@@ -62,12 +62,12 @@ export function LoadingWithCancel({ label, sessionIds, dbTypes }: Props) {
       <span className="spinner accent" /> {label}
       {cancellable && (
         <button
-          className="btn-secondary loading-cancel"
+          className="btn-secondary loading-cancel has-tooltip"
           onClick={cancel}
           disabled={sent}
-          title="読み込みを中止します (接続は切れません)"
+          data-tooltip="読み込みを中止します (接続は切れません)"
         >
-          {sent ? "中止しています..." : "中止"}
+          {sent ? "中止しています…" : "中止"}
         </button>
       )}
       {error && <span className="console-error">{error}</span>}

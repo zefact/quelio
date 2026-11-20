@@ -2,11 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { revealPath } from "../api";
 
 interface Props {
-  /** 保存したファイルのフルパス */
+  /** 書き出したファイルのフルパス */
   path: string;
 }
 
-/** 保存したファイルの場所をOSのファイラで開くボタン */
+/**
+ * 書き出したファイルの場所をOSのファイラ (Finder / エクスプローラー) で開くボタン。
+ * 書き出しが終わったら、どの画面でもこれを出す (知らせは閉じるまで残す)
+ */
 export function RevealButton({ path }: Props) {
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<number | null>(null);
@@ -33,10 +36,10 @@ export function RevealButton({ path }: Props) {
   return (
     <button
       className={
-        "reveal-btn has-tooltip tooltip-left" + (error ? " reveal-error" : "")
+        "reveal-btn has-tooltip tooltip-left tooltip-wide" + (error ? " reveal-error" : "")
       }
       data-tooltip={error ?? `フォルダを開く\n${path}`}
-      aria-label="保存したフォルダを開く"
+      aria-label="フォルダを開く (書き出したファイルの場所)"
       onClick={() => {
         setError(null);
         revealPath(path).catch((e) => fail(`開けませんでした: ${e}`));

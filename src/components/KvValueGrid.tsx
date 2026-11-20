@@ -4,10 +4,15 @@ import { tryFormatValue } from "../kvFormat";
 import type { KvChange, KvKeyDetail, KvRow } from "../types";
 import { GridColumn, GridRow, ResizableGrid } from "./ResizableGrid";
 import {
+  ApplyCancelled,
   useAsyncApply,
   useEscapeCancel,
 } from "../hooks/useEditableGrid";
+import { useAskConfirm } from "../hooks/useAskConfirm";
 import { imeBusy } from "../ime";
+import { kvChangeWhat, prodActionText } from "../prodConfirm";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { EditBar } from "./EditBar";
 
 interface Props {
   sessionId: string;
@@ -19,6 +24,10 @@ interface Props {
   onReload: () => void;
   /** 読み取り専用の接続か (値の追加・変更・削除を出さない) */
   readOnly?: boolean;
+  /** 本番の接続か (追加・変更・削除の前に確認する) */
+  prod?: boolean;
+  /** 確認の1行に出す「どこで」(接続名と DB 番号) */
+  connectionLabel?: string;
 }
 
 /** 1列目 (フィールド名・スコア) を書き換えられる型 */
@@ -84,6 +93,8 @@ export function KvValueGrid({
   pretty,
   onReload,
   readOnly,
+  prod = false,
+  connectionLabel = "",
 }: Props) {
   /** 編集中の行 (indexは表示中の行番号) */
   const [edit, setEdit] = useState<{
@@ -93,8 +104,25 @@ export function KvValueGrid({
   } | null>(null);
   /** 追加中の入力 (nullなら追加していない) */
   const [adding, setAdding] = useState<KvRow | null>(null);
-  const { busy, error, setError, run } = useAsyncApply<KvChange>((change) =>
-    kvApply(sessionId, database, change)
+  /** 本番での追加・変更の前に出す確認 */
+  const [ask, askDialog] = useAskConfirm();
+  /** 削除の確認中の要素 (表示中の行番号) */
+  const [removing, setRemoving] = useState<number | null>(null);
+  const { busy, error, setError, run, runOrThrow } = useAsyncApply<KvChange>(
+    async (change, confirmed) => {
+      // 本番では書き込む前に一度止める (削除は自分の確認ダイアログを通る)
+      if (prod && !confirmed) {
+        const ok = await ask({
+          title: "本番環境の Valkey を変更します",
+          target: detail.key,
+          confirmLabel: change.kind === "insert" ? "追加する" : "保存する",
+          prodNote: prodActionText(connectionLabel, kvChangeWhat(change)),
+          body: "すぐに書き込まれ、元に戻せません。",
+        });
+        if (!ok) throw new ApplyCancelled();
+      }
+      await kvApply(sessionId, database, change);
+    }
   );
 
   const type = detail.type;
@@ -108,6 +136,7 @@ export function KvValueGrid({
   useEffect(() => {
     setEdit(null);
     setAdding(null);
+    setRemoving(null);
     setError(null);
   }, [detail.key, detail.type, setError]);
 
@@ -161,16 +190,24 @@ export function KvValueGrid({
     });
   };
 
-  /** 1件削除する (取り消せないが、要素1件なので確認は挟まない) */
-  const removeRow = (index: number) => {
+  /**
+   * 1件削除する (確認ダイアログから呼ばれる。失敗したら例外を投げる)。
+   * 元に戻せないので、本番でなくても確認を通す
+   */
+  const removeRow = async (index: number) => {
     const row = detail.rows[index];
     if (!row) return;
-    void apply({
-      kind: "remove",
-      key: detail.key,
-      kvType: type,
-      row: { field: row[0], value: row[1] },
-    });
+    await runOrThrow(
+      {
+        kind: "remove",
+        key: detail.key,
+        kvType: type,
+        row: { field: row[0], value: row[1] },
+      },
+      true
+    );
+    setRemoving(null);
+    onReload();
   };
 
   /** ダブルクリックで編集モードへ */
@@ -344,22 +381,28 @@ export function KvValueGrid({
             + 要素を追加
           </button>
         )}
-        {(edit || adding) && (
-          <span className="ddl-bar-text">
-            <kbd>Enter</kbd> で反映 / <kbd>Shift</kbd>+<kbd>Enter</kbd> で改行 /{" "}
-            <kbd>Esc</kbd> で取り消し
-          </span>
-        )}
-        <span className="toolbar-spacer" />
-        {busy && <span className="spinner" />}
       </div>
 
-      {error && (
-        <div className="result-banner ng kv-edit-error">
-          <span className="dot" aria-hidden />
-          <span className="result-detail">{error}</span>
-        </div>
-      )}
+      {/* 編集の案内と、実行中・エラー (表の編集はどこも同じ帯にする) */}
+      <EditBar
+        busy={busy}
+        error={error}
+        onDismissError={() => setError(null)}
+        editing={!!edit || !!adding}
+        hint={
+          <>
+            <kbd>Enter</kbd> で保存 / <kbd>Shift</kbd>+<kbd>Enter</kbd> で改行 /{" "}
+            <kbd>Esc</kbd> で破棄
+          </>
+        }
+        onCancel={() => {
+          setEdit(null);
+          setAdding(null);
+          setError(null);
+        }}
+        onSave={adding ? commitAdd : commitEdit}
+        saveLabel={adding ? "追加する" : "保存する"}
+      />
 
       <ResizableGrid
         columns={columns}
@@ -380,12 +423,36 @@ export function KvValueGrid({
                 {
                   label: "この要素を削除",
                   danger: true,
-                  onSelect: () => removeRow(Number(key)),
+                  onSelect: () => setRemoving(Number(key)),
                 },
               ]
             : []
         }
       />
+
+      {removing !== null && detail.rows[removing] && (
+        <ConfirmDialog
+          title="要素を削除します"
+          target={detail.key}
+          confirmLabel="削除する"
+          prodNote={
+            prod
+              ? prodActionText(connectionLabel, `キー ${detail.key} の要素を1件削除します`)
+              : undefined
+          }
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => removeRow(removing)}
+        >
+          この要素は失われ、元に戻せません。
+          <pre className="mono confirm-sql">
+            {showField
+              ? `${detail.rows[removing][0]} : ${detail.rows[removing][1]}`
+              : detail.rows[removing][1]}
+          </pre>
+        </ConfirmDialog>
+      )}
+
+      {askDialog}
     </>
   );
 }

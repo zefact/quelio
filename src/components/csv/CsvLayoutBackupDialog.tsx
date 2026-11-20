@@ -9,9 +9,10 @@
  * 呼び名・ファイル名・書き出す関数は種類ごとに `kind` で受け取る
  */
 import { useState } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
+import { pickExportPath } from "../../exportDir";
 import type { FavNode } from "../../types";
-import { useModal } from "../../hooks/useModal";
+import { ModalFrame } from "../ModalFrame";
+import { RevealButton } from "../RevealButton";
 import { FolderIcon } from "../sqlLibrary/LibraryIcons";
 import { TreeIndent } from "../sqlLibrary/TreeIndent";
 import { TriCheckbox } from "../sqlLibrary/TriCheckbox";
@@ -43,7 +44,8 @@ export function CsvLayoutBackupDialog<T extends Named>({ nodes, kind, onClose }:
   const [error, setError] = useState<string | null>(null);
   /** 書き出した数 (書き出したあとは結果だけを出す) */
   const [done, setDone] = useState<number | null>(null);
-  const boxRef = useModal(onClose, !busy);
+  /** 書き出したファイル (「フォルダを開く」に使う) */
+  const [savedPath, setSavedPath] = useState<string | null>(null);
 
   const total = flatLayouts(nodes).length;
   const picked = pickedCount(sel);
@@ -52,16 +54,17 @@ export function CsvLayoutBackupDialog<T extends Named>({ nodes, kind, onClose }:
 
   const run = async () => {
     if (nothing || busy) return;
-    const path = await save({
-      defaultPath: backupFileName(kind.filePrefix, new Date()),
+    const path = await pickExportPath({
+      fileName: backupFileName(kind.filePrefix, new Date()),
       filters: JSON_FILTER,
       title: `${kind.label}をバックアップ`,
-    }).catch(() => null);
+    });
     if (!path) return;
     setBusy(true);
     setError(null);
     try {
       setDone(await kind.exportSubset(path, plan.names, plan.folders));
+      setSavedPath(path);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -92,92 +95,96 @@ export function CsvLayoutBackupDialog<T extends Named>({ nodes, kind, onClose }:
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={() => !busy && onClose()}>
-      <div
-        className="modal saved-transfer-modal"
-        ref={boxRef}
-        tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <span className="modal-title">{kind.label}をバックアップ</span>
-          <button className="modal-close" onClick={onClose} title="閉じる">
-            ×
+    <ModalFrame
+      title={`${kind.label}をバックアップ`}
+      onClose={onClose}
+      closable={!busy}
+      className="saved-transfer-modal"
+      footer={
+        done !== null ? (
+          <button className="btn-primary" onClick={onClose}>
+            閉じる
           </button>
-        </div>
-
-        {done !== null ? (
-          <div className="saved-transfer-body">
-            <p className="saved-transfer-done">
-              {kind.label}を{done}件書き出しました。
-            </p>
-            <div className="save-sql-actions">
-              <button className="btn-primary" onClick={onClose}>
-                閉じる
-              </button>
-            </div>
-          </div>
         ) : (
-          <div className="saved-transfer-body">
-            <div className="pick-head">
-              <span className="pick-count">
-                {total}件中 {picked}件を書き出します
-              </span>
-              <span className="toolbar-spacer" />
-              <button
-                type="button"
-                className="lib-action"
-                onClick={() => setSel(pickAll(nodes))}
-              >
-                すべて選ぶ
-              </button>
-              <button
-                type="button"
-                className="lib-action"
-                onClick={() => setSel(new Set())}
-              >
-                すべて外す
-              </button>
-            </div>
-            <div className="pick-list">
-              {nodes.flatMap((n) =>
-                n.kind === "folder"
-                  ? [
-                      <label key={`f:${n.name}`} className="pick-row pick-folder">
-                        <TriCheckbox
-                          state={folderPick(n, sel)}
-                          onChange={() => setSel((s) => toggleFolderPick(n, s))}
-                        />
-                        <FolderIcon open />
-                        <span className="pick-name">{n.name}</span>
-                        <span className="saved-folder-count">
-                          {n.items.length}
-                        </span>
-                      </label>,
-                      ...n.items.map((s) => itemRow(s, 1)),
-                    ]
-                  : [itemRow(n, 0)]
-              )}
-            </div>
-            <span className="save-sql-note">
-              フォルダに印を付けると中身が全部入ります。書き出したファイルは「復元」で読み込めます
+          <>
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>
+              キャンセル
+            </button>
+            <button
+              className="btn-primary"
+              disabled={nothing || busy}
+              onClick={() => void run()}
+            >
+              書き出す…
+            </button>
+          </>
+        )
+      }
+    >
+      {done !== null ? (
+        <div className="saved-transfer-body">
+          <div className="result-banner ok">
+            <span className="dot" aria-hidden />
+            <span className="result-detail">
+              {kind.label}を{done}件書き出しました。
             </span>
-            {error && <div className="save-sql-error">{error}</div>}
-            <div className="save-sql-actions">
-              <button className="btn-secondary" onClick={onClose}>
-                キャンセル
-              </button>
-              <button
-                className="btn-primary"
-                disabled={nothing || busy}
-                onClick={() => void run()}
-              >
-                書き出す…
-              </button>
-            </div>
+            {savedPath && <RevealButton path={savedPath} />}
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      ) : (
+        <div className="saved-transfer-body">
+          <div className="pick-head">
+            <span className="pick-count">
+              {total}件中 {picked}件を書き出します
+            </span>
+            <span className="toolbar-spacer" />
+            <button
+              type="button"
+              className="lib-action"
+              onClick={() => setSel(pickAll(nodes))}
+            >
+              すべて選ぶ
+            </button>
+            <button
+              type="button"
+              className="lib-action"
+              onClick={() => setSel(new Set())}
+            >
+              すべて外す
+            </button>
+          </div>
+          <div className="pick-list">
+            {nodes.flatMap((n) =>
+              n.kind === "folder"
+                ? [
+                    <label key={`f:${n.name}`} className="pick-row pick-folder">
+                      <TriCheckbox
+                        state={folderPick(n, sel)}
+                        onChange={() => setSel((s) => toggleFolderPick(n, s))}
+                      />
+                      <FolderIcon open />
+                      <span className="pick-name">{n.name}</span>
+                      <span className="saved-folder-count">
+                        {n.items.length}
+                      </span>
+                    </label>,
+                    ...n.items.map((s) => itemRow(s, 1)),
+                  ]
+                : [itemRow(n, 0)]
+            )}
+          </div>
+          <span className="save-sql-note">
+            フォルダに印を付けると中身が全部入ります。書き出したファイルは「復元」で今あるものに追加できます
+          </span>
+          {error && (
+            <div className="result-banner ng">
+              <span className="dot" aria-hidden />
+              <strong>エラー</strong>
+              <span className="result-detail">{error}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </ModalFrame>
   );
 }

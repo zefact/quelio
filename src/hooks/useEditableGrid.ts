@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { imeBusy } from "../ime";
 
 /**
@@ -8,6 +8,19 @@ import { imeBusy } from "../ime";
  */
 
 /**
+ * 実行の前の確認で「キャンセル」が選ばれたことを表す。
+ *
+ * 実行する関数がこれを投げたときは、失敗ではないのでエラーを出さない。
+ * 編集中の内容はそのまま残る (確認を見て直したくなったときのため)
+ */
+export class ApplyCancelled extends Error {
+  constructor() {
+    super("キャンセルしました");
+    this.name = "ApplyCancelled";
+  }
+}
+
+/**
  * 変更の実行 (ALTER等) を包む。
  *
  * 実行中は busy、失敗したら error に理由を入れる。
@@ -15,7 +28,9 @@ import { imeBusy } from "../ime";
  *
  * @returns 成功したら true
  */
-export function useAsyncApply<C>(onApply: (change: C) => Promise<void>) {
+export function useAsyncApply<C>(
+  onApply: (change: C, confirmed?: boolean) => Promise<void>
+) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,14 +38,19 @@ export function useAsyncApply<C>(onApply: (change: C) => Promise<void>) {
   const applyRef = useRef(onApply);
   applyRef.current = onApply;
 
-  const run = async (change: C): Promise<boolean> => {
+  /**
+   * @param confirmed この画面ですでに確認ダイアログを通したか
+   *   (通していれば、実行する側でもう一度確認しない)
+   */
+  const run = async (change: C, confirmed = false): Promise<boolean> => {
     setBusy(true);
     setError(null);
     try {
-      await applyRef.current(change);
+      await applyRef.current(change, confirmed);
       return true;
     } catch (e) {
-      setError(String(e));
+      // 確認でやめただけなら、エラーとして出さない
+      if (!(e instanceof ApplyCancelled)) setError(String(e));
       return false;
     } finally {
       setBusy(false);
@@ -41,11 +61,11 @@ export function useAsyncApply<C>(onApply: (change: C) => Promise<void>) {
    * 失敗の理由を呼び出し元 (確認ダイアログなど) に伝えたいときはこちら。
    * 実行中の表示だけ受け持ち、例外はそのまま投げ直す
    */
-  const runOrThrow = async (change: C): Promise<void> => {
+  const runOrThrow = async (change: C, confirmed = false): Promise<void> => {
     setBusy(true);
     setError(null);
     try {
-      await applyRef.current(change);
+      await applyRef.current(change, confirmed);
     } finally {
       setBusy(false);
     }
@@ -83,21 +103,32 @@ export function useGridFocus(focusKey: string, attr: string) {
  * @param opts.busy 実行中は取り消させない
  * @param opts.blocked ダイアログを開いている等、そちらに任せたいときは true
  * @param opts.preventDefault 同じEscで他の処理まで走らせたくないときは true
+ * @param opts.scope 渡すと、フォーカスがこの中にあるときだけ取り消す
+ *   (別の欄で押したEscで、書きかけの行が消えないように)
  */
 export function useEscapeCancel(
   active: boolean,
   onCancel: () => void,
-  opts: { busy?: boolean; blocked?: boolean; preventDefault?: boolean } = {}
+  opts: {
+    busy?: boolean;
+    blocked?: boolean;
+    preventDefault?: boolean;
+    scope?: RefObject<HTMLElement | null>;
+  } = {}
 ) {
   const { busy = false, blocked = false, preventDefault = false } = opts;
   const cb = useRef(onCancel);
   cb.current = onCancel;
+  const scopeRef = useRef(opts.scope);
+  scopeRef.current = opts.scope;
 
   useEffect(() => {
     if (!active || busy || blocked) return;
     const onKey = (e: KeyboardEvent) => {
       // 他で処理済みのEscや、変換中のEscは拾わない
       if (e.key !== "Escape" || e.defaultPrevented || imeBusy(e)) return;
+      const scope = scopeRef.current?.current;
+      if (scope && !scope.contains(document.activeElement)) return;
       if (preventDefault) e.preventDefault();
       cb.current();
     };

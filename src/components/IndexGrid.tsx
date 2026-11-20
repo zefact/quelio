@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { EditBar, EditKeysHint } from "./EditBar";
+import { IconButton } from "./IconButton";
+import { prodActionText } from "../prodConfirm";
 import type {
   ColumnInfo,
   DbType,
@@ -26,12 +29,21 @@ interface Props {
   /** 定義変更が使えるか (Valkey以外・ビュー以外) */
   canEdit: boolean;
   dbType: DbType;
+  /** 本番の接続か (削除の確認に本番の1行を足す) */
+  prod?: boolean;
+  /** 確認に出すテーブル名 */
+  tableLabel?: string;
   /** 編集状態を解除するきっかけ (テーブル切替時に変わる) */
   resetKey: string | number;
-  /** 変更を実行する。失敗したら例外を投げること */
-  onApply: (change: IndexChange) => Promise<void>;
+  /**
+   * 変更を実行する。失敗したら例外を投げること。
+   * `confirmed` は、この画面ですでに確認ダイアログを通したか
+   */
+  onApply: (change: IndexChange, confirmed?: boolean) => Promise<void>;
   /** 実行せずに、そのインデックスを作るSQLだけを取る */
   onPreview?: (change: IndexChange) => Promise<string[]>;
+  /** 組み立てたSQLをSQLエディタへ送る */
+  onSendToEditor?: (sql: string) => void;
 }
 
 /** 追加行に使う行キー (既存インデックス名と衝突しない値) */
@@ -199,9 +211,12 @@ export function IndexGrid({
   tableColumns,
   canEdit,
   dbType,
+  prod = false,
+  tableLabel = "",
   resetKey,
   onApply,
   onPreview,
+  onSendToEditor,
 }: Props) {
   const [editing, setEditing] = useState<Editing | null>(null);
   const { busy, error, setError, run } = useAsyncApply<IndexChange>(onApply);
@@ -378,6 +393,14 @@ export function IndexGrid({
     }
   };
 
+  /** ユニークのチェック欄の説明 (押せないときはその理由) */
+  const uniqueTip = (d: IndexSpec) =>
+    NO_UNIQUE_TYPES.includes(d.indexType ?? "")
+      ? "この種別ではユニークにできません"
+      : d.unique
+        ? "ユニーク"
+        : "ユニークでない";
+
   /** 編集中の行のセル */
   const editCells = (d: IndexSpec, rowNum: string) => [
     <span className="mono row-num">{rowNum}</span>,
@@ -392,33 +415,30 @@ export function IndexGrid({
     />,
     <input
       type="checkbox"
-      className="cell-check"
+      className="cell-check has-tooltip"
       data-ifield="unique"
       checked={d.unique}
       // 全文・空間インデックスはユニークにできない
       disabled={busy || NO_UNIQUE_TYPES.includes(d.indexType ?? "")}
-      title={
-        NO_UNIQUE_TYPES.includes(d.indexType ?? "")
-          ? "この種別ではユニークにできません"
-          : d.unique
-            ? "ユニーク"
-            : "ユニークでない"
-      }
+      data-tooltip={uniqueTip(d)}
+      aria-label={uniqueTip(d)}
       onKeyDown={onKeyDown}
       onChange={(e) => patch({ unique: e.target.checked })}
     />,
     // 複合インデックスは順序が大事なので、ダイアログで順番に選ぶ
     <button
-      className={"cell-pick mono" + (d.columns.length === 0 ? " empty" : "")}
+      className={
+        "cell-pick mono has-tooltip" + (d.columns.length === 0 ? " empty" : "")
+      }
       data-ifield="columns"
       disabled={busy}
-      title="クリックして対象カラムを選ぶ"
+      data-tooltip="クリックして対象カラムを選ぶ"
       onKeyDown={onKeyDown}
       onClick={() => setPicking(true)}
     >
       {d.columns.length > 0
         ? d.columns.map((c, n) => `${n + 1}. ${c}`).join("  ")
-        : "カラムを選ぶ..."}
+        : "カラムを選ぶ…"}
     </button>,
     canIndexType ? (
       <select
@@ -497,9 +517,10 @@ export function IndexGrid({
       <h3 className="structure-heading">
         インデックス <span className="panel-count">{indexes.length}</span>
         {canIndexType && (
-          <button
+          <IconButton
             className="hint-btn"
-            title="インデックスの種別について"
+            label="インデックスの種別について"
+            tipLeft
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
@@ -528,22 +549,22 @@ export function IndexGrid({
             }}
           >
             <HelpIcon />
-          </button>
+          </IconButton>
         )}
         {canEdit && (
           <>
             <span className="toolbar-spacer" />
             <span className="ddl-hint">
               {editing
-                ? "編集中の行を確定するか取り消すと、他の行を編集できます"
+                ? "編集中の行を保存するか破棄すると、他の行を編集できます"
                 : "ダブルクリックで編集 / 右クリックで削除"}
             </span>
             <button
-              className="btn-secondary ddl-add-btn"
+              className="btn-secondary ddl-add-btn has-tooltip"
               onClick={startAdd}
               disabled={!!editing}
-              title={
-                editing ? "編集中の行を確定するか取り消してください" : undefined
+              data-tooltip={
+                editing ? "編集中の行を保存するか破棄してください" : undefined
               }
             >
               <PlusIcon />
@@ -553,50 +574,22 @@ export function IndexGrid({
         )}
       </h3>
 
-      {(editing || busy || error) && (
-        <div className="ddl-bar">
-          {busy ? (
-            <>
-              <span className="spinner accent" />
-              <span className="ddl-bar-text">実行中...</span>
-            </>
-          ) : error ? (
-            <>
-              <span className="ddl-bar-icon ng" aria-hidden>
-                !
-              </span>
-              <span className="ddl-bar-text ng">{error}</span>
-            </>
-          ) : (
-            <span className="ddl-bar-text">
-              <kbd>Enter</kbd> で反映 / <kbd>Esc</kbd> で取り消し
-              {!changed && "（変更はまだありません）"}
-              {editing?.key && "（作り直しになります）"}
-            </span>
-          )}
-          <span className="toolbar-spacer" />
-          {editing ? (
-            <>
-              <button className="ddl-bar-btn" onClick={cancel} disabled={busy}>
-                取り消し
-              </button>
-              <button
-                className="ddl-bar-btn primary"
-                onClick={commit}
-                disabled={busy || !changed}
-              >
-                反映
-              </button>
-            </>
-          ) : (
-            error && (
-              <button className="ddl-bar-btn" onClick={() => setError(null)}>
-                閉じる
-              </button>
-            )
-          )}
-        </div>
-      )}
+      <EditBar
+        busy={busy}
+        error={error}
+        onDismissError={() => setError(null)}
+        editing={!!editing}
+        changed={changed}
+        hint={
+          <>
+            <EditKeysHint />
+            {!changed && "（変更はまだありません）"}
+            {editing?.key && "（作り直しになります）"}
+          </>
+        }
+        onCancel={cancel}
+        onSave={commit}
+      />
 
       <ResizableGrid
         autoFit
@@ -633,7 +626,7 @@ export function IndexGrid({
           const sqlItem = onPreview
             ? [
                 {
-                  label: "CREATE INDEX 文を表示...",
+                  label: "CREATE INDEX 文を表示…",
                   disabled: ix.constrained,
                   title: reason,
                   onSelect: () => openSql(ix),
@@ -703,16 +696,24 @@ export function IndexGrid({
           sql={showSql.sql}
           error={showSql.error}
           onClose={() => setShowSql(null)}
+          onSendToEditor={onSendToEditor}
         />
       )}
 
       {dropping && (
         <ConfirmDialog
           title="インデックスを削除します"
+          confirmLabel="削除する"
           target={dropping.name}
           onCancel={() => setDropping(null)}
+          prodNote={
+            prod
+              ? prodActionText(tableLabel, `インデックス ${dropping.name} を削除します`)
+              : undefined
+          }
+          // ここで確認しているので、上の画面では聞き直さない
           onConfirm={async () => {
-            await onApply({ kind: "drop", name: dropping.name });
+            await onApply({ kind: "drop", name: dropping.name }, true);
             setDropping(null);
           }}
         >

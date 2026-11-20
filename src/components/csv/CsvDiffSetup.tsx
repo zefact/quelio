@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { csvGuessKey } from "../../api";
 import type { CsvDiffMode, CsvDiffOptions, CsvInfo } from "../../types";
+import { ModalFrame } from "../ModalFrame";
 import { SelectMenu } from "../SelectMenu";
 
 /** 突き合わせ方の選択肢 */
@@ -69,86 +70,12 @@ export function CsvDiffSetup({ tabs, initialLeft, onStart, onCancel }: Props) {
   const ready = leftId !== rightId && (mode === "set" || key.length > 0);
 
   return (
-    <div className="modal-overlay" onMouseDown={onCancel}>
-      <div className="modal csv-diff-modal" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="modal-title">CSVを比べる</div>
-
-        <div className="csv-form-row">
-          <span>左 (元)</span>
-          <SelectMenu
-            popFixed
-            value={leftId}
-            options={tabOptions}
-            onChange={setLeftId}
-          />
-        </div>
-        <div className="csv-form-row">
-          <span>右 (新)</span>
-          <SelectMenu
-            popFixed
-            value={rightId}
-            options={tabOptions}
-            onChange={setRightId}
-          />
-        </div>
-
-        <div className="csv-form-row">
-          <span>突き合わせ方</span>
-          <SelectMenu
-            popFixed
-            value={mode}
-            options={MODES}
-            onChange={(v) => setMode(v as CsvDiffMode)}
-          />
-        </div>
-
-        {mode === "key" && (
-          <div className="csv-key-pick">
-            <div className="csv-key-head">キーにする列 (複数可)</div>
-            {shared.length === 0 ? (
-              <div className="csv-warn">左右に共通の列がありません</div>
-            ) : (
-              <div className="csv-key-list">
-                {shared.map((c) => (
-                  <label key={c} className="csv-check">
-                    <input
-                      type="checkbox"
-                      checked={key.includes(c)}
-                      onChange={() => toggleKey(c)}
-                    />
-                    {c}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="csv-diff-opts">
-          <label className="csv-check">
-            <input
-              type="checkbox"
-              checked={trim}
-              onChange={(e) => setTrim(e.target.checked)}
-            />
-            前後の空白を無視する
-          </label>
-          <label className="csv-check">
-            <input
-              type="checkbox"
-              checked={ignoreCase}
-              onChange={(e) => setIgnoreCase(e.target.checked)}
-            />
-            英字の大小を無視する
-          </label>
-        </div>
-
-        {leftId === rightId && (
-          <div className="csv-warn">左右に別のファイルを選んでください</div>
-        )}
-        {note && <div className="csv-warn">{note}</div>}
-
-        <div className="modal-actions csv-modal-actions">
+    <ModalFrame
+      title="CSVを比較"
+      onClose={onCancel}
+      className="csv-diff-modal"
+      footer={
+        <>
           <button className="btn-secondary" onClick={onCancel}>
             キャンセル
           </button>
@@ -159,10 +86,85 @@ export function CsvDiffSetup({ tabs, initialLeft, onStart, onCancel }: Props) {
               onStart(leftId, rightId, { mode, key, trim, ignoreCase })
             }
           >
-            比べる
+            比較する
           </button>
-        </div>
+        </>
+      }
+    >
+      <div className="csv-form-row">
+        <span>左 (元)</span>
+        <SelectMenu
+          popFixed
+          value={leftId}
+          options={tabOptions}
+          onChange={setLeftId}
+        />
       </div>
-    </div>
+      <div className="csv-form-row">
+        <span>右 (新)</span>
+        <SelectMenu
+          popFixed
+          value={rightId}
+          options={tabOptions}
+          onChange={setRightId}
+        />
+      </div>
+
+      <div className="csv-form-row">
+        <span>突き合わせ方</span>
+        <SelectMenu
+          popFixed
+          value={mode}
+          options={MODES}
+          onChange={(v) => setMode(v as CsvDiffMode)}
+        />
+      </div>
+
+      {mode === "key" && (
+        <div className="csv-key-pick">
+          <div className="csv-key-head">キーにする列 (複数可)</div>
+          {shared.length === 0 ? (
+            <div className="csv-warn">左右に共通の列がありません</div>
+          ) : (
+            <div className="csv-key-list">
+              {shared.map((c) => (
+                <label key={c} className="csv-check">
+                  <input
+                    type="checkbox"
+                    checked={key.includes(c)}
+                    onChange={() => toggleKey(c)}
+                  />
+                  {c}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="csv-diff-opts">
+        <label className="csv-check">
+          <input
+            type="checkbox"
+            checked={trim}
+            onChange={(e) => setTrim(e.target.checked)}
+          />
+          前後の空白を無視する
+        </label>
+        <label className="csv-check">
+          <input
+            type="checkbox"
+            checked={ignoreCase}
+            onChange={(e) => setIgnoreCase(e.target.checked)}
+          />
+          英字の大小を無視する
+        </label>
+      </div>
+
+      {leftId === rightId && (
+        <div className="csv-warn">左右に別のファイルを選んでください</div>
+      )}
+      {note && <div className="csv-warn">{note}</div>}
+    </ModalFrame>
   );
 }

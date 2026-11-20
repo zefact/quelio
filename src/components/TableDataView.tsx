@@ -7,7 +7,6 @@ import type {
   RowCell,
   RowChange,
 } from "../types";
-import { QUERY_PAGE_SIZE } from "../types";
 import type { TableDataPane } from "./panes";
 import { CellDetail } from "./CellDetail";
 import { WhereBuilder } from "./WhereBuilder";
@@ -17,7 +16,9 @@ import { recallBuilt, rememberBuilt } from "../tableFilterStore";
 import { clipIndex, clippedRowKeys } from "../cellValue";
 import { columnKinds, kindAlign, kindClass } from "../cellKind";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ProdNote } from "./ProdBadge";
+import { EditBar, EditKeysHint } from "./EditBar";
+import { IconButton } from "./IconButton";
+import { useAskConfirm } from "../hooks/useAskConfirm";
 import { rowChangeText } from "../prodConfirm";
 import type { RowChangeKind } from "../prodConfirm";
 import { CellText } from "./CellText";
@@ -33,7 +34,7 @@ import {
   useEscapeCancel,
   useGridFocus,
 } from "../hooks/useEditableGrid";
-import { HeaderLabelPicker } from "./HeaderLabelPicker";
+import { ResultBar } from "./ResultBar";
 import { headerText, headerWidth } from "../headerLabel";
 import { imeBusy } from "../ime";
 
@@ -42,7 +43,7 @@ interface Props {
   pane: TableDataPane;
   /** 行番号列を表示するか (設定値) */
   showRowNumbers: boolean;
-  /** カラム名(小文字) → 論理名・補足・型の説明 (ヘッダのツールチップ用) */
+  /** カラム名(小文字) → 日本語名・補足・型の説明 (ヘッダのツールチップ用) */
   columnTips: Record<string, string>;
   /** カラム名(小文字) → 日本語名 (ヘッダに出す名前用) */
   columnLabels: Record<string, string>;
@@ -77,6 +78,11 @@ interface Props {
    * 開き直したときに前の条件を並べ直すのに使う
    */
   filterSlot?: { session: string; database: string; table: string };
+  /**
+   * 行の編集を始めた・終えたときに呼ばれる。
+   * 編集中は上の画面の「再読み込み」を押せなくする (押すと入力が消えるため)
+   */
+  onEditingChange?: (editing: boolean) => void;
 }
 
 /**
@@ -93,26 +99,19 @@ const NEW_ROW = "__quelio_new_row__";
 /** 編集中の行 (rowはデータ内の位置。追加行は "new") */
 type Editing = {
   row: number | "new";
-  /** 入力中の文字列 (カラム順) */
-  draft: string[];
+  /**
+   * 入力中の値 (カラム順)。null は NULL。
+   *
+   * NULL は文字で打たせず、「NULL にする」で入れる。
+   * 「null と打てば NULL」にしていたころは、文字の "NULL" を入れられなかった
+   */
+  draft: (string | null)[];
   /** フォーカスを当てる列 */
   col: number;
 };
 
-/** 入力が NULL を表しているか (null / NULL / Null どれでも可) */
-function isNullText(text: string): boolean {
-  return text.trim().toLowerCase() === "null";
-}
-
-/** 入力欄の文字列を、DBへ渡す値に変換する */
-function toValue(text: string): string | null {
-  return isNullText(text) ? null : text;
-}
-
-/** DBの値を入力欄の文字列にする (NULLは "NULL" と書いておく) */
-function toText(value: string | null): string {
-  return value === null ? "NULL" : value;
-}
+/** 行の編集中に押せないボタンの理由 (押すと入力が消えるもの) */
+const EDITING_LOCK = "編集中の行があります。保存するか破棄してください";
 
 function PlusIcon() {
   return (
@@ -125,13 +124,6 @@ function PlusIcon() {
       />
     </svg>
   );
-}
-
-/** 取得した時刻 (時:分:秒) */
-function clockOf(ms: number): string {
-  const d = new Date(ms);
-  const p2 = (v: number) => String(v).padStart(2, "0");
-  return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
 }
 
 /** 選択テーブルのデータ表示 (1000件ごとのページング + サーバーサイドソート + 編集) */
@@ -153,12 +145,14 @@ function TableDataViewInner({
   onApplyRow,
   onFetchCell,
   filterSlot,
+  onEditingChange,
 }: Props) {
   const {
     data,
     loading,
     error,
     where,
+    appliedWhere,
     fetchedAt,
     onChangeWhere,
     onApplyWhere,
@@ -189,6 +183,12 @@ function TableDataViewInner({
   const [building, setBuilding] = useState<{ column?: string } | null>(null);
   /** 絞り込み条件の入力欄 (消したあとに入力を続けられるよう戻す先) */
   const whereRef = useRef<HTMLInputElement>(null);
+  /** この画面の外枠 (Esc で編集を取り消すのは、フォーカスがこの中にあるときだけ) */
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** 最後にフォーカスがあった入力欄の列 (「NULL にする」の対象) */
+  const focusCol = useRef(0);
+  /** 手で書いた条件を「条件を作る」で置き換える前の確認 */
+  const [ask, askDialog] = useAskConfirm();
   /** 全文表示中のセル (カラム番号・行・表示中の値) */
   const [cellView, setCellView] = useState<{
     column: number;
@@ -250,15 +250,34 @@ function TableDataViewInner({
     setCellView(null);
   }, [data, setEditError]);
 
-  // フォーカスが外れていてもEscで編集を取り消せるようにする
+  /*
+   * 入力欄からフォーカスが外れていても、この画面の中なら Esc で編集を取り消す。
+   * 画面の外 (SQLエディタなど) で押した Esc では消さない
+   */
   useEscapeCancel(
     !!editing,
     () => {
       setEditing(null);
       setEditError(null);
     },
-    { busy }
+    { busy, scope: rootRef }
   );
+
+  // 編集中かどうかを上の画面へ伝える (この画面が消えるときは「編集していない」に戻す)
+  const isEditing = !!editing;
+  useEffect(() => {
+    onEditingChange?.(isEditing);
+  }, [isEditing, onEditingChange]);
+  useEffect(() => () => onEditingChange?.(false), [onEditingChange]);
+
+  /** 押すと入力中の行が消える操作を止める理由 (編集していなければ null) */
+  const lockReason = editing ? EDITING_LOCK : null;
+  /**
+   * 画面の条件が、今見ているデータの条件と違うか (まだ適用していない)。
+   * 適用済みの条件を持っていない (古い状態から戻した) ときは比べない
+   */
+  const whereDirty =
+    !!data && appliedWhere !== undefined && where.trim() !== appliedWhere.trim();
 
   // 編集対象のセルへフォーカスを移す
   useGridFocus(editing ? `${editing.row}:${editing.col}` : "", "data-dcol");
@@ -283,7 +302,7 @@ function TableDataViewInner({
         minWidth: 60,
         align: kindAlign(colKinds[i] ?? "text"),
         cellClass: kindClass(colKinds[i] ?? "text"),
-        // 定義から読み取った論理名・補足をヘッダのツールチップに出す
+        // 定義から読み取った日本語名・補足をヘッダのツールチップに出す
         description: columnTips[name.toLowerCase()],
       };
     });
@@ -315,7 +334,8 @@ function TableDataViewInner({
 
   /** ヘッダのソートメニューでの選択 (サーバーサイドソートで再取得する) */
   const selectSort = (id: string, dir: SortDir) => {
-    if (id === "__row" || loading || !data) return;
+    // 編集中に並べ替えると取り直しで入力が消えるので受け付けない
+    if (id === "__row" || loading || !data || editing) return;
     const colName = dataColumns[Number(id.slice(1))];
     if (!colName) return;
     onSort(dir ? colName : null, dir ?? "asc");
@@ -348,7 +368,7 @@ function TableDataViewInner({
     setEditing((cur) =>
       cur && cur.row === row
         ? { ...cur, col }
-        : { row, col, draft: data.rows[row].map(toText) }
+        : { row, col, draft: [...data.rows[row]] }
     );
   };
 
@@ -375,7 +395,7 @@ function TableDataViewInner({
     if (editing.row === "new") return editing.draft.some((v) => v !== "");
     const before = data.rows[editing.row];
     if (!before) return false;
-    return editing.draft.some((v, i) => toValue(v) !== before[i]);
+    return editing.draft.some((v, i) => v !== before[i]);
   })();
 
   /**
@@ -403,9 +423,8 @@ function TableDataViewInner({
     if (editing.row === "new") {
       const values: RowCell[] = dataColumns
         // 空欄のカラムは送らず、DBの既定 (DEFAULT / 自動採番) に任せる
-        .map((column, i) => ({ column, text: editing.draft[i] }))
-        .filter((c) => c.text !== "")
-        .map((c) => ({ column: c.column, value: toValue(c.text) }));
+        .map((column, i) => ({ column, value: editing.draft[i] }))
+        .filter((c) => c.value !== "");
       // 失敗したら直せるよう、行は編集状態のまま残す
       if (await run({ change: { kind: "insert", values }, confirmed })) {
         setEditing(null);
@@ -422,7 +441,7 @@ function TableDataViewInner({
       value: before[dataColumns.indexOf(column)],
     }));
     const set: RowCell[] = dataColumns
-      .map((column, i) => ({ column, value: toValue(editing.draft[i]) }))
+      .map((column, i) => ({ column, value: editing.draft[i] }))
       .filter((c, i) => c.value !== before[i]);
     if (await run({ change: { kind: "update", key, set }, confirmed })) {
       setEditing(null);
@@ -456,7 +475,7 @@ function TableDataViewInner({
     }
   };
 
-  const patch = (i: number, value: string) =>
+  const patch = (i: number, value: string | null) =>
     setEditing((cur) =>
       cur
         ? { ...cur, draft: cur.draft.map((v, n) => (n === i ? value : v)) }
@@ -468,12 +487,16 @@ function TableDataViewInner({
     const nodes = e.draft.map((v, i) => (
       <input
         key={i}
-        className={"cell-input mono" + (isNullText(v) ? " is-null" : "")}
+        className={"cell-input mono has-tooltip" + (v === null ? " is-null" : "")}
         data-dcol={i}
-        value={v}
+        value={v ?? ""}
         disabled={busy}
-        // 追加行の空欄はDBの既定に任せる
-        placeholder={e.row === "new" ? "既定" : ""}
+        // NULL は空欄に「NULL」と薄く出す。追加行の空欄はDBの既定に任せる
+        placeholder={v === null ? "NULL" : e.row === "new" ? "既定" : ""}
+        data-tooltip={v === null ? "NULL (文字を打つと値になります)" : undefined}
+        onFocus={() => {
+          focusCol.current = i;
+        }}
         onKeyDown={onKeyDown}
         onChange={(ev) => patch(i, ev.target.value)}
       />
@@ -581,8 +604,31 @@ function TableDataViewInner({
           .join(", ")
       : "";
 
-  /** 組み立てた条件を入力欄へ入れて、そのまま取得し直す */
-  const applyBuilt = (built: string, conds: FilterCond[]) => {
+  /**
+   * 組み立てた条件を入力欄へ入れて、そのまま取得し直す。
+   * 手で書いた条件が入っているときは、置き換える前に確認する
+   */
+  const applyBuilt = async (
+    built: string,
+    conds: FilterCond[]
+  ): Promise<boolean> => {
+    if (editing) return false;
+    const handWritten =
+      where.trim() !== "" && where.trim() !== built.trim() && !savedConds();
+    if (handWritten) {
+      const ok = await ask({
+        title: "絞り込み条件を置き換えます",
+        confirmLabel: "置き換える",
+        body: (
+          <>
+            入力欄に手で書いた条件があります。作った条件で置き換えると、今の条件は消えます。
+            <pre className="mono confirm-sql">{where}</pre>
+          </>
+        ),
+      });
+      // やめたら「条件を作る」の画面を開いたままにする
+      if (!ok) return false;
+    }
     if (filterSlot) {
       rememberBuilt(filterSlot.session, filterSlot.database, filterSlot.table, {
         conds,
@@ -591,6 +637,7 @@ function TableDataViewInner({
     }
     onChangeWhere(built);
     onApplyWhere(built);
+    return true;
   };
 
   /** 前に作った条件 (入力欄がそのときのままなら) */
@@ -601,133 +648,153 @@ function TableDataViewInner({
 
   /** 絞り込みをやめて全件に戻す (入力欄を空にして取り直す) */
   const clearWhere = () => {
+    if (editing) return;
     onChangeWhere("");
     onApplyWhere("");
     whereRef.current?.focus();
   };
 
   return (
-    <div className="table-data">
-      {/* 絞り込み + ページ操作 */}
-      <div className="query-actions table-data-actions">
-        <span className="table-where-wrap">
-          <input
-            ref={whereRef}
-            className="filter-input mono table-where"
-            placeholder="絞り込み条件 (WHERE句。例: status = 1 AND name LIKE '%山%')"
-            value={where}
-            onChange={(e) => onChangeWhere(e.target.value)}
-            onKeyDown={(e) => {
-              // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
-              if (imeBusy(e)) return;
-              // 取得中は受け付けない (連打すると古い結果が後から表示されうる)
-              if (e.key === "Enter" && !loading) onApplyWhere();
-              // Esc で条件を消して全件に戻す (書いてあるときだけ)
-              if (e.key === "Escape" && where !== "" && !loading) {
-                e.stopPropagation();
-                clearWhere();
-              }
-            }}
-          />
-          {where !== "" && (
-            <button
-              className="table-where-clear"
-              title="条件を消して全件に戻す (Esc)"
-              aria-label="条件を消して全件に戻す"
-              disabled={loading}
-              onClick={clearWhere}
-            >
-              ×
-            </button>
-          )}
-        </span>
-        <button
-          className="btn-primary"
-          onClick={() => onApplyWhere()}
-          disabled={loading}
-          title={
-            "条件を適用して先頭ページから取得し直す (Enter)\n" +
-            "条件を変えていなければ、そのまま再読込になります"
-          }
-        >
-          {loading ? (
-            <>
-              <span className="spinner light" /> 取得中...
-            </>
-          ) : (
-            "適用"
-          )}
-        </button>
-        <button
-          className="btn-secondary explain-btn"
-          onClick={() => setBuilding({})}
-          disabled={loading || dataColumns.length === 0}
-          title="列と演算子を選んで WHERE句を組み立てます (列ヘッダからも開けます)"
-        >
-          条件を作る
-        </button>
-        {/* ヘッダに出す名前の切り替え (グリッドのすぐ上に置く) */}
-        <HeaderLabelPicker mode={headerMode} onChange={onChangeHeaderMode} />
-
-        {/* 行の追加は絞り込みとは別の操作なので、間を空けて右側へ置く */}
-        <span className="table-data-gap" />
-        {editable && (
-          <button
-            className="btn-secondary ddl-add-btn"
-            onClick={startInsert}
-            disabled={loading || !!editing}
-            title={
-              editing ? "編集中の行を確定するか取り消してください" : undefined
-            }
-          >
-            <PlusIcon />
-            行を追加
-          </button>
-        )}
-
-        {editHint && (
-          <span className="edit-hint" title={editHint}>
-            <span className="edit-hint-icon" aria-hidden>
-              i
+    <div className="table-data" ref={rootRef}>
+      {/*
+        結果バー (SQL結果と共通の並び)。
+        左に絞り込み、右に行の追加か「閲覧のみ」、件数とページ送り
+      */}
+      <ResultBar
+        className="query-actions table-data-actions"
+        lead={
+          <>
+            <span className="table-where-wrap">
+              <input
+                ref={whereRef}
+                className={
+                  "filter-input mono table-where has-tooltip tooltip-left tooltip-wide" +
+                  (whereDirty ? " dirty" : "")
+                }
+                placeholder="絞り込み条件 (WHERE句。例: status = 1 AND name LIKE '%山%')"
+                value={where}
+                data-tooltip={
+                  whereDirty
+                    ? `まだ適用していません。表示中のデータの条件: ${
+                        appliedWhere?.trim() ? appliedWhere : "(なし・全件)"
+                      }`
+                    : undefined
+                }
+                onChange={(e) => onChangeWhere(e.target.value)}
+                onKeyDown={(e) => {
+                  // 日本語入力の変換中のEnter/Escは拾わない (確定・取り消しの操作のため)
+                  if (imeBusy(e)) return;
+                  // 取得中・行の編集中は受け付けない
+                  // (連打すると古い結果が後から表示されうる。編集中は入力が消える)
+                  if (e.key === "Enter" && !loading && !editing) onApplyWhere();
+                  // Esc で条件を消して全件に戻す (書いてあるときだけ)
+                  if (e.key === "Escape" && where !== "" && !loading && !editing) {
+                    e.stopPropagation();
+                    clearWhere();
+                  }
+                }}
+              />
+              <span className="table-where-tail">
+                {/* 入力中の条件が、表示中のデータの条件と違うときの印 */}
+                {whereDirty && (
+                  <span
+                    className="table-where-dirty has-tooltip"
+                    data-tooltip="この条件はまだ適用していません (Enter か「絞り込む」で適用)"
+                  >
+                    未適用
+                  </span>
+                )}
+                {where !== "" && (
+                  <IconButton
+                    className="table-where-clear"
+                    label={lockReason ?? "条件を消して全件に戻す (Esc)"}
+                    disabled={loading || !!editing}
+                    onClick={clearWhere}
+                  >
+                    ×
+                  </IconButton>
+                )}
+              </span>
             </span>
-            {editHint}
-          </span>
-        )}
-
-        {!loading && data && (
-          <span className="query-meta mono">
-            {data.rows.length === 0
-              ? "0行"
-              : `${(offset + 1).toLocaleString()}〜${(
-                  offset + data.rows.length
-                ).toLocaleString()}行目`}
-            {` — ${data.elapsedMs}ms`}
-            {/* 取り直さずに出していることがあるので、いつの内容かを添える */}
-            {fetchedAt !== undefined && ` — ${clockOf(fetchedAt)} 時点`}
-          </span>
-        )}
-
-        {data && (offset > 0 || data.hasMore) && (
-          <span className="pager">
             <button
-              className="pager-btn"
-              title="前の1000行"
-              disabled={loading || offset === 0}
-              onClick={() => onPage(Math.max(0, offset - QUERY_PAGE_SIZE))}
+              className="btn-primary has-tooltip"
+              onClick={() => onApplyWhere()}
+              disabled={loading || !!editing}
+              data-tooltip={
+                lockReason ??
+                "条件で絞り込み、先頭ページから取得し直します (Enter)\n" +
+                  "条件を変えていなければ、そのまま再読み込みになります"
+              }
             >
-              ‹
+              {loading ? (
+                <>
+                  <span className="spinner light" /> 読み込み中…
+                </>
+              ) : (
+                "絞り込む"
+              )}
             </button>
             <button
-              className="pager-btn"
-              title="次の1000行"
-              disabled={loading || !data.hasMore}
-              onClick={() => onPage(offset + QUERY_PAGE_SIZE)}
+              className="btn-secondary explain-btn has-tooltip"
+              onClick={() => setBuilding({})}
+              disabled={loading || dataColumns.length === 0 || !!editing}
+              data-tooltip={
+                lockReason ??
+                "列と演算子を選んで WHERE句を組み立てます (列見出しの ▾ からも開けます)"
+              }
             >
-              ›
+              条件を作る
             </button>
-          </span>
-        )}
-      </div>
+          </>
+        }
+        header={{ mode: headerMode, onChange: onChangeHeaderMode }}
+        edit={
+          editable && (
+            <>
+              {/* 行の追加は絞り込みとは別の操作なので、右側へ置く */}
+              <button
+                className="btn-secondary ddl-add-btn has-tooltip"
+                onClick={startInsert}
+                disabled={loading || !!editing}
+                data-tooltip={lockReason ?? undefined}
+              >
+                <PlusIcon />
+                行を追加
+              </button>
+              {/* 右クリックの操作に気づけるよう、構造タブと同じようにヒントを出す */}
+              {!editing && (
+                <span className="ddl-hint table-data-hint">
+                  ダブルクリックで編集 / 右クリックで行の削除 / 見出しの ▾ で並べ替え・絞り込み
+                </span>
+              )}
+            </>
+          )
+        }
+        /* 編集できないときは、SQL結果と同じ位置に「閲覧のみ」と理由を出す */
+        readOnly={editHint}
+        meta={
+          !loading && data
+            ? {
+                range: { kind: "page", offset, rows: data.rows.length },
+                elapsedMs: data.elapsedMs,
+                // 取り直さずに出していることがあるので、いつの内容かを添える
+                fetchedAt,
+              }
+            : null
+        }
+        page={
+          data
+            ? {
+                offset,
+                hasMore: data.hasMore,
+                // 編集中は押すと入力が消えるので押せなくし、理由を出す
+                disabled: loading || !!editing,
+                lockReason,
+                onPage,
+              }
+            : null
+        }
+      />
 
       {error && (
         <div className="result-banner ng query-error">
@@ -738,58 +805,38 @@ function TableDataViewInner({
       )}
 
       {/* 編集の案内と、実行中・エラーの表示 */}
-      {(editing || busy || editError) && (
-        <div className="ddl-bar">
-          {busy ? (
-            <>
-              <span className="spinner accent" />
-              <span className="ddl-bar-text">実行中...</span>
-            </>
-          ) : editError ? (
-            <>
-              <span className="ddl-bar-icon ng" aria-hidden>
-                !
-              </span>
-              <span className="ddl-bar-text ng">{editError}</span>
-            </>
-          ) : (
-            <span className="ddl-bar-text">
-              <kbd>Enter</kbd> で反映 / <kbd>Esc</kbd> で取り消し
-              {" — null と入力するとNULL"}
-              {!changed && "（変更はまだありません）"}
-            </span>
-          )}
-          <span className="toolbar-spacer" />
-          {editing ? (
-            <>
-              <button className="ddl-bar-btn" onClick={cancel} disabled={busy}>
-                取り消し
-              </button>
-              <button
-                className="ddl-bar-btn primary"
-                onClick={commit}
-                disabled={busy || !changed}
-              >
-                反映
-              </button>
-            </>
-          ) : (
-            editError && (
-              <button
-                className="ddl-bar-btn"
-                onClick={() => setEditError(null)}
-              >
-                閉じる
-              </button>
-            )
-          )}
-        </div>
-      )}
+      <EditBar
+        busy={busy}
+        error={editError}
+        onDismissError={() => setEditError(null)}
+        editing={!!editing}
+        changed={changed}
+        hint={
+          <>
+            <EditKeysHint />
+            {!changed && "（変更はまだありません）"}
+          </>
+        }
+        tools={
+          <button
+            className="ddl-bar-btn has-tooltip"
+            disabled={busy}
+            data-tooltip="最後に選んでいた入力欄を NULL にします (文字の NULL ではなく、値が無いことを表す NULL)"
+            // 押しても入力欄のフォーカスを外さない
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => patch(focusCol.current, null)}
+          >
+            NULL にする
+          </button>
+        }
+        onCancel={cancel}
+        onSave={commit}
+      />
 
       <div className="table-data-grid">
         {loading && !data ? (
           <div className="content-placeholder dim-center">
-            <span className="spinner accent" /> データを読み込み中...
+            <span className="spinner accent" /> データを読み込み中…
           </div>
         ) : !data ? (
           !error && (
@@ -814,7 +861,10 @@ function TableDataViewInner({
               id.startsWith("c")
                 ? [
                     {
-                      label: "この列で絞り込む...",
+                      label: "この列で絞り込む…",
+                      // 編集中に取り直すと入力が消えるので押せなくする
+                      disabled: !!editing,
+                      title: lockReason ?? undefined,
                       onSelect: () =>
                         setBuilding({ column: dataColumns[Number(id.slice(1))] }),
                     },
@@ -861,6 +911,7 @@ function TableDataViewInner({
         <WhereBuilder
           columns={dataColumns}
           columnTypes={columnTypes}
+          columnLabels={columnLabels}
           initialColumn={building.column}
           initialConds={initialConds(
             savedConds(),
@@ -879,7 +930,7 @@ function TableDataViewInner({
           column={dataColumns[cellView.column] ?? ""}
           value={cellView.value}
           clip={clipAt(cellView.row, cellView.column)}
-          // 主キーの値が全て揃っているときだけ、全文を読み直せる
+          // 主キーの値がすべて揃っているときだけ、全文を読み直せる
           onFetchFull={
             onFetchCell && identifiable && data?.rows[cellView.row]
               ? () =>
@@ -897,17 +948,18 @@ function TableDataViewInner({
         />
       )}
 
+      {askDialog}
+
       {deleting !== null && (
         <ConfirmDialog
           title="1行を削除します"
+          confirmLabel="削除する"
           target={deleteLabel}
-          cancelLabel={prod ? "取り消す" : undefined}
-          defaultFocus={prod ? "cancel" : "box"}
+          prodNote={prod ? rowChangeText("delete", tableLabel) : undefined}
           onCancel={() => setDeleting(null)}
           onConfirm={() => deleteRow(deleting)}
         >
-          {prod && <ProdNote>{rowChangeText("delete", tableLabel)}</ProdNote>}
-          この行のデータは失われます。取り消しはできません。
+          この行のデータは失われ、元に戻せません。
         </ConfirmDialog>
       )}
 
@@ -916,18 +968,16 @@ function TableDataViewInner({
         <ConfirmDialog
           title="本番環境のデータを変更します"
           target={tableLabel}
-          confirmLabel="実行する"
-          cancelLabel="取り消す"
-          // 実行より取り消しを選びやすくする
-          defaultFocus="cancel"
+          confirmLabel={confirmRow === "insert" ? "追加する" : "保存する"}
+          tone="primary"
+          prodNote={rowChangeText(confirmRow, tableLabel)}
           onCancel={() => setConfirmRow(null)}
           onConfirm={async () => {
             setConfirmRow(null);
             await applyEdit(true);
           }}
         >
-          <ProdNote>{rowChangeText(confirmRow, tableLabel)}</ProdNote>
-          取り消しはできません (このテーブルへ直接反映されます)。
+          このテーブルへすぐに書き込まれ、元に戻せません。
         </ConfirmDialog>
       )}
     </div>

@@ -53,8 +53,8 @@ export function ErBox({ frame: f, h }: { frame: ErFrame; h: FrameHandlers }) {
       }}
     >
       <div
-        className="er-frame-label"
-        title="ドラッグで移動 / ダブルクリックで編集 / 右クリックでメニュー"
+        className="er-frame-label has-tooltip"
+        data-tooltip="ドラッグで移動 / ダブルクリックで編集 / 右クリックでメニュー"
         onMouseDown={(e) => {
           if (f.id === h.editingId) return;
           h.onStartDrag(e, f.id);
@@ -77,8 +77,9 @@ export function ErBox({ frame: f, h }: { frame: ErFrame; h: FrameHandlers }) {
         )}
       </div>
       <div
-        className="er-frame-resize"
-        title="ドラッグでサイズ変更"
+        className="er-frame-resize has-tooltip"
+        data-tooltip="ドラッグでサイズ変更"
+        aria-label="ドラッグでサイズ変更"
         onMouseDown={(e) => h.onStartResize(e, f.id)}
       />
     </div>
@@ -117,14 +118,14 @@ export function ErTextLabel({
   }
   return (
     <div
-      className="er-text"
+      className="er-text has-tooltip"
       style={{
         left: f.x,
         top: f.y,
         fontSize: size,
         color: f.textColor || undefined,
       }}
-      title="ドラッグで移動 / ダブルクリックで編集 / 右クリックでメニュー"
+      data-tooltip="ドラッグで移動 / ダブルクリックで編集 / 右クリックでメニュー"
       onMouseDown={(e) => h.onStartDrag(e, f.id)}
       onDoubleClick={() => h.onStartEditing(f)}
       onContextMenu={(e) => h.onContextMenu(e, f.id)}

@@ -117,7 +117,7 @@ export function ObjectSearchPanel({
           disabled={busy || !keyword.trim()}
           onClick={run}
         >
-          {busy ? "検索中..." : "検索"}
+          {busy ? "検索中…" : "検索"}
         </button>
       </div>
 

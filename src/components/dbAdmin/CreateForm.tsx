@@ -5,6 +5,7 @@ import { SelectMenu } from "../SelectMenu";
 import type { CharsetInfo, DatabaseOwners, DbType } from "../../types";
 import type { AdminKind } from "./DbAdminDialog";
 import { imeBusy } from "../../ime";
+import { dbAdminText } from "../../prodConfirm";
 
 interface Props {
   sessionId: string;
@@ -18,6 +19,8 @@ interface Props {
    * 渡さなければ所有者の欄は出さない
    */
   owners?: DatabaseOwners | null;
+  /** 本番の接続か (確認に本番の1行を足す) */
+  prod?: boolean;
   disabled: boolean;
   /** 実行中かどうかを親へ伝える (閉じさせないため) */
   onBusyChange: (busy: boolean) => void;
@@ -36,7 +39,7 @@ const DEFAULT = "";
 /**
  * 名前 (と文字コード) を入れて作るフォーム。
  *
- * DDLなので、Enterや「作成」ですぐには流さず確認をはさむ。
+ * DDLなので、Enterや「作成する」ですぐには流さず確認をはさむ。
  * 実行するSQLをそのまま見せてから決めてもらう
  */
 export function CreateForm({
@@ -45,6 +48,7 @@ export function CreateForm({
   kind,
   withEncoding,
   owners,
+  prod = false,
   disabled,
   onBusyChange,
   onCreate,
@@ -52,7 +56,7 @@ export function CreateForm({
   const [name, setName] = useState("");
   const [encoding, setEncoding] = useState(DEFAULT);
   const [collation, setCollation] = useState(DEFAULT);
-  /** 所有者 (選ばなければ、今つないでいるロールが所有者になる) */
+  /** 所有者 (選ばなければ、今接続しているロールが所有者になる) */
   const [owner, setOwner] = useState(DEFAULT);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,10 +178,27 @@ export function CreateForm({
     }
   };
 
+  const createButton = (
+    <button
+      className="btn-primary has-tooltip"
+      disabled={!canGo}
+      data-tooltip={!trimmed ? "名前を入れてください" : undefined}
+      onClick={ask}
+    >
+      {busy ? (
+        <>
+          <span className="spinner light" /> 作成中…
+        </>
+      ) : (
+        "作成する"
+      )}
+    </button>
+  );
+
   return (
     <div className="db-admin-create">
       {/* 何を作るかは節の見出し (データベース / スキーマ) に出ている */}
-      <h4 className="db-admin-subtitle">新しく作る</h4>
+      <h4 className="db-admin-subtitle">新しく作成</h4>
       <div className="db-admin-row">
         <input
           className="text-field mono db-admin-name"
@@ -192,9 +213,8 @@ export function CreateForm({
             if (e.key === "Enter") void ask();
           }}
         />
-        <button className="btn-primary" disabled={!canGo} onClick={ask}>
-          {busy ? "作成中..." : "作成"}
-        </button>
+        {/* 指定の欄が無いとき (スキーマ) は、名前の横に置く */}
+        {!withEncoding && createButton}
       </div>
 
       {/* 指定は任意なので、名前とは別の行に分けて置く */}
@@ -252,9 +272,13 @@ export function CreateForm({
         </div>
       )}
 
+      {/* 指定を全部見てから押せるよう、作成のボタンは指定の欄の下に置く */}
+      {withEncoding && <div className="db-admin-create-actions">{createButton}</div>}
+
       {error && (
         <div className="result-banner ng">
           <span className="dot" aria-hidden />
+          <strong>エラー</strong>
           <span className="result-detail">{error}</span>
         </div>
       )}
@@ -264,6 +288,13 @@ export function CreateForm({
           title={`${kind}を作成します`}
           target={trimmed}
           confirmLabel="作成する"
+          // 作成は壊す操作ではないので赤くしない
+          tone="primary"
+          prodNote={
+            prod
+              ? dbAdminText({ kind: "create", what: kind, name: trimmed })
+              : undefined
+          }
           onConfirm={run}
           onCancel={() => setPending(null)}
         >

@@ -5,8 +5,9 @@
  * 決まった内容は呼び出し側へ渡し、SQLを見せる確認を通してから流す
  */
 import { useState } from "react";
-import { useModal } from "../../hooks/useModal";
 import type { DbUser, DbUserChange } from "../../types";
+import { ModalFrame } from "../ModalFrame";
+import type { ChangeToggle } from "./ChangeConfirm";
 import { blockedReason, userRef } from "./dbUserView";
 import { imeBusy } from "../../ime";
 
@@ -14,7 +15,7 @@ interface Props {
   user: DbUser;
   /** PostgreSQL か */
   pg: boolean;
-  /** 今つないでいるデータベース (削除の断り書きに使う) */
+  /** 今接続しているデータベース (削除の断り書きに使う) */
   database: string;
   /** 確認へ進む */
   onAsk: (ask: AskedChange) => void;
@@ -25,14 +26,18 @@ export interface AskedChange {
   title: string;
   change: DbUserChange;
   note?: string;
+  /** 見出しの右に出す相手 (省略すると選んでいるユーザー) */
+  target?: string;
   /** 打ち込ませる名前 (削除のとき) */
   typeName?: string;
+  /** 確認の中で切り替えられる指定 (PostgreSQL の削除前の片付け) */
+  toggle?: ChangeToggle;
   confirmLabel?: string;
   /**
-   * そのSQLを流すデータベース (省略すると今つないでいるもの)。
+   * そのSQLを流すデータベース (省略すると今接続しているもの)。
    *
    * PostgreSQLは、スキーマやテーブルへの権限を
-   * そのデータベースへ繋いだ状態でしか付けられない
+   * そのデータベースへ接続した状態でしか付けられない
    */
   database?: string;
   /** 実行できたときに出す短い知らせ */
@@ -44,8 +49,6 @@ type Open = "password" | "rename" | null;
 
 export function UserActions({ user, pg, database, onAsk }: Props) {
   const [open, setOpen] = useState<Open>(null);
-  /** PostgreSQLの削除で、先に片付けるか */
-  const [cleanup, setCleanup] = useState(true);
   const blocked = blockedReason(user);
   const locked = user.badges.includes("停止中") || (pg && !user.canLogin);
   const word = pg ? "ロール" : "ユーザー";
@@ -58,38 +61,46 @@ export function UserActions({ user, pg, database, onAsk }: Props) {
   return (
     <div className="dbusers-actions">
       <button className="btn-secondary" onClick={() => setOpen("password")}>
-        パスワードを変える
+        パスワードを変更
       </button>
       <button className="btn-secondary" onClick={() => setOpen("rename")}>
-        名前を変える
+        名前を変更
       </button>
       <button
         className="btn-secondary"
         onClick={() =>
           onAsk({
-            title: locked ? `${word}を戻します` : `${word}を止めます`,
+            title: locked ? `${word}の停止を解除します` : `${word}を停止します`,
             change: { kind: "lock", user: who, locked: !locked },
             note: locked
               ? "また接続できるようになります。権限は変わりません"
-              : "接続できなくなります。権限はそのまま残るので、あとから戻せます",
-            confirmLabel: locked ? "戻す" : "止める",
+              : "接続できなくなります。権限はそのまま残るので、あとから停止を解除できます",
+            confirmLabel: locked ? "停止を解除する" : "停止する",
             done: locked
-              ? `${user.name} は入れるように戻しました`
-              : `${user.name} は入れないようにしました`,
+              ? `${user.name} の停止を解除しました`
+              : `${user.name} を停止しました`,
           })
         }
       >
-        {locked ? "入れるように戻す" : "入れないようにする"}
+        {locked ? "停止を解除" : "停止"}
       </button>
       <button
         className="btn-secondary danger"
         onClick={() =>
           onAsk({
             title: `${word}を削除します`,
-            change: { kind: "drop", user: who, cleanup: pg && cleanup },
+            change: { kind: "drop", user: who, cleanup: pg },
             note: pg
-              ? `このユーザーは接続できなくなり、与えていた権限も一緒に消えます。データそのものは消えません。\nPostgreSQLは権限や持ち物が1つでも残っていると削除できないため、先に「${database}」のぶんを片付けます (持ち物は今つないでいるユーザーへ引き継ぎます)。ほかのデータベースにも残っている場合は、そちらへ接続してからもう一度削除してください`
+              ? `このユーザーは接続できなくなり、与えていた権限も一緒に消えます。データそのものは消えません。\nPostgreSQLは権限や持ち物が1つでも残っていると削除できません。下の「片付ける」を選ぶと、先に「${database}」のぶんを片付けます (持ち物は今接続しているユーザーへ引き継ぎます)。ほかのデータベースにも残っている場合は、そちらへ接続してからもう一度削除してください`
               : "このユーザーは接続できなくなり、与えていた権限も一緒に消えます。データそのものは消えません",
+            // 片付けるかどうかは、削除の確認の中で選ぶ (流すSQLもそこで変わる)
+            toggle: pg
+              ? {
+                  label: "削除の前に権限と持ち物を片付ける",
+                  initial: true,
+                  apply: (on) => ({ kind: "drop", user: who, cleanup: on }),
+                }
+              : undefined,
             typeName: user.name,
             confirmLabel: "削除する",
             done: `${user.name} を削除しました`,
@@ -101,7 +112,7 @@ export function UserActions({ user, pg, database, onAsk }: Props) {
 
       {open === "password" && (
         <TextPrompt
-          title="パスワードを変えます"
+          title="パスワードを変更します"
           target={user.key}
           label="新しいパスワード"
           secret
@@ -109,10 +120,10 @@ export function UserActions({ user, pg, database, onAsk }: Props) {
           onDecide={(v) => {
             setOpen(null);
             onAsk({
-              title: "パスワードを変えます",
+              title: "パスワードを変更します",
               change: { kind: "password", user: who, password: v },
-              confirmLabel: "変える",
-              done: `${user.name} のパスワードを変えました`,
+              confirmLabel: "変更する",
+              done: `${user.name} のパスワードを変更しました`,
             });
           }}
           onCancel={() => setOpen(null)}
@@ -121,7 +132,7 @@ export function UserActions({ user, pg, database, onAsk }: Props) {
 
       {open === "rename" && (
         <TextPrompt
-          title="名前を変えます"
+          title="名前を変更します"
           target={user.key}
           label="新しい名前"
           initial={user.name}
@@ -129,25 +140,14 @@ export function UserActions({ user, pg, database, onAsk }: Props) {
           onDecide={(v) => {
             setOpen(null);
             onAsk({
-              title: "名前を変えます",
+              title: "名前を変更します",
               change: { kind: "rename", user: who, name: v },
-              confirmLabel: "変える",
-              done: `${user.name} の名前を「${v}」に変えました`,
+              confirmLabel: "変更する",
+              done: `${user.name} の名前を「${v}」に変更しました`,
             });
           }}
           onCancel={() => setOpen(null)}
         />
-      )}
-
-      {pg && (
-        <label className="dbusers-check dbusers-cleanup">
-          <input
-            type="checkbox"
-            checked={cleanup}
-            onChange={(e) => setCleanup(e.target.checked)}
-          />
-          削除の前に権限と持ち物を片付ける
-        </label>
       )}
     </div>
   );
@@ -174,51 +174,41 @@ function TextPrompt({
   onCancel: () => void;
 }) {
   const [value, setValue] = useState(initial);
-  const boxRef = useModal(onCancel);
 
   const go = () => value && onDecide(value);
 
   return (
-    <div className="modal-overlay" onMouseDown={onCancel}>
-      <div
-        className="modal ddl-confirm"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            {title}
-            <span className="column-modal-target mono">{target}</span>
-          </span>
-          <button className="modal-close" onClick={onCancel} title="閉じる (Esc)">
-            ×
-          </button>
-        </div>
-        <label className="dbusers-type">
-          <span className="field-label">{label}</span>
-          <input
-            className="text-field"
-            type={secret ? "password" : "text"}
-            autoFocus
-            value={value}
-            spellCheck={false}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !imeBusy(e)) go();
-            }}
-          />
-          {note && <span className="field-note">{note}</span>}
-        </label>
-        <div className="form-actions">
+    <ModalFrame
+      title={title}
+      target={target}
+      onClose={onCancel}
+      className="ddl-confirm"
+      footer={
+        <>
           <button className="btn-secondary" onClick={onCancel}>
-            やめる
+            キャンセル
           </button>
           <button className="btn-primary" onClick={go} disabled={!value}>
             次へ
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <label className="dbusers-type">
+        <span className="field-label">{label}</span>
+        <input
+          className="text-field"
+          type={secret ? "password" : "text"}
+          autoFocus
+          value={value}
+          spellCheck={false}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !imeBusy(e)) go();
+          }}
+        />
+        {note && <span className="field-note">{note}</span>}
+      </label>
+    </ModalFrame>
   );
 }

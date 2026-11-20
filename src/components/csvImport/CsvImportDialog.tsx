@@ -8,15 +8,15 @@ import {
 } from "../../api";
 import { csvImportStore, patchCsvImportForm } from "../../csvImportStore";
 import { useKeyedStore } from "../../hooks/useKeyedStore";
-import { useModal } from "../../hooks/useModal";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { DialogWhere } from "../DialogWhere";
+import { ModalFrame } from "../ModalFrame";
 import { CsvProgress } from "../CsvProgress";
 import { CsvFilePicker } from "./CsvFilePicker";
 import { CsvMapping } from "./CsvMapping";
 import { CsvSettings } from "./CsvSettings";
 import { autoMap, checkMapping } from "./mapping";
 import { hasMismatch, shapeWarningText } from "./shapeWarning";
-import { ProdNote } from "../ProdBadge";
 import { csvImportText } from "../../prodConfirm";
 import type { ColumnInfo, CsvPreview, DbType, ShapeReport } from "../../types";
 
@@ -33,6 +33,8 @@ interface Props {
   table: string;
   /** 列の見方がDBごとに違うので受け取る (自動採番の判定など) */
   dbType: DbType;
+  /** 接続名 (見出しの下に出す) */
+  connName?: string;
   /**
    * 本番の接続か (本番では取り込む前に必ず確認する)。
    *
@@ -58,6 +60,7 @@ export function CsvImportDialog({
   schema,
   table,
   dbType,
+  connName,
   prod = false,
   onClose,
   onImported,
@@ -93,9 +96,7 @@ export function CsvImportDialog({
   const [staging, setStaging] = useState(false);
 
   const busy = !!job || staging;
-
-  // 実行中・転送中は Esc でもオーバーレイのクリックでも閉じない
-  const boxRef = useModal(onClose, !busy);
+  const label = schema ? `${schema}.${table}` : table;
 
   // 取り込み先の列を取得する (画面から来た名前ではなく、実際の定義を使う)
   useEffect(() => {
@@ -297,42 +298,86 @@ export function CsvImportDialog({
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={() => !busy && onClose()}>
-      <div
-        className="modal csv-import-modal"
-        onMouseDown={(e) => e.stopPropagation()}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            CSVを取り込む
-            <span className="column-modal-target mono">
-              {schema ? `${schema}.${table}` : table}
-            </span>
-          </span>
-          <button
-            className="modal-close"
-            onClick={onClose}
-            disabled={busy}
-            title={busy ? "処理中は閉じられません" : "閉じる (Esc)"}
-          >
-            ×
+    // 実行中・転送中・確認中は Esc・背景クリック・× で閉じない
+    <ModalFrame
+      title="CSVを取り込む"
+      target={label}
+      prod={prod}
+      onClose={onClose}
+      closable={!busy && !shapeWarn}
+      className="csv-import-modal"
+      footerNote={
+        !job &&
+        "取り込みは1つのトランザクションで行います。失敗・中止したときは何も入りません"
+      }
+      footer={
+        job ? (
+          <>
+            <CsvProgress
+              jobId={job.id}
+              startedAt={job.startedAt}
+              verb="取り込み"
+              /*
+               * 読み取ったときに数えた行数を渡して、進み具合の帯を出す。
+               * 「重複は飛ばす」では入る行のほうが少なくなるので、
+               * 帯が最後まで届かないことがある
+               */
+              total={preview?.data.totalRows ?? null}
+            />
+            <button
+              className="btn-secondary"
+              disabled={cancelling}
+              onClick={() => {
+                csvImportStore.patch(sessionId, { cancelling: true });
+                cancelCsvExport(job.id).catch((e) => {
+                  csvImportStore.patch(sessionId, {
+                    cancelling: false,
+                    error: `中止できませんでした: ${e}`,
+                  });
+                });
+              }}
+            >
+              {cancelling ? "中止しています…" : "中止"}
+            </button>
+          </>
+        ) : imported ? (
+          // 取り込み終えたら主ボタンは「閉じる」(同じ内容を二重に入れさせない)
+          <button className="btn-primary" onClick={onClose}>
+            閉じる
           </button>
-        </div>
+        ) : (
+          <>
+            <button className="btn-secondary" onClick={onClose} disabled={busy}>
+              {result ? "閉じる" : "キャンセル"}
+            </button>
+            <button
+              className="btn-primary has-tooltip"
+              disabled={!canRun || blocked}
+              data-tooltip={!file ? "取り込むファイルを選んでください" : undefined}
+              onClick={start}
+            >
+              取り込む
+            </button>
+          </>
+        )
+      }
+    >
+      <DialogWhere connName={connName} database={database} dbType={dbType} />
 
-        <CsvFilePicker
-          file={file}
-          rows={preview?.data.totalRows ?? null}
-          onFile={(f) => {
-            csvImportStore.patch(sessionId, { result: null, error: null });
-            patchForm({ file: f, imported: false });
-          }}
-          onError={setError}
-          disabled={!!job}
-          onBusyChange={setStaging}
-        />
+      <CsvFilePicker
+        file={file}
+        rows={preview?.data.totalRows ?? null}
+        onFile={(f) => {
+          csvImportStore.patch(sessionId, { result: null, error: null });
+          patchForm({ file: f, imported: false });
+        }}
+        onError={setError}
+        disabled={!!job}
+        onBusyChange={setStaging}
+      />
 
+      {/* 設定はファイルを選んでから出す (選ぶ前に並べても決めようがない) */}
+      {file && (
         <CsvSettings
           options={options}
           onOptions={(next) => patchForm({ options: next, imported: false })}
@@ -353,116 +398,62 @@ export function CsvImportDialog({
           disabled={busy}
           readDisabled={busy || !file}
         />
+      )}
 
-        {preview?.data.warning && (
-          <div className="result-banner warn">
-            <span className="dot" aria-hidden />
-            <span className="result-detail">{preview.data.warning}</span>
+      {preview?.data.warning && (
+        <div className="result-banner warn">
+          <span className="dot" aria-hidden />
+          <span className="result-detail">{preview.data.warning}</span>
+        </div>
+      )}
+      {issues.map((i, at) => (
+        <div
+          key={at}
+          className={
+            i.level === "error" ? "result-banner ng" : "result-banner warn"
+          }
+        >
+          <span className="dot" aria-hidden />
+          <span className="result-detail">{i.message}</span>
+        </div>
+      ))}
+      {error && (
+        <div className="result-banner ng">
+          <span className="dot" aria-hidden />
+          <strong>エラー</strong>
+          <span className="result-detail">{error}</span>
+        </div>
+      )}
+      {result && (
+        <div className="result-banner ok">
+          <span className="dot" aria-hidden />
+          <span className="result-detail">{result}</span>
+        </div>
+      )}
+
+      <div className="csv-import-body">
+        {loading ? (
+          <div className="routine-empty">
+            <span className="spinner accent" /> 読み込み中…
           </div>
-        )}
-        {issues.map((i, at) => (
-          <div
-            key={at}
-            className={
-              i.level === "error" ? "result-banner ng" : "result-banner warn"
+        ) : preview && columns ? (
+          <CsvMapping
+            preview={preview.data}
+            targets={columns}
+            mapping={mapping}
+            onChange={(i, target) =>
+              patchForm({
+                mapping: mapping.map((m, at) => (at === i ? target : m)),
+                imported: false,
+              })
             }
-          >
-            <span className="dot" aria-hidden />
-            <span className="result-detail">{i.message}</span>
-          </div>
-        ))}
-        {error && (
-          <div className="result-banner ng">
-            <span className="dot" aria-hidden />
-            <strong>エラー</strong>
-            <span className="result-detail">{error}</span>
+            disabled={!!job}
+          />
+        ) : (
+          <div className="routine-empty">
+            ファイルを選ぶと、先頭の内容と列の対応が表示されます
           </div>
         )}
-        {result && (
-          <div className="result-banner ok">
-            <span className="dot" aria-hidden />
-            <span className="result-detail">{result}</span>
-          </div>
-        )}
-
-        <div className="csv-import-body">
-          {loading ? (
-            <div className="routine-empty">
-              <span className="spinner accent" /> 読み込み中...
-            </div>
-          ) : preview && columns ? (
-            <CsvMapping
-              preview={preview.data}
-              targets={columns}
-              mapping={mapping}
-              onChange={(i, target) =>
-                patchForm({
-                  mapping: mapping.map((m, at) => (at === i ? target : m)),
-                  imported: false,
-                })
-              }
-              disabled={!!job}
-            />
-          ) : (
-            <div className="routine-empty">
-              ファイルを選ぶと、先頭の内容と列の対応が表示されます
-            </div>
-          )}
-        </div>
-
-        <div className="modal-actions">
-          {job ? (
-            <>
-              <CsvProgress
-                jobId={job.id}
-                startedAt={job.startedAt}
-                verb="取り込み"
-                /*
-                 * 読み取ったときに数えた行数を渡して、進み具合の帯を出す。
-                 * 「重複は飛ばす」では入る行のほうが少なくなるので、
-                 * 帯が最後まで届かないことがある
-                 */
-                total={preview?.data.totalRows ?? null}
-              />
-              <button
-                className="btn-secondary"
-                disabled={cancelling}
-                onClick={() => {
-                  csvImportStore.patch(sessionId, { cancelling: true });
-                  cancelCsvExport(job.id).catch((e) => {
-                    csvImportStore.patch(sessionId, {
-                      cancelling: false,
-                      error: `中止できませんでした: ${e}`,
-                    });
-                  });
-                }}
-              >
-                {cancelling ? "中止しています..." : "中止"}
-              </button>
-            </>
-          ) : (
-            <>
-              <span className="csv-import-hint faint">
-                取り込みは1つのトランザクションで行います。失敗・中止したときは何も入りません
-              </span>
-              <button className="btn-secondary" onClick={onClose} disabled={busy}>
-                閉じる
-              </button>
-              <button
-                className="btn-primary"
-                disabled={!canRun || blocked || imported}
-                title={
-                  imported
-                    ? "同じ内容を続けて入れないよう、いったん止めています (ファイルか設定を変えると押せます)"
-                    : undefined
-                }
-                onClick={start}
-              >
-                取り込む
-              </button>
-            </>
-          )}
-        </div>
       </div>
 
       {shapeWarn && (
@@ -472,29 +463,27 @@ export function CsvImportDialog({
               ? "列の数が揃っていない行があります"
               : "本番環境のデータを変更します"
           }
-          target={schema ? `${schema}.${table}` : table}
-          confirmLabel="続ける"
-          cancelLabel="取り消す"
+          target={label}
+          confirmLabel="取り込む"
+          tone="primary"
           // 取り込みを続けるより、いったん止める方を選びやすくする
           defaultFocus="cancel"
+          prodNote={
+            prod
+              ? csvImportText(label, shapeWarn.rows, shapeWarn.truncated)
+              : undefined
+          }
           onConfirm={async () => {
             setShapeWarn(null);
             await run(true);
           }}
           onCancel={() => setShapeWarn(null)}
         >
-          {prod && (
-            <ProdNote>
-              {csvImportText(
-                schema ? `${schema}.${table}` : table,
-                shapeWarn.rows,
-                shapeWarn.truncated
-              )}
-            </ProdNote>
-          )}
-          {hasMismatch(shapeWarn) && shapeWarningText(shapeWarn)}
+          {hasMismatch(shapeWarn)
+            ? shapeWarningText(shapeWarn)
+            : "このまま取り込みますか。"}
         </ConfirmDialog>
       )}
-    </div>
+    </ModalFrame>
   );
 }

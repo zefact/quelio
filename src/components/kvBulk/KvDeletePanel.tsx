@@ -150,9 +150,9 @@ export function KvDeletePanel({
           数える
         </button>
         <button
-          className="btn-danger"
+          className="btn-danger has-tooltip"
           disabled={readOnly || !trusted || stale || !!busyKind}
-          title={
+          data-tooltip={
             readOnly
               ? "読み取り専用の接続では削除できません"
               : stale
@@ -224,7 +224,7 @@ export function KvDeletePanel({
       )}
 
       <p className="db-admin-hint">
-        削除は取り消せません。UNLINKで消すので、消し終わるまでの間も他の操作は止まりません。
+        削除は元に戻せません。UNLINKで消すので、消し終わるまでの間も他の操作は止まりません。
         <br />
         数えている間・消している間にキーが増減すると、1回では取りきれないことがあります
         (もう一度実行すると残りが消えます)。

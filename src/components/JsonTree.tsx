@@ -97,10 +97,13 @@ export function JsonTree({ value, onPickPath, pickedPath }: Props) {
     return (
       <div key={path}>
         <div
-          className={"json-row" + (pickedPath === path ? " picked" : "")}
+          className={
+            "json-row has-tooltip tooltip-left" +
+            (pickedPath === path ? " picked" : "")
+          }
           style={{ paddingLeft: 6 + depth * 14 }}
           onClick={() => onPickPath(path)}
-          title={path}
+          data-tooltip={path}
         >
           <button
             className={"json-caret" + (branch ? "" : " leaf")}
@@ -142,10 +145,10 @@ export function JsonTree({ value, onPickPath, pickedPath }: Props) {
     <div className="json-tree-wrap">
       <div className="json-tree-head">
         <button
-          className="btn-secondary"
+          className="btn-secondary has-tooltip tooltip-left"
           onClick={() => setOpen(new Set(everyPath))}
           disabled={everyPath.length > 2000}
-          title={
+          data-tooltip={
             everyPath.length > 2000
               ? "項目が多すぎるため、まとめて開けません"
               : "すべての入れ子を開きます"

@@ -5,6 +5,7 @@ import { isCancelled, LoadingWithCancel } from "./LoadingWithCancel";
 import { SqlTextDialog } from "./SqlTextDialog";
 import { usePolling } from "../hooks/usePolling";
 import { useResizableWidth } from "../hooks/useResizableWidth";
+import { ErrorBand } from "./ErrorBand";
 import { SelectMenu } from "./SelectMenu";
 import {
   computeDiff,
@@ -67,7 +68,11 @@ function DiffValue({ value, other }: { value?: string; other?: string }) {
     return (
       <>
         {prefix}
-        <span className="char-diff empty-mark" title="この位置に相手側のみ文字があります">
+        <span
+          className="char-diff empty-mark has-tooltip"
+          data-tooltip="この位置に相手側のみ文字があります"
+          aria-label="この位置に相手側のみ文字があります"
+        >
           ‸
         </span>
         {suffix}
@@ -77,7 +82,10 @@ function DiffValue({ value, other }: { value?: string; other?: string }) {
   return (
     <>
       {prefix}
-      <span className="char-diff" title={`差異部分: "${mid}" (${codePoints(mid)})`}>
+      <span
+        className="char-diff has-tooltip"
+        data-tooltip={`差異部分: "${mid}" (${codePoints(mid)})`}
+      >
         {visualizeWs(mid)}
       </span>
       {suffix}
@@ -88,7 +96,7 @@ function DiffValue({ value, other }: { value?: string; other?: string }) {
 /**
  * カラム・インデックスの行に出す中身 (その側の型や対象カラム)。
  *
- * 無い側は「—」。差異ありの行は、違っている項目を下の行に並べるので空にする
+ * 無い側は「—」。変更のある行は、違っている項目を下の行に並べるので空にする
  */
 function itemCell(it: ItemDiff, side: "left" | "right"): string {
   if (it.status === "changed") return "";
@@ -97,9 +105,9 @@ function itemCell(it: ItemDiff, side: "left" | "right"): string {
 }
 
 const STATUS_LABEL: Record<TableDiff["status"], string> = {
-  added: "右のみ",
-  removed: "左のみ",
-  changed: "差異あり",
+  added: "右だけ",
+  removed: "左だけ",
+  changed: "変更",
   same: "一致",
 };
 
@@ -122,8 +130,12 @@ export function DiffWindow() {
   /** 組み立てたALTER文 (nullなら出していない) */
   const [migration, setMigration] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // 項目カラムの幅 (ヘッダのハンドルでドラッグ変更)
-  const [labelWidth, startLabelResize] = useResizableWidth(220, 120, 600);
+  // 項目カラムの幅 (ヘッダのハンドルでドラッグ、または矢印キーで変更)
+  const [labelWidth, startLabelResize, nudgeLabel] = useResizableWidth(
+    220,
+    120,
+    600
+  );
 
   const refreshSessions = async () => {
     try {
@@ -140,13 +152,21 @@ export function DiffWindow() {
   usePolling(refreshSessions, 3000);
 
   /**
-   * 選択を変えたら、前回の比較で取った定義は捨てる。
+   * 選択を変えたら、前回の比較の結果と定義は捨てる。
+   * 古い結果に新しいDB名の見出しが付いたり、
    * 古い定義に新しい方言を当ててALTER文を作ってしまわないようにする
    */
   const changeSide = (setSide: (s: SideSel) => void) => (sel: SideSel) => {
+    setDiff(null);
     setSnapshots(null);
     setMigration(null);
     setSide(sel);
+  };
+
+  /** 見出しに出す「接続名 / DB」(本番と検証で同じ名前のDBでも見分けられるように) */
+  const sideLabel = (side: SideSel) => {
+    const name = sessions.find((s) => s.sessionId === side.sessionId)?.name;
+    return name ? `${name} / ${side.database}` : side.database;
   };
 
   const sideSelector = (
@@ -256,8 +276,8 @@ export function DiffWindow() {
     return (
       <button
         type="button"
-        className="diff-inline-link"
-        title={`${kind === "columns" ? "カラム" : "インデックス"}のタブで見る`}
+        className="diff-inline-link has-tooltip"
+        data-tooltip={`${kind === "columns" ? "カラム" : "インデックス"}のタブで見る`}
         onClick={() => setActiveView(kind)}
       >
         {label} {n}件
@@ -331,6 +351,10 @@ export function DiffWindow() {
       style={{ "--diff-label-w": `${labelWidth}px` } as React.CSSProperties}
     >
       <div className="diff-toolbar" data-tauri-drag-region>
+        {/* 何の窓かを示す (macOS ではタイトルバーを隠しているため) */}
+        <span className="window-title" data-tauri-drag-region>
+          スキーマ差分
+        </span>
         {sideSelector(left, setLeft, "左: 接続を選択")}
         <span className="diff-vs">⇄</span>
         {sideSelector(right, setRight, "右: 接続を選択")}
@@ -347,16 +371,16 @@ export function DiffWindow() {
         >
           {loading ? (
             <>
-              <span className="spinner light" /> 比較中...
+              <span className="spinner light" /> 比較中…
             </>
           ) : (
-            "比較"
+            "比較する"
           )}
         </button>
 
         <button
-          className="btn-secondary"
-          title="左を右に合わせるSQLを組み立てます (実行はしません)"
+          className="btn-secondary has-tooltip"
+          data-tooltip="左を右に合わせるSQLを組み立てます (実行はしません)"
           disabled={!snapshots}
           onClick={() => {
             if (!snapshots) return;
@@ -398,19 +422,18 @@ export function DiffWindow() {
       )}
 
       {error && (
-        <div
-          className={`result-banner ${isCancelled(error) ? "ok" : "ng"} diff-error`}
-        >
-          <span className="dot" aria-hidden />
-          <strong>{isCancelled(error) ? "中止" : "エラー"}</strong>
-          <span className="result-detail">{error}</span>
-        </div>
+        <ErrorBand
+          message={`${isCancelled(error) ? "中止" : "エラー"}: ${error}`}
+          tone={isCancelled(error) ? "ok" : "ng"}
+          className="diff-error"
+          onClose={() => setError(null)}
+        />
       )}
 
       {migration !== null && (
         <SqlTextDialog
           title="ALTER文"
-          target={`${left.database} ← ${right.database}`}
+          target={`${sideLabel(left)} ← ${sideLabel(right)}`}
           text={migration}
           onClose={() => setMigration(null)}
         />
@@ -418,7 +441,7 @@ export function DiffWindow() {
 
       {loading && (
         <LoadingWithCancel
-          label="スキーマを読み込み中..."
+          label="スキーマを読み込み中…"
           sessionIds={[left.sessionId, right.sessionId]}
           dbTypes={[left.sessionId, right.sessionId].map(
             (id) => sessions.find((s) => s.sessionId === id)?.dbType
@@ -426,9 +449,10 @@ export function DiffWindow() {
         />
       )}
 
-      {!diff && !loading && !error && (
+      {/* 接続が無いときは上の案内だけを出す (空の表示を2つ重ねない) */}
+      {!diff && !loading && !error && sessions.length > 0 && (
         <div className="content-placeholder dim-center">
-          左右に接続とデータベースを選んで「比較」を押してください
+          左右に接続とデータベースを選んで「比較する」を押してください
         </div>
       )}
 
@@ -464,11 +488,29 @@ export function DiffWindow() {
               項目
               <span
                 className="diff-label-resizer"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="項目の幅 (左右の矢印キーで変えられます)"
+                aria-valuenow={labelWidth}
+                aria-valuemin={120}
+                aria-valuemax={600}
+                tabIndex={0}
                 onMouseDown={startLabelResize}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                    e.preventDefault();
+                    const step = e.shiftKey ? 40 : 10;
+                    nudgeLabel(e.key === "ArrowLeft" ? -step : step);
+                  }
+                }}
               />
             </span>
-            <span className="diff-cell">左: {left.database}</span>
-            <span className="diff-cell">右: {right.database}</span>
+            <span className="diff-cell mono" title={sideLabel(left)}>
+              左: {sideLabel(left)}
+            </span>
+            <span className="diff-cell mono" title={sideLabel(right)}>
+              右: {sideLabel(right)}
+            </span>
           </div>
 
           <div className="diff-list">

@@ -33,8 +33,17 @@ import type {
   TableInfo,
   WorkTab,
 } from "../types";
-import { activeSheetOf, envColor } from "../types";
+import { activeSheetOf } from "../types";
 import { EnvBand } from "./EnvBand";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { IconButton } from "./IconButton";
+import { CloseMark } from "./CloseMark";
+import { MOD } from "../keyLabel";
+import {
+  needsStructureConfirm,
+  prodActionText,
+  tableRenameWhat,
+} from "../prodConfirm";
 import { StatusBar } from "./StatusBar";
 import type { LastRun } from "./StatusBar";
 import { useTxnState } from "../hooks/useTxnState";
@@ -65,6 +74,8 @@ import { useMultiSelect } from "../hooks/useMultiSelect";
 import { usePinnedTables } from "../hooks/usePinnedTables";
 import { orderByPinned } from "../pinnedTables";
 import { useToast } from "../hooks/useToast";
+import { useConnLost } from "../hooks/useConnLost";
+import { ConnLostBanner } from "./ConnLostBanner";
 
 import type { SheetPane, TableDataPane } from "./panes";
 
@@ -75,6 +86,9 @@ interface Props {
   /** SQLのシートの状態と操作 (同上) */
   sheetPane: SheetPane;
 }
+
+/** 読み取り専用の接続で、変更する操作を押せなくしたときの理由 */
+const RO_REASON = "読み取り専用の接続なので変更できません";
 
 /** 接続済みタブの中身: 上部DBセレクタ + 左テーブル一覧 + コンテンツ領域 */
 export function SessionView({ tab, dataPane, sheetPane }: Props) {
@@ -101,7 +115,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     onChangeTableTab,
   } = useTabActions();
   const [filter, setFilter] = useState("");
-  const [paneWidth, startResize] = useResizableWidth(260, 170, 520);
+  const [paneWidth, startResize, nudgePane] = useResizableWidth(260, 170, 520);
   const [dialog, setDialog] = useState<"export" | "import" | null>(null);
   /** テーブル一覧の再読み込み中か (アイコンの回転表示用) */
   const [reloading, setReloading] = useState(false);
@@ -122,8 +136,13 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     value: string;
   } | null>(null);
   const [renameError, setRenameError] = useState<string | null>(null);
-  /** 改名の二重実行防止 (Enterとフォーカスアウトが続けて起きるため) */
+  /** 改名の二重実行防止 (Enterとボタンが続けて押されたときのため) */
   const renameBusy = useRef(false);
+  /** 実行前に確認しているテーブル名の変更 (本番・「定義の変更も確認する」のとき) */
+  const [renameAsk, setRenameAsk] = useState<{
+    table: TableInfo;
+    next: string;
+  } | null>(null);
   /** テーブル・カラムの一覧 (入力補完と、一覧の日本語名表示に使う) */
   const [schemaMap, setSchemaMap] = useState<SchemaMap>({});
   /** アプリ設定 (コメント区切り・入力補完) */
@@ -202,7 +221,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     if (!selectedDb) return;
     setCounts((c) => {
       const next = { ...c };
-      for (const t of list) next[tableKey(t)] = "数えています...";
+      for (const t of list) next[tableKey(t)] = "数えています…";
       return next;
     });
     let failed = 0;
@@ -296,6 +315,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     // 切り替えた先の同名テーブルを触ってしまう
     setRenaming(null);
     setRenameError(null);
+    setRenameAsk(null);
     setShowCreate(false);
   }, [tab.key, clearToast]);
 
@@ -507,8 +527,26 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
   };
 
   /**
-   * 入力された名前でテーブル名を変更する (確認は挟まない)。
-   * Enterのほか、入力欄からフォーカスが外れたときにも確定する
+   * テーブル名を変更する (確認を済ませたあと、または確認が要らないとき)。
+   * 失敗したら例外を投げる (確認ダイアログから呼んだときは、そこに出す)
+   */
+  const doRenameTable = useCallback(
+    async (t: TableInfo, next: string) => {
+      if (!selectedDb) return;
+      await renameTable(tab.key, selectedDb, t.schema, t.name, next);
+      setRenaming(null);
+      setRenameError(null);
+      setPendingSelect({ schema: t.schema, name: next });
+      await onReloadTables();
+    },
+    [selectedDb, tab.key, onReloadTables]
+  );
+
+  /**
+   * 入力された名前でテーブル名を変更する (Enterか確定ボタンで呼ばれる)。
+   *
+   * 本番と、設定「定義の変更も確認する」が有効なときは、実行の前に確認を出す
+   * (SQLエディタで RENAME を流すときと同じ決まり)
    */
   const handleRenameTable = useCallback(
     async (t: TableInfo) => {
@@ -520,30 +558,47 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
         setRenameError(null);
         return;
       }
+      if (
+        needsStructureConfirm(
+          profile.env === "prod",
+          settings?.confirmAlter ?? true
+        )
+      ) {
+        setRenameAsk({ table: t, next });
+        return;
+      }
       renameBusy.current = true;
       setRenameError(null);
       try {
-        await renameTable(tab.key, selectedDb, t.schema, t.name, next);
-        setRenaming(null);
-        setPendingSelect({ schema: t.schema, name: next });
-        await onReloadTables();
+        await doRenameTable(t, next);
       } catch (e) {
         setRenameError(String(e));
       } finally {
         renameBusy.current = false;
       }
     },
-    [renaming, selectedDb, tab.key, onReloadTables]
+    [renaming, selectedDb, profile.env, settings?.confirmAlter, doRenameTable]
   );
 
   /** SQLiteはファイルベースのため、ホスト表示や外部ツール連携の扱いが変わる */
   const isSqlite = profile.dbType === "sqlite";
-  /** 読み取り専用の接続では、変更する操作をそもそも出さない */
+  /**
+   * 読み取り専用の接続か。
+   * 変更する操作は隠さず、押せなくして理由 (RO_REASON) を出す
+   */
   const readOnly = profile.readOnly ?? false;
   /** 表示中のシート (書きかけのSQLと実行結果はシートが持つ) */
   const sheet = activeSheetOf(tab.editor);
   /** 別ウィンドウを開けなかったときの表示 (握りつぶすと無反応に見えるため) */
   const [winError, setWinError] = useState<string | null>(null);
+  /**
+   * × で閉じたタブのエラー。
+   * エラーそのものはタブの状態なので消さず、同じ文のあいだだけ隠す
+   * (次に別のエラーが出たら、また見せる)
+   */
+  const [hiddenError, setHiddenError] = useState<string | null>(null);
+  /** 操作が「接続が切れた」エラーで失敗したか (帯は ConnLostBanner が出す) */
+  const lost = useConnLost(tab.key);
   const dbFilePath = profile.database ?? "";
 
   /*
@@ -581,17 +636,16 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
 
   return (
     <div className="session">
-      {/* ツールバー */}
-      {/* 環境を決めてある接続は、ツールバーの上端をその色で塗る */}
+      {/*
+        * ツールバー。
+        * 環境の印は決まり (envBand.ts の isMarkedEnv) どおり、
+        * 本番・ステージングは下の帯とタブ、すべての環境はステータスバーに出す。
+        * ここには重ねて出さない
+        */}
       <div
-        className={"session-toolbar" + (profile.env ? " has-env" : "")}
+        className="session-toolbar"
         // ページ内検索の対象外 (接続名・DB名・サーバー情報)
         data-find-skip
-        style={
-          profile.env
-            ? ({ "--env-color": envColor(profile.env) } as React.CSSProperties)
-            : undefined
-        }
       >
         <ConnectionChip profile={profile} filePath={dbFilePath} />
 
@@ -610,37 +664,46 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
               options={dbOptions}
               onChange={onSelectDb}
             />
-            {!readOnly && (
-              <button
-                className="db-admin-btn has-tooltip"
-                data-tooltip={
-                  profile.dbType === "postgresql"
-                    ? "データベース・スキーマの作成と削除"
-                    : "データベースの作成と削除"
-                }
-                aria-label="データベースの管理"
-                onClick={() => setShowDbAdmin(true)}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
-                  <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-                </svg>
-              </button>
-            )}
+            {/* 作成と削除の両方の入口なので、「＋」ではなく管理の絵にする */}
+            <IconButton
+              className="db-admin-btn"
+              label={
+                readOnly
+                  ? `データベースの管理 — ${RO_REASON}`
+                  : profile.dbType === "postgresql"
+                    ? "データベースの管理 (データベース・スキーマの作成と削除)"
+                    : "データベースの管理 (作成と削除)"
+              }
+              disabled={readOnly}
+              onClick={() => setShowDbAdmin(true)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M4 7h10M18 7h2M4 17h4M12 17h8"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                />
+                <circle cx="16" cy="7" r="2.2" stroke="currentColor" strokeWidth="2" />
+                <circle cx="10" cy="17" r="2.2" stroke="currentColor" strokeWidth="2" />
+              </svg>
+            </IconButton>
             </div>
             {/*
               * ユーザーと権限は「今どのDBを見ているか」と地続きなので、
               * ツールへ入れずにデータベースの選択のすぐ隣へ置く。
-              * 読むだけの画面なので、読み取り専用の接続でも出す
+              * 一覧を見るだけなら読み取り専用の接続でも使える
               */}
             {profile.dbType !== "valkey" && (
-              <button
-                className="db-users-btn has-tooltip"
-                data-tooltip={
-                  selectedDb
-                    ? "ユーザーと権限を見る (読むだけ)"
-                    : "データベースを選んでください"
+              <IconButton
+                className="db-users-btn"
+                label={
+                  !selectedDb
+                    ? "ユーザーと権限 — データベースを選んでください"
+                    : readOnly
+                      ? "ユーザーと権限 (一覧を見る。読み取り専用の接続なので変更はできません)"
+                      : "ユーザーと権限 (一覧を見る・ユーザーの作成と削除・権限の付け外し)"
                 }
-                aria-label="ユーザーと権限"
                 disabled={!selectedDb}
                 onClick={() => setShowUsers(true)}
               >
@@ -653,7 +716,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                     strokeLinecap="round"
                   />
                 </svg>
-              </button>
+              </IconButton>
             )}
           </div>
         )}
@@ -681,11 +744,10 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
           onHelp={() => setShowHelp(true)}
           hasHelp={topicsFor(profile.dbType).length > 0}
         />
-        <button
-          className={
-            "sql-btn has-tooltip" + (tab.view === "query" ? " active" : "")
-          }
-          data-tooltip="SQLエディタ (⌘Enterで実行)"
+        <IconButton
+          className={"sql-btn" + (tab.view === "query" ? " active" : "")}
+          label={`SQLエディタ (${MOD}Enter で実行)`}
+          aria-pressed={tab.view === "query"}
           onClick={onToggleQuery}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -704,17 +766,28 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
             />
           </svg>
           SQL
-        </button>
+        </IconButton>
       </div>
 
       {/* 本番 (とステージング) は、作業中ずっと分かるように帯を出す */}
       <EnvBand env={profile.env} connection={profile.name} />
 
-      {tab.error && (
+      {/* 接続が切れたときは「接続し直す」を出す (同じエラーの帯は重ねない) */}
+      <ConnLostBanner sessionId={tab.key} />
+
+      {tab.error && tab.error !== hiddenError && tab.error !== lost?.message && (
         <div className="result-banner ng session-error">
           <span className="dot" aria-hidden />
           <strong>エラー</strong>
           <span className="result-detail">{tab.error}</span>
+          <span className="toolbar-spacer" />
+          <IconButton
+            className="banner-close"
+            label="閉じる"
+            onClick={() => setHiddenError(tab.error)}
+          >
+            <CloseMark size={12} />
+          </IconButton>
         </div>
       )}
 
@@ -724,9 +797,13 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
           <strong>エラー</strong>
           <span className="result-detail">{winError}</span>
           <span className="toolbar-spacer" />
-          <button className="btn-ghost" onClick={() => setWinError(null)}>
-            閉じる
-          </button>
+          <IconButton
+            className="banner-close"
+            label="閉じる"
+            onClick={() => setWinError(null)}
+          >
+            <CloseMark size={12} />
+          </IconButton>
         </div>
       )}
 
@@ -735,6 +812,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
         <SidePane
           width={paneWidth}
           onStartResize={startResize}
+          onNudge={nudgePane}
           focusable
           onKeyDown={handlePaneKeyDown}
         >
@@ -748,12 +826,10 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                 : undefined
             }
           >
-            <button
-              className={
-                "pane-icon-btn has-tooltip tooltip-left" +
-                (reloading ? " spinning" : "")
-              }
-              data-tooltip="テーブル一覧を再読み込み"
+            <IconButton
+              className={"pane-icon-btn" + (reloading ? " spinning" : "")}
+              tipLeft
+              label="テーブル一覧を再読み込み"
               disabled={!selectedDb || loadingTables || reloading}
               onClick={handleReloadTables}
             >
@@ -766,12 +842,13 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                   strokeLinejoin="round"
                 />
               </svg>
-            </button>
-            <button
-              className="pane-icon-btn has-tooltip tooltip-left"
-              data-tooltip={
+            </IconButton>
+            <IconButton
+              className="pane-icon-btn"
+              tipLeft
+              label={
                 readOnly
-                  ? "読み取り専用の接続では作成できません"
+                  ? `テーブルを新規作成 — ${RO_REASON}`
                   : "テーブルを新規作成"
               }
               disabled={!selectedDb || loadingTables || readOnly}
@@ -785,51 +862,58 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                   strokeLinecap="round"
                 />
               </svg>
-            </button>
+            </IconButton>
             <span className="toolbar-spacer" />
-            {/* SQLダンプの出力・実行 (Quelio自身でできるので、SQLiteでも出す) */}
-            <button
-              className="pane-icon-btn has-tooltip tooltip-left"
-              data-tooltip={
+            {/*
+              * SQLダンプの書き出し・SQLファイルの実行 (Quelio自身でできるので、SQLiteでも出す)。
+              * ↓↑ だけでは意味が伝わりにくいので、ファイルの絵に矢印・再生の印を重ね、短い字を添える
+              */}
+            <IconButton
+              className="pane-icon-btn pane-icon-text"
+              tipLeft
+              label={
                 multiSel.size === 0
-                  ? "SQLダンプへ出力するテーブルを選んでください (⌘クリックで複数選択 / ⌘Aで全選択)"
-                  : `選択した${multiSel.size}件をSQLダンプへ出力`
+                  ? `SQLダンプを書き出す — 書き出すテーブルを選んでください (${MOD}クリックで複数選択 / ${MOD}A ですべて選択)`
+                  : `選択した${multiSel.size}件をSQLダンプに書き出す`
               }
               disabled={!selectedDb || multiSel.size === 0}
               onClick={() => setDialog("export")}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M4 20h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path d="M6 3h8l4 4v14H6z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="M12 10v7m0 0l-3-3m3 3l3-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-            </button>
-            <button
-              className="pane-icon-btn has-tooltip tooltip-left"
-              data-tooltip={
+              ダンプ
+            </IconButton>
+            <IconButton
+              className="pane-icon-btn pane-icon-text"
+              tipLeft
+              label={
                 readOnly
-                  ? "読み取り専用の接続では取り込めません"
-                  : "SQLファイルを実行"
+                  ? `SQLファイルを実行 — ${RO_REASON}`
+                  : "SQLファイルを実行 (ダンプなどを流し込む)"
               }
               disabled={!selectedDb || readOnly}
               onClick={() => setDialog("import")}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path d="M12 15V3m0 0L7.5 7.5M12 3l4.5 4.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M4 20h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                <path d="M6 3h8l4 4v14H6z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                <path d="M10 10.5v6l5-3z" fill="currentColor" />
               </svg>
-            </button>
+              実行
+            </IconButton>
           </PaneHead>
           {!selectedDb ? (
             <div className="table-pane-empty">上部からデータベースを選択</div>
           ) : loadingTables ? (
             <div className="table-pane-empty">
-              <span className="spinner accent" /> 読み込み中...
+              <span className="spinner accent" /> 読み込み中…
             </div>
           ) : (
             <>
               <input
                 className="filter-input mono"
-                placeholder="絞り込み (名前・日本語名)..."
+                placeholder="絞り込み (名前・日本語名)…"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               />
@@ -922,6 +1006,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
 
       {dialog === "export" && selectedDb && (
         <ExportDialog
+          prod={profile.env === "prod"}
           sessionId={tab.key}
           database={selectedDb}
           connName={profile.name || profile.host}
@@ -933,6 +1018,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
       )}
       {dialog === "import" && selectedDb && (
         <ImportDialog
+          prod={profile.env === "prod"}
           sessionId={tab.key}
           database={selectedDb}
           connName={profile.name || profile.host}
@@ -969,6 +1055,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
 
       {showUsers && selectedDb && (
         <DbUsersDialog
+          prod={profile.env === "prod"}
+          connName={profile.name || profile.host}
           sessionId={tab.key}
           database={selectedDb}
           databases={databases}
@@ -1029,6 +1117,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
 
       {showDbAdmin && (
         <DbAdminDialog
+          prod={profile.env === "prod"}
+          connName={profile.name || profile.host}
           sessionId={tab.key}
           dbType={profile.dbType}
           currentDb={selectedDb}
@@ -1041,6 +1131,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
       {csvTarget && selectedDb && (
         <CsvImportDialog
           prod={profile.env === "prod"}
+          connName={profile.name || profile.host}
           sessionId={tab.key}
           database={selectedDb}
           schema={csvTarget.schema ?? undefined}
@@ -1057,6 +1148,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
 
       {genTarget && selectedDb && (
         <TestDataDialog
+          prod={profile.env === "prod"}
+          connName={profile.name || profile.host}
           sessionId={tab.key}
           database={selectedDb}
           schema={genTarget.schema ?? undefined}
@@ -1095,7 +1188,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                 : undefined;
               return (
                 <>
-                  <div className="grid-sort-head mono">
+                  <div className={"context-head" + (multi ? "" : " mono")}>
                     {multi ? `${n}件を選択中` : tableMenu.table.name}
                   </div>
                   {(() => {
@@ -1132,8 +1225,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                     {label("テーブル名をコピー", "のテーブル名をコピー")}
                   </button>
                   <button
-                    className="context-item"
-                    title="COUNT(*) のSQLをコピーします"
+                    className="context-item has-tooltip"
+                    data-tooltip="COUNT(*) のSQLをコピーします"
                     onClick={() =>
                       copySql(
                         joinSql(targets, (t) =>
@@ -1148,8 +1241,8 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                   <div className="context-sep" />
                   <div className="context-group">SQLをエディタへ</div>
                   <button
-                    className="context-item"
-                    title="列を並べたSELECT文をSQLエディタへ入れます"
+                    className="context-item has-tooltip"
+                    data-tooltip="カラムを並べたSELECT文をSQLエディタへ入れます"
                     onClick={() => {
                       setTableMenu(null);
                       onSendToEditor(
@@ -1162,8 +1255,12 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                     {label("SELECT文をエディタへ", "のSELECT文をエディタへ")}
                   </button>
                   <button
-                    className="context-item"
-                    title="列を並べたINSERT文のひな形をSQLエディタへ入れます (値はNULL)"
+                    className="context-item has-tooltip"
+                    data-tooltip={
+                      readOnly
+                        ? RO_REASON
+                        : "カラムを並べたINSERT文のひな形をSQLエディタへ入れます (値はNULL)"
+                    }
                     disabled={readOnly}
                     onClick={() => {
                       setTableMenu(null);
@@ -1179,33 +1276,28 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                   <div className="context-sep" />
                   <div className="context-group">データ</div>
                   <button
-                    className="context-item"
-                    title="一覧の行数は概算です。COUNT(*) で正確に数えます (大きな表では時間が掛かります)"
+                    className="context-item has-tooltip"
+                    data-tooltip="一覧の行数は概算です。COUNT(*) で正確に数えます (大きな表では時間が掛かります)"
                     onClick={() => countRows(targets)}
                   >
                     {label("正確な件数を数える", "の件数を数える")}
                   </button>
-                  <button
-                    className="context-item"
-                    title="テーブルの定義とデータをSQLファイルへ書き出します"
-                    disabled={!selectedDb}
-                    onClick={() => {
-                      setTableMenu(null);
-                      setDialog("export");
-                    }}
-                  >
-                    {label("このテーブルをSQLダンプ", "をSQLダンプ")}
-                  </button>
-                  {!readOnly && (
-                    <>
+                  {/*
+                    * SQLダンプとテーブルの新規作成は、一覧の見出しのボタンに任せる
+                    * (右クリックは「この対象への操作」だけにして短くする)
+                    */}
+                  <>
                       <button
-                        className="context-item"
-                        title={
-                          oneOnly ??
-                          "CSV / TSVファイルの中身をこのテーブルへ追加します"
+                        className="context-item has-tooltip"
+                        data-tooltip={
+                          readOnly
+                            ? RO_REASON
+                            : (oneOnly ??
+                              "CSV / TSVファイルの中身をこのテーブルへ追加します")
                         }
                         // 取り込み先は1つに決まっていないと選べない
                         disabled={
+                          readOnly ||
                           multi ||
                           tableMenu.table.tableType.toUpperCase().includes("VIEW")
                         }
@@ -1218,13 +1310,16 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                         CSVを取り込む
                       </button>
                       <button
-                        className="context-item"
-                        title={
-                          oneOnly ??
-                          "日本語のテストデータを作ってこのテーブルへ追加します"
+                        className="context-item has-tooltip"
+                        data-tooltip={
+                          readOnly
+                            ? RO_REASON
+                            : (oneOnly ??
+                              "日本語のテストデータを作ってこのテーブルへ追加します")
                         }
                         // 入れ先は1つに決まっていないと選べない
                         disabled={
+                          readOnly ||
                           multi ||
                           tableMenu.table.tableType.toUpperCase().includes("VIEW")
                         }
@@ -1234,35 +1329,22 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                           setGenTarget(t);
                         }}
                       >
-                        テストデータを作る
+                        テストデータを作成
                       </button>
-                    </>
-                  )}
+                  </>
                   <div className="context-sep" />
-                  {readOnly ? (
-                    <div className="context-note">
-                      読み取り専用の接続のため、変更はできません
-                    </div>
-                  ) : (
-                    <>
+                  {/* 読み取り専用の接続でも隠さず、押せなくして理由を出す */}
+                  <>
                       <div className="context-group">テーブルの管理</div>
                       <button
-                        className="context-item"
-                        onClick={() => {
-                          setTableMenu(null);
-                          setShowCreate(true);
-                        }}
-                      >
-                        テーブルを新規作成
-                      </button>
-                      <button
-                        className="context-item"
+                        className="context-item has-tooltip"
                         // 名前は1つずつしか付けられない
                         disabled={
+                          readOnly ||
                           multi ||
                           tableMenu.table.tableType.toUpperCase().includes("VIEW")
                         }
-                        title={oneOnly}
+                        data-tooltip={readOnly ? RO_REASON : oneOnly}
                         onClick={() => {
                           const t = tableMenu.table;
                           setTableMenu(null);
@@ -1274,8 +1356,13 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                       <div className="context-sep" />
                       <div className="context-group danger">危険な操作</div>
                       <button
-                        className="context-item danger"
-                        title="実行はしません。エディタで内容を確かめてから実行してください"
+                        className="context-item danger has-tooltip"
+                        data-tooltip={
+                          readOnly
+                            ? RO_REASON
+                            : "実行はしません。エディタで内容を確かめてから実行してください"
+                        }
+                        disabled={readOnly}
                         onClick={() => {
                           setTableMenu(null);
                           onSendToEditor(
@@ -1296,7 +1383,9 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                             )}
                       </button>
                       <button
-                        className="context-item danger"
+                        className="context-item danger has-tooltip"
+                        data-tooltip={readOnly ? RO_REASON : undefined}
+                        disabled={readOnly}
                         onClick={() => {
                           setTableMenu(null);
                           setDropping(targets);
@@ -1304,14 +1393,38 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                       >
                         {label("テーブルを削除", "を削除")}
                       </button>
-                    </>
-                  )}
+                  </>
                 </>
               );
             })()}
           </div>,
           document.body
         )}
+
+      {renameAsk && (
+        <ConfirmDialog
+          title="テーブル名を変更します"
+          target={renameAsk.table.name}
+          confirmLabel="変更する"
+          tone="primary"
+          prodNote={
+            profile.env === "prod"
+              ? prodActionText(
+                  selectedDb ?? "",
+                  tableRenameWhat(renameAsk.table.name, renameAsk.next)
+                )
+              : undefined
+          }
+          onCancel={() => setRenameAsk(null)}
+          onConfirm={async () => {
+            await doRenameTable(renameAsk.table, renameAsk.next);
+            setRenameAsk(null);
+          }}
+        >
+          {tableRenameWhat(renameAsk.table.name, renameAsk.next)}。
+          このテーブルを使っているSQL・ビュー・アプリの側は、名前を書き換えるまで動かなくなります。
+        </ConfirmDialog>
+      )}
 
       {dropping && (
         <DropTableConfirm

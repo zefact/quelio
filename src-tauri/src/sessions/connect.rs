@@ -348,6 +348,8 @@ pub async fn connect(
      * 実行計画の実測 (ANALYZE) の書き方が本家 MySQL と違うので、
      * 接続時に見分けて覚えておく
      */
+    // Valkey: 送受信のタスクの止め口 (「中止」に使う)
+    let mut kv_driver = None;
     let (mut conn, databases, current_db, server_info, mariadb) = match profile.db_type {
         DbType::Mysql => {
             let mut c = db::connect_mysql(
@@ -424,7 +426,7 @@ pub async fn connect(
                 Some(s) => s.parse().map_err(|_| format!("DB番号が不正です: {s}"))?,
                 None => 0,
             };
-            let mut c = kv::connect(
+            let (mut c, driver) = kv::connect_with_driver(
                 &ep.host,
                 ep.port,
                 &profile.user,
@@ -439,6 +441,8 @@ pub async fn connect(
             // 踏み台→接続先の失敗はローカルには接続リセットとしか見えないため、
             // トンネル側に控えた理由があればそちらを表示する
             .map_err(|e| ep.tunnel.as_ref().and_then(|t| t.take_error()).unwrap_or(e))?;
+            // 実行中のコマンドを「中止」できるように、送受信のタスクの止め口を控える
+            kv_driver = Some(driver);
             let info = kv::server_info(&mut c).await?;
             // 論理DBの数はサーバーの設定で変わる (既定は16)
             let dbs: Vec<String> = (0..kv::db_count(&mut c).await)
@@ -514,10 +518,9 @@ pub async fn connect(
             user: profile.user.clone(),
             password: zeroize::Zeroizing::new(profile.password.clone()),
             conn_id,
-            tls: profile.tls,
-            tls_sni: ep.tunnel.is_some().then(|| profile.host.clone()),
             db_tls: db::TlsConfig::from_profile(&profile, ep.tunnel.is_some()),
             sqlite_cancel,
+            kv_stop: kv_driver.map(KvStop::new),
         },
     );
 
@@ -652,6 +655,8 @@ async fn reconnect(session: &mut Session, qlog: &QueryLog, dead: bool) -> Result
 
     let database = session.current_db.clone();
     let tls = db::TlsConfig::from_profile(&session.profile, session.tunnel.is_some());
+    // Valkey: 新しい接続の送受信のタスク (「中止」の止め口になる)
+    let mut kv_driver = None;
     let new_conn = match session.profile.db_type {
         DbType::Mysql => DbConn::MySql(
             db::connect_mysql(
@@ -685,28 +690,28 @@ async fn reconnect(session: &mut Session, qlog: &QueryLog, dead: bool) -> Result
                 .as_deref()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
-            DbConn::Kv(
-                kv::connect(
-                    &session.host,
-                    session.port,
-                    &session.profile.user,
-                    &session.profile.password,
-                    db_index,
-                    session.profile.tls,
-                    session
-                        .tunnel
-                        .is_some()
-                        .then_some(session.profile.host.as_str()),
-                )
-                .await
-                .map_err(|e| {
-                    session
-                        .tunnel
-                        .as_ref()
-                        .and_then(|t| t.take_error())
-                        .unwrap_or(e)
-                })?,
+            let (c, driver) = kv::connect_with_driver(
+                &session.host,
+                session.port,
+                &session.profile.user,
+                &session.profile.password,
+                db_index,
+                session.profile.tls,
+                session
+                    .tunnel
+                    .is_some()
+                    .then_some(session.profile.host.as_str()),
             )
+            .await
+            .map_err(|e| {
+                session
+                    .tunnel
+                    .as_ref()
+                    .and_then(|t| t.take_error())
+                    .unwrap_or(e)
+            })?;
+            kv_driver = Some(driver);
+            DbConn::Kv(c)
         }
     };
 
@@ -739,6 +744,7 @@ async fn reconnect(session: &mut Session, qlog: &QueryLog, dead: bool) -> Result
             t.host = session.host.clone();
             t.port = session.port;
             t.sqlite_cancel = sqlite_cancel;
+            t.kv_stop = kv_driver.map(KvStop::new);
         });
     }
 
@@ -766,6 +772,13 @@ pub(super) async fn ensure_alive(session: &mut Session, qlog: &QueryLog) -> Resu
     // 前の操作で立った中止の印は、ここで必ず落とす
     // (残っていると、この後の後始末や実行がすべて打ち切られる)
     clear_sqlite_cancel(session);
+    /*
+     * Valkey で「中止」を押した接続は、送受信を止めてあるのでもう使えない。
+     * 中止が実行の終わりと行き違った場合もあるので、ここで必ず張り直させる
+     */
+    if kv_stop_requested(session) {
+        mark_needs_ping(session);
+    }
     /*
      * トランザクションが開いたままの接続を次の操作へ持ち越さない。
      *
@@ -810,6 +823,24 @@ pub(super) async fn ensure_alive(session: &mut Session, qlog: &QueryLog) -> Resu
         return Ok(());
     }
     reconnect(session, qlog, true).await
+}
+
+/// 「接続し直す」ボタンから呼ぶ。生存を確かめ、切れていれば張り直す。
+///
+/// 画面は、操作が「接続が切れた」種類のエラーで失敗したときにこれを出す。
+/// ふだんの入口 (ensure_alive) は最後の操作から30秒たつまでpingしないので、
+/// 切れた直後に押されても確かめられるよう、ここでは必ずpingする。
+/// 生きていれば何もしない (余計に張り直さない)
+pub async fn check_connection(
+    sessions: &Sessions,
+    qlog: &QueryLog,
+    session_id: &str,
+) -> Result<(), String> {
+    let arc = get_session(sessions, session_id).await?;
+    let mut guard = arc.lock().await;
+    let session = &mut *guard;
+    mark_needs_ping(session);
+    ensure_alive(session, qlog).await
 }
 
 /// 全セッションに定期pingを送り、アイドル切断を防ぐ (バックグラウンドで定期実行)。

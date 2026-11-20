@@ -241,6 +241,17 @@ pub async fn cancel_query(
     sessions::cancel_query(&cancel, &qlog, &session_id).await
 }
 
+/// 接続が生きているか確かめ、切れていれば張り直す (「接続し直す」ボタン)。
+/// SQL の DB と Valkey のどちらにも使う
+#[tauri::command]
+pub async fn check_connection(
+    sessions: State<'_, Sessions>,
+    qlog: State<'_, QueryLog>,
+    session_id: String,
+) -> Result<(), String> {
+    sessions::check_connection(&sessions, &qlog, &session_id).await
+}
+
 /// 今のトランザクションの状態を返す ("none" / "open" / "broken" / "busy")。
 /// 画面下のステータスバーが、実行や編集のあとに読み直す
 #[tauri::command]

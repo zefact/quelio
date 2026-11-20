@@ -320,12 +320,14 @@ pub fn export_connections(
     crate::backup::export_connections(&app, &path, secret_password.as_deref())
 }
 
-/// 接続一覧のファイルの中身を確かめる (パスワードが入っているか)
+/// 接続一覧のファイルの中身を確かめる
+/// (パスワードが入っているか、取り込んだら何件増えて、どれが上書きされるか)
 #[tauri::command]
 pub fn inspect_connections_file(
+    app: AppHandle,
     path: String,
 ) -> Result<crate::backup::ConnectionsFileInfo, String> {
-    crate::backup::inspect_connections_file(&path)
+    crate::backup::inspect_connections_file(&app, &path)
 }
 
 /// JSONファイルから接続一覧を取り込む。
@@ -353,6 +355,16 @@ pub fn import_saved_sql(
     path: String,
 ) -> Result<crate::backup::ImportResult, String> {
     crate::backup::import_saved_sql(&app, &path)
+}
+
+/// SQLのお気に入りのファイルを取り込んだら何件増えて、どれが上書きされるかを返す
+/// (書き込まない。復元の確認に出す)
+#[tauri::command]
+pub fn preview_saved_sql_import(
+    app: AppHandle,
+    path: String,
+) -> Result<crate::backup::RestorePreview, String> {
+    crate::backup::preview_saved_sql(&app, &path)
 }
 
 /// SQLのお気に入りのうち、選んだものだけをJSONファイルへ書き出す (件数を返す)。
@@ -399,6 +411,16 @@ pub fn import_csv_layouts(
     path: String,
 ) -> Result<crate::backup::ImportResult, String> {
     crate::backup::import_csv_layouts(&app, &path)
+}
+
+/// 固定長のお気に入りのファイルを取り込んだら何件増えて、どれが上書きされるかを返す
+/// (書き込まない。復元の確認に出す)
+#[tauri::command]
+pub fn preview_csv_layouts_import(
+    app: AppHandle,
+    path: String,
+) -> Result<crate::backup::RestorePreview, String> {
+    crate::backup::preview_csv_layouts(&app, &path)
 }
 
 /// SSH秘密鍵の参照ダイアログの初期フォルダを返す

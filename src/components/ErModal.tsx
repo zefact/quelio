@@ -1,9 +1,13 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
+import { ModalFrame } from "./ModalFrame";
 
 interface Props {
-  /** 見出しの丸アイコンに入れる記号 */
-  icon: string;
-  /** 取り消せない操作は赤くする */
+  /**
+   * 以前は見出しの丸アイコンに入れていた記号。
+   * 枠を共通の ModalFrame に寄せたので、今は使わない (呼び出し側を変えずに済むよう残す)
+   */
+  icon?: string;
+  /** 以前の赤いアイコン用。今は使わない (消す確認は ConfirmDialog を使う) */
   danger?: boolean;
   title: string;
   /** 見出しの下の小さい説明 */
@@ -14,18 +18,16 @@ interface Props {
   wide?: boolean;
   /** 本文 */
   children: ReactNode;
-  /** 右下のボタン列 (「キャンセル」は呼び出し側が置く) */
+  /** 右下の主ボタン (「キャンセル」はこちらで左に置く) */
   actions: ReactNode;
   onClose: () => void;
 }
 
 /**
- * ER図ウィンドウのダイアログの共通の枠。
- * 背景クリックで閉じ、中のクリックは通さない
+ * ER図ウィンドウのダイアログの枠。
+ * 見出し・×・Esc や背景クリックで閉じる作法は、共通の ModalFrame に任せる
  */
 export function ErModal({
-  icon,
-  danger,
   title,
   sub,
   subMono,
@@ -34,33 +36,36 @@ export function ErModal({
   actions,
   onClose,
 }: Props) {
+  /*
+   * 開いたら最初の入力欄へフォーカスする。
+   * 共通の枠は開いたときに枠そのものへフォーカスするので、
+   * 中の入力欄の autoFocus が外れてしまう。そのあとで当て直す
+   * (この effect は枠の effect より後に走る)
+   */
+  useEffect(() => {
+    const boxes = document.querySelectorAll<HTMLElement>(".modal.er-modal-frame");
+    const box = boxes[boxes.length - 1];
+    box?.querySelector<HTMLElement>("input, textarea")?.focus();
+  }, []);
+
   return (
-    <div className="er-modal-overlay" onMouseDown={onClose}>
-      <div
-        className={"er-modal" + (wide ? " er-modal-wide" : "")}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="er-modal-head">
-          <div className={"er-modal-icon" + (danger ? " danger" : "")}>
-            {icon}
-          </div>
-          <div>
-            <div className="er-modal-title">{title}</div>
-            {sub !== undefined && (
-              <div className={"er-modal-sub" + (subMono ? " mono" : "")}>
-                {sub}
-              </div>
-            )}
-          </div>
-        </div>
-        {children}
-        <div className="er-modal-actions">
-          <button className="btn-ghost er-modal-cancel" onClick={onClose}>
+    <ModalFrame
+      title={title}
+      onClose={onClose}
+      className={"er-modal-frame" + (wide ? " er-modal-wide" : "")}
+      footer={
+        <>
+          <button className="btn-secondary" onClick={onClose}>
             キャンセル
           </button>
           {actions}
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {sub !== undefined && (
+        <div className={"er-modal-sub" + (subMono ? " mono" : "")}>{sub}</div>
+      )}
+      {children}
+    </ModalFrame>
   );
 }

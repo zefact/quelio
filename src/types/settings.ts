@@ -119,6 +119,9 @@ export function defaultSqlFormat(): SqlFormatSettings {
   };
 }
 
+/** 書き出し先フォルダの決め方 (設定ファイルの値。空文字は未選択) */
+export type ExportDirModeSetting = "last" | "fixed" | "";
+
 /** アプリ全般の設定 (一般タブ) */
 export interface AppSettings {
   /** カラムコメントを論理名＋補足に分解する区切り文字 */
@@ -131,9 +134,12 @@ export interface AppSettings {
   showRowNumbers: boolean;
   /** SQL実行のタイムアウト (秒)。0で無制限 */
   queryTimeoutSecs: number;
-  /** 各種ファイル (キャプチャ・CSV・SQLダンプ等) の保存先フォルダ。
+  /** 各種ファイル (キャプチャ・CSV・SQLダンプ等) の書き出し先フォルダ。
    * 空文字ならOSのダウンロードフォルダ */
   downloadDir: string;
+  /** 書き出し先フォルダの決め方 (last=最後に選んだフォルダ / fixed=決まったフォルダ)。
+   * 空文字はこの項目が無い古い設定。読み方は exportDir.ts の exportDirMode */
+  exportDirMode: ExportDirModeSetting;
   /** SQLエディタの入力補完を使うか */
   autocompleteEnabled: boolean;
   /** 入力補完が自動で開くまでの待ち時間 (ミリ秒)。0なら自動では開かない */
@@ -214,6 +220,19 @@ export interface ConnectionsFileInfo {
   connections: number;
   /** パスワード・パスフレーズが (暗号化して) 入っているか */
   hasSecrets: boolean;
+  /** 取り込んだら何件増えて、どれが上書きされるか */
+  preview: RestorePreview;
+}
+
+/**
+ * 復元する前に見せる見込み (バックエンドの RestorePreview と対)。
+ * 書き込まずに、取り込みと同じ判定で数えたもの
+ */
+export interface RestorePreview {
+  added: number;
+  updated: number;
+  /** 上書きされるものの、今の名前 */
+  updatedNames: string[];
 }
 
 /** 設定フォルダのファイル1件の状態 (バックエンドの ConfigFile と対) */

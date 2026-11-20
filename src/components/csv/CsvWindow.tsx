@@ -8,6 +8,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { pickExportPath } from "../../exportDir";
+import { RevealButton } from "../RevealButton";
 import {
   csvClose,
   csvCompare,
@@ -73,6 +75,7 @@ import { readClipboard, writeClipboard } from "../../gridCopy";
 import { CsvTabs } from "./CsvTabs";
 import { moveItem } from "../../moveItem";
 import { CsvTabMenu } from "./CsvTabMenu";
+import { CsvUnsavedDialog } from "./CsvUnsavedDialog";
 import { CsvToolbar } from "./CsvToolbar";
 import { CsvFind } from "./CsvFind";
 import { CsvFilterMenu } from "./CsvFilterMenu";
@@ -187,6 +190,8 @@ export function CsvWindow() {
   /** 左側のセル位置 */
   const [leftCursor, setLeftCursor] = useState<CsvCursor | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** 書き出したファイル (読んで閉じるまで「フォルダを開く」と一緒に残す) */
+  const [exported, setExported] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** 閉じようとしている未保存のタブ */
   const [closing, setClosing] = useState<CsvInfo | null>(null);
@@ -708,18 +713,54 @@ export function CsvWindow() {
     void run(() => csvSetFilters(active.docId, withFilter(active.filters, next)));
   };
 
+  /**
+   * 保存先を訊く。ファイルがあるものはそのファイルの場所から、
+   * まだ無いもの (SQL結果から開いたものなど) は書き出し先フォルダから始める。
+   * 自分で編集しているファイルの保存なので、選んだフォルダは書き出し先として覚えない
+   */
+  const askSavePath = (t: CsvInfo): Promise<string | null> =>
+    t.path
+      ? saveDialog({ defaultPath: t.path, filters: FILTERS }).catch(() => null)
+      : pickExportPath({ fileName: t.name, filters: FILTERS, remember: false });
+
   const save = async (asNew: boolean) => {
     if (!active) return;
     let path: string | undefined;
     if (asNew || !active.path) {
-      const got = await saveDialog({
-        defaultPath: active.path ?? active.name,
-        filters: FILTERS,
-      });
+      const got = await askSavePath(active);
       if (typeof got !== "string") return;
       path = got;
     }
     await run(() => csvSave(active.docId, path));
+  };
+
+  /**
+   * 1つのファイルを保存する (閉じる前の「保存して閉じる」用)。
+   * まだファイルが無いものは保存先を訊く。やめたり失敗したりしたら false
+   */
+  const saveDoc = async (t: CsvInfo): Promise<boolean> => {
+    let path: string | undefined;
+    if (!t.path) {
+      const got = await askSavePath(t);
+      if (typeof got !== "string") return false;
+      path = got;
+    }
+    setError(null);
+    try {
+      update(await csvSave(t.docId, path));
+      return true;
+    } catch (e) {
+      setError(String(e));
+      return false;
+    }
+  };
+
+  /** まとめて保存する (1つでも保存できなければそこで止める) */
+  const saveDocs = async (targets: CsvInfo[]): Promise<boolean> => {
+    for (const t of targets) {
+      if (t.dirty && !(await saveDoc(t))) return false;
+    }
+    return true;
   };
 
   /**
@@ -737,21 +778,25 @@ export function CsvWindow() {
   /**
    * Excel (.xlsx) として書き出す。
    *
-   * 保存先は毎回訊く (CSVの保存とは別のファイルなので、
-   * 上書き先を覚えていると事故のもとになる)
+   * 書き出し先は毎回訊く (CSVの保存とは別のファイルなので、
+   * 上書き先を覚えていると事故のもとになる)。
+   * ダイアログはほかの書き出しと同じ書き出し先フォルダから開く
    */
   const exportXlsx = async () => {
     if (!active) return;
     const base = active.name.replace(/\.[^.]+$/, "");
-    const got = await saveDialog({
-      defaultPath: `${base}.xlsx`,
+    const got = await pickExportPath({
+      fileName: `${base}.xlsx`,
       filters: XLSX_FILTERS,
+      title: "Excelで書き出す",
     });
     if (typeof got !== "string") return;
     setBusy(true);
     setError(null);
+    setExported(null);
     try {
       await csvExportXlsx(active.docId, got);
+      setExported(got);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1155,7 +1200,7 @@ export function CsvWindow() {
         onAdd={() => void create()}
         onOpenDb={() =>
           void openMainWindow().catch((e) =>
-            setError(`DBの画面を開けませんでした: ${e}`)
+            setError(`メインウィンドウを開けませんでした: ${e}`)
           )
         }
         onOpenSettings={() => setSettingsOpen(true)}
@@ -1182,6 +1227,7 @@ export function CsvWindow() {
         onToggleSplit={toggleSplit}
         syncScroll={syncScroll}
         onToggleSync={() => setSyncScroll((v) => !v)}
+        onOpen={() => void pick()}
         onSave={(asNew) => void save(asNew)}
         onExcel={() => void exportXlsx()}
         filterOn={!!active && showFilter(active)}
@@ -1244,6 +1290,19 @@ export function CsvWindow() {
           </button>
         </div>
       )}
+      {exported && (
+        <div className="result-banner ok">
+          <span className="dot" aria-hidden />
+          <span className="result-detail">
+            Excelで書き出しました: {exported}
+          </span>
+          <span className="toolbar-spacer" />
+          <RevealButton path={exported} />
+          <button className="btn-ghost" onClick={() => setExported(null)}>
+            閉じる
+          </button>
+        </div>
+      )}
 
       {compare && showCompare ? (
         <CsvDiffView
@@ -1264,8 +1323,9 @@ export function CsvWindow() {
           {pane("left", leftTab, leftRows, leftCursor, setLeftCursor)}
           {split && (
             <div
-              className="csv-splitter"
-              title="掴んで動かすと幅を変えられます"
+              className="csv-splitter has-tooltip"
+              aria-label="掴んで動かすと幅を変えられます"
+              data-tooltip="掴んで動かすと幅を変えられます"
               onMouseDown={grabSplitter}
               onDoubleClick={() => setLeftRatio(0.5)}
             />
@@ -1305,8 +1365,8 @@ export function CsvWindow() {
           </span>
           {active.filters.length > 0 && (
             <span
-              className="csv-note"
-              title="絞り込みを外すと、全部の行に戻ります"
+              className="csv-note has-tooltip tooltip-left"
+              data-tooltip="絞り込みを外すと、全部の行に戻ります"
             >
               {active.totalRows.toLocaleString()}行中
               {active.rowCount.toLocaleString()}行を表示中
@@ -1334,12 +1394,18 @@ export function CsvWindow() {
           )}
           {note && <span className="csv-note">{note}</span>}
           {active.ragged && (
-            <span className="csv-warn" title="足りない列は空欄で埋めています">
+            <span
+              className="csv-warn has-tooltip tooltip-left"
+              data-tooltip="足りない列は空欄で埋めています"
+            >
               列数が揃っていません
             </span>
           )}
           {active.replaced && (
-            <span className="csv-warn" title="文字コードを指定して開き直せます">
+            <span
+              className="csv-warn has-tooltip tooltip-left"
+              data-tooltip="文字コードを指定して開き直せます"
+            >
               文字化けの疑いがあります
             </span>
           )}
@@ -1350,8 +1416,8 @@ export function CsvWindow() {
           {active.quotedCsv && (
             <button
               type="button"
-              className="csv-warn csv-warn-action"
-              title={
+              className="csv-warn csv-warn-action has-tooltip tooltip-left tooltip-wide"
+              data-tooltip={
                 "各項目が \" で囲まれ、区切り文字で並んでいます。\n" +
                 "固定長では \" と区切り文字も桁に数えるため、桁がずれます。\n" +
                 "押すとCSVとして開き直します"
@@ -1375,8 +1441,9 @@ export function CsvWindow() {
           */}
           <div className="csv-format-wrap">
             <button
-              className="csv-status-item"
-              title="保存する形を変える"
+              className="csv-status-item has-tooltip"
+              data-tooltip="書式 (文字コード・改行・区切り・見出し行) を変える"
+              aria-label={`書式: ${formatLabel(active.format)} (押すと変えられます)`}
               onClick={() => setFormatOpen((v) => !v)}
             >
               {formatLabel(active.format)}
@@ -1478,6 +1545,7 @@ export function CsvWindow() {
       {savingNames && active && (
         <CsvNameDialog
           title="今の列名をお気に入りに保存"
+          confirmLabel="保存する"
           initial={
             (!active.hasHeader &&
               appliedNameSet(flatLayouts(nameSets), active.labels)) ||
@@ -1496,6 +1564,7 @@ export function CsvWindow() {
       {renaming !== null && active && (
         <CsvNameDialog
           title="列名を変更"
+          confirmLabel="変更する"
           initial={active.columns[renaming] ?? ""}
           onDecide={(name) => {
             const at = renaming;
@@ -1636,6 +1705,7 @@ export function CsvWindow() {
           x={tabMenu.x}
           y={tabMenu.y}
           onCloseMany={(targets) => void closeMany(targets)}
+          onSaveMany={saveDocs}
           onDismiss={() => setTabMenu(null)}
         />
       )}
@@ -1643,28 +1713,26 @@ export function CsvWindow() {
       {closing &&
         (() => {
           const dirty = tabs.filter((t) => t.dirty);
+          const many = closingWindow && dirty.length > 1;
+          const finish = () => {
+            if (closingWindow) void shutWindow();
+            else void closeTab(closing, true);
+          };
           return (
-            <ConfirmDialog
-              title="保存していない変更があります"
-              target={
-                closingWindow && dirty.length > 1
-                  ? dirty.map((t) => t.name).join("、")
-                  : closing.name
-              }
-              confirmLabel="保存せずに閉じる"
-              onConfirm={() => {
-                if (closingWindow) void shutWindow();
-                else void closeTab(closing, true);
+            <CsvUnsavedDialog
+              target={many ? dirty.map((t) => t.name).join("、") : closing.name}
+              many={many}
+              onSave={async () => {
+                const ok = await saveDocs(closingWindow ? dirty : [closing]);
+                if (ok) finish();
+                return ok;
               }}
+              onDiscard={finish}
               onCancel={() => {
                 setClosing(null);
                 setClosingWindow(false);
               }}
-            >
-              {closingWindow && dirty.length > 1
-                ? "これらのファイルへの変更は失われます。"
-                : "このファイルへの変更は失われます。"}
-            </ConfirmDialog>
+            />
           );
         })()}
     </div>

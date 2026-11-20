@@ -5,6 +5,7 @@ import { useAppSettings } from "../hooks/useAppSettings";
 import { ColorMode, getColorMode, setColorMode } from "../theme";
 import { SettingRow } from "./SettingRow";
 import { imeBusy } from "../ime";
+import { exportDirMode } from "../exportDir";
 
 interface Props {
   notify: Notify;
@@ -21,7 +22,7 @@ function closing(delim: string): string {
   return { "（": "）", "(": ")", "【": "】", "[": "]" }[delim] ?? "";
 }
 
-/** 設定 > 一般 (外観・SQL結果・テーブル構造・保存先) */
+/** 設定 > 一般 (外観・SQL結果・テーブル構造・書き出し先) */
 export function SettingsGeneral({ notify }: Props) {
   const [mode, setMode] = useState<ColorMode>(getColorMode());
   const { app, setApp, saveApp } = useAppSettings(notify);
@@ -33,17 +34,21 @@ export function SettingsGeneral({ notify }: Props) {
 
   const delim = app.commentDelimiter;
 
-  /** 保存先フォルダをOSのフォルダ選択ダイアログで変更する */
+  /** 書き出し先フォルダの決め方 (この項目が無い古い設定も読み替える) */
+  const dirMode = exportDirMode(app);
+
+  /** 書き出し先フォルダをOSのフォルダ選択ダイアログで変更する */
   const handlePickDownloadDir = async () => {
     try {
       const dir = await open({
         directory: true,
         multiple: false,
         defaultPath: app.downloadDir || undefined,
-        title: "保存先フォルダを選択",
+        title: "書き出し先フォルダを選択",
       });
       if (typeof dir === "string" && dir) {
-        saveApp({ ...app, downloadDir: dir });
+        // 決め方も書いておく (フォルダの有無で古い設定の読み方が変わらないように)
+        saveApp({ ...app, downloadDir: dir, exportDirMode: dirMode });
       }
     } catch (e) {
       notify(String(e), "error");
@@ -108,7 +113,7 @@ export function SettingsGeneral({ notify }: Props) {
         <h3 className="set-section-title">SQL結果</h3>
         <SettingRow
           title="ヘッダに出す名前"
-          desc="SQL実行結果とデータタブの列見出しに出す名前です。日本語名はカラムコメントの論理名で、コメントの無いカラムは英語名のままになります。結果の上の「列名」からも切り替えられます。コピー・CSV/Excel出力・CSVエディタ連携の見出しも、ここで選んだ名前になります (「両方」のときは英語名)。"
+          desc="SQL実行結果とデータタブの列見出しに出す名前です。日本語名はカラムコメントの先頭 (区切り文字の前) で、コメントの無いカラムは英語名のままになります。結果の上の「列名」からも切り替えられます。コピー・CSV/Excelへの書き出し・CSVエディタ連携の見出しも、ここで選んだ名前になります (「両方」のときは英語名)。"
         >
           <div className="segmented">
             {(
@@ -143,9 +148,14 @@ export function SettingsGeneral({ notify }: Props) {
             <span className="track" aria-hidden />
           </label>
         </SettingRow>
+      </section>
+
+      {/* 結果の見た目とは別の話なので、「SQL結果」から分けて見出しを付ける */}
+      <section className="set-section">
+        <h3 className="set-section-title">安全とタイムアウト</h3>
         <SettingRow
           title="定義の変更も確認する"
-          desc="ALTER・RENAME の実行前に確認を出します。マイグレーション用のSQLをまとめて流すときは外してください。DROP・TRUNCATE や WHERE の無い UPDATE / DELETE は、この設定に関わらず必ず確認します。環境を「本番」にした接続では、外していても確認します。"
+          desc="SQLエディタで流す ALTER・RENAME と、構造タブ・テーブル一覧での定義の変更 (カラム・インデックス・外部キー・テーブル名) の前に確認を出します。マイグレーション用のSQLをまとめて流すときは外してください。DROP・TRUNCATE や WHERE の無い UPDATE / DELETE は、この設定に関わらず必ず確認します。環境を「本番」にした接続では、外していても確認します。"
         >
           <label className="switch">
             <input
@@ -194,13 +204,13 @@ export function SettingsGeneral({ notify }: Props) {
         <h3 className="set-section-title">テーブル構造</h3>
         <SettingRow
           title="コメントの表示方法"
-          desc="「論理名と補足」ではカラム一覧が論理名/補足の2列に分かれ、テーブル名の横にもテーブルコメントの論理名を表示します。"
+          desc="「日本語名と補足」ではカラム一覧が日本語名/補足の2列に分かれ、テーブル名の横にもテーブルコメントの日本語名を表示します。"
         >
           <div className="segmented">
             {(
               [
                 ["comment", "コメント表示"],
-                ["split", "論理名と補足"],
+                ["split", "日本語名と補足"],
               ] as const
             ).map(([m, label]) => (
               <button
@@ -216,11 +226,11 @@ export function SettingsGeneral({ notify }: Props) {
           </div>
         </SettingRow>
         <SettingRow
-          title="論理名と補足の区切り文字"
+          title="日本語名と補足の区切り文字"
           desc={
             <>
-              例: 会社CD{delim || "␣"}YYMMXX{closing(delim)} → 論理名「会社CD」/
-              補足「YYMMXX」。スキーマ一覧・CSV出力でも使われます。
+              例: 会社CD{delim || "␣"}YYMMXX{closing(delim)} → 日本語名「会社CD」/
+              補足「YYMMXX」。スキーマ一覧・CSVの書き出しでも使われます。
               括弧の場合は末尾の閉じ括弧も自動で取り除きます。空欄にすると分解しません。
             </>
           }
@@ -243,11 +253,11 @@ export function SettingsGeneral({ notify }: Props) {
       </section>
 
       <section className="set-section">
-        <h3 className="set-section-title">ファイルの保存先</h3>
+        <h3 className="set-section-title">書き出し先</h3>
         <SettingRow
           stack
-          title="保存先フォルダ"
-          desc="キャプチャPNG・スキーマCSV・SQLダンプなどの保存先です。未設定の場合はOSのダウンロードフォルダに保存します。"
+          title="書き出し先フォルダ"
+          desc="データ・SQL結果のCSV / Excel、キャプチャPNG、スキーマ一覧、ER図、コンソールの書き出しはこのフォルダに書き出します。SQLダンプ・バックアップなど書き出し先を選ぶものも、このフォルダから選び始めます。未設定の場合はOSのダウンロードフォルダです。"
         >
           <div className="download-dir-field">
             <span
@@ -257,16 +267,39 @@ export function SettingsGeneral({ notify }: Props) {
               {app.downloadDir || "ダウンロードフォルダ (既定)"}
             </span>
             <button className="btn-secondary" onClick={handlePickDownloadDir}>
-              変更...
+              変更…
             </button>
             {app.downloadDir && (
               <button
                 className="btn-ghost"
-                onClick={() => saveApp({ ...app, downloadDir: "" })}
+                onClick={() =>
+                  saveApp({ ...app, downloadDir: "", exportDirMode: dirMode })
+                }
               >
                 既定に戻す
               </button>
             )}
+          </div>
+        </SettingRow>
+        <SettingRow
+          title="書き出し先の決め方"
+          desc="「最後に使ったフォルダ」は、SQLダンプやバックアップで別のフォルダを選ぶと、そこを次からの書き出し先フォルダにします。「決まったフォルダ」は、選んだ場所はその回だけで、書き出し先フォルダは変えません。"
+        >
+          <div className="segmented">
+            {(
+              [
+                ["last", "最後に使ったフォルダ"],
+                ["fixed", "決まったフォルダ"],
+              ] as const
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                className={"segment" + (dirMode === m ? " active" : "")}
+                onClick={() => saveApp({ ...app, exportDirMode: m })}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </SettingRow>
       </section>

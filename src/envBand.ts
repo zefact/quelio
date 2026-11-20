@@ -21,17 +21,32 @@ export interface TabEnvMark {
 }
 
 /**
+ * 環境の印の出し方の決まり (どの画面もこれに従う)。
+ *
+ *   本番・ステージング … タブの印 + セッション画面の帯
+ *   すべての環境       … ステータスバーのバッジ
+ *
+ * 開発・未設定まで帯やタブの印を付けると、どの画面も色つきになって
+ * 「本番だけは違う」という手がかりにならない。
+ * そのため目立つ印は、間違えると困る2つの環境だけに付ける
+ */
+export function isMarkedEnv(
+  env: ConnectionEnv | undefined
+): env is "prod" | "staging" {
+  return env === "prod" || env === "staging";
+}
+
+/**
  * タブに環境の印を付けるか。
  *
- * 本番だけに絞る。3つとも印を付けると、どのタブも色つきになって
- * 「本番だけは違う」という手がかりにならない。
+ * 本番とステージングだけ (isMarkedEnv の決まり)。
  * 未接続のタブ (まだ接続先を選んでいる途中) は対象外
  */
 export function tabEnvMark(
   env: ConnectionEnv | undefined,
   connected: boolean
 ): TabEnvMark | null {
-  if (!connected || env !== "prod") return null;
+  if (!connected || !isMarkedEnv(env)) return null;
   return { label: envLabel(env), env };
 }
 
@@ -53,7 +68,7 @@ export function envBandText(
   env: ConnectionEnv | undefined,
   connection: string
 ): EnvBandText | null {
-  if (env !== "prod" && env !== "staging") return null;
+  if (!isMarkedEnv(env)) return null;
   const name = connection.trim() || "(無名)";
   // 本番だけは「環境」を付けて、他と字面が揃わないようにする
   const head = env === "prod" ? "本番環境" : envLabel(env);

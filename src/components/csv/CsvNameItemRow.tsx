@@ -48,11 +48,12 @@ export function CsvNameItemRow({
     >
       <button
         className={
-          "context-item saved-item" + (applied ? " csv-fav-applied" : "")
+          "context-item saved-item has-tooltip tooltip-left" +
+          (applied ? " csv-fav-applied" : "")
         }
         // 付けられないときも並べ替えはできるよう、押せなくはせず理由を出す
         aria-disabled={!!blocked}
-        title={
+        data-tooltip={
           (applied ? "このファイルに付いています\n" : "") +
           (blocked ?? "クリックでこの列名を今のファイルに付ける") +
           " / ドラッグで移動\n" +
@@ -73,8 +74,8 @@ export function CsvNameItemRow({
         </span>
       </button>
       <button
-        className="saved-del"
-        title="このお気に入りを削除"
+        className="saved-del has-tooltip"
+        data-tooltip="このお気に入りを削除"
         aria-label="このお気に入りを削除"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onDelete}

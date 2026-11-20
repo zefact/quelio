@@ -47,9 +47,9 @@ export function CsvFixedFooter({
           キャンセル
         </button>
         <button
-          className="btn-primary"
+          className="btn-primary has-tooltip"
           disabled={!named || !ready || busy}
-          title={named ? undefined : "お気に入り名を入力してください"}
+          data-tooltip={named ? undefined : "お気に入り名を入力してください"}
           onClick={onSave}
         >
           保存
@@ -66,9 +66,9 @@ export function CsvFixedFooter({
           閉じる
         </button>
         <button
-          className="btn-primary"
+          className="btn-primary has-tooltip"
           disabled={!named || !ready}
-          title={saveTip}
+          data-tooltip={saveTip}
           onClick={onSave}
         >
           {saveLabel}
@@ -80,9 +80,9 @@ export function CsvFixedFooter({
   return (
     <div className="save-sql-actions csv-fixed-actions">
       <button
-        className="btn-secondary"
+        className="btn-secondary has-tooltip tooltip-left"
         disabled={!named || !ready}
-        title={saveTip}
+        data-tooltip={saveTip}
         onClick={onSave}
       >
         {saveLabel}

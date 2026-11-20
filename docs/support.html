@@ -205,8 +205,8 @@
         Quelio が未実装のものの2種類があります。理由も併記しています。
       </p>
       <div class="meta-row">
-        <span class="chip">対象バージョン: Quelio v0.9.17</span>
-        <span class="chip">最終更新: 2026-11-18</span>
+        <span class="chip">対象バージョン: Quelio v0.9.18</span>
+        <span class="chip">最終更新: 2026-11-20</span>
         <span class="chip">ベータ版のため今後変更されることがあります</span>
       </div>
     </div>
@@ -545,7 +545,7 @@
               <td class="c"><span class="mark n">—</span></td>
             </tr>
             <tr>
-              <td>SQLダンプの出力／SQLファイルの実行<span class="note">外部ツールを入れなくても、Quelioだけでバックアップと復元ができます。進み具合と残り時間の目安を出します。保存先とファイル名のパターンも決められます</span></td>
+              <td>SQLダンプの出力／SQLファイルの実行<span class="note">外部ツールを入れなくても、Quelioだけでバックアップと復元ができます。進み具合と残り時間の目安を出します。書き出し先とファイル名のパターンも決められます</span></td>
               <td class="c"><span class="mark y">✓</span><span class="note">mysqldump / mysql も選べます<br>接続設定のTLSを引き継ぎます</span></td>
               <td class="c"><span class="mark y">✓</span><span class="note">pg_dump / psql も選べます<br>COPY形式で読み書きします</span></td>
               <td class="c"><span class="mark y">✓</span></td>
@@ -560,7 +560,7 @@
               <td class="c"><span class="mark n">—</span><span class="note">未実装</span></td>
             </tr>
             <tr>
-              <td>作成・パスワード変更・改名・停止・削除<span class="note">サーバー既定のユーザーと、今つないでいる自分自身は変更できません</span></td>
+              <td>作成・パスワード変更・改名・停止・削除<span class="note">サーバー既定のユーザーと、今接続している自分自身は変更できません</span></td>
               <td class="c"><span class="mark y">✓</span><span class="note">名前と接続元ホストの2つ組で1人</span></td>
               <td class="c"><span class="mark y">✓</span><span class="note">停止は NOLOGIN。削除は権限と持ち物を片付けてから</span></td>
               <td class="c"><span class="mark n">—</span></td>
@@ -672,8 +672,8 @@
               <li><b>拡張機能</b>の管理（未実装）</li>
               <li>権限は<b>列単位と既定権限（DEFAULT PRIVILEGES）が表示のみ</b>（未実装）</li>
               <li><b>ロールの所属（メンバー）の付け外し</b>（未実装。所属は一覧に出ます）</li>
-              <li>スキーマ・テーブルの権限は<b>つないでいるデータベースのぶんだけ</b>表示されます（DBの仕様）。
-                他のデータベースへ付けるときは、そのデータベースへ繋ぎ直してから実行します</li>
+              <li>スキーマ・テーブルの権限は<b>接続しているデータベースのぶんだけ</b>表示されます（DBの仕様）。
+                他のデータベースへ付けるときは、そのデータベースへ接続し直してから実行します</li>
             </ul>
           </div>
         </div>
@@ -724,7 +724,7 @@
               <li>値の表示（string / hash / list / set / zset / stream）と、JSON・PHPシリアライズの整形表示</li>
               <li><b>値の編集</b>・要素の追加・削除、<b>キーの作成・改名・削除</b>、<b>TTLの変更</b></li>
               <li><b>キーの検索</b>（値の中身・キー名）と、パターンに一致するキーの<b>一括削除</b></li>
-              <li>コマンドコンソール（redis-cli 風の出力・複数行実行・結果のキャプチャ）</li>
+              <li>コマンドコンソール（redis-cli 風の出力・複数行実行・実行中の中止・結果のキャプチャ）</li>
               <li>TLS接続（SNI指定つき）と SSHトンネル</li>
             </ul>
           </div>
@@ -756,7 +756,7 @@
           <tbody>
             <tr>
               <td>読み取り専用モード</td>
-              <td>接続ごとに「読み取り専用」を指定できます。指定すると、SQLの更新系・DDL・行編集・Valkeyの書き込みコマンド・SQLファイルの取り込みをすべて拒否します。<span class="note">画面側でも変更操作を出さず、タブに R/O バッジを表示します。</span></td>
+              <td>接続ごとに「読み取り専用」を指定できます。指定すると、SQLの更新系・DDL・行編集・Valkeyの書き込みコマンド・SQLファイルの取り込みをすべて拒否します。<span class="note">画面側でも変更操作を押せなくして理由を示し、タブに鍵の印を表示します。</span></td>
             </tr>
             <tr>
               <td>取り返しのつかないSQLの確認</td>

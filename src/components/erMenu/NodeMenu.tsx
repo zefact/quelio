@@ -27,7 +27,7 @@ export function NodeMenu({
         * 直せるのは図の見た目だけで、DBは変わらない
         */}
       <button className="context-item" onClick={onEdit}>
-        {manual ? "テーブルを直す..." : "テーブルを直す... (図の上だけ)"}
+        {manual ? "テーブルを編集…" : "テーブルを編集… (図の上だけ)"}
       </button>
       {hasWidth && (
         <button className="context-item" onClick={onResetWidth}>

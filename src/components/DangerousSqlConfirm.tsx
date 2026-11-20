@@ -1,7 +1,6 @@
 import type { DangerousStatement, DbType } from "../types";
-import { confirmHeading } from "../prodConfirm";
+import { confirmHeading, prodActionText } from "../prodConfirm";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { ProdNote } from "./ProdBadge";
 
 interface Props {
   /** 見つかった注意が必要なSQL */
@@ -37,28 +36,30 @@ export function DangerousSqlConfirm({
   );
   /*
    * 本番の更新が混ざっているか (Rust側が文ごとに判定した結果)。
-   * 本番のときは見出しを変え、「取り消す」にフォーカスを置く
+   * 本番のときは見出しを変え、本番の1行を出す
    */
   const heading = confirmHeading(statements);
   /* MySQLはDDLを実行した時点で自動コミットされ、ROLLBACKでは戻せない */
   const note = !transaction
-    ? "トランザクションがOFFなので、実行した内容は取り消せません。"
+    ? "トランザクションがOFFなので、実行した内容は元に戻せません。"
     : hasDdl && dbType === "mysql"
-      ? "トランザクションはONですが、MySQLでは定義の変更 (DROP / TRUNCATE / ALTER など) は自動で確定され、取り消せません。"
-      : "トランザクションONのため、途中でエラーになれば取り消されます。";
+      ? "トランザクションはONですが、MySQLでは定義の変更 (DROP / TRUNCATE / ALTER など) は自動で確定され、元に戻せません。"
+      : "トランザクションONのため、途中でエラーになれば元に戻ります。";
+  const target = database ? `${connection} / ${database}` : connection;
 
   return (
     <ConfirmDialog
       title={heading.title}
-      target={database ? `${connection} / ${database}` : connection}
+      target={target}
       confirmLabel="実行する"
-      cancelLabel={heading.prod ? "取り消す" : undefined}
-      // 本番では、実行より取り消しを選びやすくする
-      defaultFocus={heading.prod ? "cancel" : "box"}
+      prodNote={
+        heading.prod ? prodActionText(target, "データを変更するSQLを実行します") : undefined
+      }
+      // 取り返しのつかないSQLなので、本番でなくても「キャンセル」を選びやすくする
+      defaultFocus="cancel"
       onCancel={onCancel}
       onConfirm={onConfirm}
     >
-      {heading.prod && <ProdNote>本番環境のデータを変更します。</ProdNote>}
       <span className="danger-sql-lead">
         次のSQLが含まれています。{note}
       </span>

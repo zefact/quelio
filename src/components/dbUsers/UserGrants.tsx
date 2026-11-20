@@ -105,6 +105,7 @@ export function UserGrants({
       {error && (
         <div className="result-banner ng">
           <span className="dot" aria-hidden />
+          <strong>エラー</strong>
           <span className="result-detail">{error}</span>
         </div>
       )}
@@ -120,7 +121,7 @@ export function UserGrants({
 
       {groups === null && !error ? (
         <div className="routine-empty">
-          <span className="spinner accent" /> 読み込み中...
+          <span className="spinner accent" /> 読み込み中…
         </div>
       ) : (
         <div className="dbusers-grant-list">
@@ -133,16 +134,19 @@ export function UserGrants({
           ) : (
             (groups ?? []).map((g) => (
               <div className="dbusers-grant" key={`${g.scope} ${g.target}`}>
-                <span className="dbusers-scope" title={SCOPE_HELP[g.scope]}>
+                <span
+                  className="dbusers-scope has-tooltip tooltip-left"
+                  data-tooltip={SCOPE_HELP[g.scope]}
+                >
                   {SCOPE_LABEL[g.scope]}
                 </span>
                 <span className="dbusers-target mono">{g.target}</span>
                 <span className="dbusers-privs">
                   {g.privileges.map((p) => (
                     <span
-                      className="dbusers-priv"
+                      className="dbusers-priv has-tooltip tooltip-left"
                       key={p}
-                      title={noteFor(p, pg) || undefined}
+                      data-tooltip={noteFor(p, pg) || undefined}
                     >
                       {p}
                     </span>
@@ -153,18 +157,18 @@ export function UserGrants({
                 </span>
                 {editable && (
                   <button
-                    className="btn-ghost dbusers-revoke"
+                    className="btn-ghost dbusers-revoke has-tooltip"
                     disabled={!revokeSpec(g, pg)}
-                    title={
+                    data-tooltip={
                       revokeSpec(g, pg)
-                        ? "この権限を取り消す"
+                        ? "この権限を外す"
                         : "この権限は、この画面では外せません"
                     }
                     onClick={() => {
                       const spec = revokeSpec(g, pg);
                       if (!spec) return;
                       onAsk({
-                        title: "権限を取り消します",
+                        title: "権限を外します",
                         change: {
                           kind: "grant",
                           user: userRef(user),
@@ -172,12 +176,12 @@ export function UserGrants({
                           add: false,
                         },
                         note: revokeNote(g, pg),
-                        confirmLabel: "取り消す",
-                        done: "権限を取り消しました",
+                        confirmLabel: "外す",
+                        done: "権限を外しました",
                       });
                     }}
                   >
-                    取り消す
+                    外す
                   </button>
                 )}
               </div>

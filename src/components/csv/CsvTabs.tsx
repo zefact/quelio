@@ -2,6 +2,7 @@ import type { CsvInfo } from "../../types";
 import { CloseMark } from "../CloseMark";
 import { isBetaVersion, useAppVersion } from "../../hooks/useAppVersion";
 import { CsvIcon } from "../CsvIcon";
+import { IconButton } from "../IconButton";
 import { DbIcon } from "../DbIcon";
 import { TAB_MARK, useTabReorder } from "../../hooks/useTabReorder";
 
@@ -101,7 +102,7 @@ export function CsvTabs({
             key={t.docId}
             {...{ [TAB_MARK]: i }}
             className={
-              "csv-tab" +
+              "csv-tab has-tooltip tooltip-left tooltip-wide" +
               (t.docId === fileActive ? " active" : "") +
               // 分割の相方は、触っている側より控えめに印を付ける
               (t.docId !== fileActive && t.docId === rightId ? " side" : "") +
@@ -118,7 +119,7 @@ export function CsvTabs({
               e.preventDefault();
               onMenu(t, e.clientX, e.clientY);
             }}
-            title={(t.path ?? t.name) + "\n(ドラッグで並べ替え)"}
+            data-tooltip={(t.path ?? t.name) + "\n(ドラッグで並べ替え)"}
           >
             {/* 左右のどちら側に出しているかを、名前の前に小さく出す */}
             {split && sideMark(t.docId, leftId, rightId) && (
@@ -129,8 +130,9 @@ export function CsvTabs({
             {t.dirty && <span className="csv-tab-dot" aria-label="未保存" />}
             <span className="csv-tab-name">{t.name}</span>
             <button
-              className="csv-tab-close"
-              title="閉じる"
+              className="csv-tab-close has-tooltip"
+              data-tooltip="閉じる"
+              aria-label={`${t.name} を閉じる`}
               onClick={(e) => {
                 e.stopPropagation();
                 onClose(t);
@@ -141,15 +143,18 @@ export function CsvTabs({
           </div>
         ))}
       </div>
-      <button className="tab-add" title="新しいCSV" onClick={onAdd}>
+      <IconButton className="tab-add" label="新しいCSVを作る" onClick={onAdd}>
         +
-      </button>
+      </IconButton>
 
       {/* 比較結果は専用のタブで出す (ファイルのタブと行き来できる) */}
       {diff && (
         <div
-          className={"csv-tab csv-tab-diff" + (diff.active ? " active" : "")}
-          title={diff.title}
+          className={
+            "csv-tab csv-tab-diff has-tooltip tooltip-left" +
+            (diff.active ? " active" : "")
+          }
+          data-tooltip={diff.title}
           onMouseDown={(e) => {
             if (e.button !== 0) return;
             onSelectDiff();
@@ -157,8 +162,9 @@ export function CsvTabs({
         >
           <span className="csv-tab-name">{diff.label}</span>
           <button
-            className="csv-tab-close"
-            title="比較を閉じる"
+            className="csv-tab-close has-tooltip"
+            data-tooltip="比較を閉じる"
+            aria-label="比較を閉じる"
             onClick={(e) => {
               e.stopPropagation();
               onCloseDiff();
@@ -173,21 +179,17 @@ export function CsvTabs({
       <span className="csv-tabs-drag" data-tauri-drag-region />
 
       {/*
-        右端のアイコンはDBの画面と同じ並び。
-        CSVエディタだけを残してDBの画面を閉じても、ここから戻れる
+        右端のアイコンはメインウィンドウと同じ並び。
+        CSVエディタだけを残してメインウィンドウを閉じても、ここから戻れる
       */}
-      <button
-        className="console-btn has-tooltip"
-        data-tooltip="QuelioDB (閉じていれば開き直します)"
+      <IconButton
+        className="console-btn"
+        label="Quelio のメインウィンドウを開く (閉じていれば開き直します)"
         onClick={onOpenDb}
       >
         <DbIcon />
-      </button>
-      <button
-        className="console-btn has-tooltip"
-        data-tooltip="設定"
-        onClick={onOpenSettings}
-      >
+      </IconButton>
+      <IconButton className="console-btn" label="設定" onClick={onOpenSettings}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden>
           <circle cx="12" cy="12" r="3.2" stroke="currentColor" strokeWidth="1.8" />
           <path
@@ -197,7 +199,7 @@ export function CsvTabs({
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </IconButton>
     </div>
   );
 }

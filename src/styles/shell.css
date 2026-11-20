@@ -25,7 +25,7 @@
 }
 
 .brand-name {
-  font-size: 13px;
+  font-size: var(--fs-md);
   font-weight: 800;
   letter-spacing: 0.04em;
   background: linear-gradient(90deg, #fff, #b8c0d8);
@@ -44,6 +44,44 @@
   color: #fff;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
   box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+
+/*
+ * タブ列の外枠。はみ出したタブがある側の端に影を付けて、
+ * 「まだ隠れたタブがある」と分かるようにする (スクロールバーは出さないため)
+ */
+.tabbar-tabs-wrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.tabbar-tabs-wrap::before,
+.tabbar-tabs-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 18px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 1;
+}
+
+.tabbar-tabs-wrap::before {
+  left: 0;
+  background: linear-gradient(90deg, var(--bg), transparent);
+}
+
+.tabbar-tabs-wrap::after {
+  right: 0;
+  background: linear-gradient(270deg, var(--bg), transparent);
+}
+
+.tabbar-tabs-wrap.over-left::before,
+.tabbar-tabs-wrap.over-right::after {
+  opacity: 1;
 }
 
 .tabbar-tabs {
@@ -67,7 +105,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: 8px 10px 8px 12px;
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   color: var(--text-dim);
   background: transparent;
@@ -119,7 +157,7 @@
   border: 1px solid var(--env-color);
   border-radius: 5px;
   color: var(--env-color);
-  font-size: 9.5px;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.5;
@@ -149,6 +187,127 @@
 
 .tab-dot.idle {
   background: var(--text-faint);
+}
+
+/* 接続しに行っている間の印 (点と同じ場所・同じくらいの大きさ) */
+.spinner.tab-spinner {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-width: 1.5px;
+}
+
+/* 読み取り専用の鍵 (幅の狭いタブなので文字ではなく絵にする) */
+.tab-lock {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--warn);
+}
+
+/* 接続が切れた印 (点の場所に出す。押すと接続し直す) */
+.tab-lost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0 -4px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.tab-lost:hover {
+  background: rgba(248, 113, 113, 0.16);
+}
+
+.tab.lost .tab-label {
+  color: var(--danger);
+}
+
+/* セッション画面の「接続が切れました」の帯 */
+.conn-lost-banner {
+  align-items: center;
+}
+
+.conn-lost-banner .result-detail {
+  flex: 1;
+  min-width: 0;
+}
+
+.conn-lost-banner .btn-secondary {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: var(--fs-sm);
+}
+
+/* はみ出したタブも選べる一覧 */
+.tab-list-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.tab-list-btn {
+  width: 24px;
+  height: 28px;
+  margin-bottom: 5px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.tab-list-btn:hover {
+  color: var(--text);
+  background: rgba(var(--ink), 0.06);
+}
+
+.tab-list-wrap .tab-list-menu.context-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  min-width: 200px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.tab-list-menu .context-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-list-env {
+  margin-left: auto;
+  font-size: var(--fs-2xs);
+  color: var(--text-dim);
+}
+
+/* タブバー右側の「アプリ全体」の道具のまとまり */
+.tabbar-tools {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+/* メニュー項目の右に添えるキー表記 */
+.context-hint {
+  float: right;
+  padding-left: 18px;
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
 }
 
 .tab-label {
@@ -187,7 +346,7 @@
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-dim);
-  font-size: 16px;
+  font-size: var(--fs-lg);
   line-height: 1;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
@@ -246,7 +405,7 @@
 
 .about-desc {
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
   line-height: 1.6;
 }
@@ -272,7 +431,7 @@
 .about-meta dt {
   flex: none;
   width: 68px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   color: var(--text-faint);
 }
 
@@ -280,7 +439,7 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text);
   text-align: right;
   overflow: hidden;
@@ -290,7 +449,7 @@
 
 .about-beta-note {
   margin-left: 6px;
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
 }
 
@@ -303,7 +462,7 @@
   border: none;
   background: none;
   color: var(--accent-2);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-family: inherit;
   cursor: pointer;
 }
@@ -319,7 +478,7 @@
 
 .about-copy {
   margin-top: 12px;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-faint);
 }
 
@@ -366,19 +525,20 @@ html.macos .diff-toolbar {
   padding-left: 86px;
 }
 
-/* CSSツールチップ (data-tooltip属性) */
+/* ツールチップ (data-tooltip属性) */
 
 /*
- * ツールチップの使い分け (3種類あった経緯を残さないための決め事)
+ * ツールチップの使い分け
  *
- *   has-tooltip + data-tooltip … 操作の説明。ボタンやアイコンに付ける。
- *                                 見た目と出るまでの時間をここで統一する
- *   HoverTip (React)           … グリッドのヘッダなど、親のはみ出し隠しで
- *                                 切られてしまう場所の長い説明
- *   title 属性                 … 省略された文字列の全体を見せる用途と、
- *                                 読み上げ・アクセシビリティの補助
+ *   has-tooltip + data-tooltip … 操作の説明・押せない理由。
+ *                                 TooltipLayer (React) が画面の一番上に描くので、
+ *                                 一覧・メニュー・ダイアログの中でも切れない
+ *   HoverTip (React)           … グリッドのヘッダの長い説明 (中身に要素を持てる)
+ *   title 属性                 … 省略された文字列の全体を見せる用途だけ
  *
  * 新しく操作の説明を足すときは has-tooltip を使う (title は増やさない)
+ *   tooltip-left … 対象の左端にそろえて右へ伸ばす (画面の左側に置く要素用)
+ *   tooltip-wide … 長いパスなどのために幅を広げる
  */
 @keyframes hover-tip-in {
   from {
@@ -391,97 +551,62 @@ html.macos .diff-toolbar {
   }
 }
 
-.has-tooltip {
+/*
+ * 前は説明を要素の中 (::after) に描いていたので、その起点として relative にしていた。
+ * いまは外に描くので要らないが、中の絵や印がこれを起点にしている所があるので残す。
+ * :where で強さを0にして、absolute などで置いている要素の指定を上書きしないようにする
+ */
+:where(.has-tooltip) {
   position: relative;
 }
 
-.has-tooltip::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 200;
+.tooltip-pop {
+  position: fixed;
+  z-index: 2000;
+  /* 大きさを測り終えるまでは見せない (TooltipLayer が placed を付ける) */
+  visibility: hidden;
   /* 改行を書けるようにする (長い説明は折り返す) */
   white-space: pre-line;
-  max-width: 320px;
+  overflow-wrap: anywhere;
   width: max-content;
+  max-width: min(340px, calc(100vw - 16px));
   background: var(--menu-bg);
   color: var(--text);
   border: 1px solid var(--border-strong);
   /* HoverTip と同じ見た目にそろえる */
   border-radius: 7px;
   padding: 6px 10px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   line-height: 1.6;
   text-align: left;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-3px);
-  transition: opacity 0.12s ease 0.35s, transform 0.12s ease 0.35s,
-    visibility 0s linear 0.47s;
   pointer-events: none;
 }
 
-.has-tooltip:hover::after {
-  opacity: 1;
+.tooltip-pop.placed {
   visibility: visible;
-  transform: none;
-  transition-delay: 0.35s;
+  animation: hover-tip-in 0.12s ease both;
+}
+
+.tooltip-pop.wide {
+  max-width: min(440px, calc(100vw - 16px));
 }
 
 /*
- * 押せないボタンのヒント。
+ * 説明つきの押せないボタン。
  *
- * 押せないことを薄さ (opacity) で表すと、その中に描くヒント (::after) まで
- * 一緒に透けてしまい、後ろの文字が重なって読めない。
- * ヒントを持つボタンは薄くせず、文字と絵の色だけを弱める
- * (絵は currentColor で描いてあるので、色を変えれば一緒に弱まる)
+ * 説明は TooltipLayer がボタンの外に描くので、ボタンを薄くしても説明は透けない。
+ * 押せないときの見た目は、それぞれのボタンの決まり (opacity など) に任せる。
+ * 決まりの無いボタンだけ、ほかのボタンと同じ薄さにする (:where で強さを0にしてある)
  */
-button.has-tooltip:disabled,
-button.has-tooltip[aria-disabled="true"] {
-  opacity: 1;
-  color: var(--text-faint);
+:where(button.has-tooltip:disabled, button.has-tooltip[aria-disabled="true"]) {
+  opacity: 0.55;
 }
 
-/*
- * 別のウィンドウが前に出ているあいだはヒントを消す。
- *
- * ボタンを押して新しいウィンドウが開いたとき、こちらの窓には
- * マウスが離れた知らせが来ないので :hover が残り、
- * ヒントが出しっぱなしになる (印は main.tsx が付け外しする)
- */
-html.win-blur .has-tooltip::after {
-  opacity: 0;
-  visibility: hidden;
-  transition: none;
-}
-
+/* 別のウィンドウが前に出ているあいだは、ヘッダの説明 (HoverTip) を消す */
 html.win-blur .hover-tip {
   display: none;
-}
-
-/* ホバー時のfilter等でボタンがスタッキングコンテキストになると
- * ツールチップが後続要素 (ER図キャンバス等) の下に隠れるため、
- * ホバー中はボタンごと前面に出す */
-.has-tooltip:hover {
-  z-index: 200;
-}
-
-/* 画面左側の要素用: ツールチップを左端起点で右へ伸ばす */
-.has-tooltip.tooltip-left::after {
-  right: auto;
-  left: 0;
-}
-
-/* 長文ツールチップ用: 折り返してウィンドウ外に隠れないようにする
- * (data-tooltip内の改行もそのまま表示される) */
-.has-tooltip.tooltip-wrap::after {
-  white-space: pre-line;
-  width: max-content;
-  max-width: min(340px, calc(100vw - 40px));
-  line-height: 1.5;
 }
 
 /* ============ コンソールウィンドウ ============ */
@@ -496,10 +621,31 @@ html.win-blur .hover-tip {
 .console-toolbar {
   display: flex;
   align-items: center;
+  /* 狭い窓でもボタンが隠れないよう、入りきらなければ2段にする */
+  flex-wrap: wrap;
   gap: 10px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+/*
+ * 別ウィンドウ (コンソール・スキーマ一覧・スキーマ差分) の名乗り。
+ * macOS ではタイトルバーを隠しているので、何の窓かをここで示す
+ */
+.window-title {
+  flex-shrink: 0;
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* 差分の「項目」の幅のつまみ。キーボードで移ってきたときも見えるようにする */
+.diff-label-resizer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: rgba(96, 165, 250, 0.35);
 }
 
 .console-filter {
@@ -509,7 +655,7 @@ html.win-blur .hover-tip {
 
 .console-count {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-faint);
 }
 
@@ -532,7 +678,7 @@ html.win-blur .hover-tip {
 }
 
 .console-list .grid td {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   vertical-align: top;
   line-height: 1.55;
 }
@@ -554,7 +700,7 @@ html.win-blur .hover-tip {
 .console-list .grid tbody td[colspan] {
   padding: 24px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 /* SQLログの保存先 (長いパスは省略して出す) */
@@ -564,7 +710,7 @@ html.win-blur .hover-tip {
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
 }
 
@@ -584,10 +730,45 @@ html.win-blur .hover-tip {
   cursor: pointer;
 }
 
-.db-admin-btn:hover {
+.db-admin-btn:hover:not(:disabled) {
   color: var(--text);
   border-color: var(--accent);
   background: rgba(99, 102, 241, 0.1);
+}
+
+/* 読み取り専用の接続では押せない (理由はツールチップで出す) */
+.db-admin-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 絵に短い字を添えた、一覧の見出しのボタン (「ダンプ」「実行」) */
+.pane-icon-btn.pane-icon-text {
+  width: auto;
+  gap: 2px;
+  padding: 0 5px 0 3px;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+}
+
+/* エラーの帯を閉じる × */
+.banner-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.banner-close:hover {
+  background: rgba(var(--ink), 0.08);
 }
 
 /*
@@ -603,4 +784,38 @@ html.win-blur .hover-tip {
   cursor: grabbing;
   /* 滑っていくタブの上に重ねる */
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+}
+
+/* 幅を変えるつまみにキーボードで来たとき (← → で動かせる)。線を出して場所を示す */
+.pane-splitter:focus-visible {
+  outline: none;
+  background: linear-gradient(
+    to right,
+    transparent 1px,
+    rgba(99, 102, 241, 0.75) 2px,
+    rgba(99, 102, 241, 0.75) 3px,
+    transparent 4px
+  );
+}
+
+/*
+ * サーバー情報のチップがはみ出しているとき、隠れている側の端をぼかす
+ * (スクロールバーを出していないので、続きがあると分かるようにする)
+ */
+.server-info.over-right {
+  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+}
+
+.server-info.over-left {
+  mask-image: linear-gradient(90deg, transparent, #000 28px);
+}
+
+.server-info.over-left.over-right {
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 28px,
+    #000 calc(100% - 28px),
+    transparent
+  );
 }

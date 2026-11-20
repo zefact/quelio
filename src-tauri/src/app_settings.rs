@@ -21,10 +21,19 @@ pub struct AppSettings {
     /// SQL実行のタイムアウト (秒)。0で無制限
     #[serde(default = "default_query_timeout_secs")]
     pub query_timeout_secs: u64,
-    /// 各種ファイル (キャプチャ・CSV・エクスポート等) の保存先フォルダ。
+    /// 各種ファイル (キャプチャ・CSV・SQLダンプ等) の書き出し先フォルダ。
     /// 空文字ならOSのダウンロードフォルダを使う
     #[serde(default)]
     pub download_dir: String,
+    /// 書き出し先フォルダの決め方。
+    /// "last" = 保存ダイアログなどで最後に選んだフォルダを書き出し先にする /
+    /// "fixed" = 書き出し先フォルダを変えない。
+    ///
+    /// 空文字は「まだ選んでいない」(この項目が無い古い設定)。
+    /// そのときの扱いは画面側 (exportDir.ts) で決める
+    /// (フォルダを決めてあった人は "fixed"、それ以外は "last")
+    #[serde(default)]
+    pub export_dir_mode: String,
     /// SQLエディタの入力補完を使うか
     #[serde(default = "default_true")]
     pub autocomplete_enabled: bool,
@@ -166,6 +175,7 @@ impl Default for AppSettings {
             show_row_numbers: true,
             query_timeout_secs: default_query_timeout_secs(),
             download_dir: String::new(),
+            export_dir_mode: String::new(),
             autocomplete_enabled: true,
             autocomplete_delay_ms: default_autocomplete_delay_ms(),
             confirm_alter: true,
@@ -259,6 +269,26 @@ mod tests {
         // ほかの項目が既定へ落ちていないことも見ておく
         assert!(s.show_row_numbers);
         assert_eq!(s.query_timeout_secs, 60);
+    }
+
+    #[test]
+    fn 書き出し先の決め方が無い古い設定ファイルを読むと空になりフォルダは残る() {
+        let json = r#"{"commentDelimiter":"（","downloadDir":"/tmp/out"}"#;
+        let s: AppSettings = serde_json::from_str(json).expect("読めること");
+        assert_eq!(s.export_dir_mode, "");
+        assert_eq!(s.download_dir, "/tmp/out");
+    }
+
+    #[test]
+    fn 書き出し先の決め方は保存して読み直しても残る() {
+        let s = AppSettings {
+            export_dir_mode: "fixed".into(),
+            ..Default::default()
+        };
+        let text = serde_json::to_string(&s).expect("書けること");
+        assert!(text.contains("\"exportDirMode\":\"fixed\""));
+        let back: AppSettings = serde_json::from_str(&text).expect("読めること");
+        assert_eq!(back.export_dir_mode, "fixed");
     }
 
     #[test]

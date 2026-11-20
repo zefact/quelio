@@ -66,8 +66,8 @@ export function SavedItemRow({
        * WebView (WKWebView) では、中の操作部品が親のドラッグ開始を飲み込むため
        */}
       <button
-        className="context-item saved-item"
-        title={`${sql}\n\n${how}`}
+        className="context-item saved-item has-tooltip tooltip-left tooltip-wide"
+        data-tooltip={`${sql}\n\n${how}`}
         draggable={!!drag}
         onDragStart={drag?.onDragStart}
         onDragEnd={drag?.onDragEnd}
@@ -87,8 +87,8 @@ export function SavedItemRow({
         )}
       </button>
       <button
-        className="saved-edit"
-        title="編集 (名前・フォルダ・中身。削除もここから)"
+        className="saved-edit has-tooltip"
+        data-tooltip="編集 (名前・フォルダ・中身。削除もここから)"
         aria-label="編集"
         onClick={() => onEdit(entry)}
       >

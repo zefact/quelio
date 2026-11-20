@@ -247,24 +247,28 @@ export function CsvFavTree<T extends Named>({
         小さなボタンにして上に並べる (SQLのお気に入りと同じ並び)
       */}
       <div className="lib-saved-actions csv-fav-actions">
-        <button className="lib-action" title="フォルダを作る" onClick={newFolder}>
+        <button
+          className="lib-action has-tooltip tooltip-left"
+          data-tooltip="フォルダを作る"
+          onClick={newFolder}
+        >
           ＋ フォルダ
         </button>
         <span className="toolbar-spacer" />
         <button
-          className="lib-action"
+          className="lib-action has-tooltip"
           disabled={rows.length === 0}
-          title="選んだお気に入りをファイルへ書き出します"
+          data-tooltip="選んだお気に入りをファイルへ書き出します"
           onClick={onBackup}
         >
-          バックアップ
+          バックアップ…
         </button>
         <button
-          className="lib-action"
-          title="ファイルのお気に入りを取り込みます (今あるものは上書きしません)"
+          className="lib-action has-tooltip"
+          data-tooltip="ファイルのお気に入りを、今あるものに追加します (上書きはしません)"
           onClick={onRestore}
         >
-          復元
+          復元 (追加)…
         </button>
       </div>
 

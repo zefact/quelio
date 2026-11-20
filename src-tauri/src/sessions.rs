@@ -65,16 +65,48 @@ pub struct CancelTarget {
     pub password: zeroize::Zeroizing<String>,
     /// MySQL: CONNECTION_ID() / PostgreSQL: pg_backend_pid()
     pub conn_id: i64,
-    /// Valkey: TLSで接続するか (キャンセル用の別接続にも同じ設定を使う)
-    pub tls: bool,
-    /// Valkey: TLSのSNI/証明書検証に使う本来のホスト名 (SSHトンネル経由時)
-    pub tls_sni: Option<String>,
     /// MySQL / PostgreSQL: キャンセル用の別接続にも同じTLS設定を使う
     pub db_tls: db::TlsConfig,
     /// SQLite: 実行中の処理に中止を伝えるための印。
     /// SQLiteには別接続からKILLを送る相手がいないので、
     /// 実行しているコネクション自身に見てもらう
     pub sqlite_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Valkey: 実行中のコマンドを止める口 (Valkey以外と、張り直している最中は None)
+    pub kv_stop: Option<KvStop>,
+}
+
+/// Valkey の「中止」に使う、接続ごとの止め口。
+///
+/// Valkey は1つのコマンドを実行している間ほかの処理をしないため、
+/// 別の接続から止めに行っても、重いコマンドが終わるまで届かない。
+/// そこで、こちら側の送受信のタスクを止めて応答を待つのをやめ、
+/// 止めた接続は捨てて、次の操作の前に張り直す
+#[derive(Clone)]
+pub struct KvStop {
+    /// 送受信のタスク (止めると、待っているコマンドはすぐエラーで戻る)
+    driver: tokio::task::AbortHandle,
+    /// 「中止」が押されたか (押された接続は、次の操作の入口で張り直す)
+    requested: Arc<AtomicBool>,
+}
+
+impl KvStop {
+    pub(crate) fn new(driver: tokio::task::AbortHandle) -> Self {
+        Self {
+            driver,
+            requested: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// 応答を待つのをやめる (この接続はもう使えなくなる)
+    fn stop(&self) {
+        self.requested.store(true, Ordering::Relaxed);
+        self.driver.abort();
+    }
+
+    /// 「中止」が押されたか
+    fn requested(&self) -> bool {
+        self.requested.load(Ordering::Relaxed)
+    }
 }
 
 /// セッションID → キャンセル対象 (クエリ実行中でも参照できるよう独立したロック)
@@ -584,31 +616,13 @@ pub async fn cancel_query(
             flag.store(true, Ordering::Relaxed);
         }
         DbType::Valkey => {
-            // CLIENT ID非対応のサーバー (ElastiCache Serverless等) ではキャンセル不可
-            if target.conn_id == 0 {
-                return Err(
-                    "この接続先はコマンドのキャンセルに対応していません".into()
-                );
-            }
-            let mut c = kv::connect(
-                &target.host,
-                target.port,
-                &target.user,
-                &target.password,
-                0,
-                target.tls,
-                target.tls_sni.as_deref(),
-            )
-            .await?;
-            let cmd = format!("CLIENT KILL ID {}", target.conn_id);
-            qlog.add(&target.label, "", &cmd);
-            redis::cmd("CLIENT")
-                .arg("KILL")
-                .arg("ID")
-                .arg(target.conn_id)
-                .query_async::<i64>(&mut c)
-                .await
-                .map_err(kv::format_err)?;
+            /*
+             * 以前は別の接続から CLIENT KILL を送っていたが、
+             * Valkey は重いコマンドの実行中はほかの処理をしないので届かず、
+             * 画面は終わるまで待たされていた。
+             * いまは応答を待つのをやめて、この接続を捨てる (kv_ops の kv_cancel)
+             */
+            kv_cancel(cancel, qlog, session_id)?;
         }
     }
     Ok(())
@@ -1363,8 +1377,8 @@ pub async fn run_query(
                         txn_after_cancel(db_type, session.txn, analyzed[i].is_read_only());
                 }
                 // タイムアウトは応答の途中で打ち切るため、接続の状態がずれうる。
-                // 次の操作で必ず生存確認 (ping) が走るようにしておく
-                if e.is_timeout() {
+                // 接続が切れたときも含め、次の操作で必ず生存確認 (ping) が走るようにしておく
+                if e.is_timeout() || looks_disconnected(&e.message) {
                     mark_needs_ping(session);
                 }
                 let mut msg = if single {
@@ -1688,11 +1702,67 @@ pub async fn endpoint_info(
 ///
 /// 応答を最後まで受け取らずに切っているため、接続に結果が残っていることがある。
 /// そのまま次の問い合わせに使うと、前の結果を読んでしまいかねない
+///
+/// 接続が切れた種類のエラー (looks_disconnected) も同じにする。
+/// 入口の生存確認は最後の操作から30秒たつまで走らないので、
+/// そのままだと、切れた接続で何度やり直しても同じエラーになる
 fn note_timeout<T>(session: &mut Session, res: Result<T, AppError>) -> Result<T, AppError> {
-    if res.as_ref().err().is_some_and(|e| e.is_timeout()) {
+    if res
+        .as_ref()
+        .err()
+        .is_some_and(|e| e.is_timeout() || looks_disconnected(&e.message))
+    {
         mark_needs_ping(session);
     }
     res
+}
+
+/// 接続が切れたと分かるエラーなら、次の操作で必ず生存確認させる (文字列のエラー用)
+fn note_disconnected(session: &mut Session, msg: &str) {
+    if looks_disconnected(msg) {
+        mark_needs_ping(session);
+    }
+}
+
+/// エラーの文言の中に、通信路が切れたと分かる言葉があるか (小文字で比べる)
+const DISCONNECT_MARKS: &[&str] = &[
+    // db.rs の format_db_error が sqlx の通信エラーに付ける前置き
+    "接続できません",
+    // OS が返す通信エラー (MySQL / PostgreSQL / Valkey 共通)
+    "broken pipe",
+    "connection reset",
+    "connection refused",
+    "connection aborted",
+    "connection closed",
+    "unexpected end of file",
+    "socket is not connected",
+    // MySQL
+    "server has gone away",
+    "lost connection to mysql server",
+    "server shutdown in progress",
+    // PostgreSQL (英語と日本語のメッセージ)
+    "terminating connection",
+    "server closed the connection",
+    "the database system is shutting down",
+    "接続を終了しています",
+    // Valkey: 送受信のタスクが止まった
+    "unexpectedly terminated",
+];
+
+/**
+ * 接続が切れた種類のエラーか。
+ *
+ * 種類 (AppError) を持たない文字列のエラーから見分けるので、文言で判断する。
+ * 外れても「次の操作の前に ping を1回送る」だけなので、広めに拾ってよい。
+ * 画面の印 (src/connLost.ts) と同じ言葉を見る
+ */
+pub fn looks_disconnected(msg: &str) -> bool {
+    let m = msg.to_lowercase();
+    // 自分で押した「中止」は切断ではない
+    if m.contains("中止しました") {
+        return false;
+    }
+    DISCONNECT_MARKS.iter().any(|w| m.contains(w))
 }
 
 /// 読み残しを片付けるのを待つ上限。
@@ -1815,6 +1885,8 @@ fn invalidate_cancel_conn(session: &Session) {
         t.conn_id = CONN_ID_UNKNOWN;
         // SQLiteの中止の印も、古い接続のものは効かない
         t.sqlite_cancel = None;
+        // Valkeyの止め口も同じ (張り直したあとで新しい接続のものを入れる)
+        t.kv_stop = None;
     });
 }
 
@@ -1916,6 +1988,34 @@ async fn txn_for_test(sessions: &Sessions, session_id: &str) -> TxnState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn 切断の見分け_mysql() {
+        assert!(looks_disconnected("接続できません: Broken pipe (os error 32)"));
+        assert!(looks_disconnected("接続できません: unexpected end of file"));
+        assert!(looks_disconnected("DBエラー: 1053 (08S01): Server shutdown in progress"));
+        assert!(!looks_disconnected(
+            "DBエラー: 1064 (42000): You have an error in your SQL syntax"
+        ));
+        assert!(!looks_disconnected("実行を中止しました"));
+    }
+
+    #[test]
+    fn 切断の見分け_postgresql() {
+        assert!(looks_disconnected(
+            "DBエラー: terminating connection due to administrator command"
+        ));
+        assert!(looks_disconnected("DBエラー: 管理者コマンドにより接続を終了しています"));
+        assert!(!looks_disconnected("DBエラー: relation \"nope\" does not exist"));
+    }
+
+    #[test]
+    fn 切断の見分け_valkey() {
+        assert!(looks_disconnected("Valkeyエラー: broken pipe"));
+        assert!(looks_disconnected("Valkeyエラー: Connection reset by peer (os error 54)"));
+        assert!(!looks_disconnected("Valkeyエラー: ERR unknown command 'FOO'"));
+        assert!(!looks_disconnected("中止しました (1件目まで実行済み)"));
+    }
 
     #[test]
     fn 後始末が要る状態だけ手を入れる() {

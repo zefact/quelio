@@ -254,7 +254,7 @@ describe("buildEdges", () => {
     expect(guess("account")).toEqual([]);
   });
 
-  it("複合PKを全て持つテーブルを子とみなす", () => {
+  it("複合PKをすべて持つテーブルを子とみなす", () => {
     const entries = [
       entry("order_items", [col("order_id"), col("item_id"), col("qty")]),
       entry("order_item_prices", [

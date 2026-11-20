@@ -95,26 +95,47 @@ fn nodes_from(raw: serde_json::Value) -> Result<Vec<LayoutNode>, String> {
  */
 pub fn merge(app: &AppHandle, incoming: Vec<LayoutNode>) -> Result<(usize, usize), String> {
     let mut nodes = tree(app)?;
+    let (added, overwritten) = merge_into(&mut nodes, incoming);
+    write(app, &nodes)?;
+    Ok((added, overwritten.len()))
+}
+
+/**
+ * 取り込んだら何件増えて、どれが上書きされるかを数える (書き込まない)。
+ *
+ * 判定は `merge` と同じ `merge_into` を、読んだ中身に当てて求める。
+ * 返すのは (追加数, 上書きされるお気に入りの名前)
+ */
+pub fn preview_merge(
+    app: &AppHandle,
+    incoming: Vec<LayoutNode>,
+) -> Result<(usize, Vec<String>), String> {
+    let mut nodes = tree(app)?;
+    Ok(merge_into(&mut nodes, incoming))
+}
+
+/// 今の並びへ取り込むお気に入りを混ぜる (同じ名前は桁設定を上書き)。
+/// (追加数, 上書きしたお気に入りの名前) を返す
+fn merge_into(nodes: &mut Vec<LayoutNode>, incoming: Vec<LayoutNode>) -> (usize, Vec<String>) {
     let mut added = 0;
-    let mut updated = 0;
+    let mut overwritten = Vec::new();
     for node in incoming {
         let (folder, items) = match node {
             LayoutNode::Folder { name, items } => (Some(name), items),
             LayoutNode::Item { saved } => (None, vec![saved]),
         };
         for saved in items {
-            if let Some(old) = fav_tree::find_item(&mut nodes, &saved.name) {
+            if let Some(old) = fav_tree::find_item(nodes, &saved.name) {
                 old.layout = saved.layout;
                 old.updated_at_ms = saved.updated_at_ms;
-                updated += 1;
+                overwritten.push(saved.name);
                 continue;
             }
-            fav_tree::put_item(&mut nodes, folder.as_deref(), saved);
+            fav_tree::put_item(nodes, folder.as_deref(), saved);
             added += 1;
         }
     }
-    write(app, &nodes)?;
-    Ok((added, updated))
+    (added, overwritten)
 }
 
 /**
@@ -243,6 +264,23 @@ mod tests {
         assert_eq!(names, vec!["あ", "い", "う", "え", "お", "か"]);
         // 無かったフォルダは作られる
         assert_eq!(folder_names(&nodes), vec!["受注", "出荷"]);
+    }
+
+    #[test]
+    fn 取り込みは同じ名前を上書きとして数える() {
+        let mut now = nodes();
+        let incoming = vec![
+            LayoutNode::Item { saved: saved("う") },
+            LayoutNode::Folder {
+                name: "出荷".to_string(),
+                items: vec![saved("え"), saved("あ")],
+            },
+        ];
+        let (added, overwritten) = merge_into(&mut now, incoming);
+        assert_eq!(added, 1);
+        assert_eq!(overwritten, vec!["う", "あ"]);
+        let names: Vec<String> = flatten(&now).into_iter().map(|s| s.name).collect();
+        assert_eq!(names, vec!["あ", "い", "う", "え"]);
     }
 
     #[test]

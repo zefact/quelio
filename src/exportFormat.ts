@@ -8,9 +8,9 @@
 export type ExportFormat = "csv" | "xlsx";
 
 /**
- * 結果の持ち出し先。
+ * 結果の書き出し先。
  *
- * ファイルに落とす2つに加えて、CSVエディタで開くのも同じ場所から選ぶ
+ * ファイルに書き出す2つに加えて、CSVエディタで開くのも同じ場所から選ぶ
  * (どれも「結果を全件どこかへ持っていく」操作なので)
  */
 export type ExportTarget = ExportFormat | "editor";
@@ -21,17 +21,20 @@ export const FORMAT_LABEL: Record<ExportFormat, string> = {
   xlsx: "Excel",
 };
 
-/** ボタンに出す名前 (選んでいる持ち出し先がそのままボタンになる) */
+/**
+ * ボタンに出す名前 (選んでいる書き出し先がそのままボタンになる)。
+ * 「ダウンロード」はネットから落とすように読めるので使わない
+ */
 export const TARGET_LABEL: Record<ExportTarget, string> = {
-  csv: "CSVダウンロード",
-  xlsx: "Excelダウンロード",
+  csv: "CSV で書き出す",
+  xlsx: "Excel で書き出す",
   editor: "CSVエディタで開く",
 };
 
-/** 選んだ持ち出し先を覚えておく場所 */
+/** 選んだ書き出し先を覚えておく場所 */
 const KEY = "quelio.exportFormat";
 
-/** 前に選んだ持ち出し先 (初めてならCSV) */
+/** 前に選んだ書き出し先 (初めてならCSV) */
 export function lastExportTarget(): ExportTarget {
   try {
     const v = localStorage.getItem(KEY);
@@ -42,7 +45,7 @@ export function lastExportTarget(): ExportTarget {
   }
 }
 
-/** 選んだ持ち出し先を覚える */
+/** 選んだ書き出し先を覚える */
 export function rememberExportTarget(target: ExportTarget): void {
   try {
     localStorage.setItem(KEY, target);

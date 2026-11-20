@@ -9,6 +9,7 @@ import { formatErrorMessage, formatSql } from "../sqlFormat";
 import { defaultSqlFormat } from "../types";
 import type { AppSettings, SqlFormatSettings } from "../types";
 import { SettingRow } from "./SettingRow";
+import { MOD, SHIFT } from "../keyLabel";
 
 interface Props {
   app: AppSettings;
@@ -74,7 +75,8 @@ export function SettingsSqlFormat({ app, saveApp }: Props) {
     <section className="set-section">
       <h3 className="set-section-title">SQLの整形</h3>
       <p className="set-section-note">
-        SQLエディタの「整形」ボタン (⇧⌘F) で書き直すときの形です。
+        SQLエディタの「整形」ボタン ({MOD}
+        {SHIFT}F) で書き直すときの形です。
         設定を変えても、書いてあるSQLはボタンを押すまで変わりません。
       </p>
 

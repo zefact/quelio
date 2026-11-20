@@ -116,7 +116,12 @@ export function CsvRegexHelp({ onClose }: Props) {
       <div className="csv-regex-head">
         <strong>正規表現の書き方</strong>
         <span className="toolbar-spacer" />
-        <button className="csv-find-step" title="閉じる" onClick={onClose}>
+        <button
+          className="csv-find-step has-tooltip"
+          data-tooltip="閉じる"
+          aria-label="閉じる"
+          onClick={onClose}
+        >
           <CloseIcon />
         </button>
       </div>

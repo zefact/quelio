@@ -9,6 +9,7 @@
  * commands.test.ts が行う (増減・改名はテストで落ちる)
  */
 import { invoke } from "@tauri-apps/api/core";
+import { watchSession } from "./connLost";
 import type {
   AppMemory,
   AppSettings,
@@ -46,6 +47,7 @@ import type {
   ImportCounts,
   ConnectionsExported,
   ConnectionsFileInfo,
+  RestorePreview,
   ImportResult,
   JobProgress,
   JobStatus,
@@ -109,6 +111,7 @@ export interface CommandResults {
   cancel_csv_export: void;
   cancel_job: void;
   cancel_query: void;
+  check_connection: void;
   cancel_schema_load: void;
   change_database_owner: DatabaseOwners;
   change_schema: string[];
@@ -216,18 +219,22 @@ export interface CommandResults {
   inspect_connections_file: ConnectionsFileInfo;
   import_csv: ImportResult;
   import_er_diagrams: ImportCounts;
+  preview_er_diagrams_import: RestorePreview;
   import_er_diagrams_as_new: ErImported[];
   inspect_er_diagram_file: ErFileEntry[];
   import_saved_sql: ImportCounts;
+  preview_saved_sql_import: RestorePreview;
   import_saved_sql_into: SavedSqlImported;
   inspect_saved_sql_file: SavedSqlSummary;
   import_csv_layouts: ImportCounts;
+  preview_csv_layouts_import: RestorePreview;
   job_status: JobStatus;
   kill_process: void;
   kv_apply: void;
   kv_count_keys: KvCountResult;
   kv_delete_keys: KvDeleteResult;
   kv_exec: KvRunOutput;
+  kv_cancel: void;
   kv_key_detail: KvKeyDetail;
   kv_scan: KvScanResult;
   kv_search: KvSearchResult;
@@ -315,6 +322,7 @@ export const COMMAND_NAMES = [
   "cancel_csv_export",
   "cancel_job",
   "cancel_query",
+  "check_connection",
   "cancel_schema_load",
   "change_database_owner",
   "change_schema",
@@ -442,6 +450,7 @@ export const COMMAND_NAMES = [
   "kv_count_keys",
   "kv_delete_keys",
   "kv_exec",
+  "kv_cancel",
   "kv_key_detail",
   "kv_scan",
   "kv_search",
@@ -479,8 +488,11 @@ export const COMMAND_NAMES = [
   "preview_create_schema",
   "preview_create_table",
   "preview_csv",
+  "preview_csv_layouts_import",
   "preview_db_user_change",
+  "preview_er_diagrams_import",
   "preview_index_ddl",
+  "preview_saved_sql_import",
   "preview_sql",
   "quarantine_config_file",
   "rename_saved_folder",
@@ -533,5 +545,6 @@ export function call<K extends keyof CommandResults>(
   name: K,
   args?: Record<string, unknown>,
 ): Promise<CommandResults[K]> {
-  return invoke(name, args);
+  // 接続が切れた種類の失敗なら、タブに切断の印を付ける (成功すれば消す)
+  return watchSession(name, args, invoke<CommandResults[K]>(name, args));
 }

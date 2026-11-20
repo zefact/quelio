@@ -26,9 +26,11 @@ export function useModal<T extends HTMLElement = HTMLDivElement>(
   const id = useRef<symbol>(null as unknown as symbol);
   if (id.current === null) id.current = Symbol("modal");
 
-  // 開いたときに1度だけ (毎レンダーの再フォーカスはしない)
+  // 開いたときに1度だけ (毎レンダーの再フォーカスはしない)。
+  // 中の入力欄が autoFocus で先にフォーカスを取っていれば、それを残す
   useEffect(() => {
-    boxRef.current?.focus();
+    const box = boxRef.current;
+    if (box && !box.contains(document.activeElement)) box.focus();
   }, []);
 
   // 開いている間だけ重なり順に載せる (enabledとは無関係)

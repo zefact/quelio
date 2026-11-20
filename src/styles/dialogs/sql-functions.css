@@ -14,11 +14,6 @@
   overflow: hidden;
 }
 
-/* 見出しの「MySQL」が名前にくっつかないよう間を空ける */
-.fn-modal .modal-title .column-modal-target {
-  margin-left: 8px;
-}
-
 .fn-body {
   display: flex;
   flex: 1;
@@ -43,7 +38,7 @@
   border-radius: var(--radius-sm);
   background: var(--input-bg);
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--fs-md);
   outline: none;
 }
 
@@ -58,7 +53,7 @@
   gap: 8px;
   padding: 6px 2px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .fn-count-actions {
@@ -72,7 +67,7 @@
   border: none;
   background: none;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 
@@ -109,7 +104,7 @@
   border: none;
   border-bottom: 1px solid var(--border);
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
   text-align: left;
   cursor: pointer;
@@ -162,14 +157,14 @@
 
 .fn-item-name {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 700;
 }
 
 .fn-item-sum {
   display: block;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   /* 説明は1行に収める (一覧を見渡せるように) */
   white-space: nowrap;
   overflow: hidden;
@@ -179,7 +174,7 @@
 .fn-none {
   padding: 16px 12px;
   color: var(--text-dim);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.7;
 }
 
@@ -196,7 +191,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 17px;
+  font-size: var(--fs-lg);
   font-weight: 700;
 }
 
@@ -205,7 +200,7 @@
   border-radius: 999px;
   background: rgba(var(--ink), 0.08);
   color: var(--text-dim);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 
@@ -217,13 +212,13 @@
 
 .fn-sum {
   margin: 8px 0 4px;
-  font-size: 13px;
+  font-size: var(--fs-md);
 }
 
 .fn-label {
   margin: 14px 0 4px;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 
@@ -233,7 +228,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-panel);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
   /* 長い書式は折り返す (横スクロールを増やさない) */
   white-space: pre-wrap;
@@ -255,25 +250,25 @@
   border: 1px solid rgba(251, 191, 36, 0.35);
   border-radius: var(--radius-sm);
   background: rgba(251, 191, 36, 0.08);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   line-height: 1.7;
 }
 
 .fn-note strong {
   color: var(--warn);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .fn-empty {
   padding: 40px 10px;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: var(--fs-md);
   line-height: 1.9;
   text-align: center;
 }
 
 .fn-hint {
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 /* ---------- 入力補完の右に出す説明 ---------- */
@@ -296,7 +291,7 @@ html body .cm-tooltip.cm-completionInfo {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
 }
 
@@ -309,7 +304,7 @@ html body .cm-tooltip.cm-completionInfo {
 
 .fn-info-label {
   color: var(--text-faint);
-  font-size: 10.5px;
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 

@@ -211,7 +211,7 @@ export function SettingsAi({ notify }: Props) {
 
         <SettingRow
           title="ポート"
-          desc="他のアプリと重なると待ち受けできません。変えたら「適用」を押してください。"
+          desc="他のアプリと重なると待ち受けできません。入力欄から離れるか Enter を押すと保存します。"
           stack
         >
           <div className="mcp-field">
@@ -222,18 +222,14 @@ export function SettingsAi({ notify }: Props) {
               max={MAX_PORT}
               value={portDraft ?? String(app.mcpPort)}
               onChange={(e) => setPortDraft(e.target.value)}
+              // ほかの設定と同じく、ボタンを押さなくても保存する
+              onBlur={() => void applyPort()}
               onKeyDown={(e) => {
                 if (imeBusy(e)) return;
                 if (e.key === "Enter") void applyPort();
+                if (e.key === "Escape") setPortDraft(null);
               }}
             />
-            <button
-              className="btn-primary"
-              disabled={portDraft === null}
-              onClick={() => void applyPort()}
-            >
-              適用
-            </button>
           </div>
         </SettingRow>
       </section>
@@ -382,6 +378,7 @@ export function SettingsAi({ notify }: Props) {
       {confirming && (
         <ConfirmDialog
           title="トークンを作り直します"
+          confirmLabel="作り直す"
           target="AI連携のトークン"
           onCancel={() => setConfirming(false)}
           onConfirm={async () => {

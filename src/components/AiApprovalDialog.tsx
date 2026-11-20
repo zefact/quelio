@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useModal } from "../hooks/useModal";
+import { ModalFrame } from "./ModalFrame";
 import type { AiApproval } from "../aiApproval";
 import { envColor, envLabel } from "../types";
 import type { ConnectionEnv } from "../types";
@@ -23,8 +23,7 @@ interface Props {
  * - 残り時間を出す。答えなければ時間切れで拒否になる
  */
 export function AiApprovalDialog({ item, onDeny, onAllow }: Props) {
-  // Escで閉じる (= 拒否) は共通の作法に乗せる
-  const boxRef = useModal<HTMLDivElement>(onDeny);
+  // Esc・背景クリック・× で閉じる (= 拒否) は共通の枠に任せる
   const denyRef = useRef<HTMLButtonElement>(null);
 
   // 開いたら「拒否」に合わせる (何も考えずEnterを押しても通らない)
@@ -36,27 +35,35 @@ export function AiApprovalDialog({ item, onDeny, onAllow }: Props) {
   const isProd = item.env === "prod";
 
   return (
-    <div className="modal-overlay" onMouseDown={onDeny}>
-      <div
-        className="modal ai-approval"
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => {
-          // 日本語入力の変換中のキーは拾わない
-          if (imeBusy(e)) return;
-          // Enterで「許可」に流れないよう、ここで止める
-          if (e.key === "Enter") e.preventDefault();
-        }}
-        tabIndex={-1}
-        ref={boxRef}
-      >
-        <div className="modal-head">
-          <span className="modal-title">
-            AIがこのSQLを実行しようとしています
-            <span className="column-modal-target mono">{item.connection}</span>
-          </span>
+    // Enterで「許可」に流れないよう、枠の中のキーをここで止める
+    <div
+      className="ai-approval-keys"
+      onKeyDown={(e) => {
+        // 日本語入力の変換中のキーは拾わない
+        if (imeBusy(e)) return;
+        if (e.key === "Enter") e.preventDefault();
+      }}
+    >
+      <ModalFrame
+        title="AIがこのSQLを実行しようとしています"
+        target={item.connection}
+        prod={isProd}
+        onClose={onDeny}
+        className="ai-approval"
+        footerNote={
           <span className="ai-approval-left">残り {item.remainingSecs} 秒</span>
-        </div>
-
+        }
+        footer={
+          <>
+            <button className="btn-secondary" ref={denyRef} onClick={onDeny}>
+              拒否
+            </button>
+            <button className="btn-danger" onClick={onAllow}>
+              許可して実行
+            </button>
+          </>
+        }
+      >
         <div className="column-modal-body">
           <div className={"ai-approval-target" + (isProd ? " prod" : "")}>
             <span className="ai-approval-conn">{item.connection}</span>
@@ -112,17 +119,7 @@ export function AiApprovalDialog({ item, onDeny, onAllow }: Props) {
             実行せずに終わります。
           </span>
         </div>
-
-        <div className="modal-actions column-modal-actions">
-          <span className="toolbar-spacer" />
-          <button className="btn-secondary" ref={denyRef} onClick={onDeny}>
-            拒否
-          </button>
-          <button className="btn-danger" onClick={onAllow}>
-            許可して実行
-          </button>
-        </div>
-      </div>
+      </ModalFrame>
     </div>
   );
 }

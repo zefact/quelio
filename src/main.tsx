@@ -5,6 +5,7 @@ import "./App.css";
 import { ConsoleWindow } from "./components/ConsoleWindow";
 import { CsvWindow } from "./components/csv/CsvWindow";
 import { FindBar } from "./components/FindBar";
+import { TooltipLayer } from "./components/TooltipLayer";
 import { DiffWindow } from "./components/DiffWindow";
 import { ErWindow } from "./components/ErWindow";
 import { SchemaWindow } from "./components/SchemaWindow";
@@ -92,5 +93,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     */}
     {!params.has("csv") && <FindBar />}
     {content}
+    {/* 操作の説明 (has-tooltip) をどの窓でも同じように出す */}
+    <TooltipLayer />
   </React.StrictMode>,
 );
