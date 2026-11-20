@@ -25,13 +25,14 @@ GitHubリポジトリの Settings → Secrets and variables → Actions に
 ```jsonc
 // src-tauri/tauri.conf.json
 {
-  "version": "0.2.0"   // ← ここを変更
+  "version": "1.1.0"   // ← ここを変更
 }
 ```
 
 - バージョンは [セマンティックバージョニング](https://semver.org/lang/ja/) に従う
-  (機能追加: 0.x.0 を上げる / バグ修正のみ: 0.0.x を上げる)
-- `0.x` 系の間はアプリ内に「ベータ版」と表示される
+  (機能追加: 1.x.0 を上げる / バグ修正のみ: 1.0.x を上げる / 互換の無い変更: 2.0.0 にする)
+- 1.0.0 が正式版。`0.x` 系 (〜0.9.18) はベータ版で、アプリ内に「β」の印が出ていた
+  (判定は `src/hooks/useAppVersion.ts` の `isBetaVersion`。1.0 以降は出ない)
 - `package.json` と `src-tauri/Cargo.toml` の `version` はアプリの動作に影響しないが、
   揃えておくのが望ましい
 
@@ -45,24 +46,24 @@ GitHubリポジトリの Settings → Secrets and variables → Actions に
 ```markdown
 ## [未リリース]
 
-## [0.2.0] - 2026-08-15   ← 「未リリース」の中身をここへ移す
+## [1.1.0] - 2026-08-15   ← 「未リリース」の中身をここへ移す
 
 ### 追加
 - ○○機能
 ```
 
-この `## [0.2.0]` セクションの内容が、そのままGitHub Releasesの説明文になります
+この `## [1.1.0]` セクションの内容が、そのままGitHub Releasesの説明文になります
 (release.ymlがタグ名と一致するセクションを自動で抜き出します)。
 
 ### 2-2. コミットとタグ
 
 ```bash
 git add -A
-git commit -m "v0.2.0"
+git commit -m "v1.1.0"
 git push
 
-git tag v0.2.0          # tauri.conf.json のバージョンと必ず一致させる (先頭にv)
-git push origin v0.2.0
+git tag v1.1.0          # tauri.conf.json のバージョンと必ず一致させる (先頭にv)
+git push origin v1.1.0
 ```
 
 タグをpushすると GitHub Actions (`.github/workflows/release.yml`) が起動し、
@@ -418,11 +419,11 @@ JSONにコメントを書けないため、意図をここに残します。
 
 ```bash
 # ドラフトのReleaseをGitHub上で削除してから
-git tag -d v0.2.0
-git push origin :refs/tags/v0.2.0
+git tag -d v1.1.0
+git push origin :refs/tags/v1.1.0
 # 修正をcommit後、再度タグを打つ
-git tag v0.2.0
-git push origin v0.2.0
+git tag v1.1.0
+git push origin v1.1.0
 ```
 
 公開済みのリリースは削除せず、修正版 (例: v0.2.1) を新たに出すこと。

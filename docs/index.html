@@ -137,7 +137,6 @@
     .am-brand { display: flex; align-items: center; gap: 6px; padding: 0 9px 7px 0; font-weight: 800; font-size: 12px; white-space: nowrap; }
     .am-brand-mark { display: grid; place-items: center; width: 23px; height: 23px; border-radius: 7px; background: linear-gradient(135deg, var(--m-accent), var(--m-accent2)); color: #fff; }
     .am-brand-mark svg { width: 16px; height: 16px; }
-    .am-beta { color: var(--m-accent2); background: rgba(34,211,238,.1); border: 1px solid rgba(34,211,238,.3); border-radius: 4px; padding: 0 4px; font-size: 9px; }
     .am-tab { display: flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 8px 8px 0 0; border: 1px solid transparent; border-bottom: none; color: var(--m-dim); position: relative; white-space: nowrap; }
     .am-tab.active { color: var(--m-text); background: var(--m-card); border-color: var(--m-border); }
     .am-tab.active::after, .mtabs > .on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: linear-gradient(90deg, var(--m-accent), var(--m-accent2)); }
@@ -529,7 +528,7 @@
 
   <header class="hero">
     <div class="container">
-      <span class="badge"><i></i>MySQL (MariaDB) / PostgreSQL / SQLite / Valkey (Redis) 対応 · 無料 · ベータ版公開中</span>
+      <span class="badge"><i></i>MySQL (MariaDB) / PostgreSQL / SQLite / Valkey (Redis) 対応 · 無料 · 正式版 v1.0 公開中</span>
       <h1>データベース作業を、<br /><span class="grad">軽く、速く。</span></h1>
       <p class="hero-name"><b>Quelio</b>（クエリオ）</p>
       <p class="sub">
@@ -552,7 +551,7 @@
       <div class="app-mock" role="img" aria-label="QuelioDBのテーブル定義画面。接続タブ、データベース選択、左のテーブル一覧、右の定義とインデックスを表示">
         <div class="am-tabbar">
           <div class="am-titlebar"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></div>
-          <span class="am-brand"><span class="am-brand-mark"><svg viewBox="0 0 24 24"><use href="#mock-db"/></svg></span>QuelioDB<span class="am-beta">β</span></span>
+          <span class="am-brand"><span class="am-brand-mark"><svg viewBox="0 0 24 24"><use href="#mock-db"/></svg></span>QuelioDB</span>
           <div class="am-tab active"><span class="am-dot" style="background:#f0a63a"></span>EC本番<span class="ro-badge">R/O</span><span class="am-close">×</span></div>
           <div class="am-tab"><span class="am-dot" style="background:#5a9bd8"></span>分析DB<span class="am-close">×</span></div>
           <span class="micon">+</span>
@@ -866,9 +865,9 @@
       <!-- 5. CSVエディタ -->
       <div class="deep">
         <div>
-          <span class="deep-label">CSV EDITOR<span class="am-beta">β</span></span>
+          <span class="deep-label">CSV EDITOR</span>
           <h3>Excelで開くと壊れるCSVを、壊さずに直す</h3>
-          <p>Quelio に同梱の別ウィンドウ「QuelioCSV」。<b>DBにつながなくても、CSVエディタだけで使えます。</b>もちろんクエリ結果からもそのまま開けます。まだ開発途中のβ機能ですが、ここから本腰を入れて育てていきます。</p>
+          <p>Quelio に同梱の別ウィンドウ「QuelioCSV」。<b>DBにつながなくても、CSVエディタだけで使えます。</b>もちろんクエリ結果からもそのまま開けます。これからも機能を足して育てていきます。</p>
           <ul>
             <li><b>DBがなくても、これだけで使える</b> — 接続を1つも作らずに、起動直後の画面から開けます。「CSVを直したいだけ」のときに、重い表計算ソフトを立ち上げずに済みます。</li>
             <li><b>前ゼロも大きなIDもそのまま</b> — <code class="mono">000123</code> が <code class="mono">123</code> に、長い数値が指数表記に化けることはありません。Excelで開いて保存したときのような崩れが出ません。</li>
@@ -884,7 +883,7 @@
           <div class="mini-frame">
             <div class="mini" role="img" aria-label="CSVエディタの画面例。ファイルのタブ、保存や検索置換の操作列、前ゼロを保ったコードが並ぶ表、下に行数と文字コードを表示">
               <div class="mini-bar">
-                <strong>QuelioCSV</strong><span class="am-beta">β</span>
+                <strong>QuelioCSV</strong>
                 <span class="mspacer"></span>
                 <span class="mmeta">DBにつながなくても開けます</span>
               </div>
@@ -1169,7 +1168,7 @@
         </div>
         <div class="feature">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11M15 9v11" stroke-width="1.5"/></svg></div>
-          <h3>CSVエディタ (β)</h3>
+          <h3>CSVエディタ</h3>
           <p>別ウィンドウのCSV編集画面。DBにつながなくても、起動直後の画面から単独で開けます。前ゼロや大きなIDを数値に変えず、文字コード・改行・区切り・引用符は開いたときの形のまま保存します。10万行でも軽く、検索・置換、行と列の編集、取り消し・やり直し、2つのCSVの比較、固定長ファイルの読み書き、Excel (.xlsx) 書き出しに対応。クエリ結果からは全件をそのまま開けます。まだ開発途中で、これから力を入れていく機能です。</p>
         </div>
         <div class="feature">
@@ -1229,7 +1228,7 @@
     <div class="container">
       <span class="sec-label">ROADMAP</span>
       <h2 class="sec-title">今後の追加予定</h2>
-      <p class="sec-sub">ベータ期間中も開発を続けています。以下は現在検討している主な機能です。</p>
+      <p class="sec-sub">正式版のあとも開発を続けています。以下は現在検討している主な機能です。</p>
       <div class="roadmap-list">
         <div class="rm-item">
           <span class="rm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16M4 6h16M4 18h10"/></svg></span>
@@ -1286,7 +1285,7 @@
         </details>
         <details class="faq-item">
           <summary>無料で使えますか?</summary>
-          <div class="a">無料です。MIT Licenseのオープンソースソフトウェアとして公開しており、商用環境でもお使いいただけます。現在はベータ版のため、重要なデータベースで使う際は事前のバックアップをおすすめします。</div>
+          <div class="a">無料です。MIT Licenseのオープンソースソフトウェアとして公開しており、商用環境でもお使いいただけます。重要なデータベースで使う際は、事前のバックアップをおすすめします。</div>
         </details>
         <details class="faq-item">
           <summary>本番DBで誤って更新してしまわないか不安です</summary>
@@ -1330,7 +1329,7 @@
         </div>
       </div>
       <p class="dl-note">
-        現在はベータ版です。一度インストールすれば、新バージョン公開時にアプリ内の通知から自動アップデートできます (macOS / Windows)。<br />
+        一度インストールすれば、新バージョン公開時にアプリ内の通知から自動アップデートできます (macOS / Windows)。<br />
         Windowsは <span class="mono">Quelio_x.x.x_x64-setup.exe</span> をダウンロードして実行してください<br />
         (SmartScreenの画面(WindowsによってPCは保護されました)では「詳細情報」→「実行」)。
       </p>

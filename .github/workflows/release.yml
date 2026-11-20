@@ -90,7 +90,7 @@ jobs:
           releaseDraft: true # 内容を確認してから手動で公開する
           # 自動アップデートは「最新の正式リリース」(releases/latest) を参照するため、
           # prereleaseを付けるとlatest.jsonが見つからず更新が配信されない。
-          # ベータ表記はアプリ内とREADMEで行い、Releaseはprereleaseにしない
+          # 試験的な版を出すときも、Releaseはprereleaseにしない
           prerelease: false
           includeUpdaterJson: true # latest.json (自動アップデート用) を生成する
           args: ${{ matrix.args }}
