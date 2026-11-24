@@ -6,7 +6,7 @@ import { HoverTip } from "./HoverTip";
 import { MAX_SHEETS } from "../workspace";
 import { SheetTabMenu } from "./SheetTabMenu";
 import { autoTitle } from "./sheetTitle";
-import { FunctionsIcon } from "./SqlToolIcons";
+import { FormatIcon, FunctionsIcon } from "./SqlToolIcons";
 import { MOD, SHIFT } from "../keyLabel";
 import { imeBusy } from "../ime";
 
@@ -26,6 +26,10 @@ interface Props {
   onRename: (id: string, title: string) => void;
   /** そのシートのSQLをファイルに保存する */
   onSaveFile: (id: string) => void;
+  /** 書いてあるSQLを整形する */
+  onFormat: () => void;
+  /** 整形できるSQLが書いてあるか */
+  canFormat: boolean;
   /** 関数リファレンスを開く */
   onFunctions: () => void;
 }
@@ -47,6 +51,8 @@ export function SheetTabs({
   onCloseAll,
   onRename,
   onSaveFile,
+  onFormat,
+  canFormat,
   onFunctions,
 }: Props) {
   const [editing, setEditing] = useState<{ id: string; value: string } | null>(
@@ -183,11 +189,16 @@ export function SheetTabs({
       </HoverTip>
       </div>
 
-      {/*
-        書くときに使う道具は、シート列の右端にまとめる。
-        整形は実行ボタンの並びの「…」と右クリックにある (入口を増やしすぎない)
-      */}
+      {/* 書くときに使う道具 (整形・関数リファレンス) は、シート列の右端にまとめる */}
       <div className="sheet-tools">
+        <IconButton
+          className="pane-icon-btn tooltip-wrap"
+          label={`SQLを見やすく整形する (${MOD}${SHIFT}F)\n書き方 (カンマの位置・大文字小文字など) は 設定 > エディタ で変えられます`}
+          disabled={running || !canFormat}
+          onClick={onFormat}
+        >
+          <FormatIcon />
+        </IconButton>
         <IconButton
           className="pane-icon-btn tooltip-wrap"
           label={`関数リファレンス (${MOD}${SHIFT}H)\n名前を覚えていなくても「切り捨て」「前ゼロ」「月末」などの言葉で探せます`}

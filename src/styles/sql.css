@@ -2343,54 +2343,56 @@ html[data-theme="light"] .result-banner.ng {
   gap: var(--space-2);
 }
 
-/* あまり使わない操作をまとめた「…」 */
-.query-more {
+/*
+ * 名前の入ったスイッチ (トランザクション・キャプチャ)。
+ * ほかのスイッチ (.switch) と同じ溝とつまみで、溝の中に名前を書く。
+ * 入っているときはつまみが右へ寄り、溝に色が付く
+ */
+.toggle-pill {
   display: inline-flex;
+  align-items: center;
+  gap: 7px;
   flex-shrink: 0;
-}
-
-.query-more-btn {
-  padding: 4px 10px;
-  font-size: var(--fs-md);
-  line-height: 1;
-}
-
-.query-more-menu {
-  min-width: 260px;
-}
-
-/* キャプチャが ON のときの印 (押すと OFF にする) */
-.capture-chip {
-  flex-shrink: 0;
-  padding: 2px 8px;
+  height: 26px;
+  padding: 0 12px 0 3px;
   border: 1px solid var(--border-strong);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: var(--fs-xs);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.capture-chip:hover:not(:disabled) {
+  border-radius: var(--radius-pill);
+  background: rgba(var(--ink), 0.08);
+  /* 切れているときも名前は読めるように、薄くしすぎない */
   color: var(--text);
-  background: rgba(var(--ink), 0.06);
-}
-
-/* 実行時キャプチャ */
-
-.capture-switch .switch-label {
+  opacity: 0.8;
   font-size: var(--fs-sm);
-  color: var(--text-dim);
-}
-
-/* ウィンドウが狭くてもトグルのラベルを改行・圧縮させない */
-.query-actions .capture-switch {
-  flex-shrink: 0;
-}
-
-.query-actions .capture-switch .switch-label {
+  font-weight: 600;
+  line-height: 1;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.toggle-pill:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.toggle-knob {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+/*
+ * 入っているときは一色で塗る。グラデーションにすると水色の側で
+ * 白い文字が読みにくくなるため、白が読める濃さまで少し暗くしている
+ */
+.toggle-pill[aria-pressed="true"] {
+  flex-direction: row-reverse;
+  padding: 0 3px 0 12px;
+  background: color-mix(in srgb, var(--accent) 85%, #000);
+  border-color: transparent;
+  color: #fff;
+  opacity: 1;
 }
 
 .capture-msg {

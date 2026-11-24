@@ -47,7 +47,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
       [`${MOD}${SHIFT}Enter`, "全体を実行 (書いてあるSQLすべて)"],
       [`${MOD}S`, "書いているSQLをお気に入りへ保存"],
       [`${MOD}${SHIFT}S`, "SQLをファイルに保存"],
-      [`${MOD}${SHIFT}F`, "SQLを整形 (カンマ先頭)"],
+      [`${MOD}${SHIFT}F`, "SQLを整形"],
       [`${MOD}${SHIFT}H`, "関数リファレンスを開く"],
       [`${MOD}F`, "エディタ内を検索・置換"],
       ["Tab / ⇧Tab", "字下げする / 戻す (複数行を選んでいれば行ごと)"],

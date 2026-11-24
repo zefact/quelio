@@ -19,6 +19,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   restoreSheets: false,
   showMemory: false,
   sqlFormat: defaultSqlFormat(),
+  runScope: "here",
   mcpEnabled: false,
   mcpPort: 41777,
 };

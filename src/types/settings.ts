@@ -122,6 +122,9 @@ export function defaultSqlFormat(): SqlFormatSettings {
 /** 書き出し先フォルダの決め方 (設定ファイルの値。空文字は未選択) */
 export type ExportDirModeSetting = "last" | "fixed" | "";
 
+/** SQLエディタの実行ボタンが流す範囲 */
+export type RunScope = "here" | "all";
+
 /** アプリ全般の設定 (一般タブ) */
 export interface AppSettings {
   /** カラムコメントを論理名＋補足に分解する区切り文字 */
@@ -152,6 +155,13 @@ export interface AppSettings {
   showMemory: boolean;
   /** SQLエディタの「整形」ボタンの書式 */
   sqlFormat: SqlFormatSettings;
+  /**
+   * SQLエディタの実行ボタンが流す範囲 (全タブ共通で覚えておく)。
+   *
+   * "here" … 選択があればそこ、無ければカーソルのある文だけ
+   * "all"  … 書いてあるSQLを全部
+   */
+  runScope: RunScope;
   /** AI連携 (MCPサーバー) を動かすか (既定は動かさない) */
   mcpEnabled: boolean;
   /** AI連携の待受ポート (127.0.0.1 のみ) */

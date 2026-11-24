@@ -27,6 +27,7 @@ import type {
   DangerousStatement,
   DbType,
   EditorOptions,
+  RunScope,
   StatementResult,
 } from "../types";
 import type { ExportFormat } from "../exportFormat";
@@ -212,12 +213,12 @@ export function QueryPanel({
     });
   };
   /*
-   * 実行設定 (トランザクション・キャプチャ・実行対象・EXPLAINの種類・最大化) は
+   * 実行設定 (トランザクション・キャプチャ・EXPLAINの種類・最大化) は
    * タブ側 (WorkTab.editorOpts) で保持する。
    * ここでローカルstateにすると、定義タブへ切り替えて戻ったときに
    * 既定値へ戻ってしまい、ONにしたつもりが効いていない事故につながるため
    */
-  const { txn: txnOn, capture: captureOn, explainMode, runScope } = options;
+  const { txn: txnOn, capture: captureOn, explainMode } = options;
   const editorFull = options.editorFull;
   const [sort, setSort] = useState<SortState | null>(null);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -327,6 +328,24 @@ export function QueryPanel({
   const changeHeaderMode = (mode: typeof headerMode) => {
     saveAppSettings({ ...appSettings, headerLabelMode: mode }).catch(() => {
       /* 保存できなくても表示だけは変える必要がないので黙って諦める */
+    });
+  };
+  /*
+   * 実行ボタンが流す範囲 (部分実行 / 全体実行)。
+   * 設定として保存するので、選び直すと全タブに効き、アプリを閉じても残る。
+   * 保存が終わるまでのあいだも、押した直後から選んだほうで動くようにする
+   */
+  const [pickedScope, setPickedScope] = useState<RunScope | null>(null);
+  const runScope: RunScope =
+    pickedScope ?? (appSettings.runScope === "all" ? "all" : "here");
+  useEffect(() => {
+    // 保存した値が読み直されたら、そちらに任せる
+    setPickedScope(null);
+  }, [appSettings.runScope]);
+  const changeRunScope = (scope: RunScope) => {
+    setPickedScope(scope);
+    saveAppSettings({ ...appSettings, runScope: scope }).catch(() => {
+      /* 保存できなくても、この画面では選んだ範囲で動く */
     });
   };
 
@@ -920,6 +939,8 @@ export function QueryPanel({
         onSaveFile={(id) => void saveSqlToFile(id)}
         onClose={sheetPane.onClose}
         onRename={sheetPane.onRename}
+        onFormat={handleFormat}
+        canFormat={sql.trim() !== ""}
         onFunctions={() => setShowFunctions(true)}
       />
 
@@ -1059,7 +1080,7 @@ export function QueryPanel({
               handleFormat();
             }}
           >
-            SQLを整形 (カンマ先頭)
+            SQLを整形
             <span className="context-key">{`${MOD}${SHIFT}F`}</span>
           </button>
           <div className="context-sep" aria-hidden />
@@ -1124,6 +1145,7 @@ export function QueryPanel({
         statementIndex={target.index}
         statementCount={target.total}
         runScope={runScope}
+        onChangeRunScope={changeRunScope}
         txnOn={txnOn}
         captureOn={captureOn}
         formatError={formatError}
@@ -1134,8 +1156,6 @@ export function QueryPanel({
         onCancel={onCancel}
         onChangeSql={onChangeSql}
         onChangeOptions={onChangeOptions}
-        onFormat={handleFormat}
-        onSaveFile={() => void saveSqlToFile()}
       />
 
       {showFunctions && (

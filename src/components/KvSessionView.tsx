@@ -39,6 +39,7 @@ import { ConnectionChip, ServerInfo } from "./SessionHeader";
 import { PaneHead, SidePane } from "./SidePane";
 import { StatusBar } from "./StatusBar";
 import { SqlLibraryMenu } from "./sqlLibrary/SqlLibraryMenu";
+import { ToggleButton } from "./ToggleButton";
 import { KvBulkDialog } from "./kvBulk/KvBulkDialog";
 import { imeBusy } from "../ime";
 
@@ -858,19 +859,13 @@ export function KvSessionView({
                   onSelect={onChangeSql}
                   contentLabel="コマンド"
                 />
-                <label
-                  className="switch capture-switch has-tooltip tooltip-left"
-                  data-tooltip="実行時にコマンドと全結果タブをPNGで保存 (保存先は設定で変更できます)"
-                >
-                  <input
-                    type="checkbox"
-                    checked={captureOn}
-                    disabled={running}
-                    onChange={(e) => setCaptureOn(e.target.checked)}
-                  />
-                  <span className="track" aria-hidden />
-                  <span className="switch-label">キャプチャ</span>
-                </label>
+                <ToggleButton
+                  label="キャプチャ"
+                  on={captureOn}
+                  disabled={running}
+                  onChange={setCaptureOn}
+                  tooltip="ON: 実行のたびに、コマンドと全結果タブをPNGで書き出します (書き出し先は設定で変えられます)"
+                />
                 {captureMsg && (
                   <span className="capture-msg mono" title={captureMsg}>
                     {captureMsg}

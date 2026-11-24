@@ -1,18 +1,15 @@
-import { useRef, useState } from "react";
-import { useDismiss } from "../hooks/useDismiss";
-import { usePopupPosition } from "../hooks/usePopupPosition";
 import { ElapsedTimer } from "./ElapsedTimer";
-import { IconButton } from "./IconButton";
 import { RevealButton } from "./RevealButton";
 import { RunSplitButton, type RunSplitOption } from "./RunSplitButton";
 import { SqlLibraryMenu } from "./sqlLibrary/SqlLibraryMenu";
+import { ToggleButton } from "./ToggleButton";
 import type { EditorOptions } from "../types";
 import { MOD, SHIFT } from "../keyLabel";
 
 /**
  * 実行ボタンが流す範囲。
  *
- * 選んだ範囲は覚えておく (シートごと・アプリを閉じても残る)。
+ * 選んだ範囲は設定として覚えておく (全タブ共通・アプリを閉じても残る)。
  * どちらを選んでいるかはボタンの文字にそのまま出るので、
  * 「戻し忘れて意図しない範囲が走る」ことにはならない
  */
@@ -77,6 +74,8 @@ interface Props {
   statementCount: number;
   /** 実行ボタンが流す範囲 */
   runScope: "here" | "all";
+  /** 実行ボタンが流す範囲を選び直す (設定として保存する) */
+  onChangeRunScope: (scope: "here" | "all") => void;
   runStartedAt: number | null;
   explainMode: "explain" | "analyze";
   /** EXPLAINの種類を選べるか (SQLiteは1種類しかない) */
@@ -94,13 +93,9 @@ interface Props {
   onCancel: () => void;
   onChangeSql: (sql: string) => void;
   onChangeOptions: (patch: Partial<EditorOptions>) => void;
-  /** 書いてあるSQLを整形する (「…」メニューから) */
-  onFormat: () => void;
-  /** 書いてあるSQLをファイルに保存する (「…」メニューから) */
-  onSaveFile: () => void;
 }
 
-/** SQLエディタの下の操作列 (実行 / EXPLAIN / 履歴 / 各種スイッチ) */
+/** SQLエディタの下の操作列 (実行 / EXPLAIN / 履歴 / トランザクションとキャプチャのスイッチ) */
 export function QueryToolbar({
   sql,
   hasSelection,
@@ -109,6 +104,7 @@ export function QueryToolbar({
   statementIndex,
   statementCount,
   runScope,
+  onChangeRunScope,
   runStartedAt,
   explainMode,
   hasExplainModes,
@@ -122,31 +118,7 @@ export function QueryToolbar({
   onCancel,
   onChangeSql,
   onChangeOptions,
-  onFormat,
-  onSaveFile,
 }: Props) {
-  /** 「…」メニューの位置 (閉じていれば null) */
-  const [more, setMore] = useState<{ x: number; y: number; flip: number } | null>(
-    null
-  );
-  const moreOpen = !!more;
-  const setMoreOpen = (open: boolean) => {
-    if (!open) setMore(null);
-  };
-  const moreRef = useRef<HTMLSpanElement>(null);
-  // 画面の下で切れるときは、ボタンの上に出す
-  const [menuRef, menuStyle] = usePopupPosition<HTMLDivElement>(
-    more?.x ?? 0,
-    more?.y ?? 0,
-    more?.flip
-  );
-  useDismiss(moreOpen, () => setMoreOpen(false), {
-    capture: true,
-    ref: moreRef,
-    escape: true,
-  });
-  const empty = !sql.trim();
-
   return (
     <div className="query-actions">
       {/*
@@ -173,7 +145,7 @@ export function QueryToolbar({
         }
         options={RUN_SCOPES}
         value={runScope}
-        onSelect={(runScope) => onChangeOptions({ runScope })}
+        onSelect={onChangeRunScope}
         caretTitle="実行する範囲を選ぶ"
         caretDisabled={running}
       >
@@ -214,107 +186,26 @@ export function QueryToolbar({
 
       <SqlLibraryMenu currentSql={sql} onSelect={onChangeSql} />
 
-      <label
-        className="switch capture-switch has-tooltip tooltip-left tooltip-wrap"
-        data-tooltip={
+      <ToggleButton
+        label="トランザクション"
+        on={txnOn}
+        disabled={running}
+        onChange={(txn) => onChangeOptions({ txn })}
+        wrapTip
+        tooltip={
           "ON: 実行のたびに BEGIN〜COMMIT で包み、最後まで通れば自動で確定 (COMMIT) します。途中でエラーになったら自動で ROLLBACK し、すべて元に戻します (手で COMMIT する方式ではありません)\n" +
           "OFF: 各SQLはすぐに確定 (オートコミット)。エラーになっても実行済みのSQLは元に戻りません\n" +
           "EXPLAIN ANALYZE には効きません"
         }
-      >
-        <input
-          type="checkbox"
-          checked={txnOn}
-          disabled={running}
-          onChange={(e) => onChangeOptions({ txn: e.target.checked })}
-        />
-        <span className="track" aria-hidden />
-        <span className="switch-label">
-          トランザクション
-          {/* 何が起きるかを、ツールチップを開かなくても分かるようにする */}
-          <span className="switch-note">
-            {txnOn ? "実行ごとに自動確定・エラーで戻す" : "オートコミット"}
-          </span>
-        </span>
-      </label>
+      />
 
-      {/* あまり使わないもの (整形・ファイルに書き出す・キャプチャ) は「…」にまとめる */}
-      <span className="query-more" ref={moreRef}>
-        <IconButton
-          className="btn-ghost query-more-btn"
-          label="そのほかの操作 (整形・ファイルに書き出す・キャプチャ)"
-          aria-haspopup="menu"
-          aria-expanded={moreOpen}
-          onClick={(e) => {
-            if (more) {
-              setMore(null);
-              return;
-            }
-            const r = e.currentTarget.getBoundingClientRect();
-            setMore({ x: r.left, y: r.bottom + 4, flip: r.top - 4 });
-          }}
-        >
-          …
-        </IconButton>
-        {moreOpen && (
-          <div
-            className="context-menu query-more-menu"
-            role="menu"
-            ref={menuRef}
-            style={menuStyle}
-          >
-            <button
-              className="context-item has-key"
-              role="menuitem"
-              disabled={running || empty}
-              onClick={() => {
-                setMoreOpen(false);
-                onFormat();
-              }}
-            >
-              SQLを整形 (カンマ先頭)
-              <span className="context-key">{`${MOD}${SHIFT}F`}</span>
-            </button>
-            <button
-              className="context-item has-key"
-              role="menuitem"
-              disabled={empty}
-              onClick={() => {
-                setMoreOpen(false);
-                onSaveFile();
-              }}
-            >
-              SQLをファイルに書き出す…
-              <span className="context-key">{`${MOD}${SHIFT}S`}</span>
-            </button>
-            <div className="context-sep" aria-hidden />
-            <button
-              className="context-item has-tooltip"
-              role="menuitemcheckbox"
-              aria-checked={captureOn}
-              disabled={running}
-              data-tooltip="実行時にSQLと全結果タブをPNGで書き出します (書き出し先は設定で変更できます)"
-              onClick={() => {
-                setMoreOpen(false);
-                onChangeOptions({ capture: !captureOn });
-              }}
-            >
-              {captureOn ? "✓ " : ""}実行時にキャプチャを書き出す
-            </button>
-          </div>
-        )}
-      </span>
-      {/* キャプチャは「…」の中にあるので、ONのときは外から分かるようにする */}
-      {captureOn && (
-        <button
-          className="capture-chip has-tooltip"
-          disabled={running}
-          data-tooltip="キャプチャがONです。押すとOFFにします"
-          onClick={() => onChangeOptions({ capture: false })}
-        >
-          キャプチャ ON
-        </button>
-      )}
+      <ToggleButton
+        label="キャプチャ"
+        on={captureOn}
+        disabled={running}
+        onChange={(capture) => onChangeOptions({ capture })}
+        tooltip="ON: 実行のたびに、SQLと全結果タブをPNGで書き出します (書き出し先は設定で変えられます)"
+      />
 
       {formatError ? (
         <span className="format-error" title={formatError}>

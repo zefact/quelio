@@ -62,6 +62,12 @@ pub struct AppSettings {
     /// SQLエディタの「整形」ボタンの書式
     #[serde(default)]
     pub sql_format: SqlFormatSettings,
+    /// SQLエディタの実行ボタンが流す範囲
+    /// ("here" = 選択かカーソルのある文 / "all" = 書いてあるSQL全部)。
+    ///
+    /// 実行ボタンの ▾ で選んだものを、全タブ共通で覚えておく
+    #[serde(default = "default_run_scope")]
+    pub run_scope: String,
     /// AI連携 (MCPサーバー) を動かすか。
     ///
     /// 既定は動かさない。入れても、公開する設定にした接続だけが見える
@@ -160,6 +166,10 @@ fn default_header_label_mode() -> String {
     "name".to_string()
 }
 
+fn default_run_scope() -> String {
+    "here".to_string()
+}
+
 /// AI連携の既定ポート。
 /// 他のアプリと重なりにくい、登録の無い範囲から選んである
 fn default_mcp_port() -> u16 {
@@ -182,6 +192,7 @@ impl Default for AppSettings {
             restore_sheets: false,
             show_memory: false,
             sql_format: SqlFormatSettings::default(),
+            run_scope: default_run_scope(),
             mcp_enabled: false,
             mcp_port: default_mcp_port(),
         }
@@ -246,6 +257,14 @@ mod tests {
         let s: AppSettings = serde_json::from_str(json).expect("読めること");
         assert!(!s.mcp_enabled);
         assert_eq!(s.mcp_port, 41777);
+    }
+
+    #[test]
+    fn 実行範囲が無い古い設定ファイルを読むと部分実行になる() {
+        assert_eq!(AppSettings::default().run_scope, "here");
+        let json = r#"{"commentDelimiter":"（","showRowNumbers":true}"#;
+        let s: AppSettings = serde_json::from_str(json).expect("読めること");
+        assert_eq!(s.run_scope, "here");
     }
 
     #[test]
