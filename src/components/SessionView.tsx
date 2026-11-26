@@ -115,10 +115,17 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     onChangeTableTab,
   } = useTabActions();
   const [filter, setFilter] = useState("");
-  const [paneWidth, startResize, nudgePane] = useResizableWidth(260, 170, 520);
+  // 見出しのボタン (再読み込み・新規作成・ダンプ・実行) が字を出したまま1行に収まる幅で開く
+  const [paneWidth, startResize, nudgePane] = useResizableWidth(300, 170, 520);
   const [dialog, setDialog] = useState<"export" | "import" | null>(null);
   /** テーブル一覧の再読み込み中か (アイコンの回転表示用) */
   const [reloading, setReloading] = useState(false);
+  /**
+   * 再読み込みボタンを押した回数。
+   * テーブルコメント (日本語名) だけを変えたときは一覧の並びも名前も変わらないので、
+   * これを見て日本語名・カラムの一覧も取り直す
+   */
+  const [schemaReload, setSchemaReload] = useState(0);
   /** テーブル作成の画面を出しているか */
   const [showCreate, setShowCreate] = useState(false);
   /**
@@ -419,11 +426,11 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
       alive = false;
     };
     /*
-     * 取り直すのは、テーブルが増減・改名されたとき (tablesSig) と、
-     * 定義そのものを変えたとき (schemaRev)。
-     * 一覧を読み直しただけでは取り直さない
+     * 取り直すのは、テーブルが増減・改名されたとき (tablesSig)、
+     * 定義そのものを変えたとき (schemaRev)、再読み込みボタンを押したとき (schemaReload)。
+     * ほかの操作のついでに一覧を読み直しただけでは取り直さない (数千テーブルだと待ち時間になる)
      */
-  }, [tab.key, selectedDb, commentDelim, tablesSig, tab.schemaRev]);
+  }, [tab.key, selectedDb, commentDelim, tablesSig, tab.schemaRev, schemaReload]);
 
   // 右クリックメニューは外側クリック・リサイズで閉じる
   useDismiss(!!tableMenu, () => setTableMenu(null), { resize: true });
@@ -515,7 +522,10 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
     }
   };
 
-  /** テーブル一覧を取得し直す (二重実行しない) */
+  /**
+   * テーブル一覧を取得し直す (二重実行しない)。
+   * よそで書き換えたテーブルコメントも反映したいので、日本語名も取り直す
+   */
   const handleReloadTables = async () => {
     if (reloading || !selectedDb) return;
     setReloading(true);
@@ -523,6 +533,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
       await onReloadTables();
     } finally {
       setReloading(false);
+      setSchemaReload((n) => n + 1);
     }
   };
 
@@ -883,7 +894,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                 <path d="M6 3h8l4 4v14H6z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
                 <path d="M12 10v7m0 0l-3-3m3 3l3-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              ダンプ
+              <span className="pane-icon-label">ダンプ</span>
             </IconButton>
             <IconButton
               className="pane-icon-btn pane-icon-text"
@@ -900,7 +911,7 @@ export function SessionView({ tab, dataPane, sheetPane }: Props) {
                 <path d="M6 3h8l4 4v14H6z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
                 <path d="M10 10.5v6l5-3z" fill="currentColor" />
               </svg>
-              実行
+              <span className="pane-icon-label">実行</span>
             </IconButton>
           </PaneHead>
           {!selectedDb ? (

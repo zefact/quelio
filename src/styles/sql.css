@@ -1256,12 +1256,66 @@ html[data-theme="light"] .result-banner.ng {
   justify-content: space-between;
   /* 見出し・件数・アイコンは左に寄せ、余白は toolbar-spacer が吸収する */
   gap: var(--space-2);
-  padding: 2px 6px 8px;
+  padding: 2px 4px 8px;
   font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-faint);
+  /* 幅に応じてボタンの字を隠す (下の @container) ための基準にする */
+  container-type: inline-size;
+}
+
+/*
+ * 見出しの中身は折り返さない。
+ * 標準の幅だと入りきらず、「テーブル」「ダンプ」などが縦に1文字ずつ折れていた。
+ * 縮めるのは見出しの名前だけ (はみ出す分は … にする)
+ */
+.table-pane-head > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.table-pane-head > .pane-head-title {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 件数とボタンの字には見出しの字間を引き継がない */
+.table-pane-head .panel-count,
+.table-pane-head .pane-icon-btn {
+  letter-spacing: 0;
+}
+
+/* 伸び縮みする余白の両側に間隔が2つ付かないようにする */
+.table-pane-head > .toolbar-spacer {
+  margin-right: calc(-1 * var(--space-2));
+}
+
+/* 見出しのボタンは一回り小さくし、並んだものどうしは少し詰める */
+.table-pane-head .pane-icon-btn {
+  width: 22px;
+}
+
+.table-pane-head .pane-icon-btn.pane-icon-text {
+  width: auto;
+  padding: 0 4px 0 2px;
+}
+
+.table-pane-head .pane-icon-btn + .pane-icon-btn {
+  margin-left: -4px;
+}
+
+/*
+ * 一覧を狭めたときは「ダンプ」「実行」の字を隠し、絵だけにする (説明はツールチップに出る)。
+ * 境目は、件数が4桁でも字を出したまま1行に収まる幅
+ */
+@container (max-width: 263px) {
+  .table-pane-head .pane-icon-label {
+    display: none;
+  }
 }
 
 .panel-count {

@@ -116,7 +116,7 @@ export function PaneHead({
 }) {
   return (
     <div className="table-pane-head">
-      <span>{title}</span>
+      <span className="pane-head-title">{title}</span>
       {count !== undefined && count !== null && (
         <span className="panel-count">{count}</span>
       )}

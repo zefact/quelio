@@ -2040,11 +2040,17 @@ body.col-resizing {
 
 /* ---------- 列名のお気に入り (見出しの無いCSV) ---------- */
 
-/* 列名の見本は長くなるので、右寄せで省略する */
-.csv-names-preview {
-  margin-left: auto;
-  max-width: 55%;
+/*
+ * 列名の見本は長くなるので、右寄せで省略する。
+ * 見本に渡すのは、お気に入りの名前を置いた残りの幅だけ (無ければ消える)。
+ * 名前は、それでも入らないときだけ … にする。中身はツールチップでも見られる
+ */
+.csv-names-menu .csv-names-preview {
+  flex: 1 1 0;
+  min-width: 0;
+  margin-left: 0;
   overflow: hidden;
+  text-align: right;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
