@@ -100,7 +100,7 @@ import {
 import { emitAppEvent, SAVE_SQL_EVENT } from "./appEvents";
 import { tabsReducer } from "./tabsReducer";
 import { TabActionsProvider, useStableActions } from "./components/tabActions";
-import { parseUnknownHost, stripHostMark } from "./sshTrust";
+import { parseHostAsk, stripHostMark, type SshHostAsk } from "./sshTrust";
 import {
   loadWorkspace,
   MAX_SHEETS,
@@ -150,19 +150,18 @@ function App() {
   /** ヘルプ (⌘K・ホーム・メニューバーから開く) を出しているか */
   const [showHelp, setShowHelp] = useState(false);
   /**
-   * SSH踏み台の初回接続。
+   * SSH踏み台のホスト鍵の確認 (初回接続・鍵が変わったとき)。
    * ホスト鍵を見せて確認してもらい、承諾されたら記録して接続し直す
    */
-  const [sshTrust, setSshTrust] = useState<{
-    key: string;
-    profile: ConnectionProfile;
-    host: string;
-    port: number;
-    fingerprint: string;
-    message: string;
-    /** 確認のあとに行うこと (接続 / 接続テスト) */
-    then: "connect" | "test";
-  } | null>(null);
+  const [sshTrust, setSshTrust] = useState<
+    | (SshHostAsk & {
+        key: string;
+        profile: ConnectionProfile;
+        /** 確認のあとに行うこと (接続 / 接続テスト) */
+        then: "connect" | "test";
+      })
+    | null
+  >(null);
   /** SQLパラメータ入力モーダルの状態 (実行を保留した内容) */
   /*
    * データタブの絞り込み条件に、取り返しのつかないSQLが混ざっていたときの確認待ち。
@@ -976,10 +975,10 @@ function App() {
     updateTab(key, { busy: "test", testResult: null, error: null });
     try {
       const result = await testConnection(tab.profile);
-      // 初回接続 (ホスト鍵が未記録) は、確認してもらってからやり直す
-      const unknown = parseUnknownHost(result.message);
-      if (unknown) {
-        setSshTrust({ ...unknown, key, profile: tab.profile, then: "test" });
+      // ホスト鍵が未記録・記録と違うときは、確認してもらってからやり直す
+      const ask = parseHostAsk(result.message);
+      if (ask) {
+        setSshTrust({ ...ask, key, profile: tab.profile, then: "test" });
         updateTab(key, { busy: null, testResult: null });
         return;
       }
@@ -1051,10 +1050,10 @@ function App() {
     } catch (e) {
       // 閉じたタブのために、鍵の確認やエラーを出さない
       if (closedTabs.current.has(key)) return;
-      // 初回接続 (ホスト鍵が未記録) は、確認してもらってからやり直す
-      const unknown = parseUnknownHost(String(e));
-      if (unknown) {
-        setSshTrust({ ...unknown, key, profile, then: "connect" });
+      // ホスト鍵が未記録・記録と違うときは、確認してもらってからやり直す
+      const ask = parseHostAsk(String(e));
+      if (ask) {
+        setSshTrust({ ...ask, key, profile, then: "connect" });
         updateTab(key, { busy: null, error: null });
         return;
       }
@@ -2219,18 +2218,32 @@ function App() {
         </ConfirmDialog>
       )}
 
+      {/*
+        * SSH踏み台のホスト鍵の確認。
+        * 鍵が変わったときは、中間者の可能性もあるので赤い確認にし、
+        * 記録済みと今回の値を並べて見せる
+        */}
       {sshTrust && (
         <ConfirmDialog
-          title="SSH踏み台への初回接続です"
+          title={
+            sshTrust.kind === "changed"
+              ? "SSH踏み台のホスト鍵が変わっています"
+              : "SSH踏み台への初回接続です"
+          }
           target={`${sshTrust.host}:${sshTrust.port}`}
-          confirmLabel="信頼して接続する"
-          tone="primary"
+          confirmLabel={
+            sshTrust.kind === "changed"
+              ? "新しい鍵を記録して接続する"
+              : "信頼して接続する"
+          }
+          tone={sshTrust.kind === "changed" ? "danger" : "primary"}
           defaultFocus="cancel"
           onConfirm={async () => {
             await trustSshHost(
               sshTrust.host,
               sshTrust.port,
               sshTrust.fingerprint,
+              sshTrust.stored,
             );
             const req = sshTrust;
             setSshTrust(null);
@@ -2242,15 +2255,34 @@ function App() {
           }}
           onCancel={() => setSshTrust(null)}
         >
-          <p>
-            このサーバーのホスト鍵を初めて見ました。
-            管理者から知らされている値と同じかどうかを確認してください。
-          </p>
-          <pre className="mono confirm-sql">{sshTrust.fingerprint}</pre>
-          <p>
-            違う値のときは、通信が第三者に中継されている可能性があります。
-            一度記録すると、次からは鍵が変わった時点で接続を止めます。
-          </p>
+          {sshTrust.kind === "changed" ? (
+            <>
+              <p>
+                前回接続したときと、サーバーのホスト鍵が違います。
+                中間者攻撃の可能性があるため、接続を止めています。
+              </p>
+              <pre className="mono confirm-sql">
+                {`記録済み: ${sshTrust.stored}\n今回:     ${sshTrust.fingerprint}`}
+              </pre>
+              <p>
+                サーバーの再構築などで鍵が変わったことを管理者に確かめ、
+                「今回」の値が知らされている値と同じときだけ記録し直してください。
+                心当たりが無いときは、キャンセルして管理者に相談してください。
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                このサーバーのホスト鍵を初めて見ました。
+                管理者から知らされている値と同じかどうかを確認してください。
+              </p>
+              <pre className="mono confirm-sql">{sshTrust.fingerprint}</pre>
+              <p>
+                違う値のときは、通信が第三者に中継されている可能性があります。
+                一度記録すると、次からは鍵が変わった時点で接続を止めます。
+              </p>
+            </>
+          )}
         </ConfirmDialog>
       )}
 

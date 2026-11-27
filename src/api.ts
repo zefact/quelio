@@ -112,15 +112,19 @@ export function listConnections(): Promise<ConnectionStore> {
 }
 
 /**
- * SSH踏み台のホスト鍵を信頼して記録する (初回接続の確認から呼ぶ)。
- * 記録しておくと、次からは鍵が変わったときだけ確認が出る
+ * SSH踏み台のホスト鍵を信頼して記録する (初回接続・鍵が変わったときの確認から呼ぶ)。
+ * 記録しておくと、次からは鍵が変わったときだけ確認が出る。
+ *
+ * `replacing` は、鍵が変わったときに確認で見せた記録済みの値 (初回は null)。
+ * 確認している間に記録が変わっていたら、上書きせずにエラーになる
  */
 export function trustSshHost(
   host: string,
   port: number,
   fingerprint: string,
+  replacing: string | null,
 ): Promise<void> {
-  return call("trust_ssh_host", { host, port, fingerprint });
+  return call("trust_ssh_host", { host, port, fingerprint, replacing });
 }
 
 /**

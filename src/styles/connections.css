@@ -845,5 +845,10 @@
 }
 
 .form-actions.conn-form-actions .conn-form-delete {
+  /*
+   * 共通の .btn-danger は margin-left: auto で右へ寄る。
+   * 左右とも auto だと空いた所の真ん中に浮くので、左は 0 に戻して左端に置く
+   */
+  margin-left: 0;
   margin-right: auto;
 }

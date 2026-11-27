@@ -3,12 +3,18 @@
 
 use super::*;
 
-/// SSH踏み台のホスト鍵を信頼する (初回接続の確認ダイアログから呼ぶ)。
+/// SSH踏み台のホスト鍵を信頼する (初回接続・鍵が変わったときの確認ダイアログから呼ぶ)。
 ///
+/// `replacing` は、鍵が変わったときにダイアログで見せた記録済みの値 (初回は None)。
 /// 記録した後は、次の接続から検証が効くようになる
 #[tauri::command]
-pub fn trust_ssh_host(host: String, port: u16, fingerprint: String) -> Result<(), String> {
-    crate::known_hosts::trust(&host, port, &fingerprint)
+pub fn trust_ssh_host(
+    host: String,
+    port: u16,
+    fingerprint: String,
+    replacing: Option<String>,
+) -> Result<(), String> {
+    crate::known_hosts::trust(&host, port, &fingerprint, replacing.as_deref())
 }
 
 /// 保存済みの接続先一式(フォルダ+接続)を返す
